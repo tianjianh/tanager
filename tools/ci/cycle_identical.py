@@ -113,7 +113,8 @@ def git(*args, env=None):
 # keeps the keys of builds made before the later ones were added)
 PROFILE_VARS = (("TIMING_CUTS", "tc"), ("DC_MSHRS", "dcm"), ("QUEUE_DECODE", "qd"), ("SPEC_WAKE", "sw"),
                 ("STA_BASE", "sb"), ("STEER_LA", "sl"), ("PMP_ENTRIES", "pmp"), ("STORE_PF", "spf"), ("URF", "urf"),
-                ("STORE_PF_MAX", "spm"), ("SOLO_TID", "solo"), ("SPLIT", "sp"), ("HART1", "h1"))
+                ("STORE_PF_MAX", "spm"), ("SOLO_TID", "solo"), ("SPLIT", "sp"), ("HART1", "h1"),
+                ("SPEC_WAKE_FILT", "swf"))
 
 
 def profile_takes(ref, var):
@@ -661,6 +662,11 @@ def main():
                     help="build both sides with M6's speculative load wakeup off or on (DR-153; default: the package's)")
     ap.add_argument("--branch-spec-wake", type=int, choices=(0, 1), default=None,
                     help="this side's only: 1 against a base without it measures the feature's cycles")
+    ap.add_argument("--spec-wake-filt", type=int, choices=(0, 1, 2), default=None,
+                    help="build both sides with the speculative wakeup's filter off, on, or on with D$ misses left "
+                         "out of its counts (default: the package's)")
+    ap.add_argument("--branch-spec-wake-filt", type=int, choices=(0, 1, 2), default=None,
+                    help="this side's only: 0 against a base before the filter checks that it gives the same cycles")
     ap.add_argument("--sta-base", type=int, choices=(0, 1), default=None,
                     help="build both sides with M6's store address on its base alone off or on (DR-169; default: the package's)")
     ap.add_argument("--branch-sta-base", type=int, choices=(0, 1), default=None, help="this side's only")
@@ -745,7 +751,8 @@ def main():
             "STORE_PF": (a.store_pf, a.branch_store_pf), "URF": (a.urf, a.branch_urf),
             "STORE_PF_MAX": (a.store_pf_max, a.branch_store_pf_max),
             "SOLO_TID": (a.solo_tid, a.branch_solo_tid),
-            "SPLIT": (a.split, a.branch_split), "HART1": (a.hart1, a.branch_hart1)}
+            "SPLIT": (a.split, a.branch_split), "HART1": (a.hart1, a.branch_hart1),
+            "SPEC_WAKE_FILT": (a.spec_wake_filt, a.branch_spec_wake_filt)}
     prof_base = {v: b for v, (b, _) in both.items() if b is not None}
     prof_branch = {v: br if br is not None else b for v, (b, br) in both.items() if br is not None or b is not None}
     if prof_base or prof_branch:
