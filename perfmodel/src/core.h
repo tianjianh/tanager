@@ -285,8 +285,11 @@ class Core {
   // smt_rn_one / smt_rn_room: the RTL's one RN stage, and decode's room check on flags a cycle late
   struct Room { int64_t rob = 0, lq = 0, sq = 0; int64_t regs[6] = {}; int64_t iq[NQ][2] = {}; };
   void dispatch_rn(const int* o, int& n, int& row);
-  Room room_now(Thread& T);
-  bool group_fits(const Thread& T, const Room& r) const;
+  Room room_now(Thread& T, bool rows = false);   // rows: the issue queues' rows too, whatever smt_rn_room
+  bool group_fits(const Thread& T, const Room& r, bool rows = false, bool regs = true) const;
+  bool rn_able(Thread& T);                        // smt_rn_sel: the thread's next group looks able to rename
+  int rn_sel_ = 0;                                // smt_rn_sel: the thread rename serves this cycle
+  uint64_t commit_lag_ = 0;                       // smt_commit_stale: cycles an entry must have been complete
   int64_t window_room(int64_t size, uint64_t own, uint64_t total, int tid) const;
   void issue();
   void commit();

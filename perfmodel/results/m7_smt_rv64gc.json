@@ -223489,6 +223489,202 @@
      "copy+CoreMark": 1.4093289463989094,
      "copy+huffbench": 1.3957461087280152
     }
+   },
+   "C: + F3's hold on a block that doesn't fit whole": {
+    "ws": 1.2635772318091585,
+    "groups": {
+     "mem+mem": 1.3102859558189703,
+     "compute+compute": 1.1870836765813033,
+     "mixed": 1.297053698067701
+    },
+    "hung": [],
+    "per": {
+     "gather+stride": 1.1408624828417935,
+     "stride+spmv": 1.2026930693804552,
+     "spmv+hashprobe": 1.6513817358992933,
+     "stream+copy": 1.2804662023353859,
+     "copy+gather": 1.4773233832436468,
+     "gather+spmv": 1.4698061210048643,
+     "stride+hashprobe": 1.4782947378065967,
+     "spmv+chase8": 0.9941399983286026,
+     "hashprobe+stream": 1.7276295993003399,
+     "chase8+copy": 1.0356334168867332,
+     "stream+gather": 1.3523330314505353,
+     "copy+stride": 1.1431541033473689,
+     "CoreMark+Dhrystone": 1.281541278249009,
+     "Dhrystone+nsichneu": 1.2963414190106097,
+     "nsichneu+huffbench": 1.3597360645137562,
+     "huffbench+minver": 1.2207525579638943,
+     "minver+matmult": 0.9655123094206064,
+     "matmult+CoreMark": 1.0577103178665364,
+     "CoreMark+nsichneu": 1.2089881809969478,
+     "Dhrystone+huffbench": 1.3399793114792629,
+     "nsichneu+minver": 1.1643018715049966,
+     "huffbench+matmult": 1.1189328251661192,
+     "minver+CoreMark": 1.145303066265304,
+     "matmult+Dhrystone": 1.1502890968850512,
+     "gather+CoreMark": 1.1858906570722845,
+     "gather+huffbench": 1.2144720388231491,
+     "stride+Dhrystone": 1.321307432761155,
+     "stride+minver": 1.2606787084522362,
+     "spmv+nsichneu": 1.2983286094701603,
+     "spmv+matmult": 1.3199782777503581,
+     "hashprobe+huffbench": 1.5594249060493044,
+     "hashprobe+CoreMark": 1.5580962179697222,
+     "chase8+minver": 1.0364901204620502,
+     "stream+matmult": 1.2824056823353729,
+     "stream+nsichneu": 1.360891554296542,
+     "copy+CoreMark": 1.2806439115360417,
+     "copy+huffbench": 1.2707505543299333
+    }
+   },
+   "C: + rename's choice a cycle ahead": {
+    "ws": 1.3241129758797214,
+    "groups": {
+     "mem+mem": 1.3396390171856787,
+     "compute+compute": 1.256461544003964,
+     "mixed": 1.3792345755189122
+    },
+    "hung": [
+     "hashprobe+chase8",
+     "chase8+minver"
+    ],
+    "per": {
+     "gather+stride": 1.2211990288235386,
+     "stride+spmv": 1.150705171619105,
+     "spmv+hashprobe": 1.7223345467586095,
+     "stream+copy": 1.3420494279794526,
+     "copy+gather": 1.556980319915976,
+     "gather+spmv": 1.474311797884083,
+     "stride+hashprobe": 1.3549588691534986,
+     "spmv+chase8": 1.0077705707947806,
+     "hashprobe+stream": 1.7423100770587965,
+     "chase8+copy": 1.020179502380008,
+     "stream+gather": 1.5383406849335914,
+     "copy+stride": 1.2000576234167175,
+     "CoreMark+Dhrystone": 1.3154944732056755,
+     "Dhrystone+nsichneu": 1.4073756157373303,
+     "nsichneu+huffbench": 1.4270789318418697,
+     "huffbench+minver": 1.2437173935011172,
+     "minver+matmult": 1.0670662869700973,
+     "matmult+CoreMark": 1.1309183609627627,
+     "CoreMark+nsichneu": 1.326383805192485,
+     "Dhrystone+huffbench": 1.3668752872745353,
+     "nsichneu+minver": 1.2852950069887221,
+     "huffbench+matmult": 1.1801451761863309,
+     "minver+CoreMark": 1.1964837735206755,
+     "matmult+Dhrystone": 1.186467461204595,
+     "gather+CoreMark": 1.2606832735748414,
+     "gather+huffbench": 1.273952124899743,
+     "stride+Dhrystone": 1.2580404449606328,
+     "stride+minver": 1.2220570527323986,
+     "spmv+nsichneu": 1.4524871027569632,
+     "spmv+matmult": 1.4191246758941807,
+     "hashprobe+huffbench": 1.5688383671350035,
+     "hashprobe+CoreMark": 1.5772459445090754,
+     "stream+matmult": 1.3059676967629694,
+     "stream+nsichneu": 1.4731379785636831,
+     "copy+CoreMark": 1.405409374720242,
+     "copy+huffbench": 1.3916283936199754
+    }
+   },
+   "C: + the head window read a cycle ahead": {
+    "ws": 1.3270177511110468,
+    "groups": {
+     "mem+mem": 1.36195757673826,
+     "compute+compute": 1.2583523065172537,
+     "mixed": 1.3635289633375882
+    },
+    "hung": [],
+    "per": {
+     "gather+stride": 1.2098158664924994,
+     "stride+spmv": 1.1773205234275277,
+     "spmv+hashprobe": 1.711784711215171,
+     "stream+copy": 1.3705549174910285,
+     "copy+gather": 1.554959195680769,
+     "gather+spmv": 1.454069514466067,
+     "stride+hashprobe": 1.5113993942322292,
+     "spmv+chase8": 1.0668415964370457,
+     "hashprobe+stream": 1.7152262623201633,
+     "chase8+copy": 1.083315032527396,
+     "stream+gather": 1.5063544504178403,
+     "copy+stride": 1.194583939879228,
+     "CoreMark+Dhrystone": 1.323981822331666,
+     "Dhrystone+nsichneu": 1.4207279308178857,
+     "nsichneu+huffbench": 1.4257228449283765,
+     "huffbench+minver": 1.2377501970589,
+     "minver+matmult": 1.0678774961754887,
+     "matmult+CoreMark": 1.1298627600287814,
+     "CoreMark+nsichneu": 1.335804918086302,
+     "Dhrystone+huffbench": 1.363699781850638,
+     "nsichneu+minver": 1.2977339215639574,
+     "huffbench+matmult": 1.1733538840296984,
+     "minver+CoreMark": 1.1966789566949332,
+     "matmult+Dhrystone": 1.1856723050423876,
+     "gather+CoreMark": 1.2335635631088149,
+     "gather+huffbench": 1.256674169894834,
+     "stride+Dhrystone": 1.3858173062190597,
+     "stride+minver": 1.3340785726246946,
+     "spmv+nsichneu": 1.4475672023017379,
+     "spmv+matmult": 1.412646127975416,
+     "hashprobe+huffbench": 1.5479944803524284,
+     "hashprobe+CoreMark": 1.563653640290023,
+     "chase8+minver": 1.097789334948056,
+     "stream+matmult": 1.2984608552504373,
+     "stream+nsichneu": 1.4529488001684459,
+     "copy+CoreMark": 1.389649456088671,
+     "copy+huffbench": 1.3793663864729941
+    }
+   },
+   "C: + all three": {
+    "ws": 1.2430613380338864,
+    "groups": {
+     "mem+mem": 1.2791719717264294,
+     "compute+compute": 1.1791697082122676,
+     "mixed": 1.2734222342984134
+    },
+    "hung": [
+     "hashprobe+chase8"
+    ],
+    "per": {
+     "gather+stride": 1.152010464747204,
+     "stride+spmv": 1.2001576086642682,
+     "spmv+hashprobe": 1.6323268745405826,
+     "stream+copy": 1.1443215872840455,
+     "copy+gather": 1.439566108075879,
+     "gather+spmv": 1.4768700011201958,
+     "stride+hashprobe": 1.355151527507554,
+     "spmv+chase8": 0.99401554312852,
+     "hashprobe+stream": 1.6991992641692386,
+     "chase8+copy": 1.0354863821061366,
+     "stream+gather": 1.3493820611590728,
+     "copy+stride": 1.0929964161599657,
+     "CoreMark+Dhrystone": 1.269907238811911,
+     "Dhrystone+nsichneu": 1.2850380137839408,
+     "nsichneu+huffbench": 1.3517076992584274,
+     "huffbench+minver": 1.2077987358276001,
+     "minver+matmult": 0.964598633882922,
+     "matmult+CoreMark": 1.0547543154181862,
+     "CoreMark+nsichneu": 1.2009296360745028,
+     "Dhrystone+huffbench": 1.3242024944134652,
+     "nsichneu+minver": 1.1584480604337766,
+     "huffbench+matmult": 1.1083206264746939,
+     "minver+CoreMark": 1.1397588728466497,
+     "matmult+Dhrystone": 1.1455803471456187,
+     "gather+CoreMark": 1.1867441622935957,
+     "gather+huffbench": 1.2095099636291617,
+     "stride+Dhrystone": 1.2551125681343152,
+     "stride+minver": 1.193272741855627,
+     "spmv+nsichneu": 1.279217346777258,
+     "spmv+matmult": 1.2990653694276832,
+     "hashprobe+huffbench": 1.5358437486611063,
+     "hashprobe+CoreMark": 1.54353060865835,
+     "chase8+minver": 1.0364574741434636,
+     "stream+matmult": 1.2793907493345602,
+     "stream+nsichneu": 1.331087047259078,
+     "copy+CoreMark": 1.2381337460647919,
+     "copy+huffbench": 1.251083451701351
+    }
    }
   },
   "merged": {
@@ -223781,6 +223977,149 @@
      },
      "hung": []
     }
+   ],
+   "C: + F3's hold on a block that doesn't fit whole": [
+    {
+     "ws": 1.1600135937620575,
+     "groups": {
+      "mem+mem": 1.1446602455399246,
+      "compute+compute": 1.1716185442623426,
+      "mixed": 1.1639287583213118
+     },
+     "hung": []
+    },
+    {
+     "ws": 1.1027442049485847,
+     "groups": {
+      "mem+mem": 1.0986726943086231,
+      "compute+compute": 1.1611343239914376,
+      "mixed": 1.0511714534000036
+     },
+     "hung": [
+      "Dhrystone+huffbench"
+     ]
+    },
+    {
+     "ws": 1.0879469537638193,
+     "groups": {
+      "mem+mem": 1.0847372101032566,
+      "compute+compute": 1.1737065185753652,
+      "mixed": 1.0114376287371767
+     },
+     "hung": []
+    }
+   ],
+   "C: + rename's choice a cycle ahead": [
+    {
+     "ws": 1.2162153929383552,
+     "groups": {
+      "mem+mem": 1.1760830626781555,
+      "compute+compute": 1.2356453897725987,
+      "mixed": 1.2379401211944172
+     },
+     "hung": [
+      "hashprobe+chase8",
+      "chase8+minver"
+     ]
+    },
+    {
+     "ws": 1.1465653648902971,
+     "groups": {
+      "mem+mem": 1.1284035186256742,
+      "compute+compute": 1.2362682232034894,
+      "mixed": 1.0804864320531418
+     },
+     "hung": [
+      "hashprobe+chase8",
+      "spmv+chase8",
+      "chase8+chase8",
+      "chase8+minver"
+     ]
+    },
+    {
+     "ws": 1.1268774032661588,
+     "groups": {
+      "mem+mem": 1.1274649631168951,
+      "compute+compute": 1.235799364559519,
+      "mixed": 1.027020206934701
+     },
+     "hung": [
+      "hashprobe+chase8",
+      "chase8+stream",
+      "spmv+chase8",
+      "chase8+chase8",
+      "chase8+minver",
+      "chase8+Dhrystone"
+     ]
+    }
+   ],
+   "C: + the head window read a cycle ahead": [
+    {
+     "ws": 1.2200583689988806,
+     "groups": {
+      "mem+mem": 1.1878453525359176,
+      "compute+compute": 1.2375464155161238,
+      "mixed": 1.2354364927336219
+     },
+     "hung": []
+    },
+    {
+     "ws": 1.1512614821650555,
+     "groups": {
+      "mem+mem": 1.1357182350522737,
+      "compute+compute": 1.2379649525170777,
+      "mixed": 1.0852829381147362
+     },
+     "hung": []
+    },
+    {
+     "ws": 1.1254946316014964,
+     "groups": {
+      "mem+mem": 1.119441338306127,
+      "compute+compute": 1.2377387001863738,
+      "mixed": 1.0289635083559538
+     },
+     "hung": []
+    }
+   ],
+   "C: + all three": [
+    {
+     "ws": 1.1429220437703742,
+     "groups": {
+      "mem+mem": 1.1216034038660123,
+      "compute+compute": 1.163339482190199,
+      "mixed": 1.144205526355817
+     },
+     "hung": [
+      "hashprobe+chase8"
+     ]
+    },
+    {
+     "ws": 1.0997742081667519,
+     "groups": {
+      "mem+mem": 1.0929664559102799,
+      "compute+compute": 1.1649248040436369,
+      "mixed": 1.0447343289748363
+     },
+     "hung": [
+      "hashprobe+chase8",
+      "chase8+copy",
+      "chase8+minver"
+     ]
+    },
+    {
+     "ws": 1.0802574825146773,
+     "groups": {
+      "mem+mem": 1.0852112815935193,
+      "compute+compute": 1.155660055874467,
+      "mixed": 1.0051652059844876
+     },
+     "hung": [
+      "hashprobe+chase8",
+      "chase8+copy",
+      "Dhrystone+huffbench"
+     ]
+    }
    ]
   },
   "sums": {
@@ -223833,6 +224172,26 @@
     "mem+mem": 1.1869102079957783,
     "compute+compute": 1.1167485153375742,
     "mixed": 1.273643644697135
+   },
+   "C: + F3's hold on a block that doesn't fit whole / C (4c60872b)": {
+    "mem+mem": 1.0868068225646315,
+    "compute+compute": 1.0556559846709626,
+    "mixed": 1.1164070884397261
+   },
+   "C: + rename's choice a cycle ahead / C (4c60872b)": {
+    "mem+mem": 1.1632594313621933,
+    "compute+compute": 1.112153964037759,
+    "mixed": 1.2170167259911289
+   },
+   "C: + the head window read a cycle ahead / C (4c60872b)": {
+    "mem+mem": 1.182331030857544,
+    "compute+compute": 1.1138126820479426,
+    "mixed": 1.2600112573345261
+   },
+   "C: + all three / C (4c60872b)": {
+    "mem+mem": 1.0645883207588758,
+    "compute+compute": 1.048983062443274,
+    "mixed": 1.0953915963045036
    }
   },
   "alone": {
@@ -224248,6 +224607,74 @@
      "mem+mem": 0.0,
      "compute+compute": 0.0,
      "mixed": 0.0
+    }
+   },
+   "The model, C: + F3's hold on a block that doesn't fit whole": {
+    "commit": {
+     "mem+mem": 0.13025828851905683,
+     "compute+compute": 0.03471820641104469,
+     "mixed": 0.09035357796190348
+    },
+    "fetch": {
+     "mem+mem": 0.35897915194256663,
+     "compute+compute": 0.17183847205995603,
+     "mixed": 0.17206364818716444
+    },
+    "rename": {
+     "mem+mem": 0.0,
+     "compute+compute": 0.0,
+     "mixed": 0.0
+    }
+   },
+   "The model, C: + rename's choice a cycle ahead": {
+    "commit": {
+     "mem+mem": 0.13827213267246716,
+     "compute+compute": 0.017366725746841758,
+     "mixed": 0.10117568638276427
+    },
+    "fetch": {
+     "mem+mem": 0.2587994529023915,
+     "compute+compute": 0.009820506024845896,
+     "mixed": 0.13847847265882599
+    },
+    "rename": {
+     "mem+mem": 0.040657064123764165,
+     "compute+compute": 0.0029206790327273298,
+     "mixed": 0.028618214277026502
+    }
+   },
+   "The model, C: + the head window read a cycle ahead": {
+    "commit": {
+     "mem+mem": 0.1409355589077276,
+     "compute+compute": 0.018540361489877488,
+     "mixed": 0.10313252487287367
+    },
+    "fetch": {
+     "mem+mem": 0.17842808903350646,
+     "compute+compute": 0.004172714131759403,
+     "mixed": 0.10586489280824388
+    },
+    "rename": {
+     "mem+mem": 0.0,
+     "compute+compute": 0.0,
+     "mixed": 0.0
+    }
+   },
+   "The model, C: + all three": {
+    "commit": {
+     "mem+mem": 0.1249741513377025,
+     "compute+compute": 0.03911922633616823,
+     "mixed": 0.09696342583661559
+    },
+    "fetch": {
+     "mem+mem": 0.3919761360679424,
+     "compute+compute": 0.17418925735148635,
+     "mixed": 0.20858467081054222
+    },
+    "rename": {
+     "mem+mem": 0.023431087350225407,
+     "compute+compute": 0.003265285680956685,
+     "mixed": 0.021219449311588597
     }
    }
   }
@@ -233403,6 +233830,873 @@
      0.0
     ]
    }
+  }
+ },
+ "resid7": {
+  "step 7 as decided, the fetch fix (a thread out of fetch while a block doesn't fit)": {
+   "ws": [
+    1.2965900566799204,
+    1.3058247763922641,
+    1.2935850936373643
+   ],
+   "groups": [
+    {
+     "mem+mem": 1.2288721081002394,
+     "compute+compute": 1.2213055913089916,
+     "mixed": 1.452369191405732
+    },
+    {
+     "mem+mem": 1.2055064394996364,
+     "compute+compute": 1.2240337650764792,
+     "mixed": 1.5090088297375333
+    },
+    {
+     "mem+mem": 1.1847056925707105,
+     "compute+compute": 1.2283795450281776,
+     "mixed": 1.4874485615796906
+    }
+   ],
+   "min": [
+    1.0002727305741714,
+    1.0001617885793055,
+    1.000166572378081
+   ],
+   "dead": [
+    [],
+    [],
+    []
+   ],
+   "ws_dead": [
+    [],
+    [],
+    []
+   ],
+   "pairs": [
+    {
+     "gather+stride": 1.169966250332259,
+     "stride+spmv": 1.0570731912487747,
+     "spmv+hashprobe": 1.6498357364797882,
+     "hashprobe+chase8": 1.6283742073297574,
+     "chase8+stream": 1.1455251161039346,
+     "stream+copy": 1.1483210741802883,
+     "copy+gather": 1.165199031423529,
+     "gather+spmv": 1.2301815732483363,
+     "stride+hashprobe": 1.5620235507184992,
+     "spmv+chase8": 1.0306801248011745,
+     "hashprobe+stream": 1.546863588950714,
+     "chase8+copy": 1.0826041693583168,
+     "stream+gather": 1.1792297533946474,
+     "copy+stride": 1.1046880612056378,
+     "chase8+chase8": 1.0002727305741714,
+     "CoreMark+Dhrystone": 1.2039177368763683,
+     "Dhrystone+nsichneu": 1.3294163007507624,
+     "nsichneu+huffbench": 1.4480513637547556,
+     "huffbench+minver": 1.2268977539782195,
+     "minver+matmult": 1.0420676835293836,
+     "matmult+CoreMark": 1.114327089699565,
+     "CoreMark+nsichneu": 1.3436019021410932,
+     "Dhrystone+huffbench": 1.2853273000168621,
+     "nsichneu+minver": 1.28702142692069,
+     "huffbench+matmult": 1.2005751561488074,
+     "minver+CoreMark": 1.1508039314893128,
+     "matmult+Dhrystone": 1.0922765597946533,
+     "CoreMark+CoreMark": 1.2144071080561865,
+     "gather+CoreMark": 1.3048254494337752,
+     "gather+huffbench": 1.3253136057234571,
+     "stride+Dhrystone": 1.3415493173970963,
+     "stride+minver": 1.3575212817438824,
+     "spmv+nsichneu": 1.6297201294630326,
+     "spmv+matmult": 1.3592118509409956,
+     "hashprobe+huffbench": 1.6648946045682353,
+     "hashprobe+CoreMark": 1.6660515062032675,
+     "chase8+minver": 1.730408382591448,
+     "chase8+Dhrystone": 1.7359900420183119,
+     "stream+matmult": 1.115239602143372,
+     "stream+nsichneu": 1.399936237773213,
+     "copy+CoreMark": 1.4244763237104563,
+     "copy+huffbench": 1.4373123579219547
+    },
+    {
+     "gather+stride": 1.1700002772745492,
+     "stride+spmv": 1.0338622664154906,
+     "spmv+hashprobe": 1.5710171990099675,
+     "hashprobe+chase8": 1.4348713963476902,
+     "chase8+stream": 1.1482571886418558,
+     "stream+copy": 1.1791912301613536,
+     "copy+gather": 1.1163825770944593,
+     "gather+spmv": 1.1409637757296414,
+     "stride+hashprobe": 1.436607857989597,
+     "spmv+chase8": 1.0249568415234114,
+     "hashprobe+stream": 1.7150696197872126,
+     "chase8+copy": 1.050297038753028,
+     "stream+gather": 1.2495950700961742,
+     "copy+stride": 1.0585584887372554,
+     "chase8+chase8": 1.0001617885793055,
+     "CoreMark+Dhrystone": 1.2112695352480514,
+     "Dhrystone+nsichneu": 1.331680057255717,
+     "nsichneu+huffbench": 1.44802381407916,
+     "huffbench+minver": 1.2272929110353568,
+     "minver+matmult": 1.0426634283495448,
+     "matmult+CoreMark": 1.1193828779012573,
+     "CoreMark+nsichneu": 1.3491732557061433,
+     "Dhrystone+huffbench": 1.2878888061394518,
+     "nsichneu+minver": 1.2870975204280115,
+     "huffbench+matmult": 1.2010422107193155,
+     "minver+CoreMark": 1.1575082648262902,
+     "matmult+Dhrystone": 1.0948720636145444,
+     "CoreMark+CoreMark": 1.215691727570213,
+     "gather+CoreMark": 1.34367080616916,
+     "gather+huffbench": 1.310799486681403,
+     "stride+Dhrystone": 1.2084785458615361,
+     "stride+minver": 1.3013182480400574,
+     "spmv+nsichneu": 1.829472542076028,
+     "spmv+matmult": 1.3222542267860864,
+     "hashprobe+huffbench": 1.6938182399491435,
+     "hashprobe+CoreMark": 1.7403030210420423,
+     "chase8+minver": 1.7697360767760395,
+     "chase8+Dhrystone": 1.7854372852938125,
+     "stream+matmult": 1.2955752216363994,
+     "stream+nsichneu": 1.7070459822364752,
+     "copy+CoreMark": 1.5633923463792407,
+     "copy+huffbench": 1.4712004444210884
+    },
+    {
+     "gather+stride": 1.1505295548230017,
+     "stride+spmv": 1.0294586819980065,
+     "spmv+hashprobe": 1.5095874367413207,
+     "hashprobe+chase8": 1.366491157325577,
+     "chase8+stream": 1.1092321302756172,
+     "stream+copy": 1.1786946488412076,
+     "copy+gather": 1.0991379150412635,
+     "gather+spmv": 1.1138963452883544,
+     "stride+hashprobe": 1.3779500162259097,
+     "spmv+chase8": 1.0139894085652106,
+     "hashprobe+stream": 1.741710618047971,
+     "chase8+copy": 1.0541239034410097,
+     "stream+gather": 1.2139372634601688,
+     "copy+stride": 1.0434255987372114,
+     "chase8+chase8": 1.000166572378081,
+     "CoreMark+Dhrystone": 1.2219830397199574,
+     "Dhrystone+nsichneu": 1.3341131499201047,
+     "nsichneu+huffbench": 1.4495975555471339,
+     "huffbench+minver": 1.2268610513257578,
+     "minver+matmult": 1.04317414252233,
+     "matmult+CoreMark": 1.125836739526764,
+     "CoreMark+nsichneu": 1.3565359882213475,
+     "Dhrystone+huffbench": 1.2885891793298352,
+     "nsichneu+minver": 1.2874101268114055,
+     "huffbench+matmult": 1.20246512076249,
+     "minver+CoreMark": 1.1688883740163827,
+     "matmult+Dhrystone": 1.1022973458103502,
+     "CoreMark+CoreMark": 1.2211909494909508,
+     "gather+CoreMark": 1.3559815212288946,
+     "gather+huffbench": 1.2510843790091943,
+     "stride+Dhrystone": 1.1268830178428109,
+     "stride+minver": 1.2469188525847859,
+     "spmv+nsichneu": 1.8859272577843866,
+     "spmv+matmult": 1.1847783139153072,
+     "hashprobe+huffbench": 1.6659867283889205,
+     "hashprobe+CoreMark": 1.77147860459572,
+     "chase8+minver": 1.7748140459268336,
+     "chase8+Dhrystone": 1.7932812196200978,
+     "stream+matmult": 1.264295033585661,
+     "stream+nsichneu": 1.8290245823478712,
+     "copy+CoreMark": 1.6074627012009377,
+     "copy+huffbench": 1.3955659591179173
+    }
+   ]
+  },
+  "the same, fetch as the model's ideal (out only when its queue is full)": {
+   "ws": [
+    1.2891981940592698,
+    1.30311718616858,
+    1.291234178076073
+   ],
+   "groups": [
+    {
+     "mem+mem": 1.2248888226774177,
+     "compute+compute": 1.2134505898837757,
+     "mixed": 1.4415851390963672
+    },
+    {
+     "mem+mem": 1.205855191845844,
+     "compute+compute": 1.2168814147431242,
+     "mixed": 1.5080196540127515
+    },
+    {
+     "mem+mem": 1.186377186916867,
+     "compute+compute": 1.220310533018514,
+     "mixed": 1.4870374024679176
+    }
+   ],
+   "min": [
+    1.0002785578956124,
+    1.000186854266195,
+    1.0001590467189376
+   ],
+   "dead": [
+    [],
+    [],
+    []
+   ],
+   "ws_dead": [
+    [],
+    [],
+    []
+   ],
+   "pairs": [
+    {
+     "gather+stride": 1.0944434820234539,
+     "stride+spmv": 1.0578302052458812,
+     "spmv+hashprobe": 1.6472949856082786,
+     "hashprobe+chase8": 1.6334868654581345,
+     "chase8+stream": 1.14552807775965,
+     "stream+copy": 1.1436430733384282,
+     "copy+gather": 1.1635311870450906,
+     "gather+spmv": 1.2286087951710158,
+     "stride+hashprobe": 1.5679661054623593,
+     "spmv+chase8": 1.0412945547166943,
+     "hashprobe+stream": 1.5457379764357086,
+     "chase8+copy": 1.095220561852343,
+     "stream+gather": 1.1789426410613508,
+     "copy+stride": 1.1023118827964231,
+     "chase8+chase8": 1.0002785578956124,
+     "CoreMark+Dhrystone": 1.2056709924090296,
+     "Dhrystone+nsichneu": 1.3224419523854705,
+     "nsichneu+huffbench": 1.4328343006469089,
+     "huffbench+minver": 1.2239891123304738,
+     "minver+matmult": 1.0419564024255499,
+     "matmult+CoreMark": 1.1137801298300236,
+     "CoreMark+nsichneu": 1.2994009246284757,
+     "Dhrystone+huffbench": 1.2771903053392388,
+     "nsichneu+minver": 1.2626925970476695,
+     "huffbench+matmult": 1.1915185102506145,
+     "minver+CoreMark": 1.1513994111660444,
+     "matmult+Dhrystone": 1.0931534697802943,
+     "CoreMark+CoreMark": 1.2127043674672222,
+     "gather+CoreMark": 1.3036619013823438,
+     "gather+huffbench": 1.322082067876937,
+     "stride+Dhrystone": 1.3484308637822564,
+     "stride+minver": 1.3540360986707434,
+     "spmv+nsichneu": 1.5883188136354673,
+     "spmv+matmult": 1.3591610130390843,
+     "hashprobe+huffbench": 1.6661676574701973,
+     "hashprobe+CoreMark": 1.6647398985883417,
+     "chase8+minver": 1.7520904249969764,
+     "chase8+Dhrystone": 1.6755503461621784,
+     "stream+matmult": 1.1141454193764124,
+     "stream+nsichneu": 1.3316664012022117,
+     "copy+CoreMark": 1.4253562989510327,
+     "copy+huffbench": 1.4309794646953284
+    },
+    {
+     "gather+stride": 1.1597807827525435,
+     "stride+spmv": 1.0335216668595113,
+     "spmv+hashprobe": 1.5700136890533307,
+     "hashprobe+chase8": 1.4408376608093292,
+     "chase8+stream": 1.11962708634523,
+     "stream+copy": 1.1894053815494985,
+     "copy+gather": 1.1181998599327556,
+     "gather+spmv": 1.1402844593064954,
+     "stride+hashprobe": 1.4402586011654037,
+     "spmv+chase8": 1.0387812024716954,
+     "hashprobe+stream": 1.7150396241738255,
+     "chase8+copy": 1.0593087736204472,
+     "stream+gather": 1.2520549546950486,
+     "copy+stride": 1.0575760905818252,
+     "chase8+chase8": 1.000186854266195,
+     "CoreMark+Dhrystone": 1.2138974052032219,
+     "Dhrystone+nsichneu": 1.3236952286138401,
+     "nsichneu+huffbench": 1.433115539275999,
+     "huffbench+minver": 1.224683976289429,
+     "minver+matmult": 1.0427812106907048,
+     "matmult+CoreMark": 1.1188907369125132,
+     "CoreMark+nsichneu": 1.3052107257545928,
+     "Dhrystone+huffbench": 1.2797725148756756,
+     "nsichneu+minver": 1.2631309952159708,
+     "huffbench+matmult": 1.1918862417108516,
+     "minver+CoreMark": 1.1583085753647926,
+     "matmult+Dhrystone": 1.0963739464222704,
+     "CoreMark+CoreMark": 1.2209325282256698,
+     "gather+CoreMark": 1.3430789047288436,
+     "gather+huffbench": 1.3100228073806122,
+     "stride+Dhrystone": 1.2052298324437458,
+     "stride+minver": 1.3113525224035802,
+     "spmv+nsichneu": 1.813868859144448,
+     "spmv+matmult": 1.3202374001357888,
+     "hashprobe+huffbench": 1.693083589645332,
+     "hashprobe+CoreMark": 1.7385199897392711,
+     "chase8+minver": 1.7777956468153444,
+     "chase8+Dhrystone": 1.8030217036066722,
+     "stream+matmult": 1.297866689548088,
+     "stream+nsichneu": 1.6825008718520327,
+     "copy+CoreMark": 1.5614305673542452,
+     "copy+huffbench": 1.468322491660341
+    },
+    {
+     "gather+stride": 1.1393975882057887,
+     "stride+spmv": 1.029164371391373,
+     "spmv+hashprobe": 1.5097752867854615,
+     "hashprobe+chase8": 1.3685407941196872,
+     "chase8+stream": 1.1280903975241623,
+     "stream+copy": 1.1778721635634448,
+     "copy+gather": 1.1010264760441508,
+     "gather+spmv": 1.1136966875934804,
+     "stride+hashprobe": 1.3727504553781429,
+     "spmv+chase8": 1.0181909726482061,
+     "hashprobe+stream": 1.7413709470210956,
+     "chase8+copy": 1.0636531793256565,
+     "stream+gather": 1.2168284673913319,
+     "copy+stride": 1.0437448605876107,
+     "chase8+chase8": 1.0001590467189376,
+     "CoreMark+Dhrystone": 1.2233894091829094,
+     "Dhrystone+nsichneu": 1.326892856795065,
+     "nsichneu+huffbench": 1.433504470976993,
+     "huffbench+minver": 1.2234961209989383,
+     "minver+matmult": 1.0431335244197912,
+     "matmult+CoreMark": 1.1260208544292305,
+     "CoreMark+nsichneu": 1.3137445815537847,
+     "Dhrystone+huffbench": 1.283125909611961,
+     "nsichneu+minver": 1.2637934869206817,
+     "huffbench+matmult": 1.1891377871300397,
+     "minver+CoreMark": 1.1703257457877472,
+     "matmult+Dhrystone": 1.1030751751015246,
+     "CoreMark+CoreMark": 1.216818334891268,
+     "gather+CoreMark": 1.358028871270667,
+     "gather+huffbench": 1.2511066003933216,
+     "stride+Dhrystone": 1.132273027374044,
+     "stride+minver": 1.2513812588551567,
+     "spmv+nsichneu": 1.8804115832286263,
+     "spmv+matmult": 1.1834903343601366,
+     "hashprobe+huffbench": 1.6666095424861216,
+     "hashprobe+CoreMark": 1.7726120264603424,
+     "chase8+minver": 1.7842119657869662,
+     "chase8+Dhrystone": 1.8019366599106976,
+     "stream+matmult": 1.253531599268314,
+     "stream+nsichneu": 1.8158915440131802,
+     "copy+CoreMark": 1.6134716687030959,
+     "copy+huffbench": 1.383326415383148
+    }
+   ]
+  },
+  "+ rename's choice a cycle ahead (5d's)": {
+   "ws": [
+    1.2884017421132392,
+    1.2976871627535627,
+    1.2889551382423676
+   ],
+   "groups": [
+    {
+     "mem+mem": 1.2279169162890702,
+     "compute+compute": 1.2173542708053422,
+     "mixed": 1.430763801807681
+    },
+    {
+     "mem+mem": 1.1979152493421175,
+     "compute+compute": 1.2204753310220051,
+     "mixed": 1.4947030689409087
+    },
+    {
+     "mem+mem": 1.1822043681827565,
+     "compute+compute": 1.2245419966417053,
+     "mixed": 1.4792690213785504
+    }
+   ],
+   "min": [
+    1.000267884987847,
+    1.0001826245185457,
+    1.0001657801752497
+   ],
+   "dead": [
+    [],
+    [],
+    []
+   ],
+   "ws_dead": [
+    [],
+    [],
+    []
+   ],
+   "pairs": [
+    {
+     "gather+stride": 1.1603561824596826,
+     "stride+spmv": 1.0577635316612535,
+     "spmv+hashprobe": 1.649788670973079,
+     "hashprobe+chase8": 1.6320503426680235,
+     "chase8+stream": 1.1352757069085342,
+     "stream+copy": 1.161095863263429,
+     "copy+gather": 1.1576181324149113,
+     "gather+spmv": 1.2298726090043388,
+     "stride+hashprobe": 1.5370671126835675,
+     "spmv+chase8": 1.0488341695875008,
+     "hashprobe+stream": 1.5478758833583568,
+     "chase8+copy": 1.089622400424744,
+     "stream+gather": 1.1693920196817436,
+     "copy+stride": 1.102833169182809,
+     "chase8+chase8": 1.000267884987847,
+     "CoreMark+Dhrystone": 1.1922324006879799,
+     "Dhrystone+nsichneu": 1.3267263450326783,
+     "nsichneu+huffbench": 1.4429419758824698,
+     "huffbench+minver": 1.2252106929873674,
+     "minver+matmult": 1.0408886385031324,
+     "matmult+CoreMark": 1.1133211435202257,
+     "CoreMark+nsichneu": 1.3325688665005453,
+     "Dhrystone+huffbench": 1.281769783846949,
+     "nsichneu+minver": 1.2803155006535025,
+     "huffbench+matmult": 1.2003805016643327,
+     "minver+CoreMark": 1.1474288500034628,
+     "matmult+Dhrystone": 1.0903088730779507,
+     "CoreMark+CoreMark": 1.211666789482047,
+     "gather+CoreMark": 1.2571598815363232,
+     "gather+huffbench": 1.2826766803325884,
+     "stride+Dhrystone": 1.281242445581299,
+     "stride+minver": 1.2839156800554523,
+     "spmv+nsichneu": 1.6210347107004073,
+     "spmv+matmult": 1.3506153237725123,
+     "hashprobe+huffbench": 1.6646620940953958,
+     "hashprobe+CoreMark": 1.6658003141612348,
+     "chase8+minver": 1.7399481785889046,
+     "chase8+Dhrystone": 1.7826118721005138,
+     "stream+matmult": 1.1129597718282782,
+     "stream+nsichneu": 1.391636662350296,
+     "copy+CoreMark": 1.3662957634893818,
+     "copy+huffbench": 1.4251464891564394
+    },
+    {
+     "gather+stride": 1.141525672823911,
+     "stride+spmv": 1.0262793172551852,
+     "spmv+hashprobe": 1.5720326123747834,
+     "hashprobe+chase8": 1.435541240818607,
+     "chase8+stream": 1.1141033164600742,
+     "stream+copy": 1.1794537497428303,
+     "copy+gather": 1.1159972984974778,
+     "gather+spmv": 1.1396533585829705,
+     "stride+hashprobe": 1.4093084274929812,
+     "spmv+chase8": 1.0313922944756222,
+     "hashprobe+stream": 1.7150970169472894,
+     "chase8+copy": 1.0296595608223575,
+     "stream+gather": 1.254057241660298,
+     "copy+stride": 1.0551438486682436,
+     "chase8+chase8": 1.0001826245185457,
+     "CoreMark+Dhrystone": 1.1997591496560687,
+     "Dhrystone+nsichneu": 1.329299756528043,
+     "nsichneu+huffbench": 1.44290950237104,
+     "huffbench+minver": 1.2242711880821995,
+     "minver+matmult": 1.041174120933354,
+     "matmult+CoreMark": 1.118296471255214,
+     "CoreMark+nsichneu": 1.3378683132189233,
+     "Dhrystone+huffbench": 1.283108291286433,
+     "nsichneu+minver": 1.2808591703276542,
+     "huffbench+matmult": 1.1998806871379246,
+     "minver+CoreMark": 1.1556887301581686,
+     "matmult+Dhrystone": 1.0932039637909376,
+     "CoreMark+CoreMark": 1.219283888767154,
+     "gather+CoreMark": 1.28253765848728,
+     "gather+huffbench": 1.2638277699062863,
+     "stride+Dhrystone": 1.20523192424002,
+     "stride+minver": 1.2740212180165167,
+     "spmv+nsichneu": 1.8225286533443135,
+     "spmv+matmult": 1.3160273753545528,
+     "hashprobe+huffbench": 1.6918971611666507,
+     "hashprobe+CoreMark": 1.7392179890364714,
+     "chase8+minver": 1.7724050090554355,
+     "chase8+Dhrystone": 1.8063634334813772,
+     "stream+matmult": 1.293704126320344,
+     "stream+nsichneu": 1.701130736084673,
+     "copy+CoreMark": 1.5382869729087902,
+     "copy+huffbench": 1.4592115948924689
+    },
+    {
+     "gather+stride": 1.1259260466991037,
+     "stride+spmv": 1.0184389499322235,
+     "spmv+hashprobe": 1.5122095780056026,
+     "hashprobe+chase8": 1.3634593647845399,
+     "chase8+stream": 1.1147615845740382,
+     "stream+copy": 1.1850315250496795,
+     "copy+gather": 1.1038723821062983,
+     "gather+spmv": 1.1134314918403962,
+     "stride+hashprobe": 1.3494078766071833,
+     "spmv+chase8": 1.0357801659901122,
+     "hashprobe+stream": 1.741565534390484,
+     "chase8+copy": 1.0348187781234395,
+     "stream+gather": 1.2208151498686817,
+     "copy+stride": 1.042937357095684,
+     "chase8+chase8": 1.0001657801752497,
+     "CoreMark+Dhrystone": 1.2097923261326256,
+     "Dhrystone+nsichneu": 1.3313514137118077,
+     "nsichneu+huffbench": 1.4438738117689,
+     "huffbench+minver": 1.2255022996404592,
+     "minver+matmult": 1.0417122083046462,
+     "matmult+CoreMark": 1.1242211851684625,
+     "CoreMark+nsichneu": 1.3454869624309473,
+     "Dhrystone+huffbench": 1.2838753211730571,
+     "nsichneu+minver": 1.2815535066580805,
+     "huffbench+matmult": 1.2022980838709514,
+     "minver+CoreMark": 1.1658537554619244,
+     "matmult+Dhrystone": 1.101930827556294,
+     "CoreMark+CoreMark": 1.2197247162737601,
+     "gather+CoreMark": 1.2942084343252498,
+     "gather+huffbench": 1.2103761429707665,
+     "stride+Dhrystone": 1.1408617665567622,
+     "stride+minver": 1.2664707898961272,
+     "spmv+nsichneu": 1.8814605644782936,
+     "spmv+matmult": 1.1830185272948284,
+     "hashprobe+huffbench": 1.664411929647551,
+     "hashprobe+CoreMark": 1.7716124321910383,
+     "chase8+minver": 1.7715456949370685,
+     "chase8+Dhrystone": 1.8041378267427743,
+     "stream+matmult": 1.2638519190426725,
+     "stream+nsichneu": 1.8261110687367217,
+     "copy+CoreMark": 1.6028647539722933,
+     "copy+huffbench": 1.3678830018326869
+    }
+   ]
+  },
+  "+ the head window read a cycle ahead": {
+   "ws": [
+    1.2932714139416155,
+    1.3015527378085703,
+    1.2921376907661286
+   ],
+   "groups": [
+    {
+     "mem+mem": 1.2256417147900136,
+     "compute+compute": 1.219679927311596,
+     "mixed": 1.4469703238581404
+    },
+    {
+     "mem+mem": 1.1994897281431582,
+     "compute+compute": 1.2227540094253901,
+     "mixed": 1.5033139286602848
+    },
+    {
+     "mem+mem": 1.1848656672022972,
+     "compute+compute": 1.226349590185639,
+     "mixed": 1.4847145973679519
+    }
+   ],
+   "min": [
+    1.0002635240483184,
+    1.0001686831328054,
+    1.00014328061512
+   ],
+   "dead": [
+    [],
+    [],
+    []
+   ],
+   "ws_dead": [
+    [],
+    [],
+    []
+   ],
+   "pairs": [
+    {
+     "gather+stride": 1.1690933959635286,
+     "stride+spmv": 1.0606953947749411,
+     "spmv+hashprobe": 1.6366024866463311,
+     "hashprobe+chase8": 1.6391247534219835,
+     "chase8+stream": 1.1455764598566878,
+     "stream+copy": 1.112178987452169,
+     "copy+gather": 1.1634283543302746,
+     "gather+spmv": 1.2256624538387282,
+     "stride+hashprobe": 1.5548565389920412,
+     "spmv+chase8": 1.0399233422688454,
+     "hashprobe+stream": 1.5281242594665807,
+     "chase8+copy": 1.0973157938008995,
+     "stream+gather": 1.1701640377138194,
+     "copy+stride": 1.1030761061994634,
+     "chase8+chase8": 1.0002635240483184,
+     "CoreMark+Dhrystone": 1.2032745725917178,
+     "Dhrystone+nsichneu": 1.329381207472509,
+     "nsichneu+huffbench": 1.442470123843238,
+     "huffbench+minver": 1.2238044148886622,
+     "minver+matmult": 1.0423597411578776,
+     "matmult+CoreMark": 1.1132708376723779,
+     "CoreMark+nsichneu": 1.3427187880206763,
+     "Dhrystone+huffbench": 1.281684296417206,
+     "nsichneu+minver": 1.285881699224815,
+     "huffbench+matmult": 1.1985875399310126,
+     "minver+CoreMark": 1.148535931477968,
+     "matmult+Dhrystone": 1.0913275704953167,
+     "CoreMark+CoreMark": 1.2134117588177493,
+     "gather+CoreMark": 1.3013033117354742,
+     "gather+huffbench": 1.3139648552709946,
+     "stride+Dhrystone": 1.343016240561334,
+     "stride+minver": 1.3571285079036643,
+     "spmv+nsichneu": 1.6249459797457528,
+     "spmv+matmult": 1.3511401768007523,
+     "hashprobe+huffbench": 1.6430149440239425,
+     "hashprobe+CoreMark": 1.6544560564698587,
+     "chase8+minver": 1.7242537782954275,
+     "chase8+Dhrystone": 1.7511620664346803,
+     "stream+matmult": 1.1150096051834886,
+     "stream+nsichneu": 1.3967825755920342,
+     "copy+CoreMark": 1.417671519692751,
+     "copy+huffbench": 1.4224059862172698
+    },
+    {
+     "gather+stride": 1.1644225538323958,
+     "stride+spmv": 1.0326686203219182,
+     "spmv+hashprobe": 1.5678809710714185,
+     "hashprobe+chase8": 1.4358932469567134,
+     "chase8+stream": 1.1178064051060563,
+     "stream+copy": 1.173849422939654,
+     "copy+gather": 1.1177103875893157,
+     "gather+spmv": 1.1392236796506685,
+     "stride+hashprobe": 1.4295905370512008,
+     "spmv+chase8": 1.0075180930872079,
+     "hashprobe+stream": 1.7057678845272588,
+     "chase8+copy": 1.0503202806787775,
+     "stream+gather": 1.2415584063689011,
+     "copy+stride": 1.056275682277518,
+     "chase8+chase8": 1.0001686831328054,
+     "CoreMark+Dhrystone": 1.2116071218794855,
+     "Dhrystone+nsichneu": 1.3308624749084403,
+     "nsichneu+huffbench": 1.4431588356343037,
+     "huffbench+minver": 1.2237804851464649,
+     "minver+matmult": 1.042528733983243,
+     "matmult+CoreMark": 1.1175454723906746,
+     "CoreMark+nsichneu": 1.3480240583984928,
+     "Dhrystone+huffbench": 1.2859534199050477,
+     "nsichneu+minver": 1.286075501438623,
+     "huffbench+matmult": 1.198479940215454,
+     "minver+CoreMark": 1.155976740388182,
+     "matmult+Dhrystone": 1.096375290916122,
+     "CoreMark+CoreMark": 1.2156649658403675,
+     "gather+CoreMark": 1.3393783022404313,
+     "gather+huffbench": 1.2985884071498317,
+     "stride+Dhrystone": 1.2072687797379325,
+     "stride+minver": 1.297903877967222,
+     "spmv+nsichneu": 1.825290448047549,
+     "spmv+matmult": 1.318591837139456,
+     "hashprobe+huffbench": 1.6730919534893105,
+     "hashprobe+CoreMark": 1.731257916434863,
+     "chase8+minver": 1.7635262248926886,
+     "chase8+Dhrystone": 1.795745094224921,
+     "stream+matmult": 1.2918816013148018,
+     "stream+nsichneu": 1.7009074591506579,
+     "copy+CoreMark": 1.5553009095668027,
+     "copy+huffbench": 1.4642184529894382
+    },
+    {
+     "gather+stride": 1.1526311599218968,
+     "stride+spmv": 1.0275488007191065,
+     "spmv+hashprobe": 1.5104672591959019,
+     "hashprobe+chase8": 1.3636366936018847,
+     "chase8+stream": 1.1075480296047495,
+     "stream+copy": 1.173288159594867,
+     "copy+gather": 1.1013846862451289,
+     "gather+spmv": 1.1120042771974767,
+     "stride+hashprobe": 1.375414153202346,
+     "spmv+chase8": 1.0239112814881566,
+     "hashprobe+stream": 1.738205665602953,
+     "chase8+copy": 1.0509145909857194,
+     "stream+gather": 1.2235361558621172,
+     "copy+stride": 1.0420240618049648,
+     "chase8+chase8": 1.00014328061512,
+     "CoreMark+Dhrystone": 1.2221962707093965,
+     "Dhrystone+nsichneu": 1.3341162585300088,
+     "nsichneu+huffbench": 1.4428980265425402,
+     "huffbench+minver": 1.22463962228116,
+     "minver+matmult": 1.0431679108006393,
+     "matmult+CoreMark": 1.1244890877517104,
+     "CoreMark+nsichneu": 1.3557116850397195,
+     "Dhrystone+huffbench": 1.2876165152416696,
+     "nsichneu+minver": 1.2858871673951429,
+     "huffbench+matmult": 1.1964880475859283,
+     "minver+CoreMark": 1.166203424613943,
+     "matmult+Dhrystone": 1.0990921160399534,
+     "CoreMark+CoreMark": 1.21961911561079,
+     "gather+CoreMark": 1.3527785562985102,
+     "gather+huffbench": 1.2412928388121154,
+     "stride+Dhrystone": 1.1150733441055345,
+     "stride+minver": 1.2624614065000441,
+     "spmv+nsichneu": 1.8850852162147334,
+     "spmv+matmult": 1.1841419001688311,
+     "hashprobe+huffbench": 1.6503659930331098,
+     "hashprobe+CoreMark": 1.7644560450865279,
+     "chase8+minver": 1.768859034432591,
+     "chase8+Dhrystone": 1.8014468076192256,
+     "stream+matmult": 1.2630388363675134,
+     "stream+nsichneu": 1.8254302987972055,
+     "copy+CoreMark": 1.6066988844054344,
+     "copy+huffbench": 1.3945119118160143
+    }
+   ]
+  },
+  "+ both": {
+   "ws": [
+    1.283397238110949,
+    1.2961183964760858,
+    1.2865751033009356
+   ],
+   "groups": [
+    {
+     "mem+mem": 1.220521213071709,
+     "compute+compute": 1.2158898331770773,
+     "mixed": 1.4244386266649598
+    },
+    {
+     "mem+mem": 1.200033919739401,
+     "compute+compute": 1.2187582274879891,
+     "mixed": 1.488754002645738
+    },
+    {
+     "mem+mem": 1.1812172630152884,
+     "compute+compute": 1.2221510613879814,
+     "mixed": 1.4751994931766594
+    }
+   ],
+   "min": [
+    1.0002649774986034,
+    1.0001829378956684,
+    1.0001645918734492
+   ],
+   "dead": [
+    [],
+    [],
+    []
+   ],
+   "ws_dead": [
+    [],
+    [],
+    []
+   ],
+   "pairs": [
+    {
+     "gather+stride": 1.1656217686028412,
+     "stride+spmv": 1.0480611227047976,
+     "spmv+hashprobe": 1.6367214487840256,
+     "hashprobe+chase8": 1.6270027853823774,
+     "chase8+stream": 1.1455142395992097,
+     "stream+copy": 1.1028731282359887,
+     "copy+gather": 1.1561119666044908,
+     "gather+spmv": 1.2273959440234488,
+     "stride+hashprobe": 1.5285074238383412,
+     "spmv+chase8": 1.0505654315311996,
+     "hashprobe+stream": 1.528784974495234,
+     "chase8+copy": 1.0896109303425785,
+     "stream+gather": 1.1570398025771538,
+     "copy+stride": 1.1005002451554264,
+     "chase8+chase8": 1.0002649774986034,
+     "CoreMark+Dhrystone": 1.1926319635132236,
+     "Dhrystone+nsichneu": 1.3244645842614617,
+     "nsichneu+huffbench": 1.4381690090493637,
+     "huffbench+minver": 1.2207700628419866,
+     "minver+matmult": 1.0404687275241178,
+     "matmult+CoreMark": 1.1122661606875826,
+     "CoreMark+nsichneu": 1.3316437472295322,
+     "Dhrystone+huffbench": 1.2762785992004446,
+     "nsichneu+minver": 1.2798542383830944,
+     "huffbench+matmult": 1.1973826220708768,
+     "minver+CoreMark": 1.1471315228256542,
+     "matmult+Dhrystone": 1.089665394225349,
+     "CoreMark+CoreMark": 1.2149634940953384,
+     "gather+CoreMark": 1.255504332615247,
+     "gather+huffbench": 1.2745840858561062,
+     "stride+Dhrystone": 1.282498159354733,
+     "stride+minver": 1.2817118536302015,
+     "spmv+nsichneu": 1.616593014941476,
+     "spmv+matmult": 1.3453532427107753,
+     "hashprobe+huffbench": 1.6417502052441828,
+     "hashprobe+CoreMark": 1.6534646158328477,
+     "chase8+minver": 1.7367191435901614,
+     "chase8+Dhrystone": 1.7707894460620952,
+     "stream+matmult": 1.1091636951886712,
+     "stream+nsichneu": 1.3896898508821196,
+     "copy+CoreMark": 1.3627727534060248,
+     "copy+huffbench": 1.4112567311937294
+    },
+    {
+     "gather+stride": 1.1423958449549887,
+     "stride+spmv": 1.0284065555729767,
+     "spmv+hashprobe": 1.5674465335087038,
+     "hashprobe+chase8": 1.4390208631478403,
+     "chase8+stream": 1.121514071846639,
+     "stream+copy": 1.1789846756712767,
+     "copy+gather": 1.1157702939088323,
+     "gather+spmv": 1.1394760409225544,
+     "stride+hashprobe": 1.4067530267237642,
+     "spmv+chase8": 1.0341662343630187,
+     "hashprobe+stream": 1.7055198677036167,
+     "chase8+copy": 1.0512236438011804,
+     "stream+gather": 1.253449301567179,
+     "copy+stride": 1.058089343614593,
+     "chase8+chase8": 1.0001829378956684,
+     "CoreMark+Dhrystone": 1.200062079752123,
+     "Dhrystone+nsichneu": 1.3269161082996646,
+     "nsichneu+huffbench": 1.4377944594627232,
+     "huffbench+minver": 1.2216698840816074,
+     "minver+matmult": 1.0408305268069706,
+     "matmult+CoreMark": 1.1173748515005395,
+     "CoreMark+nsichneu": 1.336265127226972,
+     "Dhrystone+huffbench": 1.2792061795782619,
+     "nsichneu+minver": 1.2809833281510101,
+     "huffbench+matmult": 1.1977288004290079,
+     "minver+CoreMark": 1.1526852293847987,
+     "matmult+Dhrystone": 1.0925569718630768,
+     "CoreMark+CoreMark": 1.2183204820631857,
+     "gather+CoreMark": 1.2790828840606525,
+     "gather+huffbench": 1.2549435215297677,
+     "stride+Dhrystone": 1.2089241659725862,
+     "stride+minver": 1.2635811836797264,
+     "spmv+nsichneu": 1.8199293086855481,
+     "spmv+matmult": 1.3204281626694672,
+     "hashprobe+huffbench": 1.6728464287075369,
+     "hashprobe+CoreMark": 1.7301548264551645,
+     "chase8+minver": 1.7677722736522692,
+     "chase8+Dhrystone": 1.804359482225467,
+     "stream+matmult": 1.290711683783858,
+     "stream+nsichneu": 1.6959165879175653,
+     "copy+CoreMark": 1.532138424679692,
+     "copy+huffbench": 1.4401398051619831
+    },
+    {
+     "gather+stride": 1.128332462765788,
+     "stride+spmv": 1.024094733354016,
+     "spmv+hashprobe": 1.509744986492692,
+     "hashprobe+chase8": 1.3612430401059186,
+     "chase8+stream": 1.109228895142415,
+     "stream+copy": 1.1837725327965902,
+     "copy+gather": 1.1049771040590124,
+     "gather+spmv": 1.113395183339755,
+     "stride+hashprobe": 1.3479098446552111,
+     "spmv+chase8": 1.031582636214256,
+     "hashprobe+stream": 1.7377988190479465,
+     "chase8+copy": 1.034818046524327,
+     "stream+gather": 1.2140813639347967,
+     "copy+stride": 1.0439762466577842,
+     "chase8+chase8": 1.0001645918734492,
+     "CoreMark+Dhrystone": 1.2110978826296064,
+     "Dhrystone+nsichneu": 1.3304233050898424,
+     "nsichneu+huffbench": 1.4382132654693525,
+     "huffbench+minver": 1.221850589693261,
+     "minver+matmult": 1.041322386951581,
+     "matmult+CoreMark": 1.124066527051657,
+     "CoreMark+nsichneu": 1.3444209610754425,
+     "Dhrystone+huffbench": 1.2792685970898727,
+     "nsichneu+minver": 1.2807689349349503,
+     "huffbench+matmult": 1.1947405913556874,
+     "minver+CoreMark": 1.1648496093273664,
+     "matmult+Dhrystone": 1.0988634135647073,
+     "CoreMark+CoreMark": 1.2155725031701679,
+     "gather+CoreMark": 1.2922456700101317,
+     "gather+huffbench": 1.2004318076715168,
+     "stride+Dhrystone": 1.1449797124174173,
+     "stride+minver": 1.2539792540304866,
+     "spmv+nsichneu": 1.8801303662885944,
+     "spmv+matmult": 1.1857654046496553,
+     "hashprobe+huffbench": 1.651210441798204,
+     "hashprobe+CoreMark": 1.7645448842751126,
+     "chase8+minver": 1.7706349276522553,
+     "chase8+Dhrystone": 1.8038868945243043,
+     "stream+matmult": 1.261436033650471,
+     "stream+nsichneu": 1.823445371936784,
+     "copy+CoreMark": 1.595992634021675,
+     "copy+huffbench": 1.362670210778926
+    }
+   ]
   }
  }
 }

@@ -1294,7 +1294,11 @@ RECON5 = {"5c as modelled: one RN register (§13.14's 1)": {**S5B, **RN_ONE},
           "C: + the RTL's commit turns": {**S5B, **CM_RTL},
           "C: + round robin at fetch": {**S5B, **CM_RTL, **RR},
           "C: + the RTL's shared fetch pipe": {**S5B, **CM_RTL, **RR, **FHOLD},
-          "C: + decode's thread chosen a cycle ahead": {**S5B, **CM_RTL, **RR, **FHOLD, **DEC_RR}}
+          "C: + decode's thread chosen a cycle ahead": {**S5B, **CM_RTL, **RR, **FHOLD, **DEC_RR},
+          "C: + F3's hold on a block that doesn't fit whole": {**S5B, **CM_RTL, **RR, "smt_fetch_hold": 2},
+          "C: + rename's choice a cycle ahead": {**S5B, **CM_RTL, **RR, **FHOLD, "smt_rn_sel": 1},
+          "C: + the head window read a cycle ahead": {**S5B, **CM_RTL, **RR, **FHOLD, "smt_commit_stale": 1},
+          "C: + all three": {**S5B, **CM_RTL, **RR, "smt_fetch_hold": 2, "smt_rn_sel": 1, "smt_commit_stale": 1}}
 RTL_STALLS = {"commit": r"commit's thread committed nothing \d+ cycles \((\d+) with",   # TG-STALL2 lines, and the
               "fetch": r"F2 holds another stream's fetch \d+ cycles \((\d+) with",     # model's counterparts
               "rename": r"RN holds the other thread's group \d+ cycles \((\d+) with"}
@@ -1745,6 +1749,22 @@ def fp64s(workers):
     return out
 
 
+S7F = {**S7R, **CM_FIX4, **FP64X, "smt_fetch_room": 1}   # step 7 as decided, with the fetch hold's fix as approved
+RESID7 = {"step 7 as decided, the fetch fix (a thread out of fetch while a block doesn't fit)": S7F,
+          "the same, fetch as the model's ideal (out only when its queue is full)": {**S7R, **CM_FIX4, **FP64X},
+          "+ rename's choice a cycle ahead (5d's)": {**S7F, "smt_rn_sel": 1},
+          "+ the head window read a cycle ahead": {**S7F, "smt_commit_stale": 1},
+          "+ both": {**S7F, "smt_rn_sel": 1, "smt_commit_stale": 1}}
+
+
+def resid7(workers):
+    """The coordinator (10-21): the residuals §13.16 left between the model and the RTL, costed at step 7 as decided
+    (C, core-2's commit fix, FP 64 across both, 50% caps, R2 as adopted, round robin), with the fetch hold's fix as
+    approved: its granularity against the model's ideal fetch, rename's choice a cycle ahead, and the head window read
+    a cycle ahead. verif-2's second final set, the merged basis; recon5 checks each against the RTL's counters."""
+    return ws_table("Step 7's remaining residuals", "Configuration", RESID7, workers)
+
+
 def fp64w(workers):
     """fpu-2's fixes upstream of the hold (10-21): stop the restore crossing. (1) While the sibling is parked, the
     running hart borrows its free registers ahead of need, one a cycle in each bank (prf_xfer_eager); (2) a group short
@@ -1791,6 +1811,7 @@ def main():
     ap.add_argument("--eagerwake", action="store_true", help="eager borrowing's cost to a sibling that wakes")
     ap.add_argument("--fp64s", action="store_true", help="fpu-2's six FP 64 cases beside core-2's RTL, with P")
     ap.add_argument("--fp64p", action="store_true", help="fpu-2's P on the FP pairs and the lone programs")
+    ap.add_argument("--resid7", action="store_true", help="step 7's remaining residuals against the RTL, costed")
     ap.add_argument("--workers", type=int, default=16)
     a = ap.parse_args()
     res = json.loads(OUT.read_text()) if OUT.exists() else {}
@@ -1801,7 +1822,7 @@ def main():
                      ("rnstall", rnstall), ("icount", icount), ("caplift", caplift), ("bankrule", bankrule),
                      ("recon5", recon5), ("recon7", recon7), ("final7", final7), ("fp64q", fp64q),
                      ("fp64r", fp64r), ("fp64w", fp64w), ("eagerwake", eagerwake), ("fp64s", fp64s),
-                     ("fp64p", fp64p)):
+                     ("fp64p", fp64p), ("resid7", resid7)):
         if getattr(a, name):
             res[name] = fn(a.workers)
             OUT.write_text(json.dumps(res, indent=1) + "\n")
