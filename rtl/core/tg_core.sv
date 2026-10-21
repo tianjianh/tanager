@@ -389,6 +389,17 @@ module tg_core
   // FP banks of 64 with renaming across both (DR-179): an FP load's bank (tg_lsu, from its register's name), and P4's
   // write next cycle with its bank (tg_fp_exec), which holds a load bound for that bank in tg_lsu
   logic                             fld_m2_bank, fld_bank, p4_nx_we, p4_nx_bank;
+  // SCRATCH (never merged): fake announcements of P4 writing F1, about a quarter of the cycles, so the LSU holds,
+  // retries and takes FP loads before rename crosses
+  logic [15:0] fk_lfsr_q;
+  logic        fk_q;
+  always_ff @(posedge clk) begin
+    if (rst) begin fk_lfsr_q <= 16'hACE1; fk_q <= 1'b0; end
+    else begin
+      fk_lfsr_q <= {fk_lfsr_q[14:0], fk_lfsr_q[15] ^ fk_lfsr_q[13] ^ fk_lfsr_q[12] ^ fk_lfsr_q[10]};
+      fk_q      <= fk_lfsr_q[3] && fk_lfsr_q[9];
+    end
+  end
   logic [63:0]                      fld_data;
   logic [1:0][63:0]                 fsd_data;   // both FP banks (P4): the LSU picks by fsd_tag's bank
   preg_t                            fsd_tag;
@@ -624,7 +635,7 @@ module tg_core
     .ld_ag_valid, .ld_ag_pl, .ld_ag_addr, .sta_ag_valid, .sta_ag_pl, .sta_ag_addr, .ld_block,
     .ld_m2_will, .ld_m2_dst, .ld_res_valid, .ld_res_dst, .ld_res_data,
     .wake_ld(wake_l), .llt_done(llt_done_l), .fld_m2_will, .fld_m2_bank, .fld_m2_idx, .fld_valid, .fld_bank,
-    .fld_idx, .p4_nx_we, .p4_nx_bank,
+    .fld_idx, .p4_nx_we(p4_nx_we || fk_q), .p4_nx_bank(fk_q || p4_nx_bank),
     .fld_data, .sd_tag, .sd_data, .sd_busy, .fsd_tag, .fsd_data, .fp_we, .fp_widx,
     .ds_src2_rdy, .rf_we, .rf_widx,
     .ld_cmp_valid(ld_cmp), .ld_cmp_rob, .ld_cmp_mmio, .st_cmp_valid(st_cmp), .st_cmp_rob,

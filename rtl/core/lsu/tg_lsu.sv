@@ -955,6 +955,22 @@ module tg_lsu
   // wakeup, -1.56 ns; a cycle only when one waits beside a PMP-denied load in M2)
   logic xr_take;
   assign xr_take = xr_v_q && !m2_okw && !kill_t[x_t];
+`ifndef SYNTHESIS
+  // SCRATCH (never merged): the hold's events, on stderr at the end (TG-FH)
+  int fh_n_hold, fh_n_retry, fh_n_take, fh_n_drop;
+  /* verilator lint_off BLKSEQ */
+  always @(posedge clk) begin
+    if (rst) begin fh_n_hold = 0; fh_n_retry = 0; fh_n_take = 0; fh_n_drop = 0; end
+    else begin
+      if (m2_ok && m2_fhold) fh_n_hold++;
+      if (m2_v_q && !m2_pt_q && !kill_t[t_m2] && m2_out == O_OK && m2_fretry) fh_n_retry++;
+      if (fh_take) fh_n_take++;
+      if (fh_v_q && kill_t[fh_tid_q]) fh_n_drop++;
+    end
+  end
+  /* verilator lint_on BLKSEQ */
+  final $fwrite(32'h8000_0002, "TG-FH holds=%0d retries=%0d takes=%0d drops=%0d\n", fh_n_hold, fh_n_retry, fh_n_take, fh_n_drop);
+`endif
   // A held FP load's result (DR-179; M2 above): it takes the result register last, when nothing else does and P4
   // leaves its bank next cycle, so its write never meets P4's; a flush of its thread drops it
   tid_t            fh_tid_q;
