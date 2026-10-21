@@ -448,6 +448,9 @@ module tg_rename
   // one at the end; the free lists' are icv / fcv (timing: no compare after the steering)
   // (each thread's, picked by the group's thread: the compares stay on registers)
   logic [W:0] rob_room, lq_room, sq_room, div_room, fdiv_room, fpi_room;
+`ifndef SYNTHESIS
+  logic [6:0] rn_why;           // why the RN group cannot fire: ROB, LQ, SQ, tags/LLTs, unit counts, int/FP registers
+`endif
   logic [NT-1:0][W:0] rob_room_t, lq_room_t, sq_room_t;
   always_comb begin
     for (int t = 0; t < NT; t++)
@@ -617,11 +620,25 @@ module tg_rename
     if (!rob_room[nrob] || !lq_room[nld] || !sq_room[nst]) rn_ok = 1'b0;
     if (llt_short || tag_short) rn_ok = 1'b0;
     if (!div_room[ndiv] || !fdiv_room[nfdiv] || !fpi_room[nfpi]) rn_ok = 1'b0;
+`ifndef SYNTHESIS
+    rn_why = {1'b0, 1'b0, !div_room[ndiv] || !fdiv_room[nfdiv] || !fpi_room[nfpi], llt_short || tag_short,
+              !sq_room[nst], !lq_room[nld], !rob_room[nrob]};
+`endif
     for (int i = 0; i < 2; i++) begin
-      if (fpops[i] != '0 && !fcv[i][idx_w(W)'(fpops[i] - 1'b1)]) rn_ok = 1'b0;     // fpops > ffl_count
+      if (fpops[i] != '0 && !fcv[i][idx_w(W)'(fpops[i] - 1'b1)]) begin
+        rn_ok = 1'b0;                                                                 // fpops > ffl_count
+`ifndef SYNTHESIS
+        rn_why[6] = 1'b1;
+`endif
+      end
     end
     for (int i = 0; i < INT_BANKS; i++) begin
-      if (pops[i] != '0 && !icv[i][idx_w(W)'(pops[i] - 1'b1)]) rn_ok = 1'b0;       // pops > fl_count
+      if (pops[i] != '0 && !icv[i][idx_w(W)'(pops[i] - 1'b1)]) begin
+        rn_ok = 1'b0;                                                                 // pops > fl_count
+`ifndef SYNTHESIS
+        rn_why[5] = 1'b1;
+`endif
+      end
     end
 `ifndef SYNTHESIS
     rn_ok_ref = !(rob_cnt_t(rtail_q[t_rn], rob_head[t_rn]) + nrob > part_size(ROB_ENTRIES) ||
@@ -700,6 +717,21 @@ module tg_rename
     end
   final if (HART1_ON) $fwrite(32'h8000_0002, "TG-STALL2 %m: RN holds the other thread's group %0d cycles (%0d with room in that thread's window)\n",
                               n_rnhold2, n_rnhold2b);
+  // ... and why the group at RN cannot fire in those cycles (each cause counted on its own; several may hold):
+  // DS still holds a group (the issue queues), a serial uop (its block or its window's drain), the group's ROB, LQ or
+  // SQ room, the shared tags or LLTs, the divide and FP counts, its integer or FP registers
+  longint unsigned n_why [9];
+  always_ff @(posedge clk)
+    if (rst) for (int i = 0; i < 9; i++) n_why[i] <= 0;
+    else if (HART1_ON && |rn_valid_q && !rn_fire && !flush && de_valid[0] && de_uop[0].tid != t_rn &&
+             rob_room_t[de_uop[0].tid][$countones(de_valid)] && lq_room_t[de_uop[0].tid][ren_nld(de_uop, de_valid)] &&
+             sq_room_t[de_uop[0].tid][ren_nst(de_uop, de_valid)]) begin
+      if (!ds_free) n_why[0] <= n_why[0] + 1;
+      if (block_q[t_rn] || (rn_serial && !window_empty)) n_why[1] <= n_why[1] + 1;
+      for (int k = 0; k < 7; k++) if (rn_why[k]) n_why[2 + k] <= n_why[2 + k] + 1;
+    end
+  final if (HART1_ON) $fwrite(32'h8000_0002, "TG-RNHOLD %m: ds %0d serial %0d rob %0d lq %0d sq %0d tags %0d units %0d iregs %0d fregs %0d\n",
+                              n_why[0], n_why[1], n_why[2], n_why[3], n_why[4], n_why[5], n_why[6], n_why[7], n_why[8]);
   // With hart 1: a thread whose window (ROB, RN and DS) has been empty for a few cycles holds no wakeup tag and no LLT
   // (a tag returns two cycles after its op completes): a return lost to the other thread's flush leaks it for good
   if (CMT) begin : g_leak
