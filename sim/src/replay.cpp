@@ -38,6 +38,7 @@ struct opts_t {
   unsigned ext = 0, ext_delay = 64, ext_window = 512;  // external writes (§3.10): per mille of cycles, delay
   unsigned sb = 0, sb_max = 100;  // several harts (§3.7): plain stores that wait in a store buffer (percent), cycles
   unsigned atomic_early = 0;      // several harts: an atomic's record up to this many cycles after it performs
+  bool mtgsmt = false;            // the cores have mtgsmt (0x7C0), shared by harts 2k and 2k + 1
   std::string inject;
   int64_t inject_at = -1;
   std::vector<uint64_t> tohost_va;
@@ -61,6 +62,7 @@ struct opts_t {
           "  --ext=PERMILLE   external writes (another master's DMA, §3.10) into bytes the program loads; the\n"
           "                   replaying Spike sees each 0..N cycles after the checker hears of it (--ext-delay=N,\n"
           "                   default 64); --ext-window=N the checker's window in records (default 512)\n"
+          "  --mtgsmt         the cores have M7's mtgsmt CSR (0x7C0), one per hart pair (core-pipeline.md §9)\n"
           "  --sb=PCT         several harts: this share of plain stores to main memory waits in its hart's store\n"
           "                   buffer and reaches memory 1..N cycles after its record (--sb-max=N, default 100);\n"
           "                   the hart's later stores queue behind it, its loads see them, and its AMOs, LR/SCs\n"
@@ -120,6 +122,7 @@ opts_t parse(int argc, char** argv) {
     else if (k == "sb") o.sb = unsigned(num(v, "--sb"));
     else if (k == "sb-max") o.sb_max = std::max(1u, unsigned(num(v, "--sb-max")));
     else if (k == "atomic-early") o.atomic_early = unsigned(num(v, "--atomic-early"));
+    else if (k == "mtgsmt") o.mtgsmt = true;
     else if (k == "inject") o.inject = v;
     else if (k == "inject-at") o.inject_at = int64_t(num(v, "--inject-at"));
     else if (k == "tohost-va") o.tohost_va.push_back(num(v, "--tohost-va"));
@@ -237,6 +240,7 @@ int main(int argc, char** argv) {
   for (unsigned i = 0; i < o.harts; i++) plat.hartids.push_back(i);
   plat.dev_regions = {{0x02000000ull, 0x10000}, {0x0C000000ull, 0x4000000}, {0x10000000ull, 0x1000},
                       {0x10001000ull, 0x1000},  {0x10010000ull, 0x4000},    {0x11000000ull, 0x10000}};
+  plat.mtgsmt = o.mtgsmt;
   spike_env_t dut(plat, mem);
   std::string console;
 
@@ -305,6 +309,7 @@ int main(int argc, char** argv) {
   lc.history = o.history;
   lc.dev_regions = plat.dev_regions;
   lc.ext_window = o.ext_window;
+  lc.mtgsmt = o.mtgsmt;
   lockstep_t ls(lc, mem, &elf);
   if (o.ext && o.defer) fatal("--ext with --defer: a deferred load's value is not checked against external writes");
   if (o.inject.rfind("ext-", 0) == 0 && !o.ext) fatal("--inject=%s needs --ext", o.inject.c_str());
