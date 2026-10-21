@@ -219,6 +219,7 @@ def run_one(build, dtb, images, shape, timing, mcyc, seed, outdir, nice=False, p
     t0 = time.time()
     with open(os.path.join(outdir, "lockstep.log"), "w") as lf, open(os.path.join(outdir, "tb_boot.log"), "w") as tf:
         ls = subprocess.Popen([*io, build.ls, f"--fw={fw}", f"--kernel={kernel}", f"--dtb={dtb}", f"--harts={harts}",
+                               *(["--mtgsmt=1"] if "HART1=1" in build.prof else []),  # a core with hart 1 has mtgsmt
                                "--stats=600", *([f"--plant={plant}"] if plant is not None else []), fifo],
                               stdout=lf, stderr=subprocess.STDOUT, preexec_fn=pre if nice or pol else None)
         tb = subprocess.Popen([*io, build.tb(), f"+fw={fw}", f"+dtb={dtb}", f"+kernel={kernel}",

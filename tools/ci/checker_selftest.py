@@ -7,7 +7,8 @@
      must pass, and writes hidden from the checker or from the core must be reported;
   4. several harts (§3.7): programs whose harts race for the same bytes must pass with stores waiting in a
      store buffer and atomics performing before their records, and stores reaching memory in the wrong order
-     or past every window, or an atomic's record past the checker's bound, must be reported.
+     or past every window, or an atomic's record past the checker's bound, must be reported; and two harts
+     share step 6's mtgsmt CSR (--mtgsmt).
 Exit status 0 when all hold."""
 import argparse
 import concurrent.futures as cf
@@ -57,6 +58,85 @@ ORDER_PASS = [
 ]
 ORDER_PASS4 = [("sb, 4 harts", "--sb=50 --width=4"), ("early, 4 harts", "--atomic-early=48 --width=4")]
 ORDER_FAULTS = [("sb-reorder", "--sb=100"), ("sb-late", "--sb=60"), ("atomic-late", "--atomic-early=32")]
+# mtgsmt (0x7C0, one per core of two harts; tg_replay --mtgsmt): each hart writes it and reads what the other wrote
+# (bit 0 only), handing over through a word, so a register that each hart kept apart would show
+MTGSMT_ASM = """/* checker self-test (verification.md §3.8): mtgsmt shared by two harts, bit 0 only (exit codes 2-6) */
+.option arch, +zicsr
+.section .text.init, "ax"
+.globl _start
+_start:
+  csrr a0, mhartid
+  la s0, turn
+  la s1, tohost
+  bnez a0, h1
+  li t1, -1
+  csrw 0x7c0, t1
+  li t1, 1
+  sw t1, 0(s0)
+1:
+  lw t1, 0(s0)
+  li t2, 2
+  bne t1, t2, 1b
+  csrr t3, 0x7c0
+  li a1, 7
+  bnez t3, fail
+  csrsi 0x7c0, 1
+  csrr t4, 0x7c0
+  li t2, 1
+  li a1, 9
+  bne t4, t2, fail
+  li t1, 3
+  sw t1, 0(s0)
+2:
+  lw t1, 0(s0)
+  li t2, 4
+  bne t1, t2, 2b
+  csrr t5, 0x7c0
+  li a1, 13
+  bnez t5, fail
+  li t1, 1
+  sd t1, 0(s1)
+3:
+  j 3b
+h1:
+  lw t1, 0(s0)
+  li t2, 1
+  bne t1, t2, h1
+  csrr t3, 0x7c0
+  li a1, 5
+  bne t3, t2, fail
+  csrw 0x7c0, zero
+  li t1, 2
+  sw t1, 0(s0)
+4:
+  lw t1, 0(s0)
+  li t2, 3
+  bne t1, t2, 4b
+  csrrci t3, 0x7c0, 1
+  li t2, 1
+  li a1, 11
+  bne t3, t2, fail
+  li t1, 4
+  sw t1, 0(s0)
+5:
+  wfi
+  j 5b
+fail:
+  sd a1, 0(s1)
+6:
+  j 6b
+.section .tohost, "aw", @progbits
+.balign 64
+.globl tohost
+tohost: .dword 0
+.balign 64
+.globl fromhost
+fromhost: .dword 0
+.section .data
+.balign 64
+turn: .dword 0
+"""
+
 # Hart 0 bumps a word with an AMO and stores twice to a doubleword, waits, and reads it back; hart 1 reads both
 # until hart 0 is done
 ORDER_ASM = """/* checker self-test (verification.md §3.8): two harts racing for a word and a doubleword */
@@ -289,6 +369,15 @@ def main():
             nh = len(harts.split(","))
             for tag, args in ORDER_PASS if nh == 2 else ORDER_PASS4:
                 jobs.append((elf, nh, tag, args, seed))
+        smt = os.path.join(ord_dir, "mtgsmt2")
+        with open(smt + ".S", "w") as f:
+            f.write(MTGSMT_ASM)
+        if subprocess.run(cc[:-3] + [smt + ".S", "-o", smt + ".elf"], capture_output=True, text=True).returncode == 0:
+            for seed in (1, 2, 3):
+                jobs.append((smt + ".elf", 2, "mtgsmt", "--mtgsmt --width=3", seed))
+        else:
+            ok = False
+            print("  the mtgsmt program did not assemble")
         if os.path.exists(race + ".elf"):
             for tag, args in ORDER_PASS:
                 for seed in (1, 2):
@@ -298,7 +387,7 @@ def main():
                     for at in (300, 3000, 12000):
                         jobs.append((race + ".elf", 2, kind, f"{args} --inject={kind} --inject-at={at}", seed))
         res = list(ex.map(order_one, jobs))
-    for tag, _ in ORDER_PASS + ORDER_PASS4:
+    for tag, _ in ORDER_PASS + ORDER_PASS4 + [("mtgsmt", "")]:
         rows = [r for r in res if r[0] == tag]
         npass = sum(r[3] == "PASS" for r in rows)
         for _, elf, seed, status, line in rows:

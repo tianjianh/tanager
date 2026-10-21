@@ -30,6 +30,7 @@ struct lockstep_cfg_t {
   uint64_t rom_base = 0x1000, rom_size = 0x1000;
   std::vector<std::pair<uint64_t, uint64_t>> dev_regions;
   std::vector<std::pair<uint64_t, uint64_t>> deny;  // --deny ranges: Spike faults on them too
+  bool mtgsmt = false;  // Tanager's mtgsmt CSR (0x7C0), one per core of two harts: with hart 1 (spike_env.h)
   // External writes (§3.10): a hart may still read a write's old bytes for this many of its own records
   // after the write's cycle (a load that read before the write commits later: at most a ROB's worth), and
   // its new bytes from this many cycles before (the L2 may serve them before its AccessAck).
