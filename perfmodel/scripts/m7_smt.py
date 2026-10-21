@@ -1777,7 +1777,9 @@ RTL_RUNS = {   # the RTL's pair runs (the runner's ws.json, in results/), by fin
                             ("5d (3ed31186; 6ac63df1 at 120 and 250)", "half",
                              ["pair_rtl_5d_3ed31186.json", "pair_rtl_5d_6ac63df1_120_250.json"]),
                             ("5e (0138c48c)", "half",
-                             ["pair_rtl_5e_0138c48c.json", "pair_rtl_5e_0138c48c_120_250.json"])]}
+                             ["pair_rtl_5e_0138c48c.json", "pair_rtl_5e_0138c48c_120_250.json"]),
+                            ("5f (65fac9b4: 1ca3d58b with main 6d89e7a3)", "half",
+                             ["pair_rtl_5f_65fac9b4.json", "pair_rtl_5f_65fac9b4_120_250.json"])]}
 DEC5E, DEC5F = {"smt_dec_rr": 2}, {"smt_dec_rr": 3}   # decode's choice a cycle ahead with 5e's acc_o, with 5f's
 C_AB = {**S5B, **CM_RTL, **RR, "smt_fetch_hold": 2, "smt_rn_sel": 1, "smt_commit_stale": 1}   # §13.19's all three
 D_AB = {**C_AB, **CM_FIX4}
