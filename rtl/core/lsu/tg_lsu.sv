@@ -877,8 +877,13 @@ module tg_lsu
   assign dr_amo = dr_v && sq_amo_q[dh];      // performed before commit: leaves without a write
   logic dr_mmio_go;
   assign dr_mmio_go = dr_v && sq_mmio_q[dh] && xs_q == X_IDLE && !xr_v_q;
-  assign mm_go = mm_cand && sq_drn[t_hd] && !dr_mmio_go && xs_q == X_IDLE && !xr_v_q && !kill_t[t_hd] && !mm_hold &&
-                 !irq_go;
+  // With hart 1 the other thread's MMIO load also waits for a completed one to retire (xd_q): the MMIO state is one
+  // set, and its thread (x_t, from x_lq_q) says whose load holds back interrupts (mmio_busy) and when xd_q clears. A
+  // second load issued over it took that over, so an interrupt could flush the first, completed but not retired, and
+  // its read ran twice (verif-2's two-hart random programs, 10-21). With one thread the load waiting is its head's,
+  // so none can be issued meanwhile
+  assign mm_go = mm_cand && sq_drn[t_hd] && !dr_mmio_go && xs_q == X_IDLE && !xr_v_q && !(HART1_ON && NT > 1 && xd_q) &&
+                 !kill_t[t_hd] && !mm_hold && !irq_go;
   assign st_req   = dr_v && !sq_mmio_q[dh] && !sq_amo_q[dh];
   assign st_pa    = sqh.pa;
   assign st_mask  = {8'b0, sqh.mask} << {sqh.pa[3], 3'b000};
