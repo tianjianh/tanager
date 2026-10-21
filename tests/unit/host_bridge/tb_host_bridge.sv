@@ -13,7 +13,8 @@
 // queue holding the producer, the line counters, the uncore reset emptying the queue. BOARD_CTRL (D4's modes,
 // docs/spec/soc-d4-modes.md): its bits to the core side, the PS window's reset-write status back, kept through
 // an uncore reset.
-module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0, parameter bit HDMA = 1'b0);
+module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0, parameter bit HDMA = 1'b0,
+                        parameter bit LAT_INJ = 1'b1);
   import tg_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*;
 
   logic clk = 1'b0, clk_host = 1'b0, rst = 1'b1, rst_host = 1'b1;
@@ -73,7 +74,7 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0,
   logic [1:0]  board_ctrl, board_hook = 2'b00;            // BOARD_CTRL out; the reset write's status back
 
   tg_host_bridge #(.CLK_HZ (100_000_000), .CFG_CODE (8'd1), .N_CORES_SOC (2), .CORE_RST_INIT (1'b1),
-                   .UNCORE_RST_INIT (1'b1), .TRACE (TRACE), .VIRTIO (VIRTIO), .HDMA (HDMA)) dut (
+                   .UNCORE_RST_INIT (1'b1), .TRACE (TRACE), .VIRTIO (VIRTIO), .HDMA (HDMA), .LAT_INJ (LAT_INJ)) dut (
     .clk_host, .rst_host,
     .s_awaddr (l_awaddr), .s_awvalid (l_awvalid), .s_awready (l_awready),
     .s_wdata (l_wdata), .s_wstrb (l_wstrb), .s_wvalid (l_wvalid), .s_wready (l_wready),
@@ -474,7 +475,7 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0,
     hr(16'h004, v);
     if (v[7:0] != 8'd1 || v[15:12] != 4'd2) fail($sformatf("VERSION %h", v));
     expect_h(16'h008, 32'd100_000_000, "CLK_HZ");
-    expect_h(16'h00C, {23'd0, HDMA, 4'(N_BANKS), TRACE, VIRTIO, 2'b11}, "CAPS");
+    expect_h(16'h00C, {23'd0, HDMA, 4'(N_BANKS), TRACE, VIRTIO, LAT_INJ, 1'b1}, "CAPS");
     expect_h(16'h010, 32'h3, "CTRL");
     expect_h(16'h030, 32'h8000_0000, "BOOT_ENTRY lo");
     expect_h(16'h038, 32'h8220_0000, "DTB_ADDR lo");
@@ -505,11 +506,23 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0,
     hw(16'h040, 32'd250); hw(16'h044, 32'd120); hw(16'h048, 32'h0040_0001);
     hw(16'h0C0, 32'h1); hw(16'h0C4, 32'h0200_0040); hw(16'h0C8, 32'd2048);
     repeat (60) @(posedge clk);
-    if (ird != 250 || iwr != 120 || !imode || ibw != 9'h40) fail("injector configuration crossing");
+    if (LAT_INJ) begin
+      if (ird != 250 || iwr != 120 || !imode || ibw != 9'h40) fail("injector configuration crossing");
+      expect_h(16'h050, 32'd1234, "INJ_RD_COUNT");
+      expect_h(16'h054, 32'd56789, "INJ_RD_LATSUM");
+      expect_h(16'h058, 32'd77, "INJ_RD_LATMAX");
+    end else begin
+      // a release build (DR-177): no injector, so the writes are dropped and every INJ_* register reads 0, even
+      // with statistics on the inputs
+      if (ird != 0 || iwr != 0 || imode || ibw != 0) fail("injector configuration out of a bridge without the injector");
+      expect_h(16'h040, 32'd0, "INJ_RD_DELAY without the injector");
+      expect_h(16'h044, 32'd0, "INJ_WR_DELAY without the injector");
+      expect_h(16'h048, 32'd0, "INJ_CTRL without the injector");
+      expect_h(16'h050, 32'd0, "INJ_RD_COUNT without the injector");
+      expect_h(16'h054, 32'd0, "INJ_RD_LATSUM without the injector");
+      expect_h(16'h058, 32'd0, "INJ_RD_LATMAX without the injector");
+    end
     if (!tg_en || tg_base != 28'h200_0040 || tg_lines != 24'd2048) fail("traffic-generator configuration crossing");
-    expect_h(16'h050, 32'd1234, "INJ_RD_COUNT");
-    expect_h(16'h054, 32'd56789, "INJ_RD_LATSUM");
-    expect_h(16'h058, 32'd77, "INJ_RD_LATMAX");
     expect_h(16'h0D0, 32'd42, "TG_OPS");
     expect_h(16'h0DC, 32'd3, "TG_PASS");
 

@@ -27,6 +27,7 @@ module tb_boot;
   parameter int L2_SETS_TB    = 64;      // the board has 1024 (tanager_soc's default)
   parameter bit DEBUG_CNT_TB  = 1'b0;    // the board debug counters; +dbg_dump prints them at the end
   parameter bit HOST_DMA_TB   = 1'b0;    // the host DMA port, for +hdma_lines (external-write lockstep, below)
+  parameter bit LAT_INJ_TB    = 1'b1;    // the two latency injectors; 0: a release build's memory path (DR-177)
 
   localparam logic [39:0] CO_BASE = 40'h8_4000_0000;    // carve-out in "PS" address space
   localparam logic [39:0] CO_SIZE = 40'h1000_0000;      // 256 MiB (the device tree says 128 MiB)
@@ -78,7 +79,7 @@ module tb_boot;
 
   tanager_soc #(
     .N_CORES (N_CORES), .CLK_HZ (100_000_000), .L2_SETS (L2_SETS_TB), .L2_MSHR (24), .DEBUG_CNT (DEBUG_CNT_TB),
-    .HOST_DMA (HOST_DMA_TB),
+    .HOST_DMA (HOST_DMA_TB), .LAT_INJ (LAT_INJ_TB),
     .CORE_RST_INIT (1'b1), .UNCORE_RST_INIT (1'b1), .CORE_KIND ("core"), .UART_SERIAL (UART_SERIAL_TB)
   ) dut (
     .uart_txd_o (uart_txd), .uart_rxd_i (1'b1),

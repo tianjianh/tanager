@@ -31,12 +31,14 @@ ifneq ($(TIMING_CUTS),)
     $(error TIMING_CUTS needs sim/profile.mk, which this tree lacks)
   endif
 endif
-NAME   := boot$(TAG)$(TC_SUFFIX)$(if $(filter 1,$(SERIAL)),_ser)_c$(CORES)_t$(VTHREADS)
+# LAT_INJ=0: a release build's memory path, without the two latency injectors (DR-177), in a directory of its own
+LAT_INJ ?= 1
+NAME   := boot$(TAG)$(TC_SUFFIX)$(if $(filter 1,$(SERIAL)),_ser)$(if $(filter 0,$(LAT_INJ)),_rel)_c$(CORES)_t$(VTHREADS)
 TB     := $(CURDIR)/tb_boot.sv
 # MEM_PARAMS: the DDR models' timing (tb_boot MEM_*), for example the board's fixed latency:
 #   MEM_PARAMS="-GMEM_LAT_MIN=22 -GMEM_LAT_MAX=22 -GMEM_READY_PCT=100 -GMEM_OOO=0 -GMEM_R_PCT=100" TAG=_lat22
 MEM_PARAMS ?=
-PARAMS := -GN_CORES=$(CORES) -GUART_SERIAL_TB=$(SERIAL) $(MEM_PARAMS)
+PARAMS := -GN_CORES=$(CORES) -GUART_SERIAL_TB=$(SERIAL) $(MEM_PARAMS) $(if $(filter 0,$(LAT_INJ)),-GLAT_INJ_TB=0)
 EXTRA_VFLAGS := -CFLAGS -O2 $(if $(filter-out 1,$(VTHREADS)),--threads $(VTHREADS)) $(TC_DEF)
 include ../common/unit.mk
 

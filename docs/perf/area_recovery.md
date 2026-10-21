@@ -2072,8 +2072,48 @@ The CPU-time rows use §6.12's accounting, the one §6.13 predicted in. Correcte
 - With the allocation: revision 9 is `btage_alloc = 1` in `rtl_m2` (`config.cpp`) and `PRESET_REV` 9 (`dse.py`), with this table rerun on main's build.
 - If B lands alone first, the preset stays at revision 8, since B changes no model rule. The middle column is the check.
 
+**On main (10-20 evening): both changes in, revision 9 committed (222b16fc).**
+- **What landed:**
+  - B as 1f63d5aa, in main's own form (a shared next-cycle data-valid vector, not a compare per load-queue entry);
+  - the allocation as c06345bf, with c1c21281's `tg_tage.sv` unchanged.
+- **Main's smt2 build gives the scratch builds' region cycles exactly,** on all 36 runs each time: B alone (1f63d5aa), then B with the allocation (c06345bf).
+- **The preset at revision 9 gives the cycles of `--set btage_alloc=1` exactly,** so the table above is main's.
+
+*The 18 programs on main c06345bf's RTL (smt2) against revision 9 (`results/rtlcal_c06345bf_rev9.json`), at 30 and 120 cycles, with §6.15's errors beside them. A positive error is the model slower.*
+
+| Program | RTL IPC (30 / 120) | Model IPC (30 / 120) | Error, revision 9 | Before: revision 8 on c6676bd5 |
+|---|---|---|---|---|
+| CoreMark A, rv64gc | 1.516 / 1.506 | 1.542 / 1.537 | −1.7 / −2.0% | −1.7 / −1.8% |
+| CoreMark A, rv64im | 1.542 / 1.538 | 1.562 / 1.556 | −1.3 / −1.2% | −1.5 / −1.6% |
+| CoreMark B, rv64gc | 1.511 / 1.506 | 1.530 / 1.525 | −1.2 / −1.3% | −1.5 / −1.5% |
+| CoreMark B, rv64im | 1.508 / 1.502 | 1.526 / 1.521 | −1.2 / −1.3% | −1.6 / −1.7% |
+| Dhrystone, rv64gc | 1.591 / 1.575 | 1.387 / 1.377 | **+14.7 / +14.4%** | +7.7 / **+12.5%** |
+| Dhrystone, rv64im | 1.415 / 1.396 | 1.517 / 1.499 | −6.8 / −6.8% | −8.6 / −8.6% |
+| Embench crc32 | 1.351 / 1.366 | 1.274 / 1.274 | +6.0 / +7.2% | **−17.0 / −17.0%** |
+| Embench edn | 1.676 / 1.676 | 1.777 / 1.777 | −5.7 / −5.7% | −5.8 / −5.8% |
+| Embench huffbench | 1.243 / 1.245 | 1.274 / 1.274 | −2.4 / −2.3% | −2.2 / −2.3% |
+| Embench matmult-int | 1.967 / 1.967 | 1.968 / 1.968 | −0.1 / −0.1% | −0.1 / −0.1% |
+| Embench minver | 1.788 / 1.788 | 1.801 / 1.801 | −0.7 / −0.7% | **−10.1 / −10.1%** |
+| Embench nsichneu | 1.375 / 1.375 | 1.373 / 1.373 | +0.2 / +0.2% | +0.2 / +0.2% |
+| Embench statemate | 1.063 / 1.062 | 1.085 / 1.085 | −2.1 / −2.1% | −2.1 / −2.1% |
+| Embench ud | 1.825 / 1.825 | 1.919 / 1.919 | −4.9 / −4.9% | **−16.9 / −16.9%** |
+| tk_bigcode | 0.496 / 0.166 | 0.514 / 0.195 | −3.6 / **−14.9%** | −3.6 / **−14.9%** |
+| Pointer chase, 1 chain, 0.5 MiB | 0.064 / 0.022 | 0.063 / 0.022 | +2.1 / +0.7% | +2.1 / +0.7% |
+| memcpy, 0.5 MiB | 0.524 / 0.228 | 0.656 / 0.239 | **−20.1** / −4.5% | **−20.1** / −4.5% |
+| Hash lookups, 0.5 MiB | 0.451 / 0.265 | 0.392 / 0.200 | **+15.1 / +32.6%** | **+15.0 / +32.0%** |
+| **Mean error (absolute)** | | | **4.99% / 5.71%** | 6.54% / 7.46% |
+| **Outside 10%** | | | 3 / 3 | 5 / 6 |
+
+- **crc32 and ud are inside 10% now.** crc32 runs in 2,835,248 / 2,804,879 region cycles on the RTL against the model's 3,006,282; ud in 1,297,457 against 1,233,605.
+- **Outside 10%, all known:**
+  - Dhrystone rv64gc: the model gap B uncovered (above);
+  - memcpy at 30: the ownership prefetch's port;
+  - the hash lookups: the RTL's wrong-path misses;
+  - tk_bigcode at 120: the model's simpler I$ prefetch (§6.15).
+- **Exit 2's blind prediction moves on revision 9:** −0.025 to −0.032, from minver in the pair set's build (smt2_report §13.12).
+
 **Decisions:**
-- **Revision 9 = revision 8 + `btage_alloc` 1,** committed once c1c21281, or core-2's form of it, is on main. That is my call (the model as built); the RTL change is fpu-2's.
+- **Revision 9 = revision 8 + `btage_alloc` 1,** committed once c1c21281, or core-2's form of it, is on main (done: 222b16fc, on c06345bf). That is my call (the model as built); the RTL change is fpu-2's.
 - **`ld_fwd_wait` stays 8 with B:** the calibration set can't tell 7 from 8.
 
 **Learned:**
