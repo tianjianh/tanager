@@ -1138,7 +1138,10 @@ DR-149 gives v1's L1D 4 MSHRs, a core-track switch after DR-148's timing work. T
 
 **Two cores: atomics on one line from the same cycle (`tests/coherence`, 2026-10-16).** The board's two-hart boot hung at OpenSBI's boot lottery: both harts, released together and in step, issue `amoswap.w` to one zeroed line, and neither completes. These programs make that a scenario of its own.
 - **Harness:** `tb_boot` with `CORES=2`, a bare-metal program as `+fw`, and its commit trace (`+trace_out`) checked by `tanager-lockstep` for every hart (§3.7). `make -C tests/coherence [CFG=st|smt2] [MODES=...] [LAT=...]`.
-- **Harts:** `st` runs harts 0 and 1. `smt2` runs harts 0 and 2, thread 0 of each core, which is the board's shape: `smt2` cores run one thread until M7 (core-pipeline.md), so threads 1 never fetch and the board's lottery has exactly two harts.
+- **Harts:** `st` runs harts 0 and 1. `smt2` runs harts 0 and 2 by default, thread 0 of each core, which is the board's shape before M7.
+  - **Since step 5c** (`HART1=1`), `HARTS=0,1` runs the two threads of one core and `HARTS=0,1,2,3` all four.
+  - **The checker takes every hart of the SoC**, read from `tb_boot`'s build (`..._c2_t1_smt2`: 2 cores of 2 harts). A hart that only parks still writes records. Until 10-21 the count came from the harts listed, so `0,1` on `smt2` gave 2, and hart 2's boot records stopped all 40 programs.
+  - **On 2026-10-21, main 071de15c with `HART1=1`:** `HARTS=0,1` passed 40 of 40 with lockstep on every hart, in every mode.
 - **Programs (`gen_coh.py`):** every hart leaves the boot ROM in the same cycle. The first thing each does, with no memory access before it, is the lottery: `amoswap.w` of 1 on a zeroed word. Then, by mode:
   - `amo`: rounds of AMOs (add, or, maxu, swap; word and doubleword) on words of that one line;
   - `lottery`: 15–63 more lotteries, each on a line no hart has touched (a miss in the L1D and the L2), each starting at a fixed `mcycle`, with the harts in step or one of them 1–48 cycles later; swap, add and or;
