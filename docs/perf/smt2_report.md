@@ -838,6 +838,7 @@ TG_FINALDIR=<each final set> python3 scripts/m7_smt.py --asbuilt   # §13.20: th
 | The remaining residuals (§13.19) | F3's hold on a block that doesn't fit whole, rename's choice a cycle ahead and the head window read a cycle ahead bring the model to the RTL's step-5 1.243 exactly (F3's hold 0.070 of the 0.091). At step 7 as decided with the approved fetch fix: 1.297 / 1.306 / 1.294; rename's choice costs 0.4–0.6% and the head window 0.1–0.3%, so 1.283 / 1.296 / 1.287 as built | Tuning order: rename's choice, then the head window; exit 2 at the bar |
 | The RTL's step-5 pair runs and step 7 on the merged basis (§13.20) | The model as built tracks 5c, C and 5d within 3.4% on both bases (verif-2's 5c on the merged basis: 1.107 / 1.081 / 1.060 against 1.119 / 1.103 / 1.097). 5e's fetch fix gained the RTL +2.2% / +1.5% / +2.5% like for like, against the model's +5.6% / +10.4% / +10.4%: with F2's hold gone, decode leaves 46–64% of its slots empty in memory and mixed pairs at 250, and a compute thread beside spmv, hashprobe, stream or copy keeps 0.17–0.34 of its speed. Step 7 as built lands at about 1.20 / 1.15 / 1.15 on the merged basis; about 1.26 with decode's loss removed, the approved fetch form, and rename's choice and the head window in the same cycle | Diagnose decode's loss with simulation-only counters first (worth +0.03 / +0.08 / +0.08); then the approved fetch form (+0.02), then the two residuals (+0.01); R2 for stride + Dhrystone's hang. Exit 2 at 1.3 looks out of reach by about 0.04 even then: the bar is for the coordinator and the user |
 | 5f: decode's stall modelled; step 7 re-estimated (§13.21) | Modelling 5e's acc_o (rename's chosen register counted as free) reproduces the stall in spmv's, stream's and copy's pairs (decode loses 47–54% of slots, the RTL 46–64%) and takes 5e's residual to 0.959 / 0.940 / 0.950; hashprobe's pairs still stall only on the RTL. Step 7 with 5f reads 1.260 / 1.268 / 1.260 in the model, 5f worth 2.1–6.2% of it; with the expected residual of 0.94–0.96, about 1.20 on the RTL's merged basis (1.22–1.24 if it falls to 5d's) | 5f; TG-DSLOT on 5f, hashprobe's pairs first. With the approved fetch form and the two same-cycle fixes, about 1.24 (best case 1.25–1.28): the bar stays the coordinator's and the user's |
+| 5e on main, on exit 2's basis (§13.22, verif-2) | The RTL's merged basis: 1.203 / 1.169 / 1.136, with 4 hangs (stride with Dhrystone or hashprobe at 120 and 250). The model with 5e's acc_o: residual 0.962 / 0.953 / 0.940, mixed pairs 0.94 / 0.89 / 0.86, the rest within 3%. Step 7 with 5f from this measured residual: about 1.21 / 1.21–1.23 / 1.18–1.20 | As §13.21: about 1.25 with the approved fetch form and the two same-cycle fixes, still under 1.3 at every latency |
 | D3 with FP banks of 64 (§13.13) | Every rule that keeps an op in its own FP bank deadlocks, including a lone hart's single FP restore. Renaming into the other FP bank when the hart's own is exhausted, both ways, never deadlocks (by construction, and 0 of 90 pairs and 37 lone programs). It matches FP 96 when a crossed write costs nothing extra, and loses 0.3–0.6% on FP pairs at 2 cycles more, 0.7–1.0% at 4 | FP 64 with renaming across both ways, if core-2 and fpu-2 cost it well under FP 96's +1,575 LUTs a core |
 
 ### 13.2 Exit 2: the blind prediction
@@ -2499,3 +2500,37 @@ At 120 and 250 cycles only copy (+28% / +23%), hashprobe (−27% / −31%) and s
 **Decisions:** none here. The bar remains the coordinator's and the user's (§13.20).
 
 **Learned:** a stall that sits in a choice between two threads is invisible to a model whose choice is ideal. Modelling 5e's acc_o took the model's 5e from 0.91 to 0.94–0.95 of the RTL. The rest lies in why the memory thread's group is blocked as often as it is on the RTL.
+
+### 13.22 5e on main, on exit 2's basis: the residual measured directly (verif-2, 10-21)
+
+*verif-2 ran the 42 pairs on main 3511f430, which has 5d and 5e through 189aeda6 but not 5f. The runs used the second final set, REPEAT builds, 30 / 120 / 250 cycles, and both bases.*
+- *They measure 5e, acc_o stall included, on the set and basis exit 2 is judged on.*
+- *They take step 7's estimate from a measured residual, without carrying one over from the first set's half basis (§13.21).*
+
+**1. The RTL beside the model** (WS at 30 / 120 / 250 cycles; the model's rows over the pairs both complete):
+
+| Basis | The RTL (pairs) | The model, 5e's acc_o | Residual | Memory / compute / mixed | The model's own decode: residual |
+|---|---|---|---|---|---|
+| **Merged** | **1.203 / 1.169 / 1.136** (42 / 40 / 40) | 1.251 / 1.230 / 1.209 | **0.962 / 0.953 / 0.940** | 0.97–1.00 / 0.97 / **0.94 / 0.89 / 0.86** | 0.948 / 0.916 / 0.894 |
+| Half | 1.291 / 1.223 / 1.185 (42 / 40 / 40) | 1.338 / 1.287 / 1.254 | 0.973 / 0.957 / 0.949 | 0.97–0.99 / 1.00 / 0.95 / 0.89 / 0.87 | 0.961 / 0.923 / 0.906 |
+
+- **Against 5c on the same set,** the RTL's merged basis rose from 1.107 / 1.081 / 1.060, and hangs fell from 12 to 4.
+  - The 4 left: stride + Dhrystone and stride + hashprobe, at 120 and 250 cycles.
+  - In each, stride in slot 0 finishes its first region and slot 1 never does.
+- **The residual matches the first set's** (§13.21: 0.959 / 0.940 / 0.950). It is again almost all in mixed pairs, while memory and compute pairs are within 3%.
+- **The model's step-5 forms of 5e still hang chase8's 7 pairs,** for IQ-LD's rows; its step 7 hangs none.
+
+**2. Step 7 with 5f on the merged basis** (the second set; the model's rows from §13.21, by group, times this residual):
+
+| | The model | Expected RTL: 5e's residual as measured | With 5f lifting the mixed part as on core-2's pairs |
+|---|---|---|---|
+| **Step 7 with 5f** | 1.260 / 1.268 / 1.260 | **1.21 / 1.21 / 1.18** | 1.21 / 1.23 / 1.20 |
+| + the fetch fix as approved | 1.282 / 1.290 / 1.280 | 1.23 / 1.23 / 1.20 | 1.24 / 1.25 / 1.22 |
+| + rename's choice and the head window in the same cycle | 1.298 / 1.306 / 1.295 | 1.25 / 1.25 / 1.22 | 1.25 / 1.27 / 1.24 |
+
+- **A cross-check agrees.** The RTL's 5e times the model's step from 5e to step 7 with 5f (+0.7% / +3.5% / +4.7%) gives 1.21 / 1.21 / 1.19.
+- **Exit 2 with step 7 as built would land at about 1.21 / 1.21–1.23 / 1.18–1.20:** 0.07–0.12 short.
+- **With the approved fetch form and the two same-cycle fixes it is about 1.25:** 0.03–0.08 short.
+- **This is §13.21's picture with a measured residual:** within 0.03 of it, still under the bar at every latency.
+
+**Decisions:** none here.
