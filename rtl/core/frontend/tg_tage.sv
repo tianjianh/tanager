@@ -181,7 +181,8 @@ module tg_tage
   assign b_we = t2_v_q;
   for (genvar t = 0; t < NT; t++) begin : g_tab
     logic [EW-1:0] da, db;
-    tg_ram_tdp #(.DEPTH(1 << LI), .WIDTH(EW)) u_mem (
+    // (F, spikes.md §7.1: no depth cascade, the two RAMB36 side by side: 1.19 ns clock-to-out, not 1.73)
+    tg_ram_tdp #(.DEPTH(1 << LI), .WIDTH(EW), .CASCADE_HEIGHT(1)) u_mem (
       .clk, .en_a(re), .we_a(1'b0), .addr_a(ix_idx(ix_f1, t)), .wdata_a('0), .rdata_a(da),
       .en_b(b_en), .we_b(b_we), .addr_b(t2_v_q ? ix_idx(t2_q.ix, t) : ix_idx(q_ix, t)),
       .wdata_b(wb[t]), .rdata_b(db));
