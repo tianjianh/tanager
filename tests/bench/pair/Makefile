@@ -5,7 +5,10 @@
 #                                                 memory kernels repeat their region (exit 2's method, §4.8), or with
 #                                                 REPEAT=0 run again from the top, in a build directory of its own
 #   make -C tests/bench/pair replay               Spike against Spike: the images' own check (IPC 1, WS 2)
-#   make -C tests/bench/pair run [ONLY=alone|pairs|all] [LAT=30,120,250] [JOBS=8] [LOCKSTEP=1] [SELECT=...]
+#   make -C tests/bench/pair run BASIS=half|merged [ALONE_SIM=<tg_vsim>] [ONLY=alone|pairs|all] [LAT=30,120,250]
+#                                [JOBS=8] [LOCKSTEP=1] [SELECT=...]
+#                                                 BASIS names what the alone runs have (run_pair.py --basis): half, a
+#                                                 half of the split window (hart 1 on, before step 6), or merged
 #                                                 tg_vsim, CFG=smt2; ONLY=pairs takes the alone figures of ONLY=alone's
 #                                                 run (ws-alone.json); SELECT=prog,a+b runs some (ws-<only>-sel.json)
 # The pairs need hart 1 (M7's step 5); the alone runs park it and run today. JSON lands beside the images.
@@ -14,6 +17,8 @@ LAT      ?= 30,120,250
 JOBS     ?= 8
 LOCKSTEP ?= 1
 SELECT   ?=
+BASIS    ?=
+ALONE_SIM ?=
 REPEAT   ?= 1
 
 MAKEOVERRIDES :=
@@ -41,8 +46,10 @@ replay: build
 	  --only $(ONLY) --jobs $(JOBS)
 
 run: build
+	@test -n "$(BASIS)" || { echo "make run needs BASIS=half|merged: what the alone runs have (verification.md §4.8)"; exit 2; }
 	@$(MAKE) --no-print-directory -s -C $(ROOT)/sim CFG=smt2 CORE=core $(TC_ARG) build
 	python3 $(ROOT)/tests/bench/pair/run_pair.py --sim $(TANAGER_BUILD)/$(WT)/sim/smt2-core$(TC_SUFFIX)/tg_vsim \
 	  --images $(OUT) --only $(ONLY) --lat $(LAT) --jobs $(JOBS) $(if $(filter 0,$(LOCKSTEP)),--no-lockstep) \
 	  $(if $(SELECT),--select $(SELECT)) $(if $(filter pairs,$(ONLY)),--alone $(OUT)/ws-alone$(TC_SUFFIX).json) \
+	  --basis $(BASIS) $(if $(ALONE_SIM),--alone-sim $(ALONE_SIM)) \
 	  --json $(OUT)/ws-$(ONLY)$(if $(SELECT),-sel)$(TC_SUFFIX).json

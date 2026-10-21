@@ -7,6 +7,10 @@
 # toolchain's (rv64gc): OpenSBI runs FP code only when misa has F or D, so the image also boots the
 # core before F/D. The generic platform's defaults put the next stage at 0x8020_0000 and the device
 # tree at 0x8220_0000, as docs/spec/soc.md §5 does.
+# Its PMP regions come from the device tree: one per device it uses (console, reset syscons, ACLINT, PLIC), the size of
+# that node's reg. Keep each a whole number of 4 KiB pages (sw/dts checks it): a region smaller than a page costs every
+# 4K page its cached PMP result in the core, -23.6% on a store loop (docs/spec/soc.md §4, "PMP regions: whole pages").
+# A firmware change that adds regions of its own must keep the same rule.
 #   bash sw/build_opensbi.sh            -> $SOC_BUILD/opensbi/platform/generic/firmware/fw_jump.bin
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
