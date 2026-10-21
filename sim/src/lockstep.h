@@ -40,6 +40,10 @@ struct lockstep_cfg_t {
   unsigned hart_window = 512;
 };
 
+// Several harts (§3.7): how many cycles before its record another hart may read the bytes an AMO or SC wrote
+// (it performs before it retires); the checkers that apply records in cycle order look this far ahead.
+constexpr uint64_t ATOMIC_EARLY = 64;
+
 class lockstep_impl_t;
 
 class lockstep_t {
@@ -65,6 +69,15 @@ class lockstep_t {
   // stores an AMO or a successful SC read past, which then followed it into Spike's memory.
   uint64_t hart_loads_old() const;
   uint64_t hart_reapplied() const;
+  // Reads that showed another hart's plain store reached memory after later writes to its bytes (§3.7)
+  uint64_t hart_late() const;
+  // Several harts (§3.7): whether the read in record r, the next one of its hart, returned bytes only an AMO or
+  // SC of another hart in `later` (records queued with later cycles) wrote. Returns that record's index; -1 when
+  // r reads nothing the checker compares or Spike's memory and the windows explain its value; -2 when nothing
+  // does. Records of the atomic's hart up to it then go first: the atomic performed before its record.
+  int early_atomic(const tr_rec_t& r, const std::vector<const tr_rec_t*>& later);
+  // The same for a deferred load's writeback w, the next record or writeback of its hart.
+  int early_atomic(const tr_wb_t& w, const std::vector<const tr_rec_t*>& later);
 
   size_t pending_wbs() const;
   bool failed() const;
