@@ -17,8 +17,8 @@
 // one request every two cycles; a full queue drops a request. The update: the provider's counter moves toward the
 // outcome; its useful bits move when its direction differed from the next match's (or the
 // base's); without a provider the base counter moves. A wrong fetch-time direction allocates one
-// sub-entry, invalid or not useful, in a longer table than the provider, else every candidate's
-// useful bits age.
+// sub-entry in a longer table than the provider (the shortest with a candidate: an invalid way first,
+// else one not useful; way 0 before way 1), else every candidate's useful bits age.
 module tg_tage
   import tg_pkg::*;
 #(
@@ -242,14 +242,14 @@ module tg_tage
 
   // ---- T2: the update ----
   always_comb begin
-    int  pt, pw, at, aw;
+    int  pt, pw, at, aw, nw;
     logic pdir, adir, done;
     logic [SW-1:0] s;
     done = 1'b0;
     s  = t2_q.slot;
     wb = rb;
     bwb = brb;
-    pt = -1; pw = 0; at = -1; aw = 0;
+    pt = -1; pw = 0; at = -1; aw = 0; nw = -1;
     for (int t = NT - 1; t >= 0; t--)
       for (int w = 0; w < 2; w++)
         if (rb[t][w].v && rb[t][w].tag == ix_tag(t2_q.ix, t) && rb[t][w].slot == s) begin
@@ -270,13 +270,21 @@ module tg_tage
       if (!t2_q.taken && brb[s] != 2'd0) bwb[s] = brb[s] - 1'b1;
     end
     if (t2_q.pred != t2_q.taken && pt < NT - 1) begin
+      // An invalid way before a not-useful one: taking way 0 whenever it was either, two branches sharing an entry
+      // evicted each other's fresh way-0 sub-entry for ever while way 1 stayed invalid (ud's loop exits; smt2-study,
+      // area_recovery §6.16)
       for (int t = 0; t < NT; t++)
-        if (t > pt && !done)
-          for (int w = 0; w < 2; w++)
-            if (!done && (!rb[t][w].v || rb[t][w].u == 2'd0)) begin
-              wb[t][w] = '{v: 1'b1, slot: s, tag: ix_tag(t2_q.ix, t), ctr: t2_q.taken ? 3'd4 : 3'd3, u: 2'd0};
-              done = 1'b1;
-            end
+        if (t > pt && !done) begin
+          if      (!rb[t][0].v)        nw = 0;
+          else if (!rb[t][1].v)        nw = 1;
+          else if (rb[t][0].u == 2'd0) nw = 0;
+          else if (rb[t][1].u == 2'd0) nw = 1;
+          else                         nw = -1;
+          if (nw >= 0) begin
+            wb[t][nw] = '{v: 1'b1, slot: s, tag: ix_tag(t2_q.ix, t), ctr: t2_q.taken ? 3'd4 : 3'd3, u: 2'd0};
+            done = 1'b1;
+          end
+        end
       if (!done)
         for (int t = 0; t < NT; t++)
           if (t > pt)
