@@ -8,6 +8,8 @@
 //   s+4   FMISC result: written to its bank at the end of the cycle, or into the B1 queue
 //   s+7   FMA result: written to its bank at the end of the cycle
 //   c     a divide result claims P4's free slot c+1 (its wakeup fires); written in c+1
+// A cycle s in which tg_lsu blocks IQ-FP's select (fp_block) leaves P4's slot s+7 free for a held FP load (DR-179): no
+// FMISC result is selected into it (fmisc_block at s+3) and no divide claims it (at s+6).
 // P4's stream writes one result a cycle into the bank its destination names: F0, or F1 when rename crossed it
 // (DR-179). It is the bypass source of every P4 result. FP loads come from the load path into their bank (F1, or
 // F0 when crossed); P4 wins a bank both want, and the LSU holds the load a cycle from P4's announcement
@@ -36,6 +38,7 @@ module tg_fp_exec
   input  logic                         iss_valid,
   input  fp_iss_t                      iss_pl,
   output logic                         fmisc_block,
+  input  logic                         fp_block,      // tg_lsu: IQ-FP's select blocked (frees P4's slot 7 cycles on)
   // Integer source (RF stage): the core's shared integer read port
   output logic                         isrc_valid,
   output preg_t                        isrc_tag,
@@ -203,7 +206,10 @@ module tg_fp_exec
   // flush of its thread (the core's contract, asserted below), so the registered bit suffices
   // here and the late fdiv_ret_* inputs stay off this path.
   assign fdv_live = !fdv_e.squashed && (fdv_e.retired || !tid_hit(flush, flush_tid, fdv_e.tid));
-  assign slot_busy = fsh_q[ML-2].v || (msh_q[SL-2].v && msh_q[SL-2].fpd);
+  // A cycle of IQ-FP's select blocked by tg_lsu (fp_block, at s) leaves P4's slot at s+7 free for a held FP load:
+  // no FMISC result is selected into it (fmisc_block at s+3) and no divide claims it (at s+6)
+  logic [5:0] fpb_q;                 // fp_block, 1 to 6 cycles ago
+  assign slot_busy = fsh_q[ML-2].v || (msh_q[SL-2].v && msh_q[SL-2].fpd) || fpb_q[5];
   // A squashed result is drained at once; a live one needs the free slot.
   assign fdv_rdy   = !fdv_live || !slot_busy;
   assign fdv_claim = fdv_v && fdv_rdy;
@@ -538,10 +544,12 @@ module tg_fp_exec
       iq_rd_q       <= '0;
       iq_dead_q     <= '0;
       fmisc_block_q <= 1'b0;
+      fpb_q         <= '0;
     end else begin
+      fpb_q     <= {fpb_q[4:0], fp_block};
       ex_v_q    <= iss_valid;
       ex_live_q <= iss_valid && rf_live;
-      fmisc_block_q <= ex_v_q && ex_unit == FU_FMA;
+      fmisc_block_q <= (ex_v_q && ex_unit == FU_FMA) || fpb_q[1];
 
       // Shadow pipelines: shift, then clear live for the flushed thread
       for (int k = ML - 1; k > 0; k--) fsh_q[k] <= fsh_q[k-1];
@@ -633,6 +641,9 @@ module tg_fp_exec
           else $error("tg_fp_exec: an integer result from a unit other than FMISC");
       end
       assert (!dq_in_v || dq_in_rdy) else $error("tg_fp_exec: divide queue overflow");
+      // tg_lsu's free slot (fp_block at s): nothing selected at s, and no P4 write announced for s+7
+      assert (!(fpb_q[0] && iss_valid)) else $error("tg_fp_exec: an operation selected under fp_block");
+      assert (!(fpb_q[5] && nx_we)) else $error("tg_fp_exec: a P4 write in the slot a blocked select freed");
       assert (!init_we || (!init_bank && !iss_valid && !p4_we && !p4_sel))
         else $error("tg_fp_exec: an init write outside F0, or beside an operation");
       // A flush is registered from the commit before it, so nothing it kills retires with it

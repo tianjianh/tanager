@@ -32,6 +32,7 @@ module tb_fpx_top
   input  logic                    iss_fp_int,
   input  logic                    iss_fp_div,
   output logic                    fmisc_block,
+  input  logic                    fp_block,
   output logic                    isrc_valid,
   output logic [PW-1:0]           isrc_tag,
   input  logic [63:0]             isrc_data,
@@ -118,7 +119,7 @@ module tb_fpx_top
 
   tg_fp_exec #(.NTR(1), .DIV_RADIX4(DIV_RADIX4)) u_dut (
     .clk, .rst, .flush, .flush_tid, .init_we, .init_bank, .init_idx,
-    .iss_valid, .iss_pl(pl), .fmisc_block,
+    .iss_valid, .iss_pl(pl), .fmisc_block, .fp_block,
     .isrc_valid, .isrc_tag, .isrc_data,
     .fld_m2_will, .fld_m2_bank, .fld_m2_idx, .fld_valid, .fld_bank, .fld_idx, .fld_data,
     .p4_nx_we_o, .p4_nx_bank_o,
