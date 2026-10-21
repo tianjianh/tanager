@@ -1,0 +1,11 @@
+remove from slot 0 returns: 0 (Ok)
+tanager-d4r1: Loaded with slot_handle 0
+loaded tanager-d4r1 at 13:07:06; fpga0 operating
+fan: pwm1 25/255, AMS temp1 35 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+Oct 20 13:07:04 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/firmware-name
+Oct 20 13:07:04 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/resets
+Oct 20 13:07:04 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /__symbols__/afi0
+Oct 20 13:07:04 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /__symbols__/clocking0
+Oct 20 13:07:04 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /__symbols__/tanager_host
+dead-man: k26-starter-kits comes back at 13:17:06 unless 'steps' or 'restore' runs first

@@ -51,6 +51,13 @@ Inside `tg_core` (packages: `tg_core_pkg`, `tg_tl_pkg`, `tg_map_pkg`):
     when both threads want it (a committed store, or an atomic as their next entry) and holding while an MMIO store or
     an atomic uses the head; the head's registered fields follow it. The D$'s store port takes a new request each
     cycle, so a store waiting for its line may give way to the other thread's.
+  - **Forward progress beside a sibling (5d):** the D$ keeps a line installed for a store `FU_ST` cycles for its first
+    write, and an LR's line `RSV_HOLD` cycles for its SC. With two threads those windows run in the thread's own head
+    cycles, so the sibling's atomic or MMIO store, which holds the head for tens of cycles, starts only while the thread
+    has no claim out (`fpc_t`: its head store asked for its line and was not acknowledged, `stm_q`, or its reservation
+    still holds probes). Without this, two cores whose stores or LR/SC loops met on a line, each beside a sibling
+    spinning on atomics, took the line from each other forever (verif-2's four-hart coherence programs on 5c and 5d:
+    6 of 40 hung; none with the claims).
   - **The head:** the ROB's commit thread (`hd_tid_o`) chooses the head checks (the DTLB retry, the deciding walk and
     its fault, the trap's tval), the MMIO load (its thread's LQ head at its ROB head, its committed stores drained),
     `sq_drained` and `mmio_busy`. With two threads the commit thread alternates, so the head check's registers are per

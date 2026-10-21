@@ -22,7 +22,9 @@
 // that hart's decode state; a redirect empties its thread's (flush_q, one bit a queue: two threads' redirects may come
 // in one cycle). Decode reads one thread's queue a cycle
 // (out_tid, registered): after decode takes from it, the other thread's if that one has instructions, and an empty
-// queue is skipped (D7: the first-served thread alternates). Without MT the one queue of before, the running thread's.
+// queue is skipped (D7: the first-served thread alternates). Step 5d: decode reads only a thread whose RN register
+// takes a group next cycle (acc_t, rename's), so it never waits on a register that holds a stalled group.
+// Without MT the one queue of before, the running thread's.
 module tg_fetch_compact
   import tg_pkg::*, tg_core_pkg::EXT_C, tg_core_pkg::EXT_FD, tg_core_pkg::dec_t,
          tg_core_pkg::dec_state_t, tg_core_pkg::QUEUE_DECODE, tg_core_pkg::HART1_ON, tg_core_pkg::RUN_TID;
@@ -46,6 +48,7 @@ module tg_fetch_compact
   input  logic [NUM_THREADS-1:0]  flush_q,    // redirects: each empties its queue (bit 0 alone without MT)
   input  logic [NUM_THREADS-1:0]  drop_t,     // MT: a thread behind a serial uop at rename: its queue empties and
                                               // takes its blocks without writing them (its flush would drop them)
+  input  logic [NUM_THREADS-1:0]  acc_t,      // MT (step 5d): a thread's RN register takes a group next cycle
   input  dec_state_t [NUM_THREADS-1:0] dst,   // the decoders' state, per hart (decode's)
   // Block from IF2
   input  logic                    blk_valid,
@@ -60,7 +63,8 @@ module tg_fetch_compact
   output tid_t                    out_tid,
   output logic [RD-1:0]           out_valid,
   output logic [RD-1:0][IB_W-1:0] out_insn,
-  input  logic [idx_w(RD + 1)-1:0] take        // instructions decode takes this cycle (out_tid's)
+  input  logic [idx_w(RD + 1)-1:0] take,       // instructions decode takes this cycle (out_tid's)
+  output logic [NUM_THREADS-1:0][idx_w(DEPTH):0] occ_o   // MT (5e): each thread's entries, registered (fetch's room)
 );
   localparam bit MT = HART1_ON && NUM_THREADS > 1;   // a queue per thread (two threads)
   localparam int NQ = MT ? 2 : 1;
@@ -116,6 +120,7 @@ module tg_fetch_compact
   logic [QW:0]   occ_q, rocc;                // the block's thread's count; the reader's
   logic [QW-1:0] head_q, tail_q;             // the reader's head; the block's thread's tail
   assign occ_q  = occ_t_q[wq];
+  always_comb for (int q = 0; q < NUM_THREADS; q++) occ_o[q] = (q < NQ) ? occ_t_q[q < NQ ? q : 0] : '0;
   assign tail_q = tail_t_q[wq];
   assign rocc   = occ_t_q[rq];
   assign head_q = head_t_q[rq];
@@ -130,7 +135,7 @@ module tg_fetch_compact
     assign fq[q] = flush_q[q] || (MT && drop_t[q]);
   end
   logic unused_fq;                           // (without MT the second thread's bits)
-  assign unused_fq = ^{flush_q, drop_t};
+  assign unused_fq = ^{flush_q, drop_t, acc_t};
   assign blk_ready = blk_valid && ((MT && drop_t[wq]) || (room && left <= CW'(WR)));
 
   // ---- Compaction straight into the banks ----
@@ -264,9 +269,10 @@ module tg_fetch_compact
       hm_q[wq] <= marks[NP-1];
     end
     // decode's next thread (MT): the other one after a take from this one, or when this one's queue is empty, if
-    // the other's holds instructions
+    // the other's holds instructions; only one whose RN register takes a group next cycle (step 5d), so the other
+    // one also when this one's register will not
     if (rst) rt_q <= MT && RUN_TID[0];
-    else if (MT && occ_n[ro] != '0 && (take != '0 || occ_n[rq] == '0)) rt_q <= ro;
+    else if (MT && occ_n[ro] != '0 && acc_t[ro] && (take != '0 || occ_n[rq] == '0 || !acc_t[rq])) rt_q <= ro;
   end
 
 `ifndef SYNTHESIS
@@ -274,5 +280,18 @@ module tg_fetch_compact
     if (!rst && !fq[rq]) assert (int'(take) <= RD && (QW + 1)'(take) <= rocc)
       else $error("tg_fetch_compact: take beyond the valid entries");
   end
+  // (MT) decode slots left empty while the other thread's queue held instructions (the one-thread-a-group rule), and of
+  // them those in cycles the read thread had under a group; on stderr at the end with hart 1
+  longint unsigned n_es, n_esu;
+  always_ff @(posedge clk)
+    if (rst) begin
+      n_es  <= 0;
+      n_esu <= 0;
+    end else if (MT && occ_t_q[ro] != '0 && !fq[ro]) begin
+      n_es <= n_es + longint'(RD) - longint'(take);
+      if (rocc < (QW + 1)'(RD)) n_esu <= n_esu + longint'(RD) - longint'(take);
+    end
+  final if (MT) $fwrite(32'h8000_0002, "TG-STALL2 %m: decode left %0d slots empty while the other thread's queue held instructions (%0d with under a group in the read thread's)\n",
+                        n_es, n_esu);
 `endif
 endmodule
