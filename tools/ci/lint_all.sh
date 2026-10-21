@@ -58,6 +58,9 @@ if mentioned TG_STORE_PF_MAX; then  # the count other than the package's default
   profiles+=("STORE_PF_MAX=$([ "$spm_def" = 3 ] && echo 2 || echo 3)")
 else echo "lint-all: no RTL mentions TG_STORE_PF_MAX; skipping STORE_PF_MAX"; fi
 profiles+=("SYNTH=1")
+# DR-177's release builds, without the two latency injectors (tanager_soc LAT_INJ, a parameter), in both views
+if grep -qsw LAT_INJ "$ROOT/rtl/soc/tanager_soc.sv"; then profiles+=("LAT_INJ=0" "LAT_INJ=0 SYNTH=1")
+else echo "lint-all: tanager_soc has no LAT_INJ; skipping LAT_INJ=0"; fi
 # M7's test mode (SOLO_TID=1, DR-175) exists only in the SMT2 configurations (TID_W = 1)
 solo=""; if mentioned TG_SOLO_TID; then solo=1; else echo "lint-all: no RTL mentions TG_SOLO_TID; skipping SOLO_TID=1"; fi
 # ... and its split mode (SPLIT=1), alone and with SOLO_TID=1

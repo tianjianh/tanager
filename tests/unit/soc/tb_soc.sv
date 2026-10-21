@@ -36,6 +36,7 @@ module tb_soc;
   parameter bit    VIRTIO = 1'b0;       // the forwarded virtio window (tg_uncore VIRTIO_WINDOW)
   parameter bit    HOST_DMA = 1'b0;     // the coherent host DMA port (tg_uncore HOST_DMA)
   parameter bit    SDIRQ = 1'b0;        // the SD-like interrupt stress (with the PS window; sw/sd_irq.c)
+  parameter bit    LAT_INJ = 1'b1;      // the two latency injectors (tg_uncore LAT_INJ); 0: a release build (DR-177)
   // A program runs on the test cores, or with SDIRQ on the real ones too (KIND = "core")
   localparam bit   PROG = KIND == "tcore" || SDIRQ;
 
@@ -100,7 +101,7 @@ module tb_soc;
   tanager_soc #(
     .N_CORES (NUM_CORES), .CLK_HZ (100_000_000), .L2_SETS (16), .L2_MSHR (24),
     .CORE_RST_INIT (1'b1), .UNCORE_RST_INIT (1'b1), .CORE_KIND ((KIND == "trafgen") ? "trafgen" : "core"),
-    .VIRTIO_WINDOW (VIRTIO), .HOST_DMA (HOST_DMA), .BREAK_LOG2 (6)
+    .VIRTIO_WINDOW (VIRTIO), .HOST_DMA (HOST_DMA), .LAT_INJ (LAT_INJ), .BREAK_LOG2 (6)
   ) dut (
     .uart_txd_o (), .uart_rxd_i (ps_rxd),
     .clk, .clk2x, .rst, .clk_host, .rst_host,
@@ -783,25 +784,36 @@ module tb_soc;
         passes = int'(v);
       end while (passes < 6);
       expect_reg(16'h0D4, 32'd0, "traffic generator errors at injected latency 0");
-      // ---- the same at a 250-cycle target latency ----
-      hw(16'h040, 32'd250);
-      hr(16'h0DC, v);
-      passes = int'(v) + 4;
-      do begin
-        repeat (5000) @(posedge clk);
+      if (LAT_INJ) begin
+        // ---- the same at a 250-cycle target latency ----
+        hw(16'h040, 32'd250);
         hr(16'h0DC, v);
-      end while (int'(v) < passes);
-      expect_reg(16'h0D4, 32'd0, "traffic generator errors at injected latency 250");
-      hr(16'h050, v);
-      begin
-        logic [31:0] lsum, lmax;
-        hr(16'h054, lsum);
-        hr(16'h058, lmax);
-        $display("injector: %0d reads, native latency avg %0.1f max %0d (host registers)", v,
-                 (v != 0) ? real'(lsum) / real'(v) : 0.0, lmax);
-        if (v != 0 && real'(lsum) / real'(v) < 2.0) fail("injector: native latency average below 2 cycles");
+        passes = int'(v) + 4;
+        do begin
+          repeat (5000) @(posedge clk);
+          hr(16'h0DC, v);
+        end while (int'(v) < passes);
+        expect_reg(16'h0D4, 32'd0, "traffic generator errors at injected latency 250");
+        hr(16'h050, v);
+        begin
+          logic [31:0] lsum, lmax;
+          hr(16'h054, lsum);
+          hr(16'h058, lmax);
+          $display("injector: %0d reads, native latency avg %0.1f max %0d (host registers)", v,
+                   (v != 0) ? real'(lsum) / real'(v) : 0.0, lmax);
+          if (v != 0 && real'(lsum) / real'(v) < 2.0) fail("injector: native latency average below 2 cycles");
+        end
+        if (v == 0) fail("injector saw no reads");
+      end else begin
+        // ---- a release build (DR-177): the L2's banks straight to the DDR models, which answer out of order;
+        // no injector, so a delay written is dropped and the statistics read 0 ----
+        hw(16'h040, 32'd250);
+        expect_reg(16'h040, 32'd0, "INJ_RD_DELAY in a build without the injectors");
+        expect_reg(16'h050, 32'd0, "INJ_RD_COUNT in a build without the injectors");
+        expect_reg(16'h054, 32'd0, "INJ_RD_LATSUM in a build without the injectors");
+        expect_reg(16'h058, 32'd0, "INJ_RD_LATMAX in a build without the injectors");
+        $display("injector: not built (LAT_INJ=0)");
       end
-      if (v == 0) fail("injector saw no reads");
       hw(16'h0C0, 32'h0);
       hw(16'h040, 32'd0);
       hr(16'h0D0, v);
@@ -812,6 +824,13 @@ module tb_soc;
       $display("console: \"%s\"", console);
       if (console.len() < 6) fail("too little console output");
       for (int i = 0; i < console.len(); i++) if (console[i] != ".") fail("console shows an error pass");
+    end
+
+    // ---- the injectors' capability bit (DR-177: none in a release build) ----
+    begin
+      logic [31:0] caps;
+      hr(16'h00C, caps);
+      if (caps[1] != LAT_INJ) fail($sformatf("capability bit 1 (the latency injector) %0d with LAT_INJ=%0d", caps[1], LAT_INJ));
     end
 
     // ---- hold everything in reset again (tanager-host reset) ----

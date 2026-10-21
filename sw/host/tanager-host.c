@@ -65,6 +65,7 @@ enum {
 #define TRS_ST_FULL      0x8u
 #define TRS_ST_AXI_ERR   0x10u
 #define TRS_REC_BYTES  64u
+#define CAPS_INJ       0x2u            /* CAPS[1]: the latency injectors (development builds; release builds have none, DR-177) */
 #define CAPS_VIRTIO    0x4u            /* CAPS[2]: the forwarded virtio window (stage C, soc.md §8.1) */
 #define CAPS_TRACE     0x8u            /* CAPS[3]: the commit-trace stream is built (DR-146) */
 #define CAPS_HDMA      0x100u          /* CAPS[8]: the coherent host DMA port (stage C, soc.md §8.1) */
@@ -611,9 +612,12 @@ static void cmd_info(void) {
          st & ST_L2_INIT ? "ready" : "not ready", st & ST_POWER_REQ ? ", power request pending" : "");
   printf("  window          base 0x%" PRIx64 " size 0x%" PRIx64 "\n", rd64(R_DRAM_BASE), rd64(R_DRAM_SIZE));
   printf("  boot            entry 0x%" PRIx64 " dtb 0x%" PRIx64 "\n", rd64(R_BOOT_ENTRY), rd64(R_DTB_ADDR));
-  printf("  injector        rd %u wr %u ctrl 0x%08x; %u reads, native latency avg %.1f max %u cycles\n",
-         rd(R_INJ_RD), rd(R_INJ_WR), rd(R_INJ_CTRL), rd(R_INJ_CNT),
-         rd(R_INJ_CNT) ? (double)rd(R_INJ_SUM) / rd(R_INJ_CNT) : 0.0, rd(R_INJ_MAX));
+  if (rd(R_CAPS) & CAPS_INJ)
+    printf("  injector        rd %u wr %u ctrl 0x%08x; %u reads, native latency avg %.1f max %u cycles\n",
+           rd(R_INJ_RD), rd(R_INJ_WR), rd(R_INJ_CTRL), rd(R_INJ_CNT),
+           rd(R_INJ_CNT) ? (double)rd(R_INJ_SUM) / rd(R_INJ_CNT) : 0.0, rd(R_INJ_MAX));
+  else
+    printf("  injector        not built (a release build: CAPS[1] = 0, DR-177)\n");
   printf("  tohost          0x%016" PRIx64 " (%u writes)\n", rd64(R_TOHOST), rd(R_TOHOST_SEQ));
   if (rd(R_CAPS) & CAPS_VIRTIO) print_vq();
 }
@@ -706,7 +710,21 @@ static void cmd_load(const struct opts *o) {
           o->base, (unsigned long long)DRAM_BASE_RV);
 }
 
+/* A release build (TG_LAT_INJ=0, DR-177) has no latency injectors and reads CAPS[1] = 0. A command that asks for a
+ * delay or a bandwidth cap stops here, before anything is loaded or released, rather than run at the native latency
+ * as if injected. One that asks only for zeros (--inj-rd 0, as the lockstep runs pass), or for nothing, goes on. */
+static int inj_built(void) { return (rd(R_CAPS) & CAPS_INJ) != 0; }
+static void check_inj(const struct opts *o) {
+  if (inj_built()) return;
+  if (o->inj_rd > 0 || o->inj_wr > 0 || o->inj_bw > 0)
+    die("--inj-*: this bitstream has no latency injectors (a release build: CAPS[1] = 0, DR-177); injected "
+        "latency needs a development build (TG_LAT_INJ=1)");
+  if (o->inj_rd >= 0 || o->inj_wr >= 0 || o->inj_mode >= 0 || o->inj_bw >= 0)
+    fprintf(stderr, "injector: not built in this bitstream (a release build); nothing to set\n");
+}
+
 static void set_inj(const struct opts *o) {
+  if (!inj_built()) return;
   if (o->inj_rd >= 0) wr(R_INJ_RD, (uint32_t)o->inj_rd);
   if (o->inj_wr >= 0) wr(R_INJ_WR, (uint32_t)o->inj_wr);
   if (o->inj_mode >= 0 || o->inj_bw >= 0) {
@@ -1171,10 +1189,15 @@ int main(int argc, char **argv) {
   if (!strcmp(cmd, "info"))       { check_id(); cmd_info(); return 0; }
   if (!strcmp(cmd, "reset"))      { check_id(); cmd_reset(); return 0; }
   if (!strcmp(cmd, "load"))       { check_id(); check_trace(&o); check_virtio(&o); cmd_load(&o); return 0; }
-  if (!strcmp(cmd, "run"))        { check_id(); check_trace(&o); check_virtio(&o); return cmd_run(&o); }
-  if (!strcmp(cmd, "boot"))       { check_id(); check_trace(&o); check_virtio(&o); cmd_load(&o); return cmd_run(&o); }
+  if (!strcmp(cmd, "run"))        { check_id(); check_trace(&o); check_virtio(&o); check_inj(&o); return cmd_run(&o); }
+  if (!strcmp(cmd, "boot"))       { check_id(); check_trace(&o); check_virtio(&o); check_inj(&o); cmd_load(&o); return cmd_run(&o); }
   if (!strcmp(cmd, "inj"))        {
     check_id();
+    check_inj(&o);
+    if (!inj_built()) {
+      printf("injector: not built in this bitstream (a release build: CAPS[1] = 0, DR-177)\n");
+      return 0;
+    }
     set_inj(&o);
     if (stats || (o.inj_rd < 0 && o.inj_wr < 0 && o.inj_mode < 0 && o.inj_bw < 0))
       printf("injector: rd %u wr %u ctrl 0x%08x; %u reads, native latency avg %.1f max %u cycles\n",
