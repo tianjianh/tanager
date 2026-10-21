@@ -432,8 +432,13 @@ class Core {
   std::unordered_map<uint64_t, int> ldw_;
   std::vector<uint64_t> fpld_pend_;
   // the hold's entries (prf_fp_fh): each a load, its bank, failed takes, the write it missed and its completion offset
-  struct FhEnt { bool on = false; int bank = 0, fails = 0; uint64_t id = 0, issue = 0, w0 = 0, done = 0; };
+  struct FhEnt { bool on = false; int bank = 0, fails = 0; uint64_t id = 0, issue = 0, w0 = 0, done = 0, take = 0; };
   std::array<FhEnt, 2> fh_{};
+  // prf_fp_collide 3 (fpu-2's P): the one cycle IQ-FP's and IQ-LD's selects are blocked, and the write slot kept free
+  // in each FP bank
+  uint64_t p_fp_at_ = NEVER, p_ld_at_ = NEVER;
+  std::array<uint64_t, 2> p_slot_{};
+  uint64_t p4_write_lat(const Uop& u) const;
   struct FhWait { uint64_t id = 0, issue = 0, done = 0; };
   std::deque<FhWait> fh_wait_;   // prf_fp_wait: colliding loads waiting for a free entry, oldest first
   bool fh_ld_block_ = false, fh_fp_block_ = false, fh_pause_ = false;   // the guards this cycle; B's IQ-FP pause

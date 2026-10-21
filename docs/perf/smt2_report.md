@@ -785,6 +785,7 @@ TG_FINALDIR=<the first final set> python3 scripts/m7_smt.py --recon5   # §13.16
 python3 scripts/m7_smt.py --recon7         # §13.16's step 7, on the second final set
 python3 scripts/m7_smt.py --final7 --fp64q --fp64r   # §13.17 (step 7 as decided), §13.18 (fpu-2's FP 64 questions)
 python3 scripts/m7_smt.py --fp64w --eagerwake         # §13.18: stopping the restore crossing, and its cost to a wake
+python3 scripts/m7_smt.py --fp64s --fp64p             # §13.18: the six cases beside core-2's RTL, and fpu-2's P
 ```
 
 **Where results live.**
@@ -831,7 +832,7 @@ python3 scripts/m7_smt.py --fp64w --eagerwake         # §13.18: stopping the re
 | Step 7 in fpu-2's form (§13.15, the second final set) | R2 as worded (a bank's last free row kept for the sibling's waiting group) costs 2.5–3.5%: 1.258 / 1.269 / 1.264 with round robin. "Never all of a bank's rows", for every bank the waiting group needs, reads 1.299 / 1.311 / 1.300, with no hang either way. ICOUNT adds 0.0–0.3% over round robin, and counting decode and rename doesn't matter. Lifting the caps while the sibling sleeps costs the waking task up to 0.4K cycles a wake and gives a lone memory thread up to 45% | R2 plus "… and the sibling holds none of that bank's rows"; round robin; keep the lift |
 | Step 5 against core-2's 5c and C, step 7 for C and B (§13.16) | The RTL's commit turns, round robin and its shared fetch pipe take the model's C from 1.397 to 1.334 against the RTL's 1.243 (5c: 1.276 against 1.227); about 0.09 remains. At step 7 the shared fetch pipe costs C 7–14%: 1.184 / 1.128 / 1.107 with core-2's commit fix, mixed pairs below 1.0 at 250. With the hold fixed, C reads 1.289 / 1.303 / 1.291 and B 1.207 / 1.210 / 1.204 | Fix the fetch hold before step 7's pairs; core-2's commit fix; C (the parking form) over B, by 6.8–7.7% |
 | Step 7 as decided: C, core-2's fix, FP 64 across both (§13.17) | FP 64 with the crossed write in the cycle matches FP 96 to the cycle. C with core-2's fix: 1.184 / 1.128 / 1.107 as built, 1.289 / 1.303 / 1.291 with the fetch hold fixed; the 25 FP pairs 1.341 / 1.326 / 1.291 and 1.387 / 1.379 / 1.371. No C form hangs. B's room check, counting only an op's own FP bank, hangs 20 of 32 FP-type pairs | Fix the fetch hold (§13.16) |
-| FP 64's write ports and transfers (§13.18, fpu-2) | P4 first with a colliding FP load held (tg_lsu's `fh`, its guards as built) costs the FP pairs 0.12–0.27%, a lone FP restore 6–10%, tk_dgemm 0.45%, the suite 0.6%. IQ-LD's block from the 4th failed take halves the pairs' cost. No fix at the hold removes the restore's cost (−8 to −14%). Upstream it goes: a group short in its own FP bank asks for a transfer even while it crosses, and a parked sibling's free FP registers move to the running hart ahead of need, all of them. FP 64 then matches FP 96 on the lone programs and the FP pairs read −0.01 to −0.02%, at no cost to a waking integer task. Without FP transfers nothing hangs; a lone nbody on the merged window loses 5.6%, the suite 0.16% | IQ-LD's block from the 4th failed take; keep IQ-FP's at the 8th; none of A, B, D; per-bank wants and eager FP borrowing (keeping none) in rename's transfers; keep the FP transfers |
+| FP 64's write ports and transfers (§13.18, fpu-2) | P4 first with a colliding FP load held (tg_lsu's `fh`, its guards as built) costs the FP pairs 0.12–0.27%, a lone FP restore 6–10%, tk_dgemm 0.45%, the suite 0.6%. IQ-LD's block from the 4th failed take halves the pairs' cost. No fix at the hold removes the restore's cost (−8 to −14%). Upstream it goes: a group short in its own FP bank asks for a transfer even while it crosses, and a parked sibling's free FP registers move to the running hart ahead of need, all of them. FP 64 then matches FP 96 on the lone programs and the FP pairs read −0.01 to −0.02%, at no cost to a waking integer task. fpu-2's P cuts a lone restore's hold cost to a quarter; the restore-with-itself pairs swing ±30% with phase, on the RTL and in the model, and say nothing of capacity. Without FP transfers nothing hangs; a lone nbody on the merged window loses 5.6%, the suite 0.16% | IQ-LD's block from the 4th failed take; keep IQ-FP's at the 8th; none of A, B, D; per-bank wants and eager FP borrowing (keeping none) in rename's transfers; keep the FP transfers |
 | D3 with FP banks of 64 (§13.13) | Every rule that keeps an op in its own FP bank deadlocks, including a lone hart's single FP restore. Renaming into the other FP bank when the hart's own is exhausted, both ways, never deadlocks (by construction, and 0 of 90 pairs and 37 lone programs). It matches FP 96 when a crossed write costs nothing extra, and loses 0.3–0.6% on FP pairs at 2 cycles more, 0.7–1.0% at 4 | FP 64 with renaming across both ways, if core-2 and fpu-2 cost it well under FP 96's +1,575 LUTs a core |
 
 ### 13.2 Exit 2: the blind prediction
@@ -2165,6 +2166,37 @@ At 120 and 250 cycles only copy (+28% / +23%), hashprobe (−27% / −31%) and s
 - **Recommendation: (2), and (1) in the FP banks only with the parked donor keeping none.**
   - Both are rename's transfer rules (core-2's), with no LSU change.
   - With them, FP 64 matches FP 96 on the lone programs and comes within 0.02% of the same-cycle write on the FP pairs. The hold and its guards then act only on what is left: the FP pairs' 0.56 holds a kilo-instruction.
+
+**Beside core-2's RTL of FP 64 with crossing (d33cf028), and fpu-2's P** (`m7_smt.py --fp64s --fp64p`).
+
+*fpu-2 measured FP 64 with crossing against 5d's FP 96 on the RTL, 30 / 120 / 250 cycles:*
+- *alone, with hart 1 parked: the 32- and 64-fld restores −4.8% and −3.3%, m7_fpcompute −2.1%, the same under every guard setting (about one hold a rep, no replays, IQ-FP blocked about 7 cycles a hold: P4's drain);*
+- *each with itself: the 32-fld restore −26 to −28% at 120 and 250, the 64-fld −5 to −11%, m7_fpcompute −3 to −15%, no hold variant moving them.*
+
+*fpu-2 suspected capacity: FP 64 gives a hart 32 renaming FP registers against 64. They asked for the six cases in the model under FP 96, FP 64 with the same-cycle write and FP 64 with the hold. They also asked for P: as a load enters the hold, IQ-FP's select is blocked one cycle, so P4's write `lat_fma` (7) cycles later leaves a slot, with FMISC and divides kept out of it. A one-cycle bubble in the load pipe keeps M2 empty the cycle before, and the hold takes the slot (`prf_fp_collide` 3). The model runs 5d as built: step 5 with C, the RTL's commit turns and its fetch pipe.*
+
+| Against FP 96 (30 / 120 / 250) | Restore 32, alone on its half | Restore 64, alone | m7_fpcompute, alone | Restore 32, with itself | Restore 64, with itself | m7_fpcompute, with itself |
+|---|---|---|---|---|---|---|
+| The RTL (d33cf028, every hold variant) | −4.8% | −3.3% | −2.1% | +7 to +49% / −26 to −28% / −26 to −28% | −5 to −11% | −3 to −15% |
+| FP 64, the same-cycle write | 0.0% | 0.0% | 0.0% | 0.0% / 0.0% / 0.0% | 0.0% / −14.3% / 0.0% | 0.0% / −0.1% / 0.0% |
+| FP 64, the hold (IQ-LD's block at the 4th, IQ-FP's at the 8th) | −9.8% | −6.6% | −3.9% | −28.6% / +2.3% / −5.6% | −2.6% / −15.9% / −14.9% | +4.9% / +4.6% / +4.7% |
+| FP 64, P | −2.5% | −1.6% | −0.9% | −30.1% / −8.0% / −7.9% | +5.8% / +3.0% / −11.8% | +8.3% / +8.4% / +8.3% |
+| FP 64, P + A | −6.3% | −3.7% | −1.5% | −19.2% / −1.2% / +2.3% | +3.7% / +3.0% / −8.8% | +5.6% / +5.9% / +5.7% |
+
+*Alone, the model's figures are the same at all three latencies. On the merged window they are within 0.2 points of these, except P + A's (−4.9% / −2.7% / −1.6%). A pair's figure is its two threads' summed IPC.*
+
+- **Capacity doesn't explain the restore pair's loss in the model.** With the same-cycle write, FP 64 costs the 32-fld restore pair nothing at any latency, and a lone hart nothing. Only the 64-fld pair at 120 loses (14%).
+- **The restore pairs are a phase effect, not a measure of the hold.**
+  - Two copies of one program run in step, so their FP streams meet or miss each other by a few cycles. In the model the pairs swing from −30% to +8% between latencies and configurations.
+  - The RTL's own 30-cycle figure, where FP 96 itself runs slower than at 120, looks like the same.
+  - Judge the hold on the lone programs and on the 25 FP pairs, or run the restore pairs with their threads offset.
+- **The model's hold costs a lone restore twice the RTL's** (−9.8% against −4.8%). It replays the restore's later loads (67 a kilo-instruction), which the RTL never does. Where they differ, the RTL's figure stands.
+- **P, on step 7 with C** (as the other FP 64 tables, against the same-cycle write):
+  - **Alone:** P cuts the lone restore's cost to a quarter: −2.5% / −1.6%, m7_fpcompute −1.0%, tk_dgemm −0.15%, the suite −0.18% against the hold's −0.60%. nbody, merged, loses 1.3%.
+  - **The 25 FP pairs:** −0.27% / −0.16% / 0.00%, against the hold's −0.12% / −0.12% / −0.10%.
+  - **P + A** is worse than P everywhere.
+  - **With per-bank wants and eager FP borrowing:** every hold variant comes within 0.1% on the FP pairs and to 0.0% on the lone programs. The crossing becomes rare, and the hold's form matters little.
+- **Recommendation:** if the RTL's h7 confirms P's lone gain, take P for a lone hart's restores. Either way the transfer rules matter more than the hold's form.
 
 **Q2: the FP transfers buy 5.6% on one lone program, and nothing elsewhere.**
 - **No hang without them:** none of the 32 FP-type pairs, and none of the 37 lone programs on either window.

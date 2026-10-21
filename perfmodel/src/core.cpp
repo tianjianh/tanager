@@ -1947,18 +1947,23 @@ void Core::fp_collide() {
                                 [&](const FhWait& x) { return !live(x.id, x.issue); }), fh_wait_.end());
   // the guards from the takes failed so far (registered), and B's pause; then this cycle's take, the oldest first, one
   // a cycle (it writes the result register)
+  const bool p = c_.prf_fp_collide == 3;
   fh_ld_block_ = fh_fp_block_ = false;
   for (const auto& e : fh_)
-    if (e.on && c_.prf_fp_collide >= 2) {
+    if (e.on && c_.prf_fp_collide == 2) {
       fh_ld_block_ = fh_ld_block_ || e.fails >= c_.prf_fp_guard_ld;
       fh_fp_block_ = fh_fp_block_ || (c_.prf_fp_guard_fp > 0 && e.fails >= c_.prf_fp_guard_fp);
     }
+  if (p) {   // P: the one cycle each select was blocked for at the hold's start
+    fh_fp_block_ = t_ == p_fp_at_;
+    fh_ld_block_ = t_ == p_ld_at_;
+  }
   fh_fp_block_ = fh_fp_block_ || (c_.prf_fp_wait == 2 && fh_pause_);
   const int first = fh_[1].on && (!fh_[0].on || fh_[1].w0 < fh_[0].w0) ? 1 : 0;
   for (int k : {first, 1 - first}) {
     FhEnt& e = fh_[(size_t)k];
     if (!e.on) continue;
-    if ((!ldw_.count(w) && !p4(e.bank, w)) || w >= e.w0 + 64) {
+    if (p ? t_ >= e.take : (!ldw_.count(w) && !p4(e.bank, w)) || w >= e.w0 + 64) {
       Uop* h = find(e.id);
       h->t_ready = w;
       h->t_done = w + e.done;
@@ -2008,7 +2013,14 @@ void Core::fp_collide() {
       continue;
     }
     FhEnt& e = fh_[(size_t)k];   // held from w: no wake, no completion until it takes
-    e = {true, b, 0, id, u->t_issue, w, u->t_done - u->t_ready};
+    e = {true, b, 0, id, u->t_issue, w, u->t_done - u->t_ready, 0};
+    if (p) {   // P: IQ-FP blocked in w leaves P4's write slot lat_fma later; M2 kept empty the cycle before it
+      const uint64_t slot = w + (uint64_t)c_.lat_fma;
+      e.take = slot - 1;
+      p_slot_[(size_t)b] = slot;
+      p_fp_at_ = w;
+      p_ld_at_ = std::max<uint64_t>(w, slot - 5);   // a load selected then would complete in M2 before the slot
+    }
     u->t_ready = u->t_done = NEVER / 2;
     T.st.fld_held++;
   }
@@ -2016,6 +2028,18 @@ void Core::fp_collide() {
   // B: IQ-FP pauses from the cycle after a load waits until none waits and the hold is empty
   if (!fh_wait_.empty()) fh_pause_ = true;
   else if (!fh_[0].on && !fh_[1].on) fh_pause_ = false;
+}
+
+// prf_fp_collide 3: the cycles from a P4 op's select to its result's write in its FP bank
+uint64_t Core::p4_write_lat(const Uop& u) const {
+  const bool fp_d = u.di->d->fmt == 1;
+  switch (u.cls) {
+    case Cls::FMA: return (uint64_t)c_.lat_fma;
+    case Cls::FDIV: return (uint64_t)(fp_d ? c_.lat_fdiv_d : c_.lat_fdiv_s);
+    case Cls::FSQRT: return (uint64_t)(fp_d ? c_.lat_fsqrt_d : c_.lat_fsqrt_s);
+    case Cls::FMISC: case Cls::ITOF: return (uint64_t)c_.lat_fmisc;
+    default: return 0;
+  }
 }
 
 // The queues hold both threads' uops in dispatch order, so select is oldest first across threads.
@@ -2048,6 +2072,9 @@ void Core::issue() {
       for (uint64_t id : iq_[q]) {
         Uop* u = find(id);
         if (!u || !can_issue(*u)) continue;
+        if (q == Q_FP && c_.prf_fp_collide == 3 && (u->dst_bank == 3 || u->dst_bank == 4) &&
+            t_ + p4_write_lat(*u) == p_slot_[(size_t)(u->dst_bank - 3)])
+          continue;   // P: kept out of the slot a held load takes
         if (u->cls == Cls::FDIV || u->cls == Cls::FSQRT) {  // one iterative divide/sqrt unit
           if (fdiv_picked) continue;
           fdiv_picked = true;

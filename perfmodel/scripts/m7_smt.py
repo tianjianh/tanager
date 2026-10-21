@@ -1669,6 +1669,79 @@ def eagerwake(workers):
     return out
 
 
+R5D = {**S5B, **CM_RTL, **RR, **FHOLD}   # 5d as built: step 5 with C, the RTL's commit turns, its fetch pipe, FP 96
+FP64S = {"FP 96 (5d's)": R5D,
+         "FP 64, the crossed write in the cycle": {**R5D, **FP64X},
+         "FP 64, the hold (IQ-LD's block at the 4th failed take, IQ-FP's at the 8th)":
+             {**R5D, **FP64X, "prf_fp_collide": 2, "prf_fp_guard_ld": 4},
+         "FP 64, P": {**R5D, **FP64X, "prf_fp_collide": 3},
+         "FP 64, P + A": {**R5D, **FP64X, "prf_fp_collide": 3, "prf_fp_wait": 1}}
+FP64S_PROGS = ["m7_fprestore", "m7_fprestore2", "m7_fpcompute"]
+
+
+FP64P = {"FP 64, the crossed write in the cycle (§13.13)": FP64B,
+         "the hold with its guards (IQ-LD's block from the 4th failed take)": FP64G,
+         "P: IQ-FP blocked one cycle, the hold taking P4's freed slot": {**FP64B, "prf_fp_collide": 3},
+         "P + A": {**FP64B, "prf_fp_collide": 3, "prf_fp_wait": 1},
+         "P, with (2) and (1) in the FP banks": {**FP64B, "prf_fp_collide": 3, "prf_xfer_want": 1, "prf_xfer_eager": 3}}
+
+
+def fp64p(workers):
+    """fpu-2's P (10-21) on step 7 with C, beside the hold with its guards: the 25 FP pairs and the lone programs."""
+    return fp64_tables(FP64P, workers)
+
+
+def fp64s(workers):
+    """fpu-2's six cases (10-21), beside core-2's RTL of FP 64 with crossing (d33cf028) against 5d's FP 96: the 32- and
+    64-fld restores and m7_fpcompute alone (the sibling parked: on its half, as at step 5, and on the merged window) and
+    each with itself, at 30 / 120 / 250 cycles, on 5d as built; each configuration's IPC (a pair's summed) against FP
+    96, the hold's events a kilo-instruction, and hangs. Does the same-cycle write lose what the RTL does on the pairs
+    (capacity: 32 renaming FP registers a hart against 64), or is it the hold?"""
+    halves = LONE["static halves, no caps"]
+    pairs = [(w, w) for w in FP64S_PROGS]
+    jobs = [(PRESET, {**c, "dram_lat": lat}, a, b) for c in FP64S.values() for lat in LATS for a, b in pairs]
+    jobs += [(PRESET, {**single(c), **h, "dram_lat": lat}, w, None) for c in FP64S.values() for h in (halves, {})
+             for lat in LATS for w in FP64S_PROGS]
+    run_all(jobs, workers)
+    ref = list(FP64S.values())[0]
+
+    def ipc(r):   # a lone run's IPC, or a pair's two threads' summed
+        return None if r.get("error") else sum(t["region"]["instr"] / max(1, t["region"]["cycles"])
+                                                 for t in r.get("threads", [r]))
+
+    def events(r):   # the hold's events a kilo-instruction: held, replayed, waited; IQ-FP select cycles lost
+        if r.get("error"):
+            return None
+        gs = [t["region"] for t in r.get("threads", [r])]
+        k = 1000 / max(1, sum(g["instr"] for g in gs))
+        return tuple(k * sum(g.get(s, 0) for g in gs) for s in ("fld_held", "fld_replays", "fld_waits", "fh_fp_lost"))
+
+    out = {}
+    for title, run in (("alone, the sibling parked, on its half (step 5)",
+                        lambda c, lat, w: run7(PRESET, {**single(c), **halves, "dram_lat": lat}, w, None)),
+                       ("alone, on the merged window",
+                        lambda c, lat, w: run7(PRESET, {**single(c), "dram_lat": lat}, w, None)),
+                       ("each with itself (IPC summed over the two threads)",
+                        lambda c, lat, w: run7(PRESET, {**c, "dram_lat": lat}, w, w))):
+        print(f"\n**{title[0].upper() + title[1:]}** (against FP 96, 30 / 120 / 250 cycles; at 120 the hold's loads "
+              "held, replayed and waiting, and IQ-FP's select cycles lost, a kilo-instruction)\n")
+        print("| Configuration | " + " | ".join(FP64S_PROGS) + " | Hold at 120: " + "; ".join(FP64S_PROGS) +
+              " |\n|---|" + "---|" * (len(FP64S_PROGS) + 1))
+        for n, c in FP64S.items():
+            cells, ev = [], []
+            for w in FP64S_PROGS:
+                xs = [ipc(run(c, lat, w)) for lat in LATS]
+                ys = [ipc(run(ref, lat, w)) for lat in LATS]
+                cells.append(" / ".join("hung" if x is None else "–" if y is None else f"{x / y - 1:+.1%}"
+                                        for x, y in zip(xs, ys)))
+                e = events(run(c, 120, w))
+                ev.append("hung" if e is None else f"{e[0]:.1f}, {e[1]:.1f}, {e[2]:.1f}, {e[3]:.1f}")
+                out[f"{title}: {n}: {w}"] = {"vs_fp96": [None if x is None or not y else x / y for x, y in
+                                                         zip(xs, ys)], "events120": e}
+            print(f"| {n} | " + " | ".join(cells) + " | " + "; ".join(ev) + " |")
+    return out
+
+
 def fp64w(workers):
     """fpu-2's fixes upstream of the hold (10-21): stop the restore crossing. (1) While the sibling is parked, the
     running hart borrows its free registers ahead of need, one a cycle in each bank (prf_xfer_eager); (2) a group short
@@ -1713,6 +1786,8 @@ def main():
     ap.add_argument("--fp64r", action="store_true", help="fpu-2's fixes for the FP restore's cost under the hold")
     ap.add_argument("--fp64w", action="store_true", help="fpu-2's fixes upstream of the hold: eager borrowing, wants")
     ap.add_argument("--eagerwake", action="store_true", help="eager borrowing's cost to a sibling that wakes")
+    ap.add_argument("--fp64s", action="store_true", help="fpu-2's six FP 64 cases beside core-2's RTL, with P")
+    ap.add_argument("--fp64p", action="store_true", help="fpu-2's P on the FP pairs and the lone programs")
     ap.add_argument("--workers", type=int, default=16)
     a = ap.parse_args()
     res = json.loads(OUT.read_text()) if OUT.exists() else {}
@@ -1722,7 +1797,8 @@ def main():
                      ("homes", homes), ("calib", calib), ("final", final), ("d3fp64", d3fp64),
                      ("rnstall", rnstall), ("icount", icount), ("caplift", caplift), ("bankrule", bankrule),
                      ("recon5", recon5), ("recon7", recon7), ("final7", final7), ("fp64q", fp64q),
-                     ("fp64r", fp64r), ("fp64w", fp64w), ("eagerwake", eagerwake)):
+                     ("fp64r", fp64r), ("fp64w", fp64w), ("eagerwake", eagerwake), ("fp64s", fp64s),
+                     ("fp64p", fp64p)):
         if getattr(a, name):
             res[name] = fn(a.workers)
             OUT.write_text(json.dumps(res, indent=1) + "\n")
