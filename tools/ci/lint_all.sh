@@ -65,12 +65,15 @@ else echo "lint-all: tanager_soc has no LAT_INJ; skipping LAT_INJ=0"; fi
 solo=""; if mentioned TG_SOLO_TID; then solo=1; else echo "lint-all: no RTL mentions TG_SOLO_TID; skipping SOLO_TID=1"; fi
 # ... and its split mode (SPLIT=1), alone and with SOLO_TID=1
 split=""; if mentioned TG_SPLIT; then split=1; else echo "lint-all: no RTL mentions TG_SPLIT; skipping SPLIT=1"; fi
+# ... and hart 1 (HART1=1, step 5)
+hart1=""; if mentioned TG_HART1; then hart1=1; else echo "lint-all: no RTL mentions TG_HART1; skipping HART1=1"; fi
 tasks=()
 for c in $CFGS; do
   for p in "${profiles[@]}"; do tasks+=("$c${p:+ $p}"); done
   tasks+=("$c FWDREF=1" "$c FWDREF=0")
   case "$c" in smt2*) [ -n "$solo" ] && tasks+=("$c SOLO_TID=1")
-                     [ -n "$split" ] && tasks+=("$c SPLIT=1") && { [ -z "$solo" ] || tasks+=("$c SPLIT=1 SOLO_TID=1"); } ;; esac
+                     [ -n "$split" ] && tasks+=("$c SPLIT=1") && { [ -z "$solo" ] || tasks+=("$c SPLIT=1 SOLO_TID=1"); }
+                     [ -n "$hart1" ] && tasks+=("$c HART1=1") && { [ -z "$solo" ] || tasks+=("$c HART1=1 SOLO_TID=1"); } ;; esac
 done
 
 # One line per elaboration as it finishes: PASS|FAIL <cfg> [<define>]

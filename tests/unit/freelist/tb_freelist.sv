@@ -2,9 +2,13 @@
 // model of each thread's list: the registers from its commit head to its tail, the first `spec` of them popped.
 // Random legal traffic: pops from one thread a cycle up to its free count; commits of registers it popped; pushes of
 // registers it holds (committed pops and its homes), one thread a cycle; flushes of either thread, while the other
-// pops. Checked every cycle: each pop slot's register and every thread's free count; the init time.
-// Merged mode (SPLIT_L = 0) runs the one thread RUN_TID; split mode runs both.
-// Negatives (TB_FLUSH_TID0, TB_POP_TID0): the DUT gets thread 0 for the flush or the pops; they must fail.
+// pops; transfer requests (want) for either thread. Checked every cycle: each pop slot's register, every thread's free
+// count, and whether a transfer happens (the popping thread wants one, its sibling holds at least 2, no push, no
+// flush), which moves the sibling's last entry to the taker's list; the init time.
+// Merged mode (SPLIT_L = 0) runs the one thread RUN_TID, and never transfers; split mode runs both. DEPTH 96: the FP
+// banks with hart 1 (pointers wrap at a non-power of two).
+// Negatives (TB_FLUSH_TID0, TB_POP_TID0, TB_WANT_FLIP): the DUT gets thread 0 for the flush or the pops, or the other
+// thread for a transfer; they must fail.
 module tb_freelist
   import tg_pkg::*, tg_core_pkg::*;
 #(
@@ -34,6 +38,13 @@ module tb_freelist
   logic [CW-1:0][IW-1:0]    push_idx;
   logic [idx_w(CW+1)-1:0]   commit_n;
   logic                     flush;
+  logic                     want, xfer;
+  tid_t                     want_tid, d_want_tid;
+`ifdef TB_WANT_FLIP
+  assign d_want_tid = ~want_tid;
+`else
+  assign d_want_tid = want_tid;
+`endif
 `ifdef TB_FLUSH_TID0
   assign d_flush_tid = '0;
 `else
@@ -46,13 +57,13 @@ module tb_freelist
 `endif
   tg_freelist #(.DEPTH(DEPTH), .NB(NB), .NPOP(W), .NPUSH(CW), .FIRST(FIRST), .SPLIT_L(SPLIT_L), .FIRST_S(FIRST_S)) dut (
     .clk, .rst, .ready, .count, .pop_tid(d_pop_tid), .pop_idx, .pop_n, .pop, .push_tid, .push_v, .push_idx,
-    .commit_n, .flush, .flush_tid(d_flush_tid));
+    .commit_n, .flush, .flush_tid(d_flush_tid), .want, .want_tid(d_want_tid), .xfer);
 
   // ---- The model ----
   int unsigned fq[NT][$];        // each thread's list from its commit head
   int          spec[NT];         // the first spec[t] of fq[t] are popped, not committed
   int unsigned held[NT][$];      // registers a thread holds (committed pops, homes): what it may push
-  int          mism, npops, npush_tot, nflush, ncommit;
+  int          mism, npops, npush_tot, nflush, ncommit, nxfer;
   function automatic bit live(input int t);
     return SPLIT_L || t == int'(RUN_TID);
   endfunction
@@ -74,9 +85,9 @@ module tb_freelist
   int init_cycles;
   initial begin
     void'($urandom(SEED));
-    mism = 0; npops = 0; npush_tot = 0; nflush = 0; ncommit = 0;
+    mism = 0; npops = 0; npush_tot = 0; nflush = 0; ncommit = 0; nxfer = 0;
     pop = 1'b0; pop_n = '0; pop_tid = '0; push_tid = '0; push_v = '0; push_idx = '0; commit_n = '0;
-    flush = 1'b0; flush_tid = '0;
+    flush = 1'b0; flush_tid = '0; want = 1'b0; want_tid = '0;
     // Inputs change and outputs are sampled at the falling edge, away from the DUT's rising edge
     repeat (3) @(posedge clk);
     @(negedge clk) rst = 1'b0;
@@ -92,8 +103,8 @@ module tb_freelist
       end
     end
     for (cyc = 0; cyc < CYCLES; cyc++) begin
-      int pt, ut, ft, k, c, np;
-      bit fl;
+      int pt, ut, ft, k, c, np, wt, gt;
+      bit fl, xe;
       // Choose this cycle's operations (legal for the core's protocol)
       pt = SPLIT_L ? $urandom_range(0, NT - 1) : int'(RUN_TID);
       ut = SPLIT_L ? $urandom_range(0, NT - 1) : int'(RUN_TID);
@@ -116,6 +127,12 @@ module tb_freelist
       pop      = (k > 0) || ($urandom_range(0, 1) == 1);
       pop_n    = pop ? (idx_w(W+1))'(k) : (idx_w(W+1))'($urandom_range(0, W));   // ignored without pop
       if (!pop) k = 0;
+      // a transfer request: mostly for the popping thread (the only one that may take)
+      wt = ($urandom_range(0, 9) < 8) ? pt : ((NT > 1) ? 1 - pt : 0);
+      gt = (NT > 1) ? 1 - wt : 0;
+      want     = ($urandom_range(0, 99) < 30);
+      want_tid = tid_t'(wt);
+      xe = SPLIT_L && NT > 1 && want && wt == pt && fq[gt].size() - spec[gt] >= 2 && np == 0 && !fl;
       commit_n = (idx_w(CW+1))'(c);
       push_v   = '0;
       for (int j = 0; j < np; j++) begin
@@ -134,6 +151,11 @@ module tb_freelist
           mism++;
         end
       end
+      if (xfer !== xe) begin
+        if (mism < 10) $display("MISMATCH cycle %0d: transfer %0b, model %0b (want %0b for thread %0d)", cyc, xfer, xe,
+                                want, wt);
+        mism++;
+      end
       for (int i = 0; i < W; i++) begin
         if (i < fq[pt].size() - spec[pt] && int'(pop_idx[i]) != fq[pt][spec[pt] + i]) begin
           if (mism < 10) $display("MISMATCH cycle %0d thread %0d pop slot %0d: %0d, model %0d", cyc, pt, i,
@@ -150,6 +172,7 @@ module tb_freelist
       for (int j = 0; j < np; j++) fq[ut].push_back(int'(push_idx[j]));
       if (k > 0) begin spec[pt] += k; npops += k; end
       if (fl) begin spec[ft] = 0; nflush++; end
+      if (xe) begin fq[wt].push_back(fq[gt].pop_back()); nxfer++; end
       ncommit += c;
       npush_tot += np;
       // A thread never holds more registers than the list can take back
@@ -158,8 +181,8 @@ module tb_freelist
       @(negedge clk);
     end
     if (mism == 0)
-      $display("TB_FREELIST PASS: %0d cycles, %0d pops, %0d commits, %0d pushes, %0d flushes, init %0d cycles",
-               CYCLES, npops, ncommit, npush_tot, nflush, init_cycles);
+      $display("TB_FREELIST PASS: %0d cycles, %0d pops, %0d commits, %0d pushes, %0d flushes, %0d transfers, init %0d cycles",
+               CYCLES, npops, ncommit, npush_tot, nflush, nxfer, init_cycles);
     else
       $display("TB_FREELIST FAIL: %0d mismatches", mism);
     $finish;
