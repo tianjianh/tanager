@@ -166,17 +166,21 @@ module tg_rename
         else $error("tg_rename: a count differs from its threads' shares");
 `endif
 
-  // RN: a register per thread with hart 1 (step 5d), one without; rn_valid_q and rn_uop_q are the group rename
-  // works on this cycle, the selected register's (sel_q). The select is a register, so its multiplexer sits after
-  // the RN registers, not on decode's path into them.
-  localparam int NRN = CMT ? NT : 1;
-  logic [NRN-1:0][W-1:0] rn_v_q;
-  uop_t [NRN-1:0][W-1:0] rn_u_q;
-  logic                  sel_q;            // (CMT) the RN register rename works on this cycle: its thread
+  // RN: decode writes its one register (rl_*), as without hart 1. With hart 1 (step 5d, option C's parking form) a
+  // group that cannot rename moves into the parking register (pk_*), which loads only from RN, when decode holds a
+  // group of the other thread for RN; rename works on RN's group or the parked one (sel_q, chosen a cycle ahead from
+  // registered state). rn_valid_q and rn_uop_q are the group rename works on; the select's multiplexer sits after
+  // both registers, and decode's path into RN is unchanged.
+  logic [W-1:0]          rl_v_q;
+  uop_t [W-1:0]          rl_u_q;
+  logic [W-1:0]          pk_v_q;           // (CMT)
+  uop_t [W-1:0]          pk_u_q;
+  tid_t                  rl_t_q, pk_t_q;   // (CMT) their groups' threads
+  logic                  sel_q;            // (CMT) rename works on the parked group
   logic [W-1:0]          rn_valid_q;
   uop_t [W-1:0]          rn_uop_q;
-  assign rn_valid_q = rn_v_q[CMT ? sel_q : 1'b0];
-  assign rn_uop_q   = rn_u_q[CMT ? sel_q : 1'b0];
+  assign rn_valid_q = (CMT && sel_q) ? pk_v_q : rl_v_q;
+  assign rn_uop_q   = (CMT && sel_q) ? pk_u_q : rl_u_q;
   logic [W-1:0]          ds_valid_q;
   uop_t [W-1:0]          ds_uop_q;
   ren_t [W-1:0]          ds_ren_q;
@@ -184,7 +188,7 @@ module tg_rename
   // whatever
   // the tid bits hold
   tid_t t_rn, t_ds, t_cm, t_fl;
-  assign t_rn = CMT ? tid_t'(sel_q) : (NT > 1) ? rn_uop_q[0].tid : tid_t'(0);
+  assign t_rn = CMT ? (sel_q ? pk_t_q : rl_t_q) : (NT > 1) ? rn_uop_q[0].tid : tid_t'(0);
   assign t_ds = (NT > 1) ? ds_uop_q[0].tid : tid_t'(0);
   assign t_cm = (NT > 1) ? cm_tid : tid_t'(0);
   assign t_fl = (NT > 1) ? flush_tid : tid_t'(0);
@@ -673,27 +677,29 @@ module tg_rename
 
   logic ds_free;
   // (CMT) the group's issue-queue rows: each uop's bank has one for it a group ahead (st_free, the flags STEER_LA's
-  // steering reads). While the other thread's register holds a group, a group short of rows waits in its own RN
-  // register, not at DS, where it would hold that group too; otherwise it goes on and DS waits for the rows, as
-  // without hart 1 (the row is taken the cycle it frees: waiting at RN would cost a lone thread a cycle a time,
-  // 1.5-2.3% of CoreMark and Dhrystone)
+  // steering reads). While the other thread's group waits for rename (parked, in RN, or in decode for RN), a group
+  // short of rows waits at RN, not at DS, where it would hold that group too; otherwise it goes on and DS waits for
+  // the rows, as without hart 1 (the row is taken the cycle it frees: waiting at RN would cost a lone thread a cycle
+  // a time, 1.5-2.3% of CoreMark and Dhrystone)
+  tid_t t_de;                       // decode's group's thread
+  assign t_de = CMT ? de_uop[0].tid : t_rn;
   logic iq_rows, rows_need;
   always_comb begin
     iq_rows = 1'b1;
     for (int k = 0; k < W; k++)
       if (rn_valid_q[k] && ren[k].has_q && !st_free[ren[k].q][k]) iq_rows = 1'b0;
   end
-  assign rows_need = CMT && |rn_v_q[CMT ? !sel_q : 1'b0];
+  assign rows_need = CMT && (sel_q ? |rl_v_q : (|pk_v_q || (|de_valid && t_de != rl_t_q)));
   assign rn_fire = (|rn_valid_q) && rn_ok && ds_free && !block_q[t_rn] && !flush && ready && start &&
                    irdy_ready && frdy_ready && (!rn_serial || window_empty) && (!rows_need || iq_rows);
   assign blk_o   = CMT ? block_q : '0;
 
-  // With hart 1 (step 5d) each register's group is judged from registered state: it looks able to rename when its
-  // thread's ROB, LQ and SQ halves and the unit counts have room for it, its queues' banks rows (st_free; an ALU uop
-  // any ALU queue's), and a serial uop finds its window drained. The free registers and the tags are left to the
-  // attempt itself (none held a group in 5c's pair runs). A thread behind a serial uop (block_q) has its later group
-  // dropped (its flush would kill it), so it never holds rename.
-  logic [NT-1:0] rdy;
+  // With hart 1 (step 5d) RN's group and the parked one are each judged from registered state: a group looks able to
+  // rename when its thread's ROB, LQ and SQ halves and the unit counts have room for it, its queues' banks rows
+  // (st_free; an ALU uop any ALU queue's), and a serial uop finds its window drained. The free registers and the
+  // tags are left to the attempt itself (none held a group in 5c's pair runs). A group of a thread behind a serial
+  // uop (block_q) is dropped (its flush would kill it).
+  logic [1:0]    grdy;              // RN's group, the parked group: looks able to rename
   logic [W-1:0]  alu_rows;          // some ALU queue's bank has a row for slot k
   always_comb
     for (int k = 0; k < W; k++) begin
@@ -702,24 +708,30 @@ module tg_rename
     end
   if (!CMT) begin : g_alr_off
     logic unused_alr;
-    assign unused_alr = ^alu_rows;
+    assign unused_alr = ^{alu_rows, pk_v_q, pk_u_q, pk_t_q, rl_t_q};
   end
-  for (genvar t = 0; t < NT; t++) begin : g_rdy
+  for (genvar g = 0; g < 2; g++) begin : g_rdy
     if (CMT) begin : g_on
       localparam int CW1 = idx_w(W + 1);
+      logic [W-1:0]   v;
+      uop_t [W-1:0]   u;
+      tid_t           t;
       logic [CW1-1:0] nr, nl, ns, nd, nf, ni;
       logic           iq, ser, wemp, r;
+      assign v = (g == 1) ? pk_v_q : rl_v_q;
+      assign u = (g == 1) ? pk_u_q : rl_u_q;
+      assign t = (g == 1) ? pk_t_q : rl_t_q;
       always_comb begin
-        nr = CW1'($countones(rn_v_q[t]));
-        nl = CW1'(ren_nld(rn_u_q[t], rn_v_q[t]));
-        ns = CW1'(ren_nst(rn_u_q[t], rn_v_q[t]));
-        nd = CW1'(ren_ndiv(rn_u_q[t], rn_v_q[t]));
-        nf = CW1'(ren_nfp(rn_u_q[t], rn_v_q[t], 1'b1));
-        ni = CW1'(ren_nfp(rn_u_q[t], rn_v_q[t], 1'b0));
+        nr = CW1'($countones(v));
+        nl = CW1'(ren_nld(u, v));
+        ns = CW1'(ren_nst(u, v));
+        nd = CW1'(ren_ndiv(u, v));
+        nf = CW1'(ren_nfp(u, v, 1'b1));
+        ni = CW1'(ren_nfp(u, v, 1'b0));
         iq = 1'b1;
         for (int k = 0; k < W; k++)
-          if (rn_v_q[t][k])
-            unique case (rn_u_q[t][k].d.cls)
+          if (v[k])
+            unique case (u[k].d.cls)
               C_BR:                iq = iq && st_free[0][k];
               C_MUL, C_DIV, C_CSR: iq = iq && st_free[1][k];
               C_LD:                iq = iq && st_free[Q_LD][k];
@@ -728,27 +740,28 @@ module tg_rename
               C_FP:                iq = iq && st_free[EXT_FD ? Q_FP : 0][k];
               default: ;
             endcase
-        ser  = rn_v_q[t][0] && (rn_u_q[t][0].d.serial || rn_u_q[t][0].d.exc);
-        wemp = rtail_q[t] == rob_head[t] && !(|ds_valid_q && t_ds == tid_t'(t));
-        r    = |rn_v_q[t] && !block_q[t] && rob_room_t[t][nr] && lq_room_t[t][nl] && sq_room_t[t][ns] &&
+        ser  = v[0] && (u[0].d.serial || u[0].d.exc);
+        wemp = rtail_q[t] == rob_head[t] && !(|ds_valid_q && t_ds == t);
+        r    = |v && !block_q[t] && rob_room_t[t][nr] && lq_room_t[t][nl] && sq_room_t[t][ns] &&
                div_room[nd] && fdiv_room[nf] && fpi_room[ni] && iq && (!ser || wemp);
       end
-      assign rdy[t] = r;
+      assign grdy[g] = r;
     end else begin : g_off
-      assign rdy[t] = 1'b0;
+      assign grdy[g] = 1'b0;
     end
   end
 
-  // Decode's group (its thread t_de) goes into its thread's register when that is empty or renamed from this
-  // cycle, or the thread is blocked (the group is dropped); without hart 1 into the one register, as before
-  tid_t t_de;
-  assign t_de = CMT ? de_uop[0].tid : t_rn;
-  logic [NT-1:0] rn_vac;
-  always_comb
-    for (int t = 0; t < NT; t++)
-      rn_vac[t] = CMT ? (!(|rn_v_q[CMT ? t : 0]) || (sel_q == t[0] && rn_fire) || block_q[t])
-                      : (!(|rn_valid_q) || rn_fire);
-  assign de_take = !flush && ready && rn_vac[t_de];
+  // (CMT) RN's group parks this cycle: it does not rename, the parking register is free (or renamed from now), and
+  // decode holds a group of the other thread for RN
+  logic park, pk_vac;
+  assign pk_vac = !(|pk_v_q) || (sel_q && rn_fire);
+  assign park   = CMT && |rl_v_q && !(!sel_q && rn_fire) && pk_vac && |de_valid && t_de != rl_t_q &&
+                  !block_q[rl_t_q] && !flush && ready;
+  // Decode's group goes into RN when RN is empty, renames, parks or is dropped (its thread behind a serial uop) this
+  // cycle; never a parked thread's later group, whose groups rename in order; without hart 1 as before
+  logic rl_vac;
+  assign rl_vac  = CMT ? (!(|rl_v_q) || (!sel_q && rn_fire) || park || block_q[rl_t_q]) : (!(|rn_valid_q) || rn_fire);
+  assign de_take = !flush && ready && rl_vac && !(CMT && |pk_v_q && !(sel_q && rn_fire) && t_de == pk_t_q);
 
   // (CMT) the register rename works on next cycle: the other thread's when its group looks able to rename (or has
   // just come from decode, not yet judged), so two such threads alternate and a stalled group gives way; else this
@@ -762,20 +775,28 @@ module tg_rename
     for (int b = 0; b < 2; b++) if (EXT_FD && int'(fpops[b]) > int'(ffl_count[b][t_rn])) want_any = 1'b1;
   end
   logic          sel_n;
-  logic [NT-1:0] vn, nw;            // each register holds a group next cycle; ... one decode hands it now
+  logic [1:0]    vn, rn_n;          // RN, the parking register: hold a group next cycle, ... that looks able to go
+  logic          nwl;               // RN takes decode's group now (not yet judged: taken as able)
+  tid_t          rlt_n, pkt_n;      // their groups' threads next cycle
   always_comb begin
-    for (int t = 0; t < NT; t++) begin
-      nw[t] = CMT && de_take && |de_valid && t_de == tid_t'(t) && !block_q[t];
-      vn[t] = nw[t] || (CMT && |rn_v_q[CMT ? t : 0] && !(sel_q == t[0] && rn_fire) && !block_q[t] &&
-                        !(flush && t_fl == tid_t'(t)));
-    end
+    nwl   = CMT && de_take && |de_valid && !block_q[t_de];
+    vn[0] = nwl || (CMT && |rl_v_q && !(!sel_q && rn_fire) && !park && !block_q[rl_t_q] &&
+                    !(flush && t_fl == rl_t_q));
+    vn[1] = park || (CMT && |pk_v_q && !(sel_q && rn_fire) && !block_q[pk_t_q] && !(flush && t_fl == pk_t_q));
+    rn_n[0] = nwl || grdy[0];
+    rn_n[1] = park ? grdy[0] : grdy[1];      // a group parked now keeps RN's judgement
+    rlt_n = nwl ? t_de : rl_t_q;
+    pkt_n = park ? rl_t_q : pk_t_q;
     sel_n = sel_q;
     if (CMT) begin
-      if (vn[sel_q] && |rn_valid_q && want_any)          sel_n = sel_q;   // its transfer needs it chosen
-      else if (vn[!sel_q] && (nw[!sel_q] || rdy[!sel_q])) sel_n = !sel_q;
-      else if (!vn[sel_q])                               sel_n = !sel_q;
+      if (vn[sel_q] && |rn_valid_q && want_any)  sel_n = sel_q;   // its transfer needs it chosen
+      else if (vn[!sel_q] && rn_n[!sel_q])       sel_n = !sel_q;
+      else if (!vn[sel_q])                       sel_n = !sel_q;
     end
-    for (int t = 0; t < NT; t++) acc_o[t] = CMT && (!vn[t] || sel_n == t[0] || block_q[t]);
+    // decode may hand RN thread t's group next cycle: t is not parked, and RN will be empty, renamed from, or hold
+    // the other thread's group with the parking register free
+    for (int t = 0; t < NT; t++)
+      acc_o[t] = CMT && !(vn[1] && pkt_n == tid_t'(t)) && (!vn[0] || !sel_n || (!vn[1] && rlt_n != tid_t'(t)));
   end
 
   // The pops each free list takes when rename fires (the free list applies rn_fire last)
@@ -817,8 +838,8 @@ module tg_rename
     oth_w = 1'b0;
     oth_r = 1'b0;
     if (CMT) begin
-      oth_w = |rn_v_q[CMT ? !sel_q : 1'b0] && !block_q[!sel_q];
-      oth_r = oth_w && rdy[!sel_q];
+      oth_w = sel_q ? (|rl_v_q && rl_t_q != pk_t_q) : (|pk_v_q || (|de_valid && t_de != rl_t_q));
+      oth_r = oth_w && (sel_q ? grdy[0] : (|pk_v_q ? grdy[1] : 1'b1));
     end
   end
   longint unsigned n_rnhold2;
@@ -853,7 +874,8 @@ module tg_rename
     logic [NT-1:0][2:0] emp_q;               // cycles each thread's window has been empty (saturating at 7)
     always_ff @(posedge clk)
       for (int t = 0; t < NT; t++) begin
-        if (rst || rtail_q[t] != rob_head[t] || |rn_v_q[t] || (|ds_valid_q && t_ds == tid_t'(t)))
+        if (rst || rtail_q[t] != rob_head[t] || (|rl_v_q && rl_t_q == tid_t'(t)) || (|pk_v_q && pk_t_q == tid_t'(t)) ||
+            (|ds_valid_q && t_ds == tid_t'(t)))
           emp_q[t] <= '0;
         else if (emp_q[t] != 3'd7) emp_q[t] <= emp_q[t] + 1'b1;
         if (!rst && emp_q[t] >= 3'd5)
@@ -1104,8 +1126,11 @@ module tg_rename
       fdiv_pre_t_q <= '0;
       fpi_pre_t_q  <= '0;
       block_q    <= '0;
-      rn_v_q     <= '0;
-      sel_q      <= RUN_TID[0];
+      rl_v_q     <= '0;
+      pk_v_q     <= '0;
+      rl_t_q     <= RUN_TID;
+      pk_t_q     <= RUN_TID;
+      sel_q      <= 1'b0;
       ds_valid_q <= '0;
     end else begin
       llt_busy_q <= llt_busy_q & ~llt_rel;
@@ -1137,8 +1162,10 @@ module tg_rename
           if (fpi_iss && fp_iss_tid != t_fl)  fpi_pre_t_q[fp_iss_tid]  <= fpi_pre_t_q[fp_iss_tid] - 1'b1;
         end
         block_q[t_fl] <= 1'b0;
-        if (CMT)               rn_v_q[CMT ? t_fl[0] : 1'b0] <= '0;   // (with hart 1 the flushed thread's)
-        else if (t_rn == t_fl) rn_v_q[0]       <= '0;
+        if (CMT) begin                       // (with hart 1 the flushed thread's groups)
+          if (rl_t_q == t_fl) rl_v_q <= '0;
+          if (pk_t_q == t_fl) pk_v_q <= '0;
+        end else if (t_rn == t_fl) rl_v_q <= '0;
         if (t_ds == t_fl) ds_valid_q <= '0;
       end else begin
         // FP divides and FP->int ops renamed this cycle, and those issued
@@ -1160,7 +1187,8 @@ module tg_rename
         // RN -> DS
         if (rn_fire) begin
           ds_valid_q <= rn_valid_q;
-          rn_v_q[CMT ? sel_q : 1'b0] <= '0;
+          if (CMT && sel_q) pk_v_q <= '0;
+          else              rl_v_q <= '0;
           for (int k = 0; k < W; k++) begin
             if (rn_valid_q[k]) begin
               if (ren[k].use_llt) begin
@@ -1183,11 +1211,18 @@ module tg_rename
                              - (idx_w(DIV_INFLIGHT + 1))'(div_dec && div_done_tid == t_rn);
           if (rn_serial) block_q[t_rn] <= 1'b1;
         end
-        // DE -> RN (with hart 1 into the group's thread's register; a thread behind a serial uop drops its group)
-        if (CMT) for (int t = 0; t < NT; t++) if (block_q[t]) rn_v_q[CMT ? t : 0] <= '0;
+        // RN -> parking, DE -> RN (with hart 1 a thread behind a serial uop drops its group)
+        if (CMT && block_q[rl_t_q]) rl_v_q <= '0;
+        if (CMT && block_q[pk_t_q]) pk_v_q <= '0;
+        if (park) begin
+          pk_v_q <= rl_v_q;
+          pk_u_q <= rl_u_q;
+          pk_t_q <= rl_t_q;
+        end
         if (de_take && !(CMT && block_q[t_de])) begin
-          rn_v_q[CMT ? t_de[0] : 1'b0] <= de_valid;
-          rn_u_q[CMT ? t_de[0] : 1'b0] <= de_uop;
+          rl_v_q <= de_valid;
+          rl_u_q <= de_uop;
+          if (CMT) rl_t_q <= t_de;
         end
       end
       if (CMT) sel_q <= sel_n;
