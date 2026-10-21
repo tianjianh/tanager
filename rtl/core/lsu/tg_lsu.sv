@@ -991,7 +991,8 @@ module tg_lsu
   logic            fh_take;
   logic            fh_stay;                // fh holds its load into the next cycle (a failed take)
   logic [2:0]      fh_w_q;                 // fh's failed takes before this cycle (saturating)
-  localparam logic [2:0] FH_BLK = 3'd7;    // IQ-FP's select is blocked after 8 (fp_block, below)
+  localparam logic [2:0] FH_LDB = 3'd3;    // IQ-LD's select is blocked after 4 (ld_block, below) ...
+  localparam logic [2:0] FH_BLK = 3'd7;    // ... and IQ-FP's after 8 (fp_block)
 
   // ================= Atomics =================
   // AM_IDLE -> (ROB head, address and data known, older stores drained) -> AM_REQ: the D$ holds
@@ -1064,8 +1065,8 @@ module tg_lsu
     fh_kill_q <= !rst && fh_v_q && kill_t[fh_tid_q];
     if (!rst && fh_kill_q) assert (!fh_v_q) else $error("tg_lsu: a held FP load outlived its thread's flush");
   end
-  // ... nor waits long (core-2's check): from its second cycle IQ-LD's select is blocked, so M2 empties (each replay
-  // completes once), and after 8 failed takes IQ-FP's too, so P4's stream empties (ld_block and fp_block, below)
+  // ... nor waits long (core-2's check): after 4 failed takes IQ-LD's select is blocked, so M2 empties (each replay
+  // completes once), and after 8 IQ-FP's too, so P4's stream empties (ld_block and fp_block, below)
   int unsigned fh_age;                    // the cycles fh has held its load before this one
   always_ff @(posedge clk) begin
     fh_age <= (rst || !fh_v_q) ? 0 : fh_age + 1;
@@ -1555,14 +1556,15 @@ module tg_lsu
   end
 `endif
 
-  // Replay or PTE read pending: block IQ-LD's select so the AG slot frees. Also a held FP load that failed its first
-  // take (DR-179): M2 then empties, its replays aside, so fh takes the result register. After 8 failed takes, or
-  // while an FP load's MMIO response meets P4, IQ-FP's select is blocked too: P4's stream empties (its pipelines and a
-  // divide's slot) and gives the load's bank its write port. Without them a stream of completing loads or of P4
-  // writes to that bank could starve the load (core-2's review)
+  // Replay or PTE read pending: block IQ-LD's select so the AG slot frees. Also a held FP load after 4 failed takes
+  // (DR-179): M2 then empties, its replays aside, so fh takes the result register. After 8 failed takes, or while an
+  // FP load's MMIO response meets P4, IQ-FP's select is blocked too: P4's stream empties (its pipelines and a divide's
+  // slot) and gives the load's bank its write port. Without them a stream of completing loads or of P4 writes to that
+  // bank could starve the load (core-2's review). IQ-LD's block from the first failed take cost the FP pairs 0.15% at
+  // latency 30 for no gain elsewhere (smt2_report §13.18)
   always_ff @(posedge clk) begin
     if (rst || flush) ld_block <= 1'b0;
-    else              ld_block <= |rp_ready || pt_req || fh_stay;
+    else              ld_block <= |rp_ready || pt_req || (fh_stay && fh_w_q >= FH_LDB);
     fp_block <= !rst && ((fh_stay && fh_w_q == FH_BLK) || (xr_v_q && xr_fcol && !kill_t[x_t]));
     fh_w_q   <= (rst || !fh_stay) ? 3'd0 : (fh_w_q == FH_BLK) ? FH_BLK : fh_w_q + 3'd1;
   end
