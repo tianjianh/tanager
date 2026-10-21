@@ -63,6 +63,8 @@ module tg_rename
   input  logic [W-1:0]   de_valid,
   input  uop_t [W-1:0]   de_uop,
   output logic           de_take,
+  output logic [NUM_THREADS-1:0] blk_o,  // with hart 1: each thread behind a serial uop until its flush (fetch drops
+                                         // its later instructions; RN drops its group: the flush would)
   // Window state, per thread
   input  robid_t [NUM_THREADS-1:0] rob_head,
   input  lqid_t  [NUM_THREADS-1:0] lq_head,
@@ -640,7 +642,12 @@ module tg_rename
   logic ds_free;
   assign rn_fire = (|rn_valid_q) && rn_ok && ds_free && !block_q[t_rn] && !flush && ready && start &&
                    irdy_ready && frdy_ready && (!rn_serial || window_empty);
-  assign de_take = !flush && ready && (!(|rn_valid_q) || rn_fire);
+  // With hart 1 a group of a thread behind a serial uop (block_q) cannot fire before that thread's flush, which
+  // kills it: RN drops it, so that the other thread's group need not wait behind it
+  logic rn_drop;
+  assign rn_drop = CMT && (|rn_valid_q) && block_q[t_rn];
+  assign blk_o   = CMT ? block_q : '0;
+  assign de_take = !flush && ready && (!(|rn_valid_q) || rn_fire || rn_drop);
 
   // The pops each free list takes when rename fires (the free list applies rn_fire last)
   assign ffl_pop_n[0] = fpops[0];
@@ -998,6 +1005,7 @@ module tg_rename
           if (rn_serial) block_q[t_rn] <= 1'b1;
         end
         // DE -> RN
+        if (rn_drop) rn_valid_q <= '0;
         if (de_take) begin
           rn_valid_q <= de_valid;
           rn_uop_q   <= de_uop;

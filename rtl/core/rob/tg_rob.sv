@@ -132,6 +132,7 @@ module tg_rob
   input  logic                         irq_take,     // the head thread's (t_cm: tg_csr reads hd_tid_o)
   input  logic [5:0]                   irq_code,
   input  logic                         wfi_wake,
+  input  logic [NUM_THREADS-1:0]       wfi_wake_h,   // each hart's (with hart 1: a parked WFI's turns)
   input  logic                         csr_hold,     // with hart 1: a trap's cold-CSR writes run (tg_csr), no commit
   // Flush and redirect (registered)
   output logic                         flush,
@@ -484,6 +485,10 @@ module tg_rob
   // lets WFI complete at any time; Spike treats it as a no-op), so it never hangs the hart.
   localparam int WFI_MAX = 4096;
   logic [NT-1:0][idx_w(WFI_MAX + 1)-1:0] wfi_cnt_q;
+  // With hart 1 a thread whose head is a WFI still waiting at its last turn (wfp_q) takes no commit turns while no
+  // interrupt is pending for it (registered: wkh_q) and its count runs, which then runs every cycle; without it
+  // the turns alternate as before
+  logic [NT-1:0] wfp_q, wkh_q;
   logic go;
   always_comb begin
     unique case (hp[0].sys)
@@ -497,6 +502,16 @@ module tg_rob
     else if (flush) wfi_cnt_q[t_fl] <= '0;
     else if (cnt == 0 || hp[0].sys != SYS_WFI) wfi_cnt_q[t_cm] <= '0;
     else if (int'(wfi_cnt_q[t_cm]) != WFI_MAX) wfi_cnt_q[t_cm] <= wfi_cnt_q[t_cm] + 1'b1;
+    if (MT && !rst)
+      for (int t = 0; t < NT; t++)
+        if (tid_t'(t) != t_cm && wfp_q[t] && !(flush && t_fl == tid_t'(t)) && int'(wfi_cnt_q[t]) != WFI_MAX)
+          wfi_cnt_q[t] <= wfi_cnt_q[t] + 1'b1;
+    wkh_q <= MT ? wfi_wake_h : '0;
+    if (rst || !MT) wfp_q <= '0;
+    else begin
+      if (!flush) wfp_q[t_cm] <= cnt > 0 && hp[0].sys == SYS_WFI && !ret[0];
+      if (flush) wfp_q[t_fl] <= 1'b0;
+    end
   end
   // One adder on the head's PC: a serial instruction's next PC (+2 or +4), or a fetch fault's
   // tval (+2 when only the second half of a 32-bit instruction faults). The second is a decode
@@ -744,9 +759,11 @@ module tg_rob
 
   // The commit thread (split mode), chosen a cycle ahead so the head window still comes from flip-flops: the other
   // thread whenever it has entries, so two busy threads alternate and an empty one is not served
+  logic o_park;                     // (MT) the other thread waits in WFI: no turn for it yet
   always_comb begin
     ct_n = t_cm;
-    if (SPLIT && NT > 1 && rob_cnt_t(tail_q[~t_cm], head_q[~t_cm]) != 0) ct_n = ~t_cm;
+    o_park = MT && wfp_q[~t_cm] && !wkh_q[~t_cm] && int'(wfi_cnt_q[~t_cm]) != WFI_MAX;
+    if (SPLIT && NT > 1 && rob_cnt_t(tail_q[~t_cm], head_q[~t_cm]) != 0 && !o_park) ct_n = ~t_cm;
   end
 
   // ---- Sequential ----

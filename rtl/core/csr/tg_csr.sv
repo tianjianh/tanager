@@ -54,7 +54,8 @@ module tg_csr
   output logic [63:0]            xepc_o,       // its xepc (mepc or sepc), for its commit
   output logic                   irq_take,     // an enabled interrupt is pending
   output logic [5:0]             irq_code,
-  output logic                   wfi_wake,     // mip & mie != 0
+  output logic                   wfi_wake,     // mip & mie != 0 (the head thread's)
+  output logic [NUM_THREADS-1:0] wfi_wake_h,   // ... each hart's (the ROB's commit turns, with hart 1)
   output logic                   misa_m,
   output logic                   misa_b,       // Zba/Zbb/Zbs enabled (Spike lets software clear B)
   output logic                   misa_c,       // compressed instructions enabled
@@ -261,6 +262,9 @@ module tg_csr
   assign irq_code = ien_r[11] ? 6'd11 : ien_r[3] ? 6'd3 : ien_r[7] ? 6'd7 :
                     ien_r[9]  ? 6'd9  : ien_r[1] ? 6'd1 : 6'd5;
   assign wfi_wake = |ipend[ht];
+  for (genvar t = 0; t < NT; t++) begin : g_wake
+    assign wfi_wake_h[t] = |ipend[t];
+  end
 
   // ---- Each hart's decode state (M7's step 5b: decode reads its group's hart's) ----
   for (genvar t = 0; t < NT; t++) begin : g_dst
@@ -644,15 +648,16 @@ module tg_csr
   assign ins_wr = cm_csr && pv && pa == 12'hB02;
   // A write takes effect in the counter a cycle late (tg_dsp_ctr): in that cycle the write's
   // flush is on, so nothing reads the counter, and the pending write holds (a flush keeps EX from
-  // writing it). The retiring instructions are all slot 0's thread's.
+  // writing it). The retiring instructions are all slot 0's thread's. With hart 1 the next cycle's
+  // committing thread may be the other one, so each hart's counters load its own pending write.
   for (genvar t = 0; t < NT; t++) begin : g_ctr
     logic ld_c, ld_i;
     assign ld_c = cyc_wr && wt == tid_t'(t);
     assign ld_i = ins_wr && wt == tid_t'(t);
     tg_dsp_ctr #(.IW(1)) u_mcycle (
-      .clk, .rst, .ld(ld_c), .d(pd), .inc(!h_q[t].mcountinhibit[0]), .q(mcycle_q[t]));
+      .clk, .rst, .ld(ld_c), .d(MT ? pw_d_q[t] : pd), .inc(!h_q[t].mcountinhibit[0]), .q(mcycle_q[t]));
     tg_dsp_ctr #(.IW(CNW)) u_minstret (
-      .clk, .rst, .ld(ld_i),  .d(pd),
+      .clk, .rst, .ld(ld_i),  .d(MT ? pw_d_q[t] : pd),
       .inc((h_q[t].mcountinhibit[2] || wt != tid_t'(t)) ? '0 : CNW'(cm_n)), .q(minstret_q[t]));
   end
 `ifndef SYNTHESIS

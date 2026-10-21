@@ -1088,7 +1088,9 @@ module tg_lsu
     cap_ef  = sq_oldest_oh(cf, sq_hge_q);
     cap_ia  = sq_enc(cap_ea);
     cap_if  = sq_enc(cap_ef);
-    cap_v   = (sd_busy ? |cf : |ca) && !flush;      // (any flush: a cycle's stall, the data captured the next)
+    // (any flush: a cycle's stall, the data captured the next; with hart 1 also the other thread's atomic writing
+    // u_sqd, whose one write port it takes: the capture waits that cycle)
+    cap_v   = (sd_busy ? |cf : |ca) && !flush && !(IMT && am_req && am_ack);
     cap_idx = sd_busy ? cap_if : cap_ia;
     cap_fp  = sd_busy ? |(cap_ef & sq_fp_q) : |(cap_ea & sq_fp_q);
     sd_tag  = '0;

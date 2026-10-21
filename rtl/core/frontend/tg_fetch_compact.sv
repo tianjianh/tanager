@@ -44,6 +44,8 @@ module tg_fetch_compact
   input  logic                    clk,
   input  logic                    rst,
   input  logic [NUM_THREADS-1:0]  flush_q,    // redirects: each empties its queue (bit 0 alone without MT)
+  input  logic [NUM_THREADS-1:0]  drop_t,     // MT: a thread behind a serial uop at rename: its queue empties and
+                                              // takes its blocks without writing them (its flush would drop them)
   input  dec_state_t [NUM_THREADS-1:0] dst,   // the decoders' state, per hart (decode's)
   // Block from IF2
   input  logic                    blk_valid,
@@ -123,7 +125,13 @@ module tg_fetch_compact
   assign nwr  = (left > CW'(WR)) ? CW'(WR) : left;
   logic room;
   assign room = (QW + 1)'(DEPTH) - occ_q >= (QW + 1)'(nwr);
-  assign blk_ready = blk_valid && room && left <= CW'(WR);
+  logic [NQ-1:0] fq;                         // the queues that empty: a redirect's, or (MT) a dropped thread's
+  for (genvar q = 0; q < NQ; q++) begin : g_fq
+    assign fq[q] = flush_q[q] || (MT && drop_t[q]);
+  end
+  logic unused_fq;                           // (without MT the second thread's bits)
+  assign unused_fq = ^{flush_q, drop_t};
+  assign blk_ready = blk_valid && ((MT && drop_t[wq]) || (room && left <= CW'(WR)));
 
   // ---- Compaction straight into the banks ----
   logic [WR-1:0]           bwe;
@@ -213,7 +221,7 @@ module tg_fetch_compact
     logic [BW-1:0] b;
     assign b = BW'(head_q[BW-1:0] + BW'(j));
     assign out_insn[j]  = brdata[b];
-    assign out_valid[j] = rocc > (QW + 1)'(j);
+    assign out_valid[j] = rocc > (QW + 1)'(j) && !(MT && drop_t[rq]);
   end
 
   // ---- State update ----
@@ -226,11 +234,11 @@ module tg_fetch_compact
   assign ro = MT && !rt_q;
   always_comb
     for (int q = 0; q < NQ; q++)
-      occ_n[q] = flush_q[q] ? '0
+      occ_n[q] = fq[q] ? '0
                : occ_t_q[q] + ((wq == 1'(q)) ? w : '0) - ((rq == 1'(q)) ? (QW + 1)'(take) : '0);
   always_ff @(posedge clk) begin
     for (int q = 0; q < NQ; q++) begin
-      if (rst || flush_q[q]) begin
+      if (rst || fq[q]) begin
         occ_t_q[q]  <= '0;
         head_t_q[q] <= '0;
         tail_t_q[q] <= '0;
@@ -245,7 +253,7 @@ module tg_fetch_compact
       end
     end
     // the block's progress: reset by its thread's redirect (fetch drops the block), else as the block is written
-    if (rst || flush_q[wq]) begin
+    if (rst || fq[wq]) begin
       done_q <= '0;
     end else if (blk_valid && room) begin
       if (blk_ready) done_q <= '0;
@@ -263,7 +271,7 @@ module tg_fetch_compact
 
 `ifndef SYNTHESIS
   always_ff @(posedge clk) begin
-    if (!rst && !flush_q[rq]) assert (int'(take) <= RD && (QW + 1)'(take) <= rocc)
+    if (!rst && !fq[rq]) assert (int'(take) <= RD && (QW + 1)'(take) <= rocc)
       else $error("tg_fetch_compact: take beyond the valid entries");
   end
 `endif

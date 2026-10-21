@@ -92,6 +92,7 @@ module tg_fetch
   input  priv_e  [NUM_THREADS-1:0] priv_h,
   input  pmp_d_t [NUM_THREADS-1:0][PMP_ENTRIES-1:0] pmp_d_h,
   input  logic        pmp_busy,       // PMP descriptors being recomputed: F1 waits
+  input  logic [NUM_THREADS-1:0] rn_block,   // MT: a thread behind a serial uop at rename until its flush (tg_rename)
   input  logic        tlb_flush,
   input  tid_t        tlb_flush_tid,  // ... the hart whose entries it clears
   input  logic        it_fill,
@@ -169,10 +170,15 @@ module tg_fetch
   logic [NS-1:0][63:0] rpc_s_q;   // a parked stream's block: its PC (the restart) ...
   logic [NS-1:0][PA_W-1:0] rpa_s_q;   // ... and PA (the refill's line)
   logic        f2_s_q, k_s_q, f3_s_q;   // F2's block's stream, the action's, F3's
+  // A blocked stream (MT): its thread waits at rename behind a serial uop, whose commit flushes it, so whatever it
+  // fetches meanwhile would go: F1 treats it as stopped, F2 passes its blocks on without an FTQ entry, and the
+  // queue takes them without writing them (tg_fetch_compact's drop_t), so it holds none of the shared stages
+  logic [NS-1:0] blk_s;
+  assign blk_s = MT ? NS'(rn_block) : '0;
   // The stream views the logic below reads: F1's stream's stop, F2's stream's straddler
   logic        stop_q, carry_q;
   logic [15:0] sp_q;
-  assign stop_q  = stop_s_q[ft_q];
+  assign stop_q  = stop_s_q[ft_q] || blk_s[ft_q];
   assign carry_q = carry_s_q[f2_s_q];
   assign sp_q    = sp_s_q[f2_s_q];
   tid_t f3_tid;                                   // F3's block's thread
@@ -973,7 +979,7 @@ module tg_fetch
   logic [NUM_THREADS-1:0] red_q;                    // the queues the redirects empty (by stream)
   assign red_q = NUM_THREADS'(red_s);
   tg_fetch_compact #(.WR(4), .RD(DECODE_WIDTH), .DEPTH(IBUF_ENTRIES), .META_W(META_W)) u_cmp (
-    .clk, .rst, .flush_q(red_q), .dst, .blk_valid(f3_valid_q), .blk_tid(f3_tid),
+    .clk, .rst, .flush_q(red_q), .drop_t(MT ? rn_block : '0), .dst, .blk_valid(f3_valid_q), .blk_tid(f3_tid),
     .parcel(f3_parcel), .start(f3_start_q), .marks(f3_marks_q), .carry_out(f3_carry_q), .meta(f3_mq),
     .blk_ready, .out_tid(cq_tid), .out_valid(cq_valid), .out_insn(cq_insn), .take(iq_take));
 
@@ -1104,10 +1110,11 @@ module tg_fetch
             found      = 1'b1;
           end
       end
+    // (a blocked stream's block takes no entry: its FTQ may be full of the older instructions' blocks)
     assign ft_full = ft_t_s_q[f2_s_q][FTQW] != ft_eh_s[f2_s_q][FTQW] &&
-                     ft_t_s_q[f2_s_q][FTQW-1:0] == ft_eh_s[f2_s_q][FTQW-1:0];
+                     ft_t_s_q[f2_s_q][FTQW-1:0] == ft_eh_s[f2_s_q][FTQW-1:0] && !blk_s[f2_s_q];
     assign ft_tail = ft_t_s_q[f2_s_q][FTQW-1:0];
-    assign ft_we   = f2_deliver && !redirect;
+    assign ft_we   = f2_deliver && !redirect && !blk_s[f2_s_q];
     // (and the return-address stack's pointer, count and top before the block, RAS_FE)
     localparam int RW  = GH_W + 2 * NP + RAS_PW + RAS_PW + 1 + 38;
     localparam int RWA = GH_W + RAS_PW + RAS_PW + 1 + 38;     // written on time: the history, the stack's state
@@ -1635,7 +1642,7 @@ module tg_fetch
       end
     end else if (f1_mv) begin                         // F1's block moves on: the other stream's waiting block, or
       o = MT && !ft_q;                                // its own next
-      if (MT && sv_s_q[o]) begin
+      if (MT && sv_s_q[o] && !blk_s[o]) begin
         fpc_n = spc_s_q[o]; ft_n = o; sv_n[o] = 1'b0;
         sv_n[ft_q] = 1'b1; spc_n[ft_q] = pred_hit ? pred_tgt : seq_pc;
       end else begin
@@ -1656,11 +1663,11 @@ module tg_fetch
       end
     end
     // MT: an empty F1, or one holding a stopped stream's block, takes a waiting block
-    if (MT && (!f1v_n || stop_s_q[ft_n])) begin
+    if (MT && (!f1v_n || stop_s_q[ft_n] || blk_s[ft_n])) begin
       o = !ft_n;
-      if (sv_n[o]) begin
+      if (sv_n[o] && !blk_s[o]) begin
         f1v_n = 1'b1; fpc_n = spc_n[o]; ft_n = o; sv_n[o] = 1'b0; pw_n = 1'b0;
-      end else if (!f1v_n && sv_n[ft_n]) begin
+      end else if (!f1v_n && sv_n[ft_n] && !blk_s[ft_n]) begin
         f1v_n = 1'b1; fpc_n = spc_n[ft_n]; sv_n[ft_n] = 1'b0; pw_n = 1'b0;
       end
     end
@@ -1670,7 +1677,7 @@ module tg_fetch
     f1r = 1'b0;
     for (int t = 0; t < NS; t++) begin
       if (red_s[t]) begin
-        if (!MT || !f1v_n || (!f1r && (ft_n == 1'(t) || stop_s_q[ft_n] || red_s[ft_n]))) begin
+        if (!MT || !f1v_n || (!f1r && (ft_n == 1'(t) || stop_s_q[ft_n] || blk_s[ft_n] || red_s[ft_n]))) begin
           f1v_n = 1'b1; fpc_n = red_pc_s[t]; ft_n = 1'(t); pw_n = 1'b0; f1r = 1'b1;
           sv_n[t] = 1'b0;
         end else begin
@@ -1905,7 +1912,8 @@ module tg_fetch
   longint unsigned n_f2hold2;
   always_ff @(posedge clk)
     if (rst) n_f2hold2 <= 0;
-    else if (MT && f2_hold && ((f1_valid_q && ft_q != f2_s_q) || sv_s_q[!f2_s_q])) n_f2hold2 <= n_f2hold2 + 1;
+    else if (MT && f2_hold && ((f1_valid_q && ft_q != f2_s_q && !blk_s[ft_q]) || (sv_s_q[!f2_s_q] && !blk_s[!f2_s_q])))
+      n_f2hold2 <= n_f2hold2 + 1;                   // (a blocked stream's block waits for its flush, not for F2)
   final if (MT) $fwrite(32'h8000_0002, "TG-STALL2 %m: F2 holds another stream's fetch %0d cycles\n", n_f2hold2);
 `endif
 endmodule

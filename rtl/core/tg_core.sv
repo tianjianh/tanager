@@ -255,6 +255,7 @@ module tg_core
   // (declared ahead of u_fetch, which takes it: a name a port uses before its declaration is a new, undriven
   // implicit net in Vivado, Synth 8-11241, while Verilator resolves it)
   dec_state_t [NUM_THREADS-1:0] de_state_h;
+  logic [NUM_THREADS-1:0]        rn_blk;      // (MT) the threads behind a serial uop at rename (tg_rename's, for fetch)
   always_comb
     for (int t = 0; t < NUM_THREADS; t++) begin
       de_state_h[t]     = dst_csr[t];
@@ -280,7 +281,8 @@ module tg_core
     .ras_rv(fras_rv), .ras_rwr(fras_rwr), .ras_rtos(fras_rtos), .ras_rcnt(fras_rcnt), .ras_rtop(fras_rtop),
     .upd_valid, .upd_way, .upd_pc, .upd_slot, .upd_target, .upd_inval, .upd_tid,
     .iq_valid, .iq_insn, .iq_take,
-    .xl_h(xl_f_q), .dst(de_state_h), .priv_h(priv_f_q), .pmp_d_h, .pmp_busy, .tlb_flush, .tlb_flush_tid,
+    .xl_h(xl_f_q), .dst(de_state_h), .priv_h(priv_f_q), .pmp_d_h, .pmp_busy, .rn_block(rn_blk), .tlb_flush,
+    .tlb_flush_tid,
     .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte, .it_fill_tid,
     .iw_req, .iw_va, .iw_tid, .iw_ack, .iw_done, .iw_ok, .iw_cause,
     .l1i_a_o, .l1i_a_valid_o, .l1i_a_ready_i, .l1i_d_i, .l1i_d_valid_i, .l1i_d_ready_o);
@@ -424,7 +426,7 @@ module tg_core
   logic                             rn_ready;
   tg_rename u_rn (
     .clk, .rst, .ready(rn_ready), .start(init_done && fe_ready && lsu_ready), .flush, .flush_tid,
-    .de_valid, .de_uop, .de_take,
+    .de_valid, .de_uop, .de_take, .blk_o(rn_blk),
     .rob_head(rob_head_t), .lq_head(lq_head_t), .sq_head(sq_head_t), .sq_cmt(sq_cmt_t), .iq_bank_free,
     .iq_bank_free2, .w_vec, .busy(iq_busy),
     .rf_we, .rf_widx, .llt_rel, .tag_free, .div_done, .div_done_tid,
@@ -632,6 +634,7 @@ module tg_core
 
   // ---- CSRs ----
   logic             cm_csr, tr_valid, mret, sret, irq_take, wfi_wake, csr_cold_busy;
+  logic [NUM_THREADS-1:0] wfi_wake_h;           // each hart's WFI wake (the ROB's turns with hart 1)
   priv_e            priv_cm;                    // the commit head's thread's mode (the trace's records)
   logic [NCW-1:0]   cm_n;
   logic [5:0]       tr_code, irq_code;
@@ -644,7 +647,8 @@ module tg_core
     .ex_rdata(csr_ex_rdata), .ex_ill(csr_ex_ill),
     .cm_tid0(cm_tid[0]), .hd_tid(rob_hd_tid), .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret,
     .sret,
-    .trap_target, .irq_target, .xret_v, .xret_s, .xepc_o(xepc), .irq_take, .irq_code, .wfi_wake, .misa_m, .misa_b,
+    .trap_target, .irq_target, .xret_v, .xret_s, .xepc_o(xepc), .irq_take, .irq_code, .wfi_wake, .wfi_wake_h,
+    .misa_m, .misa_b,
     .misa_c, .misa_a, .misa_f, .misa_d, .fs, .fc_fflags, .fc_frm, .fc_wvalid, .fc_waddr,
     .fc_wdata, .fs_dirty, .cm_pc(tr_epc), .priv, .tvm, .tw, .tsr, .satp_sv39,
     .satp_asid, .satp_wr, .pmp_d, .pmp_wr, .pmp_busy, .cold_busy(csr_cold_busy), .dst_h(dst_csr), .priv_h, .priv_d_h, .sum_h, .mxr_h, .sv39_h, .satp_ppn_h,
@@ -679,7 +683,7 @@ module tg_core
     .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va,
     .tr_st_data, .tr_st_size, .tr_lq, .tr_ld_va, .tr_ld_size, .tr_tag, .tr_data,
     .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret, .sret, .sfence,
-    .trap_target, .irq_target, .xret_v, .xret_s, .xepc, .priv(priv_cm), .irq_take, .irq_code, .wfi_wake,
+    .trap_target, .irq_target, .xret_v, .xret_s, .xepc, .priv(priv_cm), .irq_take, .irq_code, .wfi_wake, .wfi_wake_h,
     .csr_hold(csr_cold_busy), .flush, .flush_tid, .flush_pc, .icinv, .trace_o, .trace_valid_o);
 
   // ---- Unused in M2 ----
