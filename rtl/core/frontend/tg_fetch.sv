@@ -331,7 +331,7 @@ module tg_fetch
   logic              kt_q;
   logic              kr_q;                // RAS_FE: ... at the stack's top, krt_q
   logic              ks_q;                // TAGE_ON: ... the exit is a straddler (PC: the block - 2)
-  logic [63:0]       krt_q;
+  logic [38:1]       krt_q;              // (A, spikes.md §7.1: the stack's top, which fx_tgt is under kr_q)
   logic [SLOT_W-1:0] kp_q;
   logic [20:0]       kimm_q;
   logic [63:0]       kt_tgt;
@@ -438,6 +438,7 @@ module tg_fetch
   logic               f2_isf0;            // the entry's fault decision (the override waits for it)
   logic [SLOT_W-1:0]  fx_slot;            // the taken exit's last parcel
   logic               fx_tsrc;            // ... F2 refetches at the instruction's own target (TAGE_ON)
+  logic               fx_tk, fx_nj, fx_nhs;   // ... its terms (E, spikes.md §7.1: ANDed after F3's register)
   logic               f2_ovr;             // the prediction differs from what F1 followed: refetch,
   logic               f2_ka;              // F2 acts on a delivered block: a cut, a fault or a refetch
   logic               ovr_tk;             // ... at the exit's target (the exit's first parcel ovr_p)
@@ -513,6 +514,9 @@ module tg_fetch
     assign f2_isf0 = isf_h[0];
     assign fx_slot = f2_slot_q;
     assign fx_tsrc = 1'b0;
+    assign fx_tk   = 1'b0;
+    assign fx_nj   = 1'b1;
+    assign fx_nhs  = 1'b1;
     assign f2_ovr  = f2_hit_q && !pred_ok;
     assign f2_ka   = pmp_cut || (f2_ovr && !f2_isf0) || f2_isfault;
     assign ovr_tk  = 1'b0;
@@ -720,6 +724,9 @@ module tg_fetch
     // carries for decode's check: an entry of another block (the partial tag aliases blocks 2 MiB
     // apart, a straddler's slot 0 included) or a JAL changed since it trained gives a wrong one.
     assign fx_tsrc = tk && !xjalr && !(f2_hit_q && sm);
+    assign fx_tk   = tk;
+    assign fx_nj   = !xjalr;
+    assign fx_nhs  = !(f2_hit_q && sm);
     // f2_ka, F2's action without the delivery: its terms absorb f2_ovr's gates (timing)
     logic fe_ras, xovr;
     assign fe_ras  = tk && xras;
@@ -733,11 +740,9 @@ module tg_fetch
     always_comb begin
       logic [NP-1:0][20:0] im;
       for (int p = 0; p < NP; p++) im[p] = br_imm({parcel[(p + 1) % NP], parcel[p]}, pd_jal[p]);
-      ovr_imm = im[0];
-      if (fe_v) begin
-        ovr_imm = '0;
-        for (int p = 0; p < NP; p++) if (feh[p]) ovr_imm = ovr_imm | im[p];
-      end
+      // (E, spikes.md §7.1: no default for a block without an exit: kimm_q is read only under kt_q, a taken exit)
+      ovr_imm = '0;
+      for (int p = 0; p < NP; p++) if (feh[p]) ovr_imm = ovr_imm | im[p];
       if (fe_s) ovr_imm = br_imm(sx, sx_jal);
     end
     assign ovr_ras = fe_ras;
@@ -897,7 +902,7 @@ module tg_fetch
           assert (r_fe_v == fe_v && r_fe_p == fe_p && r_c3_v == c3_v && r_c3_p == c3_p && r_isf == isf &&
                   r_phi == phi && r_pcut == pcut && r_ccut == ccut && r_tk == tk && r_bs == bs && r_bc == bc &&
                   r_fp == fp && r_fx_slot == fx_slot && r_fx_tsrc == fx_tsrc && r_fe_ras == fe_ras &&
-                  r_ovr == f2_ovr && r_imm == ovr_imm && r_tgt == fx_tgt && r_rpush == f2_rpush &&
+                  r_ovr == f2_ovr && (!r_tk || r_imm == ovr_imm) && r_tgt == fx_tgt && r_rpush == f2_rpush &&
                   r_rpop == f2_rpop && r_rlink == f2_rlink)
             else $error("tg_fetch: the flat decision differs from the walk's");
           assert (f2_ka == (r_pcut || r_ccut || r_isf || r_ovr) || !f2_deliver)
@@ -917,6 +922,30 @@ module tg_fetch
   logic [NP-1:0]        f3_start_q;
   logic [NP-1:0][2:0]   f3_marks_q;
   meta_t                f3_meta_q;
+  // B and E (spikes.md §7.1): the exit's target is selected, and tsrc ANDed, after F3's register: F3 keeps F2's
+  // target, whether the exit returns to the stack's top, the top, and tsrc's three terms
+  logic                 f3_ras_q, f3_tk_q, f3_nj_q, f3_nhs_q;
+  logic [38:1]          f3_rtop_q;
+  meta_t                f3_mq;                     // the block's metadata as the queue takes it
+  always_comb begin
+    f3_mq        = f3_meta_q;
+    f3_mq.target = f3_ras_q ? {{25{f3_rtop_q[38]}}, f3_rtop_q, 1'b0} : f3_meta_q.target;
+    f3_mq.tsrc   = f3_tk_q && f3_nj_q && f3_nhs_q;
+  end
+`ifndef SYNTHESIS
+  // the values F2 selected before B and E: the queue takes the same
+  logic [63:0] f3_tgt_ref_q;
+  logic        f3_tsrc_ref_q;
+  always_ff @(posedge clk) begin
+    if (f2v && f3_accept) begin
+      f3_tgt_ref_q  <= fx_tgt;
+      f3_tsrc_ref_q <= fx_tsrc;
+    end
+    if (!rst && f3_valid_q)
+      assert (f3_mq.target == f3_tgt_ref_q && f3_mq.tsrc == f3_tsrc_ref_q)
+        else $error("tg_fetch: F3's target or tsrc differs from F2's selection");
+  end
+`endif
   // A fault block's parcels go to the queue as zeros: zeroed here, from the registered fault bit,
   // so F2's late fault decision does not drive the parcel registers' resets
   assign f3_parcel = f3_meta_q.fault ? '0 : f3_parcel_q;
@@ -933,7 +962,7 @@ module tg_fetch
   assign red_tid  = flush ? flush_tid : dred_tid;
   tg_fetch_compact #(.WR(4), .RD(DECODE_WIDTH), .DEPTH(IBUF_ENTRIES), .META_W(META_W)) u_cmp (
     .clk, .rst, .flush(redirect), .flush_tid(red_tid), .dst, .blk_valid(f3_valid_q), .blk_tid(f3_tid),
-    .parcel(f3_parcel), .start(f3_start_q), .marks(f3_marks_q), .carry_out(f3_carry_q), .meta(f3_meta_q),
+    .parcel(f3_parcel), .start(f3_start_q), .marks(f3_marks_q), .carry_out(f3_carry_q), .meta(f3_mq),
     .blk_ready, .out_tid(cq_tid), .out_valid(cq_valid), .out_insn(cq_insn), .take(iq_take));
 
   // ---- Pipeline control ----
@@ -1064,13 +1093,30 @@ module tg_fetch
     assign ft_tail = ft_t_s_q[f2_s_q][FTQW-1:0];
     assign ft_we   = f2_deliver && !redirect;
     // (and the return-address stack's pointer, count and top before the block, RAS_FE)
-    localparam int RW = GH_W + 2 * NP + RAS_PW + RAS_PW + 1 + 38;
+    localparam int RW  = GH_W + 2 * NP + RAS_PW + RAS_PW + 1 + 38;
+    localparam int RWA = GH_W + RAS_PW + RAS_PW + 1 + 38;     // written on time: the history, the stack's state
     logic [0:0][SB+FTQW-1:0] fr_ra;
     logic [0:0][RW-1:0]   fr_rd;
+    logic [0:0][RWA-1:0]  fra_rd;
+    logic [0:0][2*NP-1:0] frb_rd;
     assign fr_ra[0] = fqa(strm(dred_tid), dred_ftq);
-    tg_ram_lut #(.DEPTH(FTQ_ENTRIES << SB), .WIDTH(RW), .NR(1)) u_fgh (
-      .clk, .we(ft_we), .waddr(fqa(f2_s_q, ft_tail)), .wdata({gh_e_s[f2_s_q], gh_cm, gh_pk, ras_tos, ras_cnt, ras_top}),
-      .raddr(fr_ra), .rdata(fr_rd));
+    tg_ram_lut #(.DEPTH(FTQ_ENTRIES << SB), .WIDTH(RWA), .NR(1)) u_fgh (
+      .clk, .we(ft_we), .waddr(fqa(f2_s_q, ft_tail)), .wdata({gh_e_s[f2_s_q], ras_tos, ras_cnt, ras_top}),
+      .raddr(fr_ra), .rdata(fra_rd));
+    // D (spikes.md §7.1): the block's branch slots and directions (gh_cm, gh_pk) go into their own LUTRAM a cycle
+    // later, from registers, off F2's decision: decode's redirect reads a block's entry three cycles after its
+    // delivery at the earliest (F3 writes the queue, decode decodes, its redirect is registered)
+    logic                 fb_we_q;
+    logic [SB+FTQW-1:0]   fb_wa_q;
+    logic [2*NP-1:0]      fb_wd_q;
+    always_ff @(posedge clk) begin
+      fb_we_q <= !rst && ft_we;
+      fb_wa_q <= fqa(f2_s_q, ft_tail);
+      fb_wd_q <= {gh_cm, gh_pk};
+    end
+    tg_ram_lut #(.DEPTH(FTQ_ENTRIES << SB), .WIDTH(2 * NP), .NR(1)) u_fbr (
+      .clk, .we(fb_we_q), .waddr(fb_wa_q), .wdata(fb_wd_q), .raddr(fr_ra), .rdata(frb_rd));
+    assign fr_rd[0] = {fra_rd[0][RWA-1 -: GH_W], frb_rd[0], fra_rd[0][RWA-GH_W-1:0]};
     // the stack's operation at a delivered block's exit, and its repair at decode's redirect
     assign ras_push = ft_we && !f2_isfault && f2_rpush;
     assign ras_pop  = ft_we && !f2_isfault && f2_rpop;
@@ -1532,7 +1578,8 @@ module tg_fetch
   assign rr      = strm(red_tid);
   assign red_pc  = flush ? flush_pc : dred_pc;
   assign kref_pc = k_cut_q ? {miss_pc_q[63:4], fp_q, 1'b0}
-                 : k_ovr_q ? (kr_q ? krt_q : kt_q ? kt_tgt : {miss_pc_q[63:4] + 60'd1, 4'b0}) : miss_pc_q;
+                 : k_ovr_q ? (kr_q ? {{25{krt_q[38]}}, krt_q, 1'b0} : kt_q ? kt_tgt : {miss_pc_q[63:4] + 60'd1, 4'b0})
+                 : miss_pc_q;
   always_comb
     for (int t = 0; t < NS; t++) begin
       rs_ref[t]  = (miss_s_q[t] || (am_go && k_s_q == 1'(t))) && (refill_done || pv_go);
@@ -1571,9 +1618,11 @@ module tg_fetch
       o = MT && !ft_q;                                // its own next
       if (MT && sv_s_q[o]) begin
         fpc_n = spc_s_q[o]; ft_n = o; sv_n[o] = 1'b0;
-        sv_n[ft_q] = 1'b1; spc_n[ft_q] = (pred_hit && !f1_fault) ? pred_tgt : seq_pc;
+        sv_n[ft_q] = 1'b1; spc_n[ft_q] = pred_hit ? pred_tgt : seq_pc;
       end else begin
-        fpc_n = (pred_hit && !f1_fault) ? pred_tgt : seq_pc;
+        // (G, spikes.md §7.1: f1_fault leaves the select; a faulting block becomes F2's fault block, which stops
+        // its stream and drops the block behind it, so the next block's address is never used)
+        fpc_n = pred_hit ? pred_tgt : seq_pc;
       end
       pw_n = 1'b0;
     end
@@ -1645,10 +1694,15 @@ module tg_fetch
         f3_marks_q  <= f2_bfault ? '0 : blk_marks;
         f3_carry_q  <= blk_carry;
         f3_meta_q   <= '{base: f2_pc_q[63:4], hit: f2_taken, way: f2_way_q, slot: fx_slot,
-                         target: fx_tgt, tsrc: fx_tsrc,
+                         target: f2_tgt_q, tsrc: 1'b0,
                          uhit: TAGE_ON ? uok && !f2_isfault : f2_taken, uslot: f2_slot_q, ftq: ft_tail,
                          fault: f2_isfault, fpf: f2_bfault && f2_fpf_q, fhi: !f2_bfault && pmp_hi};
         f3_s_q      <= f2_s_q;
+        f3_ras_q    <= ovr_ras;
+        f3_rtop_q   <= ras_top;
+        f3_tk_q     <= fx_tk;
+        f3_nj_q     <= fx_nj;
+        f3_nhs_q    <= fx_nhs;
       end
       if (f2_deliver) begin
         f3_valid_q          <= 1'b1;
@@ -1703,7 +1757,7 @@ module tg_fetch
       kp_q     <= ovr_p;
       kimm_q   <= ovr_imm;
       kr_q     <= ovr_ras;
-      krt_q    <= fx_tgt;
+      krt_q    <= ras_top;
       ks_q     <= ovr_s;
       fp_q     <= fp;
       if (f2v) begin
