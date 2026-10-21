@@ -1007,7 +1007,7 @@ module tg_fetch
   // Only a thread whose queue decode has not read for QP_WAIT cycles while it held instructions parks (its RN register
   // holds a stalled group, so its queue does not drain): a thread whose queue drains waits in F3 a cycle or two as
   // before, which costs less than a park's refetch (compute pairs lost 0.01-0.05 when every such block parked)
-  localparam int QP_WAIT = 4;
+  localparam int QP_WAIT = 2;
   logic [4:0] f2_need, f3_need_q;
   logic       f2_cont, f2_qfull;
   logic [NUM_THREADS-1:0][2:0] qs_q;        // cycles since decode last took from the thread's queue, while it held some
