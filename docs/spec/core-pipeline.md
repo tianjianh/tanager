@@ -144,6 +144,17 @@ below changes a cycle.
   at fpc_q's input, the F1 loop that fix G (below) cleared. F1's ITLB lookup, privilege, Sv39 mode and PMP descriptors
   are its block's hart's; the micro-BTB is looked up with F1's thread and trained with the trained branch's
   (`upd_tid`); TAGE reads with F1's stream's history and takes the stream as the block address's top bit.
+- **A full queue parks its stream at F2 (5e, smt2_report §13.16):** a block whose thread's queue cannot take it waited
+  in F3, and F3, F2 and F1 with it, so the other thread's fetch waited for this one's decode. Now, while the other
+  stream waits for the pipe (its block in F1, or its next one waiting), F2 passes a block on only if it fits its
+  thread's queue beside that thread's block in F3, each counted at a bound from registers (the parcels from its entry
+  and a straddler's completion; the queue's counts, `tg_fetch_compact`'s `occ_o`). A block that does not fit parks its
+  stream as an I$ miss does, undelivered (no FTQ entry, its later blocks dropped), and the stream restarts at it once
+  its queue has the room. It parks only when decode has not read that thread's queue for 2 cycles while the queue held
+  instructions (`QP_WAIT`: its RN register holds a stalled group); a queue that drains is read every other cycle, and
+  its block waits in F3 a cycle or two as before, which costs less than a refetch. At 30 cycles: 1.293 with no
+  starving pair, against 5d's 1.248 with three (memory pairs 1.296 → 1.348, mixed 1.252 → 1.356, compute 1.198 →
+  1.191). TG-FQPARK counts the parks.
 - **Redirects per stream:** a flush and decode's redirect may come in one cycle for different threads and both apply;
   for one stream the flush wins. A redirect kills only its stream's blocks in F1, F2 and F3 and its pending action; F2's
   action likewise drops only its stream's later blocks (the other stream's block in F2 waits a cycle, and the I$ data
