@@ -686,7 +686,20 @@ module tg_rename
   always_ff @(posedge clk)
     if (rst) n_rnhold2 <= 0;
     else if (HART1_ON && |rn_valid_q && !rn_fire && de_valid[0] && de_uop[0].tid != t_rn) n_rnhold2 <= n_rnhold2 + 1;
-  final if (HART1_ON) $fwrite(32'h8000_0002, "TG-STALL2 %m: RN holds the other thread's group %0d cycles\n", n_rnhold2);
+  // Sharper (the throughput it may cost): the waiting group's thread has room in its ROB, LQ and SQ halves for it, so
+  // it could have renamed but for the group ahead of it
+  longint unsigned n_rnhold2b;
+  always_ff @(posedge clk)
+    if (rst) n_rnhold2b <= 0;
+    else if (HART1_ON && |rn_valid_q && !rn_fire && de_valid[0] && de_uop[0].tid != t_rn) begin
+      tid_t y;
+      y = de_uop[0].tid;
+      if (rob_room_t[y][$countones(de_valid)] && lq_room_t[y][ren_nld(de_uop, de_valid)] &&
+          sq_room_t[y][ren_nst(de_uop, de_valid)])
+        n_rnhold2b <= n_rnhold2b + 1;
+    end
+  final if (HART1_ON) $fwrite(32'h8000_0002, "TG-STALL2 %m: RN holds the other thread's group %0d cycles (%0d with room in that thread's window)\n",
+                              n_rnhold2, n_rnhold2b);
   // With hart 1: a thread whose window (ROB, RN and DS) has been empty for a few cycles holds no wakeup tag and no LLT
   // (a tag returns two cycles after its op completes): a return lost to the other thread's flush leaks it for good
   if (CMT) begin : g_leak

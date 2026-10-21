@@ -1950,6 +1950,19 @@ module tg_fetch
     if (rst) n_f2hold2 <= 0;
     else if (MT && f2_hold && ((f1_valid_q && ft_q != f2_s_q && !blk_s[ft_q]) || (sv_s_q[!f2_s_q] && !blk_s[!f2_s_q])))
       n_f2hold2 <= n_f2hold2 + 1;                   // (a blocked stream's block waits for its flush, not for F2)
-  final if (MT) $fwrite(32'h8000_0002, "TG-STALL2 %m: F2 holds another stream's fetch %0d cycles\n", n_f2hold2);
+  // Sharper (the throughput it may cost): the other stream is not stopped, parked or blocked and its queue has room
+  // for a whole block, so it could have gone on but for the hold
+  longint unsigned n_f2hold2b;
+  always_ff @(posedge clk)
+    if (rst) n_f2hold2b <= 0;
+    else if (MT && f2_hold) begin
+      logic y;
+      y = !f2_s_q;
+      if (((f1_valid_q && ft_q == y) || sv_s_q[y]) && !blk_s[y] && !stop_s_q[y] && !miss_s_q[y] && !wk_s_q[y] &&
+          int'(u_cmp.occ_t_q[y]) <= IBUF_ENTRIES - FETCH_BYTES / 2)
+        n_f2hold2b <= n_f2hold2b + 1;
+    end
+  final if (MT) $fwrite(32'h8000_0002, "TG-STALL2 %m: F2 holds another stream's fetch %0d cycles (%0d with that stream ready and room in its queue)\n",
+                        n_f2hold2, n_f2hold2b);
 `endif
 endmodule
