@@ -152,6 +152,13 @@ struct pending_t {
 
 }  // namespace
 
+// Whether a hart's data addresses are physical: M-mode without MPRV, or satp Bare.
+static bool bare_translation(processor_t* p) {
+  state_t* s = p->get_state();
+  if (s->prv == PRV_M && !(s->mstatus->read() & MSTATUS_MPRV)) return true;
+  return p->extension_enabled('S') ? (p->get_csr(CSR_SATP) >> 60) == 0 : true;
+}
+
 int main(int argc, char** argv) {
   opts_t o = parse(argc, argv);
   rng_t rng(o.seed * 0x9e3779b97f4a7c15ull + 7);
@@ -323,6 +330,27 @@ int main(int argc, char** argv) {
     dut.amo_step = false;
     if (forced) s->mip->backdoor_write_with_mask(forced, platform_levels(h) & forced & PLATFORM_MIP);
     uint64_t xpa = 0;
+    // An SC fails once another hart has stored into its reservation set (RVWMO; Spike's harts keep theirs through
+    // each other's stores). The core clears a sibling's reservation when a store reaches its line, as a probe
+    // does, so the replay clears every other hart's reservation in the line of a store: a stricter set than
+    // Spike's, and an SC may always fail. Harts whose loads translate keep theirs (their reservation is a VA).
+    if (dut.procs.size() > 1 && !st.trapped && st.nst && spike_data_paddr(p, dut, st.st_addr, xpa) && dut.in_dram(xpa))
+      for (size_t k = 0; k < dut.procs.size(); k++) {
+        processor_t* q = dut.procs[k];
+        if (k == h || !bare_translation(q)) continue;
+        for (uint64_t a = xpa & ~63ull; a < (xpa & ~63ull) + 64; a += 4) {
+          bool hit = false;
+          try {
+            hit = q->get_mmu()->check_load_reservation(a, 1);
+          } catch (...) {
+          }
+          if (hit) {
+            q->get_mmu()->yield_load_reservation();
+            break;
+          }
+        }
+      }
+    xpa = 0;
     if (o.ext && !st.trapped && st.nld && spike_data_paddr(p, dut, st.ld_addr, xpa) && dut.in_dram(xpa)) {
       recent_ld.push_back(xpa);
       if (recent_ld.size() > 64) recent_ld.erase(recent_ld.begin());

@@ -3,7 +3,7 @@
 ways (docs/spec/verification.md §6.5):
   - the program's own check: COH-PASS, or COH-FAIL and the wrong slot;
   - progress: a hang (the board's boot-lottery case) reaches the cycle limit without COH-END;
-  - Spike lockstep of both harts: tanager-lockstep --harts=2 on tb_boot's commit trace (+trace_out).
+  - Spike lockstep of every hart: tanager-lockstep --harts=<the SoC's harts> on tb_boot's commit trace (+trace_out).
 --modes rotates gen_coh's modes over the seeds. --lat sets the DDR models' timing (tb_axi_mem's run-time
 options): fixed is one latency per seed, 18 + seed % 9 cycles, with every ready and beat at 100% and in
 order, as the board's DDR (the cores then run in step from reset); jitter is 18-26 cycles at random;
@@ -121,8 +121,14 @@ def main():
                 os.remove(base + ext)
             return seed, "PASS", "", ""
         else:
-            nharts = max(int(h) for h in a.harts.split(",")) + 1
-            nharts = 2 if nharts <= 2 else 4
+            # Every hart of the SoC writes records, those that only park too (tb_boot's directory names its cores
+            # and configuration: boot..._c2_t1_smt2 is 2 cores of 2 harts), not just the harts listed
+            m = re.search(r"_c(\d+)_t\d+_(\w+)$", os.path.basename(os.path.dirname(os.path.abspath(a.tb))))
+            if m:
+                nharts = int(m[1]) * (2 if m[2].startswith("smt2") else 1)
+            else:
+                nharts = max(int(h) for h in a.harts.split(",")) + 1
+                nharts = 2 if nharts <= 2 else 4
             pmp = [f"--pmp={a.pmp}"] if a.pmp is not None else []
             rc, lout = run([a.lockstep, f"--fw={base}.bin", f"--harts={nharts}", *pmp, "--stats=0", base + ".trace"],
                            a.timeout)
