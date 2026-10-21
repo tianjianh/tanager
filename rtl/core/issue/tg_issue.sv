@@ -39,6 +39,7 @@ module tg_issue
   // Wakeup
   input  logic [NCOL-1:0]              alloc,       // IDs given out at RN: W cleared
   input  logic [NCOL-1:0]              wake_reg,    // W set at the end of this cycle
+  input  logic                         ld_m2_will,  // the integer load in M2 completes (SPEC_WAKE's check)
   input  logic [NCOL-1:0]              col_clr,     // returned tags (registered)
   output logic [NCOL-1:0]              w,
   output logic [NCOL-1:0]              busy,        // columns a waiting row depends on
@@ -490,7 +491,9 @@ module tg_issue
     logic            m2_ok;           // the load in M2 completed there
     assign sw_rf = '{v: iss_valid[Q_LD] && iss_pl[Q_LD].dst_en && !iss_pl[Q_LD].dst_fp,
                      spec: !swp_q[ld_ph][1], tid: iss_pl[Q_LD].tid, llt: iss_pl[Q_LD].llt, ph: ld_ph};
-    assign m2_ok = |(wake_reg & col_m2);
+    // The tracked load completed in M2: at its check M2 holds it or nothing, so the LSU's own completion of an
+    // integer load says so (its LLT's wakeup, without the other wakeups in wake_reg: DR-179's FP terms stay off)
+    assign m2_ok = ld_m2_will;
     always_ff @(posedge clk) begin
       if (rst) begin
         sw_ag_q.v <= 1'b0;
@@ -520,7 +523,7 @@ module tg_issue
                        (sw_cancel ? sw_cancel_col : '0);
   end else begin : g_nosw
     logic unused_ph;
-    assign unused_ph     = ^ld_ph;
+    assign unused_ph     = ^{ld_ph, ld_m2_will};
     assign wake_spec     = '0;
     assign spec_pend     = '0;
     assign sw_cancel     = 1'b0;
