@@ -1585,11 +1585,22 @@ void Core::exec_load(Uop& u) {
   const uint64_t d = (uint64_t)c_.abl_ld_use, dn = (uint64_t)c_.abl_done;
   T.st.loads++;
   bool violated = false, drain_clash = false;
+  // spec_filter (the RTL's filter C, tg_issue): an integer load whose PC's loads keep failing to complete in M2 wakes
+  // its dependants with its result, not speculatively, and cancels nothing; trained once per issue, at M2
+  const int ph = c_.spec_filter && u.cls != Cls::FLD && u.dst_arch >= 0 ? swf_hash(u.di->pc) : -1;
+  const bool filt_ok = ph < 0 || swfilt_[(size_t)ph] < 2;
+  auto filt_train = [&](bool ok) {
+    if (ph < 0) return;
+    uint8_t& c = swfilt_[(size_t)ph];
+    if (ok) { if (c > 0) c--; } else if (c < 3) c++;
+  };
   // fwd_wait_cancel: a load that finds an older store's address without its data, or not covering it, does not
   // complete in M2 (the RTL's STQ verdict): with speculative wakeup it cancels the shadow, as a miss does
   auto wait_cancel = [&] {
+    filt_train(false);
     if (!c_.fwd_wait_cancel || !c_.spec_wakeup || c_.shadow <= 0 || (c_.spec_int_only && u.cls == Cls::FLD)) return;
     if (c_.hit_pred && hitpred_.at(u.di->pc ^ T.salt) < 2) return;
+    if (!filt_ok) return;
     if (cancel_from_ == NEVER || t + 3 + d > cancel_to_) cancel_from_ = t + 3 + d;
     cancel_to_ = std::max(cancel_to_, t + 2 + d + (uint64_t)c_.shadow);
     cancel_tid_ = T.tid;
@@ -1621,9 +1632,9 @@ void Core::exec_load(Uop& u) {
         }
         u.t_ag = t_ag;
         // spec_fwd: with speculative wakeup, a forward that completes at M2 wakes its dependants as a hit does
-        const bool fwd_spec = c_.spec_fwd && c_.spec_wakeup && !(c_.spec_int_only && u.cls == Cls::FLD);
+        const bool fwd_spec = c_.spec_fwd && c_.spec_wakeup && filt_ok && !(c_.spec_int_only && u.cls == Cls::FLD);
         const uint64_t fl = fwd_spec ? std::min<uint64_t>(3, (uint64_t)c_.ld_fwd_lat) : (uint64_t)c_.ld_fwd_lat;
-        if (dt <= t + 3) { u.t_ready = t + fl + d; T.st.ld_fwd++; }
+        if (dt <= t + 3) { u.t_ready = t + fl + d; T.st.ld_fwd++; filt_train(true); }
         else { u.t_ready = dt + (uint64_t)c_.ld_fwd_wait + d; T.st.ld_fwd_wait++; wait_cancel(); }
         u.t_done = u.t_ready + 1 + dn;
         return;
@@ -1642,6 +1653,7 @@ void Core::exec_load(Uop& u) {
   const MemSys::Res res = mem_.l1d(pa(T, u.addr), t + 3, MemSys::LOAD, ready);
   if (res == MemSys::Res::NO_MSHR) {
     T.st.ld_no_mshr++;
+    filt_train(false);
     u.state = 1; u.t_eligible = std::max(t + 1, mem_.l1d_mshr_free_at(t + 3) - 3); u.t_issue = NEVER;
     iq_reinsert(u);
     return;
@@ -1651,9 +1663,12 @@ void Core::exec_load(Uop& u) {
   const bool hit = res == MemSys::Res::HIT;
   uint8_t& hp = hitpred_.at(u.di->pc ^ T.salt);
   // spec_int_only: as in the RTL, only integer loads wake their dependants early (IQ-FP sees confirmed results)
-  const bool pred_hit = (!c_.hit_pred || hp >= 2) && !(c_.spec_int_only && u.cls == Cls::FLD);
+  const bool pred_hit = (!c_.hit_pred || hp >= 2) && filt_ok && !(c_.spec_int_only && u.cls == Cls::FLD);
   if (hit) { if (hp < 3) hp++; T.st.ld_l1_hit++; }
   else { if (hp > 0) hp--; T.st.ld_l1_miss++; }
+  // spec_filter: a miss or a drain clash fails in M2 now; a hit completes there unless a row clash finds it before its
+  // AG has passed (trained then, from ag_recs_)
+  if (!hit || drain_clash || !c_.dc_row_clash) filt_train(hit && !drain_clash);
   if (hit) {
     u.t_ready = (c_.spec_wakeup && pred_hit) ? t + 3 + d : t + 5 + d;
   } else {
@@ -1679,7 +1694,7 @@ void Core::exec_load(Uop& u) {
   } else if (c_.dc_row_clash) {
     // the D$ read at AG (t + 2) of this 16-byte block; a store to the block acked then or the cycle before (the
     // registered port-B write, DC_PORTB_WREG) makes it retry
-    ag_recs_.push_back({t + 2, t, u.id, u.addr >> 4, pred_hit});
+    ag_recs_.push_back({t + 2, t, u.id, u.addr >> 4, pred_hit, false, hit ? ph : -1});
   }
   mem_.train_stride(pa(T, u.di->pc), pa(T, u.addr), t + 3);
 }
@@ -1710,6 +1725,7 @@ void Core::row_clash(Thread& T, uint64_t addr) {
     if (!u || u->state != 2 || (u->id >> TID_SHIFT) != (uint64_t)T.tid) continue;
     a.done = true;
     clash_hit(T, *u, a.issue, a.spec);
+    if (a.ph >= 0 && swfilt_[(size_t)a.ph] < 3) swfilt_[(size_t)a.ph]++;  // spec_filter: it failed in M2
     // clash_rearm: the retry reads the row again at its own AG, clash_delay later, and a store draining into the
     // row then makes it retry again (the replay from the LQ wakes nothing early, so it cancels no shadow)
     const uint64_t dl = (uint64_t)c_.clash_delay;
@@ -2149,9 +2165,12 @@ int Core::commit_thread(Thread& T, int width) {
 // Committed stores drain in order per thread through the one D$ store port; with two threads the thread
 // tried first alternates every cycle (smt_drain_rr, M7's D8; 0 = thread 0 first).
 void Core::drain_stores() {
-  if (c_.dc_row_clash)  // loads whose AG is past can no longer clash
+  if (c_.dc_row_clash) {  // loads whose AG is past can no longer clash: spec_filter counts their hits as completed
+    for (const AgRec& a : ag_recs_)
+      if (a.ag < t_ && !a.done && a.ph >= 0 && swfilt_[(size_t)a.ph] > 0) swfilt_[(size_t)a.ph]--;
     ag_recs_.erase(std::remove_if(ag_recs_.begin(), ag_recs_.end(), [&](const AgRec& a) { return a.ag < t_; }),
                    ag_recs_.end());
+  }
   if (nthr_ == 1) { drain_thread(*th_[0]); return; }
   const int first = c_.smt_drain_rr ? (int)(t_ % (uint64_t)nthr_) : 0;
   for (int k = 0; k < nthr_; k++)

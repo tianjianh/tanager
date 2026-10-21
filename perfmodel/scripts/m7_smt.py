@@ -755,7 +755,7 @@ FINALDIR = Path(os.environ.get("TG_FINALDIR", str(Path.home() / "tanager-build" 
 REV = dse.PRESET_REV.get(PRESET, 0)   # --final's revision: the preset's own (9 since area_recovery 6.17)
 REV8 = {"rfo_pf_reserve": 1}   # rtl_m2 from revision 8: the ownership prefetch as the RTL's (DR-171; section 13.10)
 REV7 = {"rfo_pf_reserve": 2, "pf_i_nextline": 0, "l1i_mshr": 1,   # revision 7 on today's preset (rfo_pf in CORE)
-        "btage_alloc": 0}
+        "btage_alloc": 0, "spec_filter": 0}
 FINAL_REF = "step 5 + the drain's priority for a miss entry"   # run on revision 7 as well
 FINAL_BEST = "step 7: 50% caps, a bank's last row kept while the sibling waits, the drain's priority"
 FINAL_LEVERS = {"+ a hart at most 3 of the 4 L1D miss entries": {"smt_mshr_cap": 75},
