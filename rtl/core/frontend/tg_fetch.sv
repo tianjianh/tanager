@@ -1371,11 +1371,14 @@ module tg_fetch
   // MT: a stream's tags are compared in F1, a cycle and more before F2's action parks it, so a refill or a held
   // line's validation that ended in between leaves it parking on a line now valid (the other stream's miss of the
   // same line): it restarts at once (am_rd; its refetch hits, or misses again after a FENCE.I) and the engine does
-  // not fetch the line a second time into another way
-  logic [PA_W-1:6] rdl_q;                    // the line the last refill or validation made valid ...
-  logic [1:0]      rda_q;                    // ... cycles since (3: too long ago)
+  // not fetch the line a second time into another way. A record for each way a line becomes valid, the refill's
+  // and the held line's validation: one record let a validation right after a refill hide the refilled line, and a
+  // stream's late miss of it fetched it into a second way (verif-2's two-hart random programs, 10-21)
+  logic [PA_W-1:6] rdl_q, vdl_q;             // the lines the last refill and the last validation made valid ...
+  logic [1:0]      rda_q, vda_q;             // ... cycles since (3: too long ago)
   logic            am_rd;
-  assign am_rd    = MT && am_go && rda_q != 2'd3 && miss_pa_q[PA_W-1:6] == rdl_q;
+  assign am_rd    = MT && am_go && ((rda_q != 2'd3 && miss_pa_q[PA_W-1:6] == rdl_q) ||
+                                    (vda_q != 2'd3 && miss_pa_q[PA_W-1:6] == vdl_q));
   assign r_start  = rs_q == R_IDLE && (miss_any || am_go) && !rst && !pf_wait && !pv_go && !(am_rd && !miss_any);
   assign tr_go    = IPF_ON && (r_start || pv_go) && mline[11:6] != 6'h3F && (ps_q == P_IDLE || ps_q == P_HELD);
   assign p_inv_go = IPF_ON && ps_q == P_INV && ivs_done && !r_start && !tag_we && !pv_go;
@@ -1497,10 +1500,15 @@ module tg_fetch
   assign tag_wd  = rline_q[PA_W-1:12];
 
   always_ff @(posedge clk) begin
-    if (rst || !MT) rda_q <= 2'd3;
-    else if (refill_done) begin rdl_q <= rline_q; rda_q <= '0; end
-    else if (pv_go)       begin rdl_q <= mline;   rda_q <= '0; end
-    else if (rda_q != 2'd3) rda_q <= rda_q + 1'b1;
+    if (rst || !MT) begin
+      rda_q <= 2'd3;
+      vda_q <= 2'd3;
+    end else begin
+      if (refill_done)        begin rdl_q <= rline_q; rda_q <= '0; end
+      else if (rda_q != 2'd3) rda_q <= rda_q + 1'b1;
+      if (pv_go)              begin vdl_q <= mline;   vda_q <= '0; end
+      else if (vda_q != 2'd3) vda_q <= vda_q + 1'b1;
+    end
   end
   always_ff @(posedge clk) begin
     if (rst) begin
