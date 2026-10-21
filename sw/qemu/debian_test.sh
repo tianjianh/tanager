@@ -65,21 +65,31 @@ for _ in $(seq 1 900); do
   kill -0 "$qpid" 2>/dev/null || break
   sleep 1
 done
+# Each command line goes in after the one before has printed its last line: typed-ahead input doesn't survive the IRQ
+# rounds (Debian's sudo runs its commands in a pty, and something there drops the console's queued input)
+wait_for() {  # <regex> <seconds>: the log has a line matching it; QEMU still running
+  for _ in $(seq 1 "$2"); do
+    grep -a -q -E "$1" "$log" 2>/dev/null && return 0
+    kill -0 "$qpid" 2>/dev/null || return 1
+    sleep 1
+  done
+  return 1
+}
 if grep -q "$prompt" "$log"; then
   if [ "$irqs" = 1 ]; then
     # the PLIC's virtio and console interrupts to one hart at a time, then disk reads (direct, so the disk answers) and
     # console lines; each round prints how many of those interrupts that hart took meanwhile
-    printf '%s\n' "irqs=\$(awk '/PLIC/ && /virtio|ttyS0/ {sub(\":\",\"\",\$1); printf \"%s \", \$1}' /proc/interrupts); echo IRQ-LIST \$irqs; for c in \$(seq 0 $((smp - 1))); do for i in \$irqs; do echo \$((1 << c)) | sudo tee /proc/irq/\$i/smp_affinity > /dev/null; done; b=\$(awk -v k=\$((c + 2)) '/PLIC/ && /virtio|ttyS0/ {s += \$k} END {print s}' /proc/interrupts); sudo dd if=/dev/vda of=/dev/null bs=64k count=64 skip=\$((c * 1024)) iflag=direct 2> /dev/null; for l in 1 2 3 4 5 6 7 8; do echo IRQ-LINE \$c \$l; done; a=\$(awk -v k=\$((c + 2)) '/PLIC/ && /virtio|ttyS0/ {s += \$k} END {print s}' /proc/interrupts); echo IRQ-HART \$c \$((a - b)); done" >&3
+    printf '%s\n' "irqs=\$(awk '/PLIC/ && /virtio|ttyS0/ {sub(\":\",\"\",\$1); printf \"%s \", \$1}' /proc/interrupts); echo IRQ-LIST \$irqs; for c in \$(seq 0 $((smp - 1))); do for i in \$irqs; do echo \$((1 << c)) | sudo tee /proc/irq/\$i/smp_affinity > /dev/null; done; b=\$(awk -v k=\$((c + 2)) '/PLIC/ && /virtio|ttyS0/ {s += \$k} END {print s}' /proc/interrupts); sudo dd if=/dev/vda of=/dev/null bs=64k count=64 skip=\$((c * 1024)) iflag=direct < /dev/null 2> /dev/null; for l in 1 2 3 4 5 6 7 8; do echo IRQ-LINE \$c \$l; done; a=\$(awk -v k=\$((c + 2)) '/PLIC/ && /virtio|ttyS0/ {s += \$k} END {print s}' /proc/interrupts); echo IRQ-HART \$c \$((a - b)); done" >&3
+    wait_for "^IRQ-HART $((smp - 1)) [0-9]" 900 || true
   fi
   if [ "$hotplug" = 1 ]; then
     # every hart but the first offline, then online, three times; each round's sysfs lists, then the kernel's view
     cpus=$(seq -s ' ' 1 $((smp - 1)))
     printf '%s\n' "for r in 1 2 3; do for c in $cpus; do echo 0 | sudo tee /sys/devices/system/cpu/cpu\$c/online > /dev/null; done; echo HOTPLUG-ROUND \$r offline \$(cat /sys/devices/system/cpu/offline); for c in $cpus; do echo 1 | sudo tee /sys/devices/system/cpu/cpu\$c/online > /dev/null; done; echo HOTPLUG-ROUND \$r online \$(cat /sys/devices/system/cpu/online); done; echo HOTPLUG-CPUS \$(nproc)" >&3
+    wait_for "^HOTPLUG-CPUS [0-9]" 900 || true
   fi
   printf '%s\n' 'cat /etc/debian_version; uname -r; findmnt -no SOURCE /; sudo -n true && echo SUDO-OK; readlink /etc/resolv.conf; systemctl show -p DefaultTimeoutStartUSec; /usr/lib/systemd/systemd-networkd-wait-online --timeout=60; ip -4 -br addr show scope global; sudo poweroff' >&3
-  # up to 5 minutes to the power-off; 20 with the IRQ rounds or the hotplug rounds before it (sudo alone takes seconds
-  # under TCG); the loop ends as soon as QEMU does
-  for _ in $(seq 1 $([ "$irqs" = 1 ] || [ "$hotplug" = 1 ] && echo 1200 || echo 300)); do kill -0 "$qpid" 2>/dev/null || break; sleep 1; done
+  for _ in $(seq 1 300); do kill -0 "$qpid" 2>/dev/null || break; sleep 1; done
 fi
 kill "$qpid" 2>/dev/null && echo "QEMU killed (no power-off)" || true
 wait "$qpid" 2>/dev/null || true
