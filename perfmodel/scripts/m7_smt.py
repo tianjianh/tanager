@@ -154,6 +154,8 @@ def exit2(workers):
 def run7(preset, sets, a, b=None):
     """One run, a single thread (b None) or a pair, cached in results/m7 with any error (a deadlock) kept."""
     key = [ISA, preset, sorted(sets.items()), a, b, dse.MODEL_VERSION, smt.SMT_VERSION, M7_VERSION]
+    if dse.PRESET_REV.get(preset, 0) >= 8:   # the preset's revision, from 8 on (earlier runs were cached without it)
+        key.append(["rev", dse.PRESET_REV[preset]])
     hs = [smt.WS[w]["hash"] for w in (a, b) if w and "hash" in smt.WS[w]]   # the pair runner's ELFs, by content
     raw = json.dumps(key + ([hs] if hs else []))
     f = CACHE7 / f"{hashlib.sha1(raw.encode()).hexdigest()[:16]}.json"
@@ -751,6 +753,7 @@ def calib(workers):
 FINALDIR = Path(os.environ.get("TG_FINALDIR", str(Path.home() / "tanager-build" / "track-verif-79d5d8" /
                                                    "pair-final-b7db3e16")))
 REV8 = {"rfo_pf_reserve": 1}   # rtl_m2 revision 8: the ownership prefetch as the RTL's (DR-171; section 13.10)
+REV7 = {"rfo_pf_reserve": 2, "pf_i_nextline": 0, "l1i_mshr": 1}   # revision 7 on revision 8's preset (rfo_pf in CORE)
 FINAL_REF = "step 5 + the drain's priority for a miss entry"   # run on revision 7 as well
 FINAL_BEST = "step 7: 50% caps, a bank's last row kept while the sibling waits, the drain's priority"
 FINAL_LEVERS = {"+ a hart at most 3 of the 4 L1D miss entries": {"smt_mshr_cap": 75},
@@ -771,13 +774,14 @@ def final(workers):
     alone8 = {**ALONE, **REV8}
     jobs = [(PRESET, {**RUNNER, **c, "dram_lat": lat}, f"{a}.s0", f"{b}.s1") for c in cfgs.values() for lat in LATS
             for _, a, b in smt.PAIRS]
-    jobs += [(PRESET, {**RUNNER, **PAIR_CFGS[FINAL_REF], "dram_lat": lat}, f"{a}.s0", f"{b}.s1") for lat in LATS
-             for _, a, b in smt.PAIRS]
-    jobs += [(PRESET, {**c, "dram_lat": lat}, w, None) for c in (alone8, ALONE) for lat in LATS for w in names]
+    jobs += [(PRESET, {**RUNNER, **PAIR_CFGS[FINAL_REF], **REV7, "dram_lat": lat}, f"{a}.s0", f"{b}.s1")
+             for lat in LATS for _, a, b in smt.PAIRS]
+    jobs += [(PRESET, {**c, "dram_lat": lat}, w, None) for c in (alone8, {**ALONE, **REV7}) for lat in LATS
+             for w in names]
     jobs += [(PRESET, {**c, "dram_lat": lat}, a, b) for c in cfgs.values() for lat in LATS for _, a, b in WS_PAIRS]
     run_all(jobs, workers)
     al = {k: {lat: {w: run7(PRESET, {**c, "dram_lat": lat}, w, None) for w in names} for lat in LATS}
-          for k, c in (("rev8", alone8), ("rev7", ALONE))}
+          for k, c in (("rev8", alone8), ("rev7", {**ALONE, **REV7}))}
     out = {"dir": str(FINALDIR), "alone": {k: {lat: {w: {"ipc": ipc1(r), "instr": r["region"]["instr"],
                                                          "cycles": r["region"]["cycles"]} for w, r in v[lat].items()}
                                                 for lat in LATS} for k, v in al.items()}, "configs": {}, "ws_dead": {}}
@@ -806,7 +810,7 @@ def final(workers):
           "cycles)\n")
     print("| Configuration | All pairs | memory + memory | compute + compute | mixed | Lowest pair | Hung, of the 42 | "
           "Hung, of the 16 working-set pairs |\n|---|---|---|---|---|---|---|---|")
-    rows = [(n, c, al["rev8"]) for n, c in cfgs.items()] + [(ref7, PAIR_CFGS[FINAL_REF], al["rev7"])]
+    rows = [(n, c, al["rev8"]) for n, c in cfgs.items()] + [(ref7, {**PAIR_CFGS[FINAL_REF], **REV7}, al["rev7"])]
     for n, c, base in rows:
         e = ev(c, base)
         out["configs"][n] = e
