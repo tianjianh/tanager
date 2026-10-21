@@ -35,12 +35,11 @@ module tg_issue
   output logic [N_IQ-1:0][DW-1:0]      bank_free2,    // at least two rows free (rename's steering, STEER_LA)
   // M7 step 7's caps (tg_iq; rename applies them; registered): a bank's free rows (at most 3); thread t may take n
   // more rows of a queue under its cap ([q][t][n-1], n up to 2 DW: a group in DS and one at RN); with
-  // IQ_BANK_RULE 2, j more rows of bank k and not hold it all ([q][t][k][j-1]); thread t's rows over all queues
-  // (ICOUNT, later). The caps apply with hart 1 while no thread is parked in WFI (the ROB's wait), else all ones
+  // IQ_BANK_RULE 2, j more rows of bank k and not hold it all ([q][t][k][j-1]). The caps apply with hart 1 while no
+  // thread is parked in WFI (the ROB's wait), else all ones
   output logic [N_IQ-1:0][DW-1:0][1:0] bank_nfree,
   output logic [N_IQ-1:0][NUM_THREADS-1:0][2*DW-1:0] room_ge,
   output logic [N_IQ-1:0][NUM_THREADS-1:0][DW-1:0][1:0] bank_left,
-  output logic [NUM_THREADS-1:0][OCC_W-1:0] occ,
   input  logic [NUM_THREADS-1:0]       thr_park,      // thread t waits in WFI (registered)
   // MX naming state: ALU-queue rows holding an op (and not freed this cycle), and the row each
   // dispatch port writes next in each ALU queue (global row numbers)
@@ -258,17 +257,13 @@ module tg_issue
   // The caps (M7 step 7): with hart 1, while neither thread waits in WFI (a waiting thread holds no rows)
   logic cap_on;
   assign cap_on = HART1_ON && !(|thr_park);
-  logic [N_IQ-1:0][NUM_THREADS-1:0][OCC_W-1:0] qocc;   // each queue's rows by thread
+  logic [N_IQ-1:0][NUM_THREADS-1:0][OCC_W-1:0] qocc;   // each queue's rows by thread (+capstat below)
 `ifndef SYNTHESIS
-  logic [N_IQ-1:0][NUM_THREADS-1:0] q_over;            // ... above its cap (simulation only: +capstat)
+  logic [N_IQ-1:0][NUM_THREADS-1:0] q_over;            // ... above its cap
+`else
+  logic unused_qocc;
+  assign unused_qocc = ^qocc;
 `endif
-  always_ff @(posedge clk)
-    for (int t = 0; t < NUM_THREADS; t++) begin
-      logic [OCC_W-1:0] sum;
-      sum = '0;
-      for (int q = 0; q < N_IQ; q++) sum += qocc[q][t];
-      occ[t] <= rst ? '0 : sum;
-    end
 
   for (genvar q = 0; q < N_IQ; q++) begin : g_q
     localparam int ROWS = rows_of(q);
