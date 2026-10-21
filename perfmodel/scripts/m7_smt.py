@@ -1683,7 +1683,10 @@ FP64P = {"FP 64, the crossed write in the cycle (§13.13)": FP64B,
          "the hold with its guards (IQ-LD's block from the 4th failed take)": FP64G,
          "P: IQ-FP blocked one cycle, the hold taking P4's freed slot": {**FP64B, "prf_fp_collide": 3},
          "P + A": {**FP64B, "prf_fp_collide": 3, "prf_fp_wait": 1},
-         "P, with (2) and (1) in the FP banks": {**FP64B, "prf_fp_collide": 3, "prf_xfer_want": 1, "prf_xfer_eager": 3}}
+         "P, with (2) and (1) in the FP banks": {**FP64B, "prf_fp_collide": 3, "prf_xfer_want": 1, "prf_xfer_eager": 3},
+         "P from the hold's first failed take": {**FP64B, "prf_fp_collide": 4},
+         "P from the first failed take, with (2) and (1) in the FP banks":
+             {**FP64B, "prf_fp_collide": 4, "prf_xfer_want": 1, "prf_xfer_eager": 3}}
 
 
 def fp64p(workers):

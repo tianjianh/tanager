@@ -1947,7 +1947,7 @@ void Core::fp_collide() {
                                 [&](const FhWait& x) { return !live(x.id, x.issue); }), fh_wait_.end());
   // the guards from the takes failed so far (registered), and B's pause; then this cycle's take, the oldest first, one
   // a cycle (it writes the result register)
-  const bool p = c_.prf_fp_collide == 3;
+  const bool p = c_.prf_fp_collide >= 3;   // P: 3 from the hold's start; 4 from its first failed take
   fh_ld_block_ = fh_fp_block_ = false;
   for (const auto& e : fh_)
     if (e.on && c_.prf_fp_collide == 2) {
@@ -1963,7 +1963,7 @@ void Core::fp_collide() {
   for (int k : {first, 1 - first}) {
     FhEnt& e = fh_[(size_t)k];
     if (!e.on) continue;
-    if (p ? t_ >= e.take : (!ldw_.count(w) && !p4(e.bank, w)) || w >= e.w0 + 64) {
+    if (p && e.take ? t_ >= e.take : (!ldw_.count(w) && !p4(e.bank, w)) || w >= e.w0 + 64) {
       Uop* h = find(e.id);
       h->t_ready = w;
       h->t_done = w + e.done;
@@ -1972,6 +1972,13 @@ void Core::fp_collide() {
       e.on = false;
     } else {
       e.fails++;
+      if (c_.prf_fp_collide == 4 && !e.take) {   // P from the first failed take: the pulse starts next cycle
+        const uint64_t slot = w + (uint64_t)c_.lat_fma;
+        e.take = slot - 1;
+        p_slot_[(size_t)e.bank] = slot;
+        p_fp_at_ = w;
+        p_ld_at_ = std::max<uint64_t>(w, slot - 5);
+      }
     }
   }
   auto free_fh = [&]() {
@@ -2014,7 +2021,7 @@ void Core::fp_collide() {
     }
     FhEnt& e = fh_[(size_t)k];   // held from w: no wake, no completion until it takes
     e = {true, b, 0, id, u->t_issue, w, u->t_done - u->t_ready, 0};
-    if (p) {   // P: IQ-FP blocked in w leaves P4's write slot lat_fma later; M2 kept empty the cycle before it
+    if (c_.prf_fp_collide == 3) {   // P: IQ-FP blocked in w leaves P4's write slot lat_fma later; M2 empty before it
       const uint64_t slot = w + (uint64_t)c_.lat_fma;
       e.take = slot - 1;
       p_slot_[(size_t)b] = slot;
@@ -2072,7 +2079,7 @@ void Core::issue() {
       for (uint64_t id : iq_[q]) {
         Uop* u = find(id);
         if (!u || !can_issue(*u)) continue;
-        if (q == Q_FP && c_.prf_fp_collide == 3 && (u->dst_bank == 3 || u->dst_bank == 4) &&
+        if (q == Q_FP && c_.prf_fp_collide >= 3 && (u->dst_bank == 3 || u->dst_bank == 4) &&
             t_ + p4_write_lat(*u) == p_slot_[(size_t)(u->dst_bank - 3)])
           continue;   // P: kept out of the slot a held load takes
         if (u->cls == Cls::FDIV || u->cls == Cls::FSQRT) {  // one iterative divide/sqrt unit

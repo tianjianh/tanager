@@ -2197,6 +2197,13 @@ At 120 and 250 cycles only copy (+28% / +23%), hashprobe (−27% / −31%) and s
   - **P + A** is worse than P everywhere.
   - **With per-bank wants and eager FP borrowing:** every hold variant comes within 0.1% on the FP pairs and to 0.0% on the lone programs. The crossing becomes rare, and the hold's form matters little.
 - **Recommendation:** if the RTL's h7 confirms P's lone gain, take P for a lone hart's restores. Either way the transfer rules matter more than the hold's form.
+- **The RTL confirmed it** (h7, c38ea9c9): the lone restores −4.8% → −0.7% and −3.3% → −0.5%, m7_fpcompute −2.1% → −0.3%, every hold waiting exactly 7 cycles and costing IQ-FP one select. P stays as the hold.
+- **P with its pulse from the hold's first failed take** (fpu-2's refinement, `prf_fp_collide` 4): a hold that takes at once costs nothing.
+  - **The 25 FP pairs:** −0.07% / −0.09% / −0.07%, against P's −0.27% / −0.16% / 0.00%.
+  - **nbody, merged:** −0.09% against −1.28%.
+  - **The lone restores:** −3.3% / −2.2% against P's −2.5% / −1.6%. A hold that fails waits one cycle more.
+  - **With the transfer rules:** −0.01% / +0.01% / +0.02% on the pairs (P: −0.08% / +0.01% / −0.05%), and 0.0% alone.
+  - **Verdict:** with the transfer rules in, the refinement is worth at most 0.07% on the FP pairs. It is tuning (DR-155), as fpu-2 parked it.
 
 **Q2: the FP transfers buy 5.6% on one lone program, and nothing elsewhere.**
 - **No hang without them:** none of the 32 FP-type pairs, and none of the 37 lone programs on either window.
