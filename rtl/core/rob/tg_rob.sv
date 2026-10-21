@@ -984,5 +984,22 @@ module tg_rob
         if (j < cnt) assert (rob_tid(hid[j]) == t_cm) else $error("tg_rob: commit slot %0d is not its thread's", j);
     end
   end
+  // (MT, for the compute pairs' gap, smt2_report §13.14) commit cycles in which the chosen thread commits nothing,
+  // and of them those in which the other thread's head had completed (it could have committed; not parked in WFI);
+  // on stderr at the end with hart 1
+  if (MT) begin : g_cmw
+    longint unsigned n_cm0, n_cmw;
+    always_ff @(posedge clk)
+      if (rst) begin
+        n_cm0 <= 0;
+        n_cmw <= 0;
+      end else if (!flush && ready && !csr_hold && !(|ret) && !do_flush) begin
+        n_cm0 <= n_cm0 + 1;
+        if (rob_cnt_t(tail_q[~t_cm], head_q[~t_cm]) != 0 && cmp_s[head_q[~t_cm][RIW-1:0]] && !wfp_q[~t_cm])
+          n_cmw <= n_cmw + 1;
+      end
+    final $fwrite(32'h8000_0002, "TG-STALL2 %m: commit's thread committed nothing %0d cycles (%0d with the other thread's head complete)\n",
+                  n_cm0, n_cmw);
+  end
 `endif
 endmodule
