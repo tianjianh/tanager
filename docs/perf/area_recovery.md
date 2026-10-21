@@ -2072,8 +2072,22 @@ The CPU-time rows use §6.12's accounting, the one §6.13 predicted in. Correcte
 - With the allocation: revision 9 is `btage_alloc = 1` in `rtl_m2` (`config.cpp`) and `PRESET_REV` 9 (`dse.py`), with this table rerun on main's build.
 - If B lands alone first, the preset stays at revision 8, since B changes no model rule. The middle column is the check.
 
+**On main (10-20 evening): both changes in, revision 9 committed (222b16fc).**
+- **What landed:**
+  - B as 1f63d5aa, in main's own form (a shared next-cycle data-valid vector, not a compare per load-queue entry);
+  - the allocation as c06345bf, with c1c21281's `tg_tage.sv` unchanged.
+- **Main's smt2 build gives the scratch builds' region cycles exactly,** on all 36 runs each time: B alone (1f63d5aa), then B with the allocation (c06345bf).
+- **The preset at revision 9 gives the cycles of `--set btage_alloc=1` exactly,** so the table above is main's.
+
+| On main c06345bf, revision 9 | RTL region cycles (native / 120) | RTL IPC | Model region cycles | Model IPC | Error |
+|---|---|---|---|---|---|
+| Embench crc32 | 2,835,248 / 2,804,879 | 1.351 / 1.366 | 3,006,282 | 1.274 | +6.0 / +7.2% |
+| Embench ud | 1,297,457 / 1,297,455 | 1.825 / 1.825 | 1,233,605 | 1.919 | −4.9 / −4.9% |
+| **All 18 programs, mean error (absolute)** | | | | | **4.99% / 5.71%** |
+| **Outside 10%** | | | | | 3 / 3 |
+
 **Decisions:**
-- **Revision 9 = revision 8 + `btage_alloc` 1,** committed once c1c21281, or core-2's form of it, is on main. That is my call (the model as built); the RTL change is fpu-2's.
+- **Revision 9 = revision 8 + `btage_alloc` 1,** committed once c1c21281, or core-2's form of it, is on main (done: 222b16fc, on c06345bf). That is my call (the model as built); the RTL change is fpu-2's.
 - **`ld_fwd_wait` stays 8 with B:** the calibration set can't tell 7 from 8.
 
 **Learned:**
