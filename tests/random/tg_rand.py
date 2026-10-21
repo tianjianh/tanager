@@ -59,6 +59,7 @@ DENY_PAGE = 0x80F00000     # the runs deny this page (run_random's --deny): its 
 DENY_IO = 0x10001000       # and this unused device page: an MMIO load there gets a denied response
 NOMEM_PA = 0x800           # nothing below the boot ROM: access faults (data and fetch)
 SHARED_LINES = 4           # several harts (--harts, --shared): the lines they contend for
+ATOMIC_LINE = SHARED_LINES - 1   # of those, the one plain stores never write: atomics with rd = x0 go only there
 UNMAPPED_VA = 0x40000000   # under --vm, nothing is mapped here: page faults
 NONCANON_VA = 0x0000004000000000  # bit 38 set, bits 63..39 clear: not a Sv39 address
 LD = {"lb": 0, "lbu": 0, "lh": 1, "lhu": 1, "lw": 2, "lwu": 2, "ld": 3}
@@ -752,22 +753,41 @@ class Gen:
 
     # ---- F and D ----
     # ---- several harts (--harts with --shared): the region all of them share ----
-    def sh_addr(self, size, avoid=()):
-        """A register holding an aligned address in the shared lines."""
+    def sh_addr(self, size, avoid=(), lines=range(SHARED_LINES)):
+        """A register holding an aligned address in the shared lines (in `lines` of them)."""
         t = self.wr(avoid)
         self.emit(f"la {x(t)}, shared")
-        off = self.r.randrange(0, SHARED_LINES * 64, 1 << size)
+        off = self.r.choice(list(lines)) * 64 + self.r.randrange(0, 64, 1 << size)
+        if off:
+            self.emit(f"addi {x(t)}, {x(t)}, {off}")
+        return t
+
+    def sh_own(self, size, avoid=()):
+        """A register holding an aligned address in one of this hart's doublewords of the plain stores' lines: hart
+        i of n owns doublewords i, i + n, ... of each. Two harts' plain stores to the same bytes may reach memory
+        in either order, whatever their commit order, and a load that shows which can come far past lockstep's
+        windows (verification.md §3.7); so plain stores never share bytes, and the races are loads against stores
+        and atomics against both."""
+        i, n = self.multi
+        t = self.wr(avoid)
+        self.emit(f"la {x(t)}, shared")
+        dw = self.r.choice(range(i % n, 8, n))
+        off = self.r.randrange(ATOMIC_LINE) * 64 + dw * 8 + self.r.randrange(0, 8, 1 << size)
         if off:
             self.emit(f"addi {x(t)}, {x(t)}, {off}")
         return t
 
     def t_sh_amo(self):
-        """AMOs on the shared words, some with rd = x0 (as Linux's amoadd and amoor) and some ordered."""
+        """AMOs on the shared words, some with rd = x0 (as Linux's amoadd and amoor) and some ordered. One with
+        rd = x0 reads nothing lockstep can see: a plain store of another hart that the core lands after it could
+        not be told from one before (verification.md §3.7), so those go to the line plain stores never write,
+        where they race only other atomics (which the core never reorders)."""
         for _ in range(self.r.randrange(1, 4)):
             w = self.r.choice("wd")
-            a = self.sh_addr(2 if w == "w" else 3)
+            unseen = self.r.randrange(3) == 0
+            a = self.sh_addr(2 if w == "w" else 3, lines=[ATOMIC_LINE] if unseen else range(SHARED_LINES))
             op = self.r.choice(["add", "swap", "or", "and", "xor", "max", "min", "maxu", "minu"])
-            rd = 0 if self.r.randrange(3) == 0 else self.wr((a,))
+            rd = 0 if unseen else self.wr((a,))
             self.emit(f"amo{op}.{w}{self.r.choice(['', '.aq', '.rl', '.aqrl'])} {x(rd)}, {x(self.rd_any())}, ({x(a)})")
 
     def t_sh_lrsc(self):
@@ -794,8 +814,9 @@ class Gen:
         hart's write where one could still be seen (verification.md §3.7)."""
         for _ in range(self.r.randrange(2, 6)):
             size = self.r.randrange(4)
-            a = self.sh_addr(size)
-            if self.r.randrange(2):
+            load = self.r.randrange(2)
+            a = self.sh_addr(size) if load else self.sh_own(size)   # stores: this hart's bytes, not the atomics' line
+            if load:
                 op = ["lb", "lh", "lw", "ld"][size] if size == 3 or self.r.randrange(2) else ["lbu", "lhu", "lwu"][size]
                 self.emit(f"{op} {x(self.wr((a,)))}, 0({x(a)})")
             else:
@@ -812,7 +833,7 @@ class Gen:
         """Stores of this hart to its own word of a shared line, loads of the others' (false sharing)."""
         a = self.wr()
         self.emit(f"la {x(a)}, shared")
-        line = self.r.randrange(SHARED_LINES)
+        line = self.r.randrange(ATOMIC_LINE)   # not the atomics' line
         if line:
             self.emit(f"addi {x(a)}, {x(a)}, {line * 64}")
         own = 8 * (self.multi[0] % 8)
