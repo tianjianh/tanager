@@ -125,8 +125,8 @@ Core::Core(const Config& c, const std::vector<ThreadSpec>& specs)
       bank_committed_[T.arch_bank[r]]++;
       bank_held_[(size_t)T.tid][T.arch_bank[r]]++;
     }
-    for (int r = 0; r < 32; r++) {
-      T.arch_bank[32 + r] = c.prf_banked ? 3 + (split ? T.tid : r % 2) : 1;
+    for (int r = 0; r < 32; r++) {   // prf_fp_homes 1: f0-f15 in F0, f16-f31 in F1
+      T.arch_bank[32 + r] = c.prf_banked ? 3 + (split ? (c.prf_fp_homes ? r / 16 : T.tid) : r % 2) : 1;
       bank_committed_[T.arch_bank[32 + r]]++;
       bank_held_[(size_t)T.tid][T.arch_bank[32 + r]]++;
     }
@@ -142,7 +142,8 @@ Core::Core(const Config& c, const std::vector<ThreadSpec>& specs)
     int64_t homes[2][6] = {};   // hart t's architectural registers in bank b at reset
     for (int t = 0; t < 2; t++) {
       for (int r = 1; r < 32; r++) homes[t][home(t, r)]++;
-      homes[t][3 + t] += 32;
+      if (c.prf_fp_homes) { homes[t][3] += 16; homes[t][4] += 16; }
+      else homes[t][3 + t] += 32;
     }
     for (size_t b = 0; b < 5; b++) {
       if ((c.prf_split == 2 && b >= 3) || (c.prf_split == 3 && b < 3)) continue;
@@ -1119,15 +1120,16 @@ int Core::free_regs(int bank, int tid) {
 
 // prf_xfer (D3 as revised by core-2): a hart short of a register in a bank takes one from its sibling's list (with
 // one thread, the sleeping sibling's), at most one a cycle. The register is free since commit, so no recovery is
-// involved. The donor keeps at least one free (1), or its architectural registers of that kind plus one in the bank
-// (2). Returns whether one moved; it is usable the next cycle.
+// involved. The donor keeps at least one free (1, 3), or its architectural registers of that kind plus one in the
+// bank (2); with 3, a starved hart takes the last one too. Returns whether one moved; it is usable the next cycle.
 bool Core::take_register(int bank, int tid) {
   Thread& T = *th_[(size_t)tid];
   if (!c_.prf_xfer || bank_own_.empty() || bank_own_[(size_t)tid][bank] < 0 || T.xfer_t == t_) return false;
   int64_t& own = nthr_ > 1 ? bank_own_[(size_t)(1 - tid)][bank] : sib_own_[(size_t)bank];
   const int64_t held = nthr_ > 1 ? bank_held_[(size_t)(1 - tid)][bank] : sib_held_[(size_t)bank];
   const int64_t arch = bank >= 3 ? 32 : 31;
-  if (c_.prf_xfer == 1 ? own - held < 2 : own - held < 1 || own - 1 < arch + 1) return false;
+  const int64_t keep = c_.prf_xfer == 3 && T.starved == bank ? 0 : 1;
+  if (c_.prf_xfer == 2 ? own - held < 1 || own - 1 < arch + 1 : own - held < keep + 1) return false;
   own--;
   bank_own_[(size_t)tid][bank]++;
   T.xfer_t = t_;
@@ -1309,13 +1311,33 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
       const int64_t b0 = bank_free(q, 0), b1 = bank_free(q, 1);
       ibank = b0 == b1 ? rob_half(u.id) : (b1 > b0 ? 1 : 0);
     }
-    const int bank = bank_for(u, q);
-    if (bank >= 0 && free_regs(bank, T.tid) <= 0) {
-      take_register(bank, T.tid);  // prf_xfer: one from the sibling's list, usable the next cycle
+    int bank = bank_for(u, q);
+    if (bank >= 0 && c_.prf_xfer == 3 && nthr_ > 1 && th_[(size_t)(1 - T.tid)]->starved == bank &&
+        T.starved != bank) {  // prf_xfer 3: the sibling waits for a register of this bank; rename none into it
       T.st.disp_stall_reg++;
       T.disp_why = DW_REG;
       break;
     }
+    if (bank >= 0 && free_regs(bank, T.tid) <= 0) {
+      // prf_fp_xbank: the other FP bank, when the hart has a register there
+      const bool fld = u.cls == Cls::FLD;
+      const int xb = (bank == 3 || bank == 4) && (c_.prf_fp_xbank == 1 || (c_.prf_fp_xbank == 2 && fld) ||
+                                                  (c_.prf_fp_xbank == 3 && !fld)) ? 7 - bank : -1;
+      if (xb >= 0 && free_regs(xb, T.tid) > 0) {
+        bank = xb;
+        u.xbank = true;
+        T.st.prf_xbanks++;
+      } else {
+        if (c_.prf_xfer == 3 && T.starved != bank) { T.starved = bank; T.st.prf_starved++; }
+        // prf_xfer: one from the sibling's list, usable the next cycle (the other FP bank's, with prf_fp_xbank,
+        // when the sibling has none to give in this one)
+        if (!take_register(bank, T.tid) && xb >= 0) take_register(xb, T.tid);
+        T.st.disp_stall_reg++;
+        T.disp_why = DW_REG;
+        break;
+      }
+    }
+    T.starved = -1;
     const bool need_llt = c_.llt > 0 && !u.serial && long_latency(u);
     if (need_llt) {
       // iq_bank_llt: a tag comes from its producer's half, which only that bank's rows see
@@ -1616,7 +1638,13 @@ void Core::do_issue(Uop& u, int /*port*/) {
   const bool fp_d = u.di->d->fmt == 1;
   bool one_cycle = false;
   switch (u.cls) {
-    case Cls::LD: case Cls::FLD: exec_load(u); return;
+    case Cls::LD: case Cls::FLD:
+      exec_load(u);
+      if (u.xbank && u.state == 2) {  // prf_fp_xbank_lat: a cracked fld's move, for instance
+        u.t_ready += (uint64_t)c_.prf_fp_xbank_lat;
+        u.t_done += (uint64_t)c_.prf_fp_xbank_lat;
+      }
+      return;
     case Cls::ST: case Cls::FST: exec_store(u); return;
     case Cls::MUL: u.t_ready = t + (uint64_t)c_.lat_mul; if (u.q == Q_A1) reserve_b1(u.t_ready); break;
     case Cls::DIV: {
@@ -1642,6 +1670,7 @@ void Core::do_issue(Uop& u, int /*port*/) {
       if (u.q == Q_A1) reserve_b1(u.t_ready);
       break;
   }
+  if (u.xbank) u.t_ready += (uint64_t)c_.prf_fp_xbank_lat;  // prf_fp_xbank: written across
   u.t_done = u.t_ready - (one_cycle ? (uint64_t)c_.abl_alu : 0) + 2 + (uint64_t)c_.abl_done;
   if (u.is_ctrl) resolve_branch(u, t + 2 + (u.fused_br ? 1 : 0));
 }
