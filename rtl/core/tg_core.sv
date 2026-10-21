@@ -368,9 +368,10 @@ module tg_core
     col_clr = '0;
     col_clr[IQ_TAGS-1:0] = tag_free;
   end
+  logic             ld_m2_stq;               // the load in M2 waits on a store (tg_lsu to tg_issue's filter)
   tg_issue u_is (
     .clk, .rst, .flush, .flush_tid, .disp_we(iq_we), .disp_dep(iq_dep),
-    .disp_pl(iq_pl), .disp_mdep(iq_mdep), .bank_free(iq_bank_free), .bank_free2(iq_bank_free2), .mx_hold, .mx_alloc, .alloc(wid_alloc), .wake_reg, .col_clr,
+    .disp_pl(iq_pl), .disp_mdep(iq_mdep), .bank_free(iq_bank_free), .bank_free2(iq_bank_free2), .mx_hold, .mx_alloc, .alloc(wid_alloc), .wake_reg, .ld_m2_stq, .col_clr,
     .w(w_vec), .busy(iq_busy), .a1_block, .ld_block, .fp_misc_block, .iss_valid, .iss_pl, .iss_src_n, .spec_cancel);
 
   // LLTs are released the cycle after their register is written
@@ -526,7 +527,7 @@ module tg_core
     .ds_ren,
     .lq_head_o(lq_head_t), .sq_head_o(sq_head_t), .sq_cmt_o(sq_cmt_t),
     .ld_ag_valid, .ld_ag_pl, .ld_ag_addr, .sta_ag_valid, .sta_ag_pl, .sta_ag_addr, .ld_block,
-    .ld_m2_will, .ld_m2_dst, .ld_res_valid, .ld_res_dst, .ld_res_data,
+    .ld_m2_will, .ld_m2_stq, .ld_m2_dst, .ld_res_valid, .ld_res_dst, .ld_res_data,
     .wake_ld(wake_l), .llt_done(llt_done_l), .fld_m2_will, .fld_m2_idx, .fld_valid, .fld_idx,
     .fld_data, .sd_tag, .sd_data, .sd_busy, .fsd_tag, .fsd_data, .fp_we, .fp_widx,
     .ds_src2_rdy, .rf_we, .rf_widx,

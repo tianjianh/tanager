@@ -39,6 +39,7 @@ module tg_issue
   // Wakeup
   input  logic [NCOL-1:0]              alloc,       // IDs given out at RN: W cleared
   input  logic [NCOL-1:0]              wake_reg,    // W set at the end of this cycle
+  input  logic                         ld_m2_stq,   // the load in M2 waits on a store's data (SPEC_WAKE's filter)
   input  logic [NCOL-1:0]              col_clr,     // returned tags (registered)
   output logic [NCOL-1:0]              w,
   output logic [NCOL-1:0]              busy,        // columns a waiting row depends on
@@ -503,7 +504,7 @@ module tg_issue
         sw_m1_q.v <= sw_ag_q.v && !sw_cancel && !sw_drop(sw_ag_q.tid);
         sw_m2_q.v <= sw_m1_q.v && !sw_drop(sw_m1_q.tid);
         sw_cancel <= sw_m2_q.v && sw_m2_q.spec && !sw_drop(sw_m2_q.tid) && !m2_ok;
-        if (sw_m2_q.v && !sw_drop(sw_m2_q.tid))
+        if (sw_m2_q.v && !sw_drop(sw_m2_q.tid) && (m2_ok || ld_m2_stq))
           swp_q[sw_m2_q.ph] <= m2_ok ? ((swp_q[sw_m2_q.ph] == 2'd0) ? 2'd0 : swp_q[sw_m2_q.ph] - 2'd1)
                                      : ((swp_q[sw_m2_q.ph] == 2'd3) ? 2'd3 : swp_q[sw_m2_q.ph] + 2'd1);
       end
@@ -520,7 +521,7 @@ module tg_issue
                        (sw_cancel ? sw_cancel_col : '0);
   end else begin : g_nosw
     logic unused_ph;
-    assign unused_ph     = ^ld_ph;
+    assign unused_ph     = ^{ld_ph, ld_m2_stq};
     assign wake_spec     = '0;
     assign spec_pend     = '0;
     assign sw_cancel     = 1'b0;
