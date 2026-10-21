@@ -489,3 +489,14 @@ It meets 100 MHz at WNS +0.367 ns with 105,934 LUTs. The package is d4r1-riscv w
   - Network checks: 8 of 8 OK, 0.47–0.57 MB/s up and 0.52–0.58 down, `apt-get update` exit 0 every time. Checks 9 on (from 02:28) never ran: the laptop's reboot left its ICS serving no DHCP, so the board had no lease.
 - **The coordinator's call:** no restart of the 24 h soak on d4r2. The 60 of 60 boots and these 14 clean hours are enough for DR-176's fix. The next long stress comes with the product build that runs hart 1 (M8, 72 h).
 - Logs: [`uart_COM5_s21_part1.txt`](uart_COM5_s21_part1.txt) (to pass 231), [`uart_COM5_s21_part2.txt`](uart_COM5_s21_part2.txt) (passes 236–432), [`net_s21.txt`](net_s21.txt).
+
+## The SD1 hunt's set-up undone, and s22: d4r2 without the watch (10-21)
+
+**The undo** ([`../runs/sd1_probe_undo.sh`](../runs/sd1_probe_undo.sh), [`../memgap/undo_run.txt`](../memgap/undo_run.txt); logged in the change log): the coordinator closed the hunt after d4r2's 60 boots.
+- Removed: the probe, its initramfs hook and init-top script, the static busybox and soc-2's originals, the watch's unit and `sd_read_stress.sh`.
+- `iomem=relaxed` is gone, busybox is purged, and the initramfs was rebuilt with no trace of the probe.
+- **The boot after it was clean:** the kernel command line was `root=LABEL=tanager-root console=ttyS0,115200 earlycon rw`, nothing from the probe at the switch to the real root, no SD1 timeout.
+- **OpenSBI's banner on that boot:** `Domain0 Region02 : 0x00000000ff5e0218-0x00000000ff5e021f M: (I,R,W) S/U: (R,W)`. This is the 8-byte PMP region soc-2 found behind RISC-V mode's memory gap: a region smaller than a page makes the core stop caching each 4K page's PMP result. Their test tree, `d4r2-riscv-pmpfix`, is checked and staged for when the coordinator schedules it.
+
+**s22, the short stress without the watch** (d4r2, RISC-V mode, the old tree): from 08:59:06 UTC (`STRESS start 2026-10-21T08:34:27Z up=168.66`, [`uart_COM5_s22_start.txt`](uart_COM5_s22_start.txt)).
+- The guest's clock runs about 25 minutes behind: with no DHCP from the laptop's ICS it has no NTP. It doesn't step during the run, so the pass times hold.
