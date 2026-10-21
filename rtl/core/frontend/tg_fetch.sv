@@ -1003,13 +1003,23 @@ module tg_fetch
   // stream waits for the pipe (its block in F1, or its next one waiting). Else the stream parks here as on an I$ miss,
   // the block undelivered (no FTQ entry, its later blocks dropped), and restarts at it once its queue has the room:
   // a queue that cannot take a block never holds F3, and with it the other thread's fetch (smt2_report §13.16: 7-14%
-  // at step 7). Without a waiting stream it goes on and waits in F3 as before, so a lone thread fetches as before
+  // at step 7). Without a waiting stream it goes on and waits in F3 as before, so a lone thread fetches as before.
+  // Only a thread whose queue decode has not read for QP_WAIT cycles while it held instructions parks (its RN register
+  // holds a stalled group, so its queue does not drain): a thread whose queue drains waits in F3 a cycle or two as
+  // before, which costs less than a park's refetch (compute pairs lost 0.01-0.05 when every such block parked)
+  localparam int QP_WAIT = 4;
   logic [4:0] f2_need, f3_need_q;
   logic       f2_cont, f2_qfull;
+  logic [NUM_THREADS-1:0][2:0] qs_q;        // cycles since decode last took from the thread's queue, while it held some
+  always_ff @(posedge clk)
+    for (int t = 0; t < NUM_THREADS; t++)
+      if (rst || !MT || q_occ[t] == '0 || (cq_tid == tid_t'(t) && iq_take != '0)) qs_q[t] <= '0;
+      else if (qs_q[t] != 3'd7)                                                  qs_q[t] <= qs_q[t] + 3'd1;
   assign f2_need  = 5'(NP) - 5'(f2_pc_q[SLOT_W:1]) + 5'(carry_q);
   assign f2_cont  = (f1_valid_q && ft_q != f2_s_q && !stop_s_q[ft_q] && !blk_s[ft_q]) ||
                     (sv_s_q[!f2_s_q] && !blk_s[!f2_s_q]);
   assign f2_qfull = MT && f2v && !f2_miss && !f2_wmiss && !blk_s[f2_s_q] && f2_cont &&
+                    int'(qs_q[MT ? f2_s_q : 1'b0]) >= QP_WAIT &&
                     int'(q_occ[MT ? f2_s_q : 1'b0]) + int'(f2_need) +
                     ((f3_valid_q && f3_s_q == f2_s_q) ? int'(f3_need_q) : 0) > IBUF_ENTRIES;
   assign f2_deliver = f2v && !f2_miss && !f2_wmiss && f3_accept && !ft_full && !f2_qfull;
