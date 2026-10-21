@@ -798,13 +798,13 @@ module tg_rename
   end
 
   // Transfers' wants (HART1_ON): the group at RN needs more of a bank's registers than its thread's list holds. FP
-  // with crossing (DR-179): a group short in both banks asks in both; and while the sibling is blocked (parked in WFI,
-  // or behind a serial uop), a destination that finds its own bank short asks for one there although it crosses, so a
-  // lone thread takes the sleeping sibling's spares rather than crossing into the bank the other writer writes (its
-  // loads wait there for P4). Between two running threads it crosses without taking: taking would only move the
-  // shortage to the sibling
-  logic o_blk;
-  assign o_blk = CMT && block_q[CMT ? !t_rn : 1'b0];
+  // with crossing (DR-179): a group short in both banks asks in both; and a destination that finds its own bank short
+  // asks for one there although it crosses, so it takes the sibling's spare rather than crossing into the bank the
+  // other writer writes (its loads wait there for P4, P4's results there take the load path's slot). A running giver
+  // keeps one; a blocked one (parked in WFI, or behind a serial uop) gives its last (fgl). On the 25 FP pairs this
+  // gains 0.42 / 0.37 / 0.06% at 30 / 120 / 250 cycles over asking only while the sibling is blocked (fpu-2's runs:
+  // tk_dgemm with itself +2.5 to +4.9%, its P4 results into F1 420K -> 182K at 120); where both threads overfill the
+  // FP banks by design (m7_fprestore pairs) the transfers go back and forth and cost up to 11%
   always_ff @(posedge clk) begin
     if (rst || !HART1_ON) begin
       fl_want_q  <= '0;
@@ -816,7 +816,7 @@ module tg_rename
         fl_want_q[b] <= |rn_valid_q && int'(pops[b]) > int'(fl_count[b][t_rn]);
       for (int b = 0; b < 2; b++)
         ffl_want_q[b] <= EXT_FD && |rn_valid_q && (int'(fpops[b]) > int'(ffl_count[b][t_rn]) ||
-                                                   (FXB && ((fown_s[b] && o_blk) ||
+                                                   (FXB && (fown_s[b] ||
                                                             int'(fpops[1-b]) > int'(ffl_count[1-b][t_rn]))));
     end
   end
