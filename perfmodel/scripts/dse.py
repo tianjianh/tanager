@@ -186,8 +186,9 @@ SUITE_VERSION = 2
 # steered at rename from the queues' flags of the cycle before (§6.8); 7: DR-169's levers (the store address on its
 # base, steering that counts the dispatch stage's group), the store-wait cancel and the drain's cycle (§6.9).
 # 8: the as-built recheck on main c6676bd5 (§6.15): the store ownership prefetch as the RTL (STORE_PF, DR-171: an entry
-# only while another stays free) and the I$ next-line prefetch with its second refill engine (IPF_ON).
-PRESET_REV = {"rtl_m2": 8}
+# only while another stays free) and the I$ next-line prefetch with its second refill engine (IPF_ON). 9: TAGE-lite's
+# allocation takes an invalid way before a not-useful one, as tg_tage does since fpu-2's c1c21281 (§6.16, §6.17).
+PRESET_REV = {"rtl_m2": 9}
 
 
 def key(isa, preset, sets):

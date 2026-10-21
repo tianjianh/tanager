@@ -25,14 +25,19 @@ ifneq ($(filter-out 1,$(SYNTH)),)
   $(error SYNTH must be 1 or unset (got "$(SYNTH)"))
 endif
 SYNTH_MODELS := $(addprefix tests/unit/prim/models/,RAM32M16.sv RAM64M8.sv RAM64X8SW.sv SRL16E.sv SRLC32E.sv)
+# LAT_INJ=0: a release build's SoC, without the two latency injectors (tanager_soc LAT_INJ, DR-177; lint only)
+LAT_INJ ?=
+ifneq ($(filter-out 0 1,$(LAT_INJ)),)
+  $(error LAT_INJ must be 0, 1 or unset (got "$(LAT_INJ)"))
+endif
 SYNTH_FLAGS := $(if $(SYNTH),+define+SYNTHESIS -Wno-UNUSED tools/ci/synth_lint/synth.vlt \
                  tools/ci/synth_lint/xilinx_stubs.sv $(SYNTH_MODELS))
 
 .PHONY: lint lint-all regress regress-profiles cycle-identical perf boot-lockstep boot-lockstep-gate
 lint:
 	@test -f $(RTL_CFG) || { echo "unknown CFG=$(CFG) (one of: $(CFGS))"; exit 2; }
-	$(VERILATOR) $(LINT_FLAGS) $(TC_DEF) $(LINT_ONLY_DEF) $(RTL_CFG) -F $(RTL_F) $(SYNTH_FLAGS)
-	@echo "lint OK: $(CFG)$(if $(TIMING_CUTS), TIMING_CUTS=$(TIMING_CUTS))$(if $(DC_MSHRS), DC_MSHRS=$(DC_MSHRS))$(if $(QUEUE_DECODE), QUEUE_DECODE=$(QUEUE_DECODE))$(if $(SPEC_WAKE), SPEC_WAKE=$(SPEC_WAKE))$(if $(STA_BASE), STA_BASE=$(STA_BASE))$(if $(STEER_LA), STEER_LA=$(STEER_LA))$(if $(PMP_ENTRIES), PMP_ENTRIES=$(PMP_ENTRIES))$(if $(STORE_PF), STORE_PF=$(STORE_PF))$(if $(URF), URF=$(URF))$(if $(STORE_PF_MAX), STORE_PF_MAX=$(STORE_PF_MAX))$(if $(SOLO_TID), SOLO_TID=$(SOLO_TID))$(if $(SPLIT), SPLIT=$(SPLIT))$(if $(strip $(LINT_ONLY_SET)), $(strip $(LINT_ONLY_SET)))$(if $(SYNTH), SYNTH=1)"
+	$(VERILATOR) $(LINT_FLAGS) $(TC_DEF) $(LINT_ONLY_DEF) $(if $(LAT_INJ),-GLAT_INJ=$(LAT_INJ)) $(RTL_CFG) -F $(RTL_F) $(SYNTH_FLAGS)
+	@echo "lint OK: $(CFG)$(if $(LAT_INJ), LAT_INJ=$(LAT_INJ))$(if $(TIMING_CUTS), TIMING_CUTS=$(TIMING_CUTS))$(if $(DC_MSHRS), DC_MSHRS=$(DC_MSHRS))$(if $(QUEUE_DECODE), QUEUE_DECODE=$(QUEUE_DECODE))$(if $(SPEC_WAKE), SPEC_WAKE=$(SPEC_WAKE))$(if $(STA_BASE), STA_BASE=$(STA_BASE))$(if $(STEER_LA), STEER_LA=$(STEER_LA))$(if $(PMP_ENTRIES), PMP_ENTRIES=$(PMP_ENTRIES))$(if $(STORE_PF), STORE_PF=$(STORE_PF))$(if $(URF), URF=$(URF))$(if $(STORE_PF_MAX), STORE_PF_MAX=$(STORE_PF_MAX))$(if $(SOLO_TID), SOLO_TID=$(SOLO_TID))$(if $(SPLIT), SPLIT=$(SPLIT))$(if $(strip $(LINT_ONLY_SET)), $(strip $(LINT_ONLY_SET)))$(if $(SYNTH), SYNTH=1)"
 
 # DR-140's elaborations, so that every switch's branches compile: the fallback (every switch off), the
 # default (#4, #5 on), and #2, #8 and the commit trace off (DR-146) each on top of the default (lint only;
