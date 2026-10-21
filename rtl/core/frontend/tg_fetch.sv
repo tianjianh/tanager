@@ -196,7 +196,7 @@ module tg_fetch
   assign ras_tos = ras_tos_s[f2_s_q];
   assign ras_cnt = ras_cnt_s[f2_s_q];
   // the stack fetch's operation (a delivered block's exit) or repair (decode's redirect) is for: never in one cycle
-  assign ras_tid = (dred && !flush) ? dred_tid : (MT ? tid_t'(f2_s_q) : RUN_TID);
+  assign ras_tid = dred ? dred_tid : (MT ? tid_t'(f2_s_q) : RUN_TID);
 
   // Micro-BTB
   logic              ub_hit, ub_way;
@@ -955,13 +955,24 @@ module tg_fetch
 
   logic [DECODE_WIDTH-1:0]           cq_valid;
   logic [DECODE_WIDTH-1:0][IB_W-1:0] cq_insn;
-  logic                              redirect;
-  tid_t                              red_tid;      // the redirect's thread
+  logic                              redirect;     // any stream's
   tid_t                              cq_tid;       // the thread whose queue decode reads
   assign redirect = flush || dred;
-  assign red_tid  = flush ? flush_tid : dred_tid;
+  // Redirects per stream (M7's step 5b): a flush (commit's) and decode's redirect may come in one cycle for different
+  // threads, and each applies to its own stream; for one stream the flush wins, as before
+  logic [NS-1:0]       fl_s, dr_s, red_s;
+  logic [NS-1:0][63:0] red_pc_s;
+  always_comb
+    for (int t = 0; t < NS; t++) begin
+      fl_s[t]     = flush && strm(flush_tid) == 1'(t);
+      dr_s[t]     = dred && strm(dred_tid) == 1'(t) && !fl_s[t];
+      red_s[t]    = fl_s[t] || dr_s[t];
+      red_pc_s[t] = fl_s[t] ? flush_pc : dred_pc;
+    end
+  logic [NUM_THREADS-1:0] red_q;                    // the queues the redirects empty (by stream)
+  assign red_q = NUM_THREADS'(red_s);
   tg_fetch_compact #(.WR(4), .RD(DECODE_WIDTH), .DEPTH(IBUF_ENTRIES), .META_W(META_W)) u_cmp (
-    .clk, .rst, .flush(redirect), .flush_tid(red_tid), .dst, .blk_valid(f3_valid_q), .blk_tid(f3_tid),
+    .clk, .rst, .flush_q(red_q), .dst, .blk_valid(f3_valid_q), .blk_tid(f3_tid),
     .parcel(f3_parcel), .start(f3_start_q), .marks(f3_marks_q), .carry_out(f3_carry_q), .meta(f3_mq),
     .blk_ready, .out_tid(cq_tid), .out_valid(cq_valid), .out_insn(cq_insn), .take(iq_take));
 
@@ -1121,7 +1132,7 @@ module tg_fetch
     assign ras_push = ft_we && !f2_isfault && f2_rpush;
     assign ras_pop  = ft_we && !f2_isfault && f2_rpop;
     assign ras_link = f2_rlink;
-    assign ras_rv   = RAS_FE && dred && !flush;
+    assign ras_rv   = RAS_FE && |dr_s;          // (decode's redirect, unless its stream is flushed too)
     // the repair: the stack before the redirecting instruction's block (its exit's operation is the
     // instruction's own or comes after it), then the instruction's own operation (decode's): this
     // covers a call or return no block's exit carried, such as one that straddles into its block
@@ -1181,14 +1192,14 @@ module tg_fetch
           c = cgh_s_q[t];
           if (cs == 1'(t)) for (int j = 0; j < COMMIT_WIDTH; j++) if (c_cbr[j]) c = {c[GH_W-2:0], c_taken[j]};
           cgh_s_q[t] <= c;
-          if (flush && rr == 1'(t)) begin     // (nothing of the stream retires in its flush's cycle)
+          if (fl_s[t]) begin                  // (nothing of the stream retires in its flush's cycle)
             gh_s_q[t]   <= cgh_s_q[t];
             gp_n_s_q[t] <= '0;
             // every block goes; the training queue may still name the head's and earlier ones
             ft_t_s_q[t] <= ft_h_s_q[t] + 1'b1;
             ft_h_s_q[t] <= ft_h_s_q[t] + 1'b1;
           end else begin
-            if (dred && !flush && rr == 1'(t)) begin
+            if (dr_s[t]) begin
               gh_s_q[t]   <= r_gh;
               gp_n_s_q[t] <= '0;
             end else begin
@@ -1198,7 +1209,7 @@ module tg_fetch
             end
             // decode's redirect keeps its instruction's block and drops the later ones; commit frees
             // the blocks before the youngest retiring instruction's
-            if (dred && !flush && rr == 1'(t))
+            if (dr_s[t])
               ft_t_s_q[t] <= {(dred_ftq < ft_h_s_q[t][FTQW-1:0]) ^ ft_h_s_q[t][FTQW], dred_ftq} + 1'b1;
             else if (ft_we && f2_s_q == 1'(t))
               ft_t_s_q[t] <= ft_t_s_q[t] + 1'b1;
@@ -1219,8 +1230,8 @@ module tg_fetch
     always_ff @(posedge clk) begin
       for (int t = 0; t < NS; t++) begin
         if (rst)                                gh_ref_q[t] <= '0;
-        else if (flush && rr == 1'(t))          gh_ref_q[t] <= cgh_s_q[t];
-        else if (dred && !flush && rr == 1'(t)) gh_ref_q[t] <= r_gh;
+        else if (fl_s[t])                       gh_ref_q[t] <= cgh_s_q[t];
+        else if (dr_s[t])                       gh_ref_q[t] <= r_gh;
         else if (ft_we && f2_s_q == 1'(t))
           gh_ref_q[t] <= (gh_n == 2'd0) ? gh_ref_q[t] : (gh_n == 2'd1) ? {gh_ref_q[t][GH_W-2:0], gh_b[0]}
                                                                        : {gh_ref_q[t][GH_W-3:0], gh_b};
@@ -1569,14 +1580,10 @@ module tg_fetch
 `endif
 
   // ---- Sequential: F1, F2, F3 ----
-  // The redirected stream (a redirect's thread); a refetch's PC (F2's action); each stream's restart (its refill's or
-  // walk's end) and the PC it restarts at
-  logic          rr;                     // the redirected stream
-  logic [63:0]   red_pc, kref_pc;
+  // A refetch's PC (F2's action); each stream's restart (its refill's or walk's end) and the PC it restarts at
+  logic [63:0]   kref_pc;
   logic [NS-1:0] rs_ref, rs_walk;        // restarts: after a refill, after a walk
   logic [NS-1:0][63:0] rs_pc;
-  assign rr      = strm(red_tid);
-  assign red_pc  = flush ? flush_pc : dred_pc;
   assign kref_pc = k_cut_q ? {miss_pc_q[63:4], fp_q, 1'b0}
                  : k_ovr_q ? (kr_q ? {{25{krt_q[38]}}, krt_q, 1'b0} : kt_q ? kt_tgt : {miss_pc_q[63:4] + 60'd1, 4'b0})
                  : miss_pc_q;
@@ -1596,8 +1603,9 @@ module tg_fetch
   logic          f1_mv;                  // F1's block moves into F2
   assign f1_mv = !ka_q && f2_go && f1_live;
   always_comb begin
-    logic o;
+    logic o, f1r;
     o     = 1'b0;
+    f1r   = 1'b0;
     f1v_n = f1_valid_q; ft_n = ft_q; fpc_n = fpc_q; pw_n = pw_q;
     sv_n  = sv_s_q;     spc_n = spc_s_q;
     // F1 waits a cycle for its PMP check; any change of fpc_q below ends the wait
@@ -1645,16 +1653,18 @@ module tg_fetch
         f1v_n = 1'b1; fpc_n = spc_n[ft_n]; sv_n[ft_n] = 1'b0; pw_n = 1'b0;
       end
     end
-    // A redirect: its stream's next block is the redirect's PC (its blocks in F1, F2 and F3 go, below)
-    if (redirect) begin
-      if (!MT || !f1v_n || ft_n == rr || stop_s_q[ft_n]) begin
-        if (MT && f1v_n && ft_n != rr) begin         // (the stopped stream's next block waits for its redirect)
-          sv_n[ft_n] = 1'b0;
+    // The redirects: each redirected stream's next block is its redirect's PC (its blocks in F1, F2 and F3 go,
+    // below). F1 takes it when F1 is empty or holds the stream's own block, a stopped stream's or another redirected
+    // stream's old one, and no other redirect of this cycle took F1 already; else it waits
+    f1r = 1'b0;
+    for (int t = 0; t < NS; t++) begin
+      if (red_s[t]) begin
+        if (!MT || !f1v_n || (!f1r && (ft_n == 1'(t) || stop_s_q[ft_n] || red_s[ft_n]))) begin
+          f1v_n = 1'b1; fpc_n = red_pc_s[t]; ft_n = 1'(t); pw_n = 1'b0; f1r = 1'b1;
+          sv_n[t] = 1'b0;
+        end else begin
+          sv_n[t] = 1'b1; spc_n[t] = red_pc_s[t];
         end
-        f1v_n = 1'b1; fpc_n = red_pc; ft_n = rr; pw_n = 1'b0;
-        sv_n[rr] = 1'b0;
-      end else begin
-        sv_n[rr] = 1'b1; spc_n[rr] = red_pc;
       end
     end
   end
@@ -1778,15 +1788,18 @@ module tg_fetch
       end
       // A redirect: its stream's blocks in F2 and F3 and its action go, and its state is reset (its next block above)
       if (redirect) begin
-        if (!MT || f2_s_q == rr) f2_valid_q <= 1'b0;
-        if (!MT || (f2_deliver ? f2_s_q : f3_s_q) == rr) f3_valid_q <= 1'b0;
-        if (!MT || f2_s_q == rr) ka_q <= 1'b0;
-        stop_s_q[rr]    <= 1'b0;
-        miss_s_q[rr]    <= 1'b0;
-        wk_s_q[rr]      <= 1'b0;
-        wk_sent_s_q[rr] <= 1'b0;
-        xf_v_s_q[rr]    <= 1'b0;
-        carry_s_q[rr]   <= 1'b0;
+        if (red_s[f2_s_q]) f2_valid_q <= 1'b0;
+        if (red_s[f2_deliver ? f2_s_q : f3_s_q]) f3_valid_q <= 1'b0;
+        if (red_s[f2_s_q]) ka_q <= 1'b0;
+        for (int t = 0; t < NS; t++)
+          if (red_s[t]) begin
+            stop_s_q[t]    <= 1'b0;
+            miss_s_q[t]    <= 1'b0;
+            wk_s_q[t]      <= 1'b0;
+            wk_sent_s_q[t] <= 1'b0;
+            xf_v_s_q[t]    <= 1'b0;
+            carry_s_q[t]   <= 1'b0;
+          end
       end
     end
   end

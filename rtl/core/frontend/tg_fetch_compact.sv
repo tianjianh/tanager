@@ -19,7 +19,8 @@
 // they are what decode would find; decode checks them in simulation.
 // Per thread (M7's step 5b, with hart 1: MT): each thread has a queue of DEPTH entries in the same banks, at
 // {tid, row}, with its own pointers, count and straddler; a block is written into its thread's (blk_tid), with
-// that hart's decode state; a redirect empties its thread's (flush_tid). Decode reads one thread's queue a cycle
+// that hart's decode state; a redirect empties its thread's (flush_q, one bit a queue: two threads' redirects may come
+// in one cycle). Decode reads one thread's queue a cycle
 // (out_tid, registered): after decode takes from it, the other thread's if that one has instructions, and an empty
 // queue is skipped (D7: the first-served thread alternates). Without MT the one queue of before, the running thread's.
 module tg_fetch_compact
@@ -42,8 +43,7 @@ module tg_fetch_compact
 ) (
   input  logic                    clk,
   input  logic                    rst,
-  input  logic                    flush,      // a redirect: empties flush_tid's queue
-  input  tid_t                    flush_tid,
+  input  logic [NUM_THREADS-1:0]  flush_q,    // redirects: each empties its queue (bit 0 alone without MT)
   input  dec_state_t [NUM_THREADS-1:0] dst,   // the decoders' state, per hart (decode's)
   // Block from IF2
   input  logic                    blk_valid,
@@ -65,12 +65,11 @@ module tg_fetch_compact
   localparam int TW = MT ? 1 : 0;                    // the tid's bit in the banks' address
   // The threads: the block's, the reader's, the redirected; their queues (0 without MT)
   tid_t wt;
-  logic wq, rq, fq;
+  logic wq, rq;
   logic rt_q;                                        // the thread decode reads (MT)
   assign wt  = MT ? blk_tid : RUN_TID;
   assign wq  = MT && blk_tid[0];
   assign rq  = MT && rt_q;
-  assign fq  = MT && flush_tid[0];
   assign out_tid = MT ? tid_t'(rt_q) : RUN_TID;
   dec_state_t wdst;                                  // the writing hart's decode state
   assign wdst = dst[wt];
@@ -227,11 +226,11 @@ module tg_fetch_compact
   assign ro = MT && !rt_q;
   always_comb
     for (int q = 0; q < NQ; q++)
-      occ_n[q] = (flush && fq == 1'(q)) ? '0
+      occ_n[q] = flush_q[q] ? '0
                : occ_t_q[q] + ((wq == 1'(q)) ? w : '0) - ((rq == 1'(q)) ? (QW + 1)'(take) : '0);
   always_ff @(posedge clk) begin
     for (int q = 0; q < NQ; q++) begin
-      if (rst || (flush && fq == 1'(q))) begin
+      if (rst || flush_q[q]) begin
         occ_t_q[q]  <= '0;
         head_t_q[q] <= '0;
         tail_t_q[q] <= '0;
@@ -246,7 +245,7 @@ module tg_fetch_compact
       end
     end
     // the block's progress: reset by its thread's redirect (fetch drops the block), else as the block is written
-    if (rst || (flush && fq == wq)) begin
+    if (rst || flush_q[wq]) begin
       done_q <= '0;
     end else if (blk_valid && room) begin
       if (blk_ready) done_q <= '0;
@@ -264,7 +263,7 @@ module tg_fetch_compact
 
 `ifndef SYNTHESIS
   always_ff @(posedge clk) begin
-    if (!rst && !(flush && fq == rq)) assert (int'(take) <= RD && (QW + 1)'(take) <= rocc)
+    if (!rst && !flush_q[rq]) assert (int'(take) <= RD && (QW + 1)'(take) <= rocc)
       else $error("tg_fetch_compact: take beyond the valid entries");
   end
 `endif
