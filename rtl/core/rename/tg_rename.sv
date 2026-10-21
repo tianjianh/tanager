@@ -228,7 +228,9 @@ module tg_rename
   end
 
   // ---- FP free lists (EXT_FD): F0 starts with indices 32-63 (f0-f31 map to F0 0-31), F1 0-63; with hart 1 (step 5)
-  // its f0-f31 are F1's 0-31, the banks are 96 deep, and each bank's rest is divided between the harts
+  // its f0-f31 are F1's 0-31 and each bank's rest (32-63) is divided between the harts. With hart 1 an FP destination
+  // whose own bank (P4's results F0, FP loads F1) has no register left for its thread takes the other's (DR-179)
+  localparam bit FXB = EXT_FD && HART1_ON;
   logic [1:0]                         ffl_ready;
   logic [1:0][NT-1:0][FPIDX_W:0]      ffl_count;
   logic [1:0][W-1:0][FPIDX_W-1:0]     ffl_pop;
@@ -621,6 +623,9 @@ module tg_rename
       if (rn_uop_q[k].d.rd_en && rn_valid_q[k]) begin
         if (EXT_FD && rn_uop_q[k].d.rd_fp) begin
           fb = (rn_uop_q[k].d.cls == C_LD) ? FPB_F1 : FPB_F0;
+          // (DR-179) its own bank's list for the thread has none left after the group's earlier slots: the other
+          // bank's (its pops then checked below like the own bank's); the inputs are registers, the count flags
+          if (FXB && !fcv[fb][idx_w(W)'(fpops[fb])]) fb = 1 - fb;
           ren[k].dst = mk_fpreg(fb, ffl_pop[fb][fpops[fb]]);
           fpops[fb] = fpops[fb] + 1'b1;
         end else begin
@@ -785,7 +790,9 @@ module tg_rename
     assign fl_pop_n[b] = pops[b];
   end
 
-  // Transfers' wants (HART1_ON): the group at RN needs more of a bank's registers than its thread's list holds
+  // Transfers' wants (HART1_ON): the group at RN needs more of a bank's registers than its thread's list holds. FP
+  // with crossing (DR-179): a group short in one bank is short in both (an op crosses before it overflows), so both
+  // banks take one from the sibling's list where it can give
   always_ff @(posedge clk) begin
     if (rst || !HART1_ON) begin
       fl_want_q  <= '0;
@@ -796,7 +803,8 @@ module tg_rename
       for (int b = 0; b < INT_BANKS; b++)
         fl_want_q[b] <= |rn_valid_q && int'(pops[b]) > int'(fl_count[b][t_rn]);
       for (int b = 0; b < 2; b++)
-        ffl_want_q[b] <= EXT_FD && |rn_valid_q && int'(fpops[b]) > int'(ffl_count[b][t_rn]);
+        ffl_want_q[b] <= EXT_FD && |rn_valid_q && (int'(fpops[b]) > int'(ffl_count[b][t_rn]) ||
+                                                   (FXB && int'(fpops[1-b]) > int'(ffl_count[1-b][t_rn])));
     end
   end
 `ifndef SYNTHESIS
@@ -864,6 +872,28 @@ module tg_rename
             assert (!(llt_busy_q[i] && llt_tid_q[i] == t[0])) else $error("tg_rename: thread %0d's window is empty but LLT %0d is busy for it", t, i);
       end
   end
+  // (DR-179) FP destinations renamed across, on stderr at the end with hart 1: P4's results into F1, FP loads into F0
+  longint unsigned nfx[2];
+  logic [1:0][idx_w(W+1)-1:0] fx_n;
+  always_comb begin
+    fx_n = '0;
+    for (int k = 0; k < W; k++)
+      if (EXT_FD && rn_valid_q[k] && rn_uop_q[k].d.rd_en && rn_uop_q[k].d.rd_fp &&
+          int'(fpreg_bank(ren[k].dst)) != ((rn_uop_q[k].d.cls == C_LD) ? FPB_F1 : FPB_F0)) begin
+        if (rn_uop_q[k].d.cls == C_LD) fx_n[1] = fx_n[1] + 1'b1;
+        else                            fx_n[0] = fx_n[0] + 1'b1;
+      end
+  end
+  always_ff @(posedge clk)
+    if (rst) begin
+      nfx[0] <= 0;
+      nfx[1] <= 0;
+    end else if (rn_fire) begin
+      nfx[0] <= nfx[0] + longint'(fx_n[0]);
+      nfx[1] <= nfx[1] + longint'(fx_n[1]);
+    end
+  final if (HART1_ON && EXT_FD) $fwrite(32'h8000_0002, "TG-FXB %m: renamed across, P4 results into F1 %0d, FP loads into F0 %0d\n",
+                                        nfx[0], nfx[1]);
   // +xfer_log=FILE appends the counts to FILE, a line a run (a regress run's total: the lines' sum)
   string xf_log;
   final if (HART1_ON) begin

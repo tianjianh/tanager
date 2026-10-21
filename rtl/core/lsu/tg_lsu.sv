@@ -263,8 +263,7 @@ module tg_lsu
   logic   [LQ_ENTRIES-1:0][1:0]      lq_size_q;
   // Cold fields, written at AG and read by index (M2, the MMIO load, the LQ head), live in
   // LUTRAM, not CAM flip-flops: the VA (tval, the ROB head's walk), the ROB index, and the
-  // result's destination, LLT and format. The destination's index is the wider of the integer and FP files' (FP
-  // banks of 96 with hart 1: 7 bits).
+  // result's destination, LLT and format. The destination's index is the wider of the integer and FP files'.
   localparam int LDW = (EXT_FD && FPIDX_W > PIDX_W) ? FPIDX_W : PIDX_W;
   typedef struct packed {
     robid_t            rob;

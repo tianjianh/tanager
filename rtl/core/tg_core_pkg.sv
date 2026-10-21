@@ -229,7 +229,7 @@ package tg_core_pkg;
   // M7's step 5 (DR-175): hart 1, TG_HART1=1 (smt2 builds only; off until step 8's checks pass; with SOLO_TID hart 0
   // runs as tid 1 and hart 1 as tid 0, each with its own homes).
   // On: the window split (SPLIT below); each register bank's free list divided between the harts, with transfers
-  // (D3 revised); hart 1's homes reserved (D4: x1-x16 in bank 1, x17-x31 in bank 2, f0-f31 in F1); FP banks of 96
+  // (D3 revised); hart 1's homes reserved (D4: x1-x16 in bank 1, x17-x31 in bank 2, f0-f31 in F1); FP banks of 64
   // (tg_cfg_smt2); from step 5c hart 1 fetches from reset. Until then hart 0 runs alone in its half, taking hart 1's
   // free registers by transfers. Off: the core of steps 1-4, cycle for cycle.
 `ifdef TG_HART1

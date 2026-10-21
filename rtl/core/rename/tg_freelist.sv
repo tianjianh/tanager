@@ -23,8 +23,8 @@
 // at rename (pop_tid), so the sibling does not pop, and in a cycle with no push to this bank and no flush, so the write
 // port and both tails are its own; it reads the sibling's entry on a second read port of each sub-bank. A sibling
 // asleep in WFI gives up its spares this way.
-// The pointers wrap at DEPTH, a multiple of NB (FP banks of 96 with two threads, D3 revised): each is an index below
-// DEPTH and a lap bit, which is the plain binary pointer when DEPTH is a power of two.
+// The pointers wrap at DEPTH, a multiple of NB but not necessarily a power of two (DR-175's FP banks of 96, before
+// DR-179): each is an index below DEPTH and a lap bit, which is the plain binary pointer when DEPTH is a power of two.
 // The free counts (tail - spec head) are registers, kept with the commit counts (tail - commit head) that they take on
 // a flush, so rename's resource checks start from flip-flops rather than a subtraction (timing; the same values,
 // asserted). Rename's fire (`pop`) arrives last, after its own resource checks: the next head and count are formed
