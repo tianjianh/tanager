@@ -65,7 +65,8 @@ module tg_fetch
   input  logic [NUM_THREADS-1:0][38:1]       ras_top_s,
   input  logic [NUM_THREADS-1:0][RAS_PW-1:0] ras_tos_s,
   input  logic [NUM_THREADS-1:0][RAS_PW:0]   ras_cnt_s,
-  output tid_t                ras_tid,        // the thread whose stack the operation or repair below is
+  output tid_t                ras_tid,        // the thread whose stack the operation below is (F2's stream's) ...
+  output tid_t                ras_rtid,       // ... and the repair's (decode's redirect's; MT: they may differ)
   output logic                ras_push,
   output logic                ras_pop,
   output logic [38:1]         ras_link,
@@ -201,8 +202,10 @@ module tg_fetch
   assign ras_top = ras_top_s[f2_s_q];
   assign ras_tos = ras_tos_s[f2_s_q];
   assign ras_cnt = ras_cnt_s[f2_s_q];
-  // the stack fetch's operation (a delivered block's exit) or repair (decode's redirect) is for: never in one cycle
-  assign ras_tid = dred ? dred_tid : (MT ? tid_t'(f2_s_q) : RUN_TID);
+  // the stacks of fetch's operation (a delivered block's exit) and repair (decode's redirect): with MT they may come
+  // in one cycle, for different threads (a redirect stops its own stream's delivery); without MT never together
+  assign ras_tid  = MT ? tid_t'(f2_s_q) : (dred ? dred_tid : RUN_TID);
+  assign ras_rtid = MT ? dred_tid : (dred ? dred_tid : RUN_TID);
 
   // Micro-BTB
   logic              ub_hit, ub_way;
@@ -1114,7 +1117,9 @@ module tg_fetch
     assign ft_full = ft_t_s_q[f2_s_q][FTQW] != ft_eh_s[f2_s_q][FTQW] &&
                      ft_t_s_q[f2_s_q][FTQW-1:0] == ft_eh_s[f2_s_q][FTQW-1:0] && !blk_s[f2_s_q];
     assign ft_tail = ft_t_s_q[f2_s_q][FTQW-1:0];
-    assign ft_we   = f2_deliver && !redirect && !blk_s[f2_s_q];
+    // (MT: in another stream's redirect cycle F2's block goes on to F3, so it takes its entry: only its own
+    // stream's redirect stops it; without MT the one redirect)
+    assign ft_we   = f2_deliver && !red_s[f2_s_q] && !blk_s[f2_s_q];
     // (and the return-address stack's pointer, count and top before the block, RAS_FE)
     localparam int RW  = GH_W + 2 * NP + RAS_PW + RAS_PW + 1 + 38;
     localparam int RWA = GH_W + RAS_PW + RAS_PW + 1 + 38;     // written on time: the history, the stack's state
@@ -1262,6 +1267,22 @@ module tg_fetch
         for (int k = 0; k < 4; k++)
           if (3'(k) < tq_n && (!MT || tq_all[k][SB+FTQW] == f2_s_q))
             assert (ft_tail != tq_all[k][FTQW-1:0]) else $error("tg_fetch: a block takes an FTQ entry TAGE's training queue names");
+    // Every instruction the queue hands decode names an FTQ entry its stream holds, from the head to the tail (a
+    // block that went on to F3 without its entry would not: with MT, one delivered in the other stream's redirect)
+    always_ff @(posedge clk)
+      if (tq_rs_q && !rst)
+        for (int j = 0; j < DECODE_WIDTH; j++)
+          if (iq_valid[j]) begin
+            logic           qs;
+            logic [FTQW:0]  occ;
+            logic [FTQW-1:0] pos;
+            qs  = strm(cq_tid);
+            occ = ft_t_s_q[qs] - ft_h_s_q[qs];
+            pos = iq_insn[j].ftq - ft_h_s_q[qs][FTQW-1:0];
+            assert ((FTQW + 1)'(pos) < occ)
+              else $error("tg_fetch: an instruction of stream %0d names FTQ entry %0d outside its head %0h and tail %0h",
+                          qs, iq_insn[j].ftq, ft_h_s_q[qs], ft_t_s_q[qs]);
+          end
 `endif
   end else begin : g_notage
     assign ft_full = 1'b0;

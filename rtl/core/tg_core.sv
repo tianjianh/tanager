@@ -183,7 +183,7 @@ module tg_core
   logic [NUM_THREADS-1:0][38:1]        ras_top_t;
   logic [NUM_THREADS-1:0][RAS_PW-1:0]  ras_tos_t;
   logic [NUM_THREADS-1:0][RAS_PW:0]    ras_cnt_t;
-  tid_t                    fras_tid;                          // fetch's operation's or repair's thread
+  tid_t                    fras_tid, fras_rtid;               // fetch's operation's thread, its repair's
   logic                    fras_push, fras_pop, fras_rv, fras_rwr;
   logic [38:1]             fras_link, fras_rtop;
   logic [RAS_PW-1:0]       fras_rtos;
@@ -277,6 +277,7 @@ module tg_core
     .c_cbr(cm_cbr), .c_taken(cm_ctaken), .c_pred(cm_cpred), .c_ftq(cm_cftq), .c_slot(cm_cslot),
     .c_hv(cm_hv), .c_hftq(cm_hftq), .c_tid(cm_tid[0]),
     .ras_v_s(ras_v_t), .ras_top_s(ras_top_t), .ras_tos_s(ras_tos_t), .ras_cnt_s(ras_cnt_t), .ras_tid(fras_tid),
+    .ras_rtid(fras_rtid),
     .ras_push(fras_push), .ras_pop(fras_pop), .ras_link(fras_link),
     .ras_rv(fras_rv), .ras_rwr(fras_rwr), .ras_rtos(fras_rtos), .ras_rcnt(fras_rcnt), .ras_rtop(fras_rtop),
     .upd_valid, .upd_way, .upd_pc, .upd_slot, .upd_target, .upd_inval, .upd_tid,
@@ -305,9 +306,10 @@ module tg_core
     logic [RNS-1:0][38:1]        rt;
     logic [RNS-1:0][RAS_PW-1:0]  rtos;
     logic [RNS-1:0][RAS_PW:0]    rcnt;
-    logic de_s, fr_s, cm_s, fl_s;                                 // decode's, fetch's, commit's, the flush's stack
+    logic de_s, fr_s, rr_s, cm_s, fl_s;   // decode's, fetch's operation's and repair's, commit's, the flush's stack
     assign de_s = RMT && (RAS_FE ? iq_insn[0].tid[0] : de_uop[0].tid[0]);
     assign fr_s = RMT && fras_tid[0];
+    assign rr_s = RMT && fras_rtid[0];
     assign cm_s = RMT && cm_tid[0][0];
     assign fl_s = RMT && flush_tid[0];
     logic dr_s;                                                    // decode's operations' stack (RAS_DEC)
@@ -316,7 +318,7 @@ module tg_core
       logic       sf, sp, sq, sr;
       assign sf = flush && fl_s == 1'(s);
       assign sp = RAS_FE ? fr_s == 1'(s) : dr_s == 1'(s);
-      assign sr = RAS_FE && fras_rv && fr_s == 1'(s);
+      assign sr = RAS_FE && fras_rv && rr_s == 1'(s);
       assign sq = cm_s == 1'(s);
       if (s == 0) begin : g_t0
         tg_ras #(.NE(RAS_ENTRIES), .CW(COMMIT_WIDTH), .LATE(RAS_FE)) u_ras (
@@ -352,7 +354,7 @@ module tg_core
     assign ras_cnt_t = '0;
     logic unused_ras;                   // no operation is ever decoded or committed without it
     assign unused_ras = ^{ras_push, ras_pop, ras_link, cm_ras_push, cm_ras_pop, cm_ras_link, fras_push, fras_pop,
-                          fras_link, fras_rv, fras_rwr, fras_rtos, fras_rcnt, fras_rtop, fras_tid};
+                          fras_link, fras_rv, fras_rwr, fras_rtos, fras_rcnt, fras_rtop, fras_tid, fras_rtid};
   end
 
   // ---- Rename and dispatch ----
