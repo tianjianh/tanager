@@ -460,3 +460,11 @@ It meets 100 MHz at WNS +0.367 ns with 105,934 LUTs. The package is d4r1-riscv w
 - **183 of 183 passes clean.** No failed pass, no FAIL/DMESG line, no SD1 timeout, no probe capture, no kernel trouble.
 - **Steady over 161 passes:** 116.1 s per pass, cpu 90.35 events/s, memory 124.84 MiB/s, threads 2,226 events, with the watch's cost. 22 passes are left out: those overlapping the network checks, the `clock_gettime` test, and the twin loop's window (passes 10–20; [`s21_experiment_windows.txt`](s21_experiment_windows.txt)).
 - **Network checks: 6 of 6 OK,** 0.47–0.57 MB/s up and 0.52–0.57 down, `apt-get update` exit 0 every time ([`net_s21.txt`](net_s21.txt)).
+
+**Laptop outages in s21 (the laptop's, not the board's):**
+- **01:27 UTC, 10-21: the app restarted on the laptop,** ahead of a full laptop shutdown the user is about to do. COM5 and COM7 logging, the stress watcher and the hourly check stopped with it.
+  - COM5's last line is pass 229 at 27,210.80 s of uptime, at 01:26:58. Check 8, due at 01:28:22, was missed.
+  - At 01:29 the board was still running: up 27,342.61 s (no reset since s21 began), the stress running, the watch armed, no SD1 timeout.
+  - The laptop itself had not rebooted: up since 10-12.
+  - Logging resumed at 01:29 ([`uart_COM5_s21_part1.txt`](uart_COM5_s21_part1.txt) holds the part before), and the checks resume at 02:28:22.
+- **The coming full shutdown:** the coordinator has asked the user to keep the laptop off for at least 15 s and not to touch COM5's adapter. The CH340's line then stays low past the PMOD hook's 10.7 s ceiling, so it can't look like a reset request. After it, the board's uptime and the pass counter will show whether the board kept running.
