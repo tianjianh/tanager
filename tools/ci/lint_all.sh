@@ -70,7 +70,7 @@ for c in $CFGS; do
   tasks+=("$c FWDREF=1" "$c FWDREF=0")
   case "$c" in smt2*) [ -n "$solo" ] && tasks+=("$c SOLO_TID=1")
                      [ -n "$split" ] && tasks+=("$c SPLIT=1") && { [ -z "$solo" ] || tasks+=("$c SPLIT=1 SOLO_TID=1"); }
-                     [ -n "$hart1" ] && tasks+=("$c HART1=1") ;; esac
+                     [ -n "$hart1" ] && tasks+=("$c HART1=1") && { [ -z "$solo" ] || tasks+=("$c HART1=1 SOLO_TID=1"); } ;; esac
 done
 
 # One line per elaboration as it finishes: PASS|FAIL <cfg> [<define>]

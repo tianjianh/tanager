@@ -91,8 +91,8 @@ module tg_core
   if (SOLO_TID && TID_W == 0) begin : g_bad_solo
     $error("tg_core: SOLO_TID needs an SMT2 configuration (TID_W = 1)");
   end
-  if (HART1_ON && (TID_W == 0 || SOLO_TID)) begin : g_bad_hart1
-    $error("tg_core: HART1_ON needs an SMT2 configuration (TID_W = 1), without SOLO_TID");
+  if (HART1_ON && TID_W == 0) begin : g_bad_hart1
+    $error("tg_core: HART1_ON needs an SMT2 configuration (TID_W = 1)");
   end
   localparam int CW  = COMMIT_WIDTH;
   localparam int NCW = idx_w(CW + 1);
@@ -185,6 +185,7 @@ module tg_core
   logic [COMMIT_WIDTH-1:0][38:1] cm_ras_link;
   logic        upd_valid, upd_way, upd_inval;
   logic [63:0] upd_pc, upd_target;
+  tid_t        upd_tid;                 // M7 step 5: the micro-BTB entry's tid (5b)
   logic [SLOT_W-1:0] upd_slot;
   logic [DECODE_WIDTH-1:0]   iq_valid;
   fe_insn_t [DECODE_WIDTH-1:0] iq_insn;
@@ -352,6 +353,7 @@ module tg_core
   logic [LLT_ENTRIES-1:0]           llt_rel, llt_done_x, llt_done_l;
   logic [IQ_TAGS-1:0]               tag_free;
   logic                             div_done;
+  tid_t                             div_done_tid;   // M7 step 5: rename's divide count per thread (5c)
   logic [CW-1:0]                    cm_valid, cm_rd_en;
   logic [CW-1:0][4:0]               cm_rd;
   preg_t [CW-1:0]                   cm_dst, cm_old;
@@ -373,6 +375,7 @@ module tg_core
   preg_t                            isrc_tag, fpi_dst;
   logic [63:0]                      isrc_data, fpi_data;
   robid_t                           fpi_rob;
+  tid_t                             fpi_tid;    // the FP->int head's thread (M7, DR-175: exec's kill)
   llt_t                             fpi_llt;
   logic [4:0]                       fpi_fflags, oth_fflags;
   assign sd_busy    = EXT_FD && isrc_valid;
@@ -473,13 +476,13 @@ module tg_core
     .ld_m2_will, .ld_m2_dst, .ld_res_valid, .ld_res_dst, .ld_res_data,
     .ld_ag_valid, .ld_ag_pl, .ld_ag_addr, .sta_ag_valid, .sta_ag_pl, .sta_ag_addr,
     .sd_tag, .sd_data, .isrc_valid, .isrc_tag, .isrc_data, .fpi_valid, .fpi_kill, .fpi_ready, .fpi_rob, .fpi_llt,
-    .fpi_dst_en, .fpi_dst, .fpi_data, .fpi_fflags,
+    .fpi_dst_en, .fpi_dst, .fpi_data, .fpi_fflags, .fpi_tid, .flush_tid,
     .tr_tag, .tr_data(tr_data_x), .rf_we_o(rf_we), .rf_widx_o(rf_widx),
     .cmp_valid(alu_cmp), .cmp_rob(alu_rob), .oth_valid(oth_cmp), .oth_rob, .oth_exc, .oth_tval,
     .oth_fflags,
     .br_valid, .br_rob, .br_mispredict(br_misp), .br_npc, .br_exc, .br_tval,
-    .upd_valid, .upd_way, .upd_inval, .upd_pc, .upd_slot, .upd_target,
-    .wake_reg(wake_x), .llt_done(llt_done_x), .tag_free(tag_free_x), .div_done,
+    .upd_valid, .upd_way, .upd_inval, .upd_pc, .upd_slot, .upd_target, .upd_tid,
+    .wake_reg(wake_x), .llt_done(llt_done_x), .tag_free(tag_free_x), .div_done, .div_done_tid,
     .csr_ex_valid, .csr_ex_pl, .csr_ex_src, .csr_ex_rdata, .csr_ex_ill);
 
   // ---- Load/store unit ----
@@ -701,6 +704,7 @@ module tg_core
     assign fp_we      = {fld_valid, f0_we};
     assign fp_widx    = {fld_idx, f0_widx};
     assign fpi_rob    = p4_fpi.rob;
+    assign fpi_tid    = p4_fpi.tid;
     assign fpi_llt    = p4_fpi.llt;
     assign fpi_dst_en = p4_fpi.dst_en;
     assign fpi_dst    = p4_fpi.dst;
@@ -737,7 +741,7 @@ module tg_core
     assign frm_h    = frm_t;
     assign fs_dirty = fs_dirty_t;
     logic unused;
-    assign unused = ^{er_busy_t, frm_t, p4_fpi.tid, p4_fpi.wid, p4_cmp_tid, p4_er_tid,
+    assign unused = ^{er_busy_t, frm_t, p4_fpi.wid, p4_cmp_tid, p4_er_tid,
                       p4_er_v, p4_er_ff, fc_frm_rd};
   end else begin : g_nop4
     assign fdiv_iss      = 1'b0;
@@ -759,6 +763,7 @@ module tg_core
     assign fp_we         = '0;
     assign fp_widx       = '0;
     assign fpi_rob       = '0;
+    assign fpi_tid       = '0;
     assign fpi_llt       = '0;
     assign fpi_dst_en    = 1'b0;
     assign fpi_dst       = '0;
@@ -776,7 +781,8 @@ module tg_core
 
   logic unused;
   assign unused = ^{debug_req_i, rob_tail_t,
-                    st_dropped, satp_asid};       // the TLBs flush on satp changes: no ASID tags
+                    st_dropped, satp_asid,        // the TLBs flush on satp changes: no ASID tags
+                    upd_tid, div_done_tid};       // (M7 step 5: fetch's micro-BTB in 5b, rename's counts in 5c)
   // Board debug (DBG_WORD): the status word, the allocation logs and the select, a register
   if (DBG_WORD) begin : g_dbg
     logic [31:0] dbg_q;

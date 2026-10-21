@@ -1,0 +1,63 @@
+== opt_design none (4 s): 0 LUT cells
+  -- core u_soc/g_core[0].g_tgc.u_core/
+    F2 -> target  19 levels (est. 2.503)
+    F2 -> krt     19 levels (est. 2.503)
+    F2 -> hit     18 levels (est. 2.878)
+    F2 -> p_pop   20 levels (est. 2.271)
+    F2 -> gp_n    20 levels (est. 2.470)
+    F2 -> kimm    20 levels (est. 2.373)
+    F2 -> u_fgh   none
+    fpc loop       16 levels (est. 4.677)
+    head -> rename 20 levels (est. 3.394)
+  -- core u_soc/g_core[1].g_tgc.u_core/
+    F2 -> target  19 levels (est. 2.503)
+    F2 -> krt     19 levels (est. 2.503)
+    F2 -> hit     18 levels (est. 2.878)
+    F2 -> p_pop   20 levels (est. 2.271)
+    F2 -> gp_n    20 levels (est. 2.470)
+    F2 -> kimm    20 levels (est. 2.373)
+    F2 -> u_fgh   none
+    fpc loop       16 levels (est. 4.677)
+    head -> rename 20 levels (est. 3.394)
+== opt_design Default (39 s): 0 LUT cells
+  -- core u_soc/g_core[0].g_tgc.u_core/
+    F2 -> target  19 levels (est. 2.503)
+    F2 -> krt     19 levels (est. 2.503)
+    F2 -> hit     18 levels (est. 2.878)
+    F2 -> p_pop   20 levels (est. 2.271)
+    F2 -> gp_n    20 levels (est. 2.470)
+    F2 -> kimm    20 levels (est. 2.373)
+    F2 -> u_fgh   none
+    fpc loop       16 levels (est. 4.677)
+    head -> rename 20 levels (est. 3.394)
+  -- core u_soc/g_core[1].g_tgc.u_core/
+    F2 -> target  19 levels (est. 2.503)
+    F2 -> krt     19 levels (est. 2.503)
+    F2 -> hit     18 levels (est. 2.878)
+    F2 -> p_pop   20 levels (est. 2.271)
+    F2 -> gp_n    20 levels (est. 2.470)
+    F2 -> kimm    20 levels (est. 2.373)
+    F2 -> u_fgh   none
+    fpc loop       16 levels (est. 4.677)
+    head -> rename 20 levels (est. 3.394)
+== opt_design ExploreArea (123 s): 0 LUT cells
+  -- core u_soc/g_core[0].g_tgc.u_core/
+    F2 -> target  20 levels (est. 2.300)
+    F2 -> krt     20 levels (est. 2.300)
+    F2 -> hit     18 levels (est. 2.939)
+    F2 -> p_pop   20 levels (est. 2.362)
+    F2 -> gp_n    20 levels (est. 2.503)
+    F2 -> kimm    20 levels (est. 2.352)
+    F2 -> u_fgh   none
+    fpc loop       21 levels (est. 3.388)
+    head -> rename 20 levels (est. 3.443)
+  -- core u_soc/g_core[1].g_tgc.u_core/
+    F2 -> target  19 levels (est. 2.555)
+    F2 -> krt     19 levels (est. 2.555)
+    F2 -> hit     18 levels (est. 2.946)
+    F2 -> p_pop   20 levels (est. 2.371)
+    F2 -> gp_n    20 levels (est. 2.465)
+    F2 -> kimm    20 levels (est. 2.346)
+    F2 -> u_fgh   none
+    fpc loop       19 levels (est. 3.823)
+    head -> rename 20 levels (est. 3.443)

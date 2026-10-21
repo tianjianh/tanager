@@ -654,10 +654,21 @@ module tg_rename
       for (int b = 0; b < INT_BANKS; b++) if (fl_xfer[b]) nxf[b] <= nxf[b] + 1;
       for (int b = 0; b < 2; b++) if (ffl_xfer[b]) nxf[INT_BANKS + b] <= nxf[INT_BANKS + b] + 1;
     end
+  // +xfer_log=FILE appends the counts to FILE, a line a run (a regress run's total: the lines' sum)
+  string xf_log;
   final if (HART1_ON) begin
+    int fd;
     $fwrite(32'h8000_0002, "TG-XFER %m:");
     for (int b = 0; b < INT_BANKS; b++) $fwrite(32'h8000_0002, " B%0d %0d", b, nxf[b]);
     $fwrite(32'h8000_0002, " F0 %0d F1 %0d\n", nxf[INT_BANKS], nxf[INT_BANKS + 1]);
+    if ($value$plusargs("xfer_log=%s", xf_log)) begin
+      fd = $fopen(xf_log, "a");
+      if (fd != 0) begin
+        for (int b = 0; b < INT_BANKS + 2; b++) $fwrite(fd, "%0d ", nxf[b]);
+        $fwrite(fd, "\n");
+        $fclose(fd);
+      end
+    end
   end
 `endif
 

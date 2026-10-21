@@ -14,9 +14,10 @@
 // (RAM form, 64 deep), and sv_q is per thread. Reads and RN writes are the rename group's thread's (rtid),
 // commit writes the commit group's (ctid), and a flush clears the flushed thread's sv_q only. The reset
 // sweep writes the running thread's map (32 cycles), the identity; with HSPLIT (hart 1, M7's step 5) both
-// threads' (64): thread 0's homes are the identity, thread 1's register r below HSPL index r + HOFF_LO in bank
+// threads' (64): hart 0's homes are the identity, hart 1's register r below HSPL index r + HOFF_LO in bank
 // HB_LO, from HSPL index r + HOFF_HI in bank HB_HI (D4, refined: x1-x16 in bank 1 at 0-15, x17-x31 in bank 2 at
-// 0-14; f0-f31 in F1 at 0-31), with register 0 kept at 0 when X0 (x0).
+// 0-14; f0-f31 in F1 at 0-31), with register 0 kept at 0 when X0 (x0). The homes are the hart's, whichever tid it
+// runs as (SOLO_TID: hart 0 is tid 1), so hart 0's are always the ones the reset sequence zeroes.
 // tg_rename has one for the integer registers and, with EXT_FD, one for the FP registers.
 module tg_rmap
   import tg_pkg::*, tg_core_pkg::*;
@@ -73,7 +74,7 @@ module tg_rmap
   assign sw    = !ready;
   assign swt   = (HSPLIT && NT > 1) ? tid_t'(cinit_q[5]) : RUN_TID;
   function automatic logic [PW-1:0] home(input tid_t t, input logic [4:0] r);
-    if (!(HSPLIT && NT > 1) || t == tid_t'(0) || (X0 && r == '0)) return PW'(r);
+    if (!(HSPLIT && NT > 1) || t == RUN_TID || (X0 && r == '0)) return PW'(r);     // hart 0 (tid SOLO_TID)
     if (int'(r) < HSPL) return PW'((HB_LO << HIW) + int'(r) + HOFF_LO);
     return PW'((HB_HI << HIW) + int'(r) + HOFF_HI);
   endfunction

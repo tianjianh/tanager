@@ -1,0 +1,92 @@
+#!/bin/sh
+# ps-memregs: the PS's settings on the RISC-V's memory path (soc-2, 10-20; docs/spec/soc-d4-modes.md, RISC-V mode's
+# memory gap), read with busybox devmem on the A53's Ubuntu:
+#   - in ARM mode before any overlay: the boot firmware's values, which RISC-V mode keeps (nothing between the boot
+#     firmware and riscv.scr writes these, and riscv.scr writes only PL0_REF_CTRL and the FPD AFI_FS here);
+#   - in stage C with the Tanager overlay loaded, the RISC-V running.
+# One line each: the register, its address, its value, or "refused" where this Linux may not read it (devmem's
+# SIGBUS). Then diff the two files.
+#   sudo sh ps-memregs [--bridge] > memregs_<mode>.txt
+# --bridge only with a Tanager bitstream loaded (stage C; without one a read of the bridge hangs the A53): also the
+# host bridge's configuration and its native DDR read latency over 1 s (docs/spec/host.md: INJ_RD_COUNT and
+# INJ_RD_LATSUM, both ports, in core cycles; best taken while a benchmark runs on the RISC-V).
+set -u
+r() {  # name address
+  v=$(busybox devmem "$2" 32 2>/dev/null) || v=refused
+  printf '%-22s %s %s\n' "$1" "$2" "$v"
+}
+
+# The AXI FIFO interfaces: HP1 and HP2 (the L2's banks, DDR controller port 4), HP3 (the commit trace, port 5), LPD
+# (the PS window). [1:0] of RDCTRL and WRCTRL is the fabric width (0: 128-bit); the overlay writes those bits only
+for p in HP1:0xFD39 HP2:0xFD3A HP3:0xFD3B LPD:0xFF9B; do
+  n=${p%%:*} b=${p#*:}
+  r "$n.RDCTRL" ${b}0000
+  r "$n.RDISSUE" ${b}0004
+  r "$n.RDQOS" ${b}0008
+  r "$n.WRCTRL" ${b}0014
+  r "$n.WRISSUE" ${b}0018
+  r "$n.WRQOS" ${b}001C
+done
+r FPD_SLCR.AFI_FS 0xFD615000
+r LPD_SLCR.AFI_FS 0xFF419000
+
+# Clocks: the PL's (pl_clk0 makes clk_core), the DDR's, the interconnects'
+r CRL.IOPLL_CTRL 0xFF5E0020
+r CRL.PL0_REF_CTRL 0xFF5E00C0
+r CRL.LPD_SWITCH_CTRL 0xFF5E00A8
+r CRL.LPD_LSBUS_CTRL 0xFF5E00AC
+r CRF.APLL_CTRL 0xFD1A0020
+r CRF.DPLL_CTRL 0xFD1A002C
+r CRF.VPLL_CTRL 0xFD1A0038
+r CRF.DDR_CTRL 0xFD1A0080
+r CRF.TOPSW_MAIN_CTRL 0xFD1A00C0
+r CRF.TOPSW_LSBUS_CTRL 0xFD1A00C4
+
+# The DDR controller: mode, power-down and self-refresh, refresh, scheduling, and ports 3 to 5 (port n's registers
+# 0xB0 apart: HP0 and the DisplayPort on 3, HP1 and HP2 on 4, HP3 on 5)
+r DDRC.MSTR 0xFD070000
+r DDRC.PWRCTL 0xFD070030
+r DDRC.PWRTMG 0xFD070034
+r DDRC.HWLPCTL 0xFD070038
+r DDRC.RFSHCTL0 0xFD070050
+r DDRC.RFSHCTL3 0xFD070060
+r DDRC.RFSHTMG 0xFD070064
+r DDRC.SCHED 0xFD070250
+r DDRC.SCHED1 0xFD070254
+r DDRC.PERFHPR1 0xFD07025C
+r DDRC.PERFLPR1 0xFD070264
+r DDRC.PERFWR1 0xFD07026C
+r DDRC.PCCFG 0xFD070400
+for n in 3 4 5; do
+  o=$((0xB0 * n))
+  r "DDRC.PCFGR_$n" $(printf 0x%08X $((0xFD070404 + o)))
+  r "DDRC.PCFGW_$n" $(printf 0x%08X $((0xFD070408 + o)))
+  r "DDRC.PCTRL_$n" $(printf 0x%08X $((0xFD070490 + o)))
+  r "DDRC.PCFGQOS0_$n" $(printf 0x%08X $((0xFD070494 + o)))
+  r "DDRC.PCFGQOS1_$n" $(printf 0x%08X $((0xFD070498 + o)))
+  r "DDRC.PCFGWQOS0_$n" $(printf 0x%08X $((0xFD07049C + o)))
+  r "DDRC.PCFGWQOS1_$n" $(printf 0x%08X $((0xFD0704A0 + o)))
+done
+
+# The DDR QoS controller's first words (the port types), and the SMMU's global control (CLIENTPD, [0], is bypass)
+for o in 00 04 08 0C 10 14 18 1C 20 24; do r "DDR_QOS_CTRL+$o" 0xFD0900$o; done
+r SMMU.sCR0 0xFD800000
+
+if [ "${1:-}" = --bridge ]; then
+  r BRIDGE.ID 0xA0000000
+  [ "$(busybox devmem 0xA0000000 32)" = 0x54474E52 ] || { echo "ps-memregs: no Tanager host bridge"; exit 1; }
+  for x in VERSION:0004 CLK_HZ:0008 CAPS:000C CTRL:0010 STATUS:0014 DRAM_BASE_LO:0020 DRAM_BASE_HI:0024 \
+           DRAM_SIZE_LO:0028 DRAM_SIZE_HI:002C INJ_RD_DELAY:0040 INJ_WR_DELAY:0044 INJ_CTRL:0048 INJ_RD_LATMAX:0058 \
+           TRS_CTRL:1000 VQ_CTRL:1100 HDMA_CTRL:1300 BOARD_CTRL:1404; do
+    r "BRIDGE.${x%%:*}" 0xA000${x#*:}
+  done
+  c0=$(busybox devmem 0xA0000050 32) s0=$(busybox devmem 0xA0000054 32)
+  sleep 1
+  c1=$(busybox devmem 0xA0000050 32) s1=$(busybox devmem 0xA0000054 32)
+  dc=$(( (c1 - c0) & 0xFFFFFFFF )) ds=$(( (s1 - s0) & 0xFFFFFFFF ))
+  if [ $dc -gt 0 ]; then
+    echo "BRIDGE.native-read-latency $dc reads in 1 s, $((ds / dc)).$(( (ds % dc) * 10 / dc )) cycles each"
+  else
+    echo "BRIDGE.native-read-latency no reads in 1 s"
+  fi
+fi
