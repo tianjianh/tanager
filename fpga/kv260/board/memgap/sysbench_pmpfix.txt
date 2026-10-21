@@ -1,0 +1,6 @@
+block 1K --threads=2: 2932.50 MiB transferred (146.11 MiB/sec)
+block 1K --threads=2 --memory-scope=local: 3382.09 MiB transferred (168.51 MiB/sec)
+block 1K --threads=1: 1679.43 MiB transferred (83.68 MiB/sec)
+block 1M --threads=2: 6845.00 MiB transferred (341.01 MiB/sec)
+block 1M --threads=2 --memory-scope=local: 6791.00 MiB transferred (338.37 MiB/sec)
+block 1M --threads=1: 3598.00 MiB transferred (179.24 MiB/sec)

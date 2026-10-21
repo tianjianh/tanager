@@ -61,7 +61,7 @@ NIGHT_CRON = "15 0 * * *"
 SWITCH_VALUES = {"TIMING_CUTS": (0, 1), "DC_MSHRS": (1, 4), "QUEUE_DECODE": (0, 1), "SPEC_WAKE": (0, 1),
                  "STA_BASE": (0, 1), "STEER_LA": (0, 1), "PMP_ENTRIES": (8, 16), "STORE_PF": (0, 1), "URF": (0, 1),
                  "STORE_PF_MAX": (2, 3), "SOLO_TID": (0, 1), "SPLIT": (0, 1),
-                 "HART1": (0, 1)}
+                 "HART1": (0, 1), "SPEC_WAKE_FILT": (0, 1, 2)}
 
 
 def log(msg):

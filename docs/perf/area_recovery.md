@@ -2156,6 +2156,20 @@ time improves by 1% or more against one Release, with nothing else regressing; o
   - The prototype stays on fpu-2's scratch branch (`claude/track-fpu-395911-rel2`, 46bb6df5): the D$ +53 LUTs and +58
     FFs a core, WNS +0.936 ns at 100 MHz, `DC_RELS=1` cycle-identical to its base. `DC_RELS` is not on main.
 
+**The store prefetch starved by loads' misses, seen again (10-20, the speculative wakeup's filter, `SPEC_WAKE_FILT`).**
+Parked with the rest (tuning comes last, DR-155); the numbers for when it is taken up:
+- With the filter, a streaming copy's loads stop cancelling and run ahead. In smt2's window their misses keep the D$'s
+  controller port and spare entries from the ownership prefetch.
+- ws_copy smt2 at native latency (the D$'s +stpf profile, filter off → on):
+  - prefetches 32,841 → 27,624;
+  - stores allocating their own line 8,183 → 13,394;
+  - their waits 341,911 → 585,205 cycles;
+  - the prefetch waiting behind a load's miss request 224,542 → 301,045 cycles.
+- The filter's cost on ws_copy smt2 is +1.27% at latency 22, +4.94% at native and +5.97% at 120. ws_copy st gains
+  11.5% at 22.
+- Round 2's variant ab (a load leaves an entry to a pending prefetch) addresses it. It was measured only with two
+  Releases.
+
 **Learned:** a lever that shortens the cycles to /init can still lose the board's measure. Check where the saved cycles
 fall against the kernel's clock before reporting a boot gain.
 

@@ -3,8 +3,9 @@
 #   make -C tests/random CFG=st [CORE=core|tcore] [N=100] [SEED=1] [ISA=rv64im] [IRQ=0] [STRESS=1] [MISS=2] [SIMARGS=...]
 #   make -C tests/random replay ISA=rv64gc [N=100] [SEED=1]   Spike against Spike only (ISAs no core runs yet)
 #   make -C tests/random gen SEED=42 [ISA=...]     write one program to stdout
-#   HARTS=0,1 [SHARED=3]: M7's several harts, each a program of its own (tg_rand --harts; the A extension):
-#   with run, the two threads of an smt2 core (CFG=smt2); with replay, Spike's harts
+#   HARTS=0,1 [SHARED=3] [RACES=1]: M7's several harts, each a program of its own (tg_rand --harts; the A
+#   extension): with run, the two threads of an smt2 core (CFG=smt2); with replay, Spike's harts. RACES=1: their
+#   plain stores race for the same bytes too (tg_rand --races)
 # Failures are kept (with a reproduction command) in $TANAGER_BUILD/<worktree>/random/<cfg>-<core>/failures.
 CFG    ?= st
 CORE   ?= core
@@ -18,7 +19,8 @@ MISS   ?= 2   # weight of tg_rand's miss-burst template (DR-149); 12 makes misse
 JOBS   ?= 8
 HARTS  ?= 0
 SHARED ?= 0
-MH     := $(if $(filter-out 0,$(HARTS)),--harts $(HARTS) --shared $(SHARED))
+RACES  ?= 0
+MH     := $(if $(filter-out 0,$(HARTS)),--harts $(HARTS) --shared $(SHARED) $(if $(filter 1,$(RACES)),--races))
 MHSFX  := $(if $(filter-out 0,$(HARTS)),-h$(subst $(comma),,$(HARTS)))
 comma  := ,
 

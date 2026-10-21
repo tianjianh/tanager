@@ -22,7 +22,7 @@ cap() {   # the probe's capture on COM5 since the boot's start: its dump header 
 }
 for n in $(seq "$first" "$last"); do
   off=$(stat -c %s "$L"); t0=$(date +%s)
-  g 'sudo nohup sh -c "sleep 2; reboot" > /dev/null 2>&1 &' > /dev/null || { echo "$(date -u +%T) boot $n: no SSH to send the reboot: stop" >> "$T"; exit 1; }
+  g 'sudo systemd-run --on-active=2 --quiet /usr/sbin/reboot' > /dev/null || { echo "$(date -u +%T) boot $n: no SSH to send the reboot: stop" >> "$T"; exit 1; }
   sleep 30   # the old Debian is still up for a few seconds; the login must come from the new one
   ok=0
   for i in $(seq 1 90); do
