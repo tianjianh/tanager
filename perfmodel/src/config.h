@@ -31,7 +31,7 @@ namespace tg {
   X(btage_nt, 4, "m2_btage: tagged tables, 1-4 (histories 12; 8/32; 5/14/40; 4/9/18/40, as core-2's size study)") \
   X(btage_lag, 1, "m2_btage: a block read right behind another lacks that block's history bits (F1 reads as F2 delivers)") \
   X(btage_tq, 4, "m2_btage: training queue entries, one request every two cycles, a full queue drops; 0 = train at commit at once") \
-  X(btage_alloc, 0, "m2_btage: 0 = allocate the first way that is invalid or not useful, as tg_tage does; 1 = within a table, an invalid way before a not-useful one") \
+  X(btage_alloc, 0, "m2_btage: 0 = allocate the first way that is invalid or not useful, as tg_tage did before c1c21281; 1 = within a table, an invalid way before a not-useful one, as tg_tage does since (rtl_m2 from revision 9)") \
   X(m2_cut, 0, "fe_m2 with m2_f2: a block ends before its third conditional branch, refetched at m2_f2_bubble") \
   X(m2_ftq, 0, "fe_m2: FTQ entries (core-2's TAGE front end): a block holds one from fetch until an instruction of a later block commits; fetch waits while none is free (0 = no FTQ)") \
   X(m2_strad, 0, "fe_m2: a 32-bit instruction that straddles into the next block, reached in sequence, is decoded with that block (F2 holds its first half): no block of its own, the next block's TAGE read at slot 0, one of its branches; the micro-BTB never predicts or trains a straddler (the RTL as built)") \

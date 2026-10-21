@@ -13,7 +13,7 @@ thread's IPC over its program's first run, the shorter program restarted so both
   python3 scripts/m7_smt.py --pair      # exit 2 blind on verif-2's pair runner: its programs, barrier and restarts
   python3 scripts/m7_smt.py --homes     # D4's alternatives for hart 1's register homes: a lone hart and pairs
   python3 scripts/m7_smt.py --calib     # the runner's programs alone against verif-2's RTL alone runs
-  python3 scripts/m7_smt.py --final     # exit 2 blind on verif-2's final pair set (REPEAT builds), rtl_m2 revision 8
+  python3 scripts/m7_smt.py --final     # exit 2 blind on verif-2's final pair set (REPEAT builds), today's rtl_m2
 Results -> results/m7_smt_rv64gc.json (each section keeps the others' earlier results).
 """
 import argparse
@@ -752,8 +752,10 @@ def calib(workers):
 
 FINALDIR = Path(os.environ.get("TG_FINALDIR", str(Path.home() / "tanager-build" / "track-verif-79d5d8" /
                                                    "pair-final-b7db3e16")))
-REV8 = {"rfo_pf_reserve": 1}   # rtl_m2 revision 8: the ownership prefetch as the RTL's (DR-171; section 13.10)
-REV7 = {"rfo_pf_reserve": 2, "pf_i_nextline": 0, "l1i_mshr": 1}   # revision 7 on revision 8's preset (rfo_pf in CORE)
+REV = dse.PRESET_REV.get(PRESET, 0)   # --final's revision: the preset's own (9 since area_recovery 6.17)
+REV8 = {"rfo_pf_reserve": 1}   # rtl_m2 from revision 8: the ownership prefetch as the RTL's (DR-171; section 13.10)
+REV7 = {"rfo_pf_reserve": 2, "pf_i_nextline": 0, "l1i_mshr": 1,   # revision 7 on today's preset (rfo_pf in CORE)
+        "btage_alloc": 0}
 FINAL_REF = "step 5 + the drain's priority for a miss entry"   # run on revision 7 as well
 FINAL_BEST = "step 7: 50% caps, a bank's last row kept while the sibling waits, the drain's priority"
 FINAL_LEVERS = {"+ a hart at most 3 of the 4 L1D miss entries": {"smt_mshr_cap": 75},
@@ -763,9 +765,9 @@ FINAL_LEVERS = {"+ a hart at most 3 of the 4 L1D miss entries": {"smt_mshr_cap":
 
 def final(workers):
     """Exit 2's blind prediction on verif-2's final pair set (TG_FINALDIR, checked against its manifest; the memory
-    kernels built with REPEAT=1), the ELFs step 5's pairs and alone runs use, on rtl_m2 revision 8. As --pair
-    otherwise: the runner's barrier, addresses and finish; WS against each program alone on today's core (revision 8
-    too); hangs over the 42 and §13.4's 16 working-set pairs; one configuration on revision 7 as well."""
+    kernels built with REPEAT=1), the ELFs step 5's pairs and alone runs use, on rtl_m2 at its revision (REV). As
+    --pair otherwise: the runner's barrier, addresses and finish; WS against each program alone on today's core (the
+    same revision); hangs over the 42 and §13.4's 16 working-set pairs; one configuration on revision 7 as well."""
     names = pair_workloads(FINALDIR)
     cfgs = {n: {**c, **REV8} for n, c in PAIR_CFGS.items()}
     cfgs.update({f"50% caps, last row kept, priority {n}": {**PAIR_CFGS[FINAL_BEST], **REV8, **v}
@@ -781,7 +783,7 @@ def final(workers):
     jobs += [(PRESET, {**c, "dram_lat": lat}, a, b) for c in cfgs.values() for lat in LATS for _, a, b in WS_PAIRS]
     run_all(jobs, workers)
     al = {k: {lat: {w: run7(PRESET, {**c, "dram_lat": lat}, w, None) for w in names} for lat in LATS}
-          for k, c in (("rev8", alone8), ("rev7", {**ALONE, **REV7}))}
+          for k, c in ((f"rev{REV}", alone8), ("rev7", {**ALONE, **REV7}))}
     out = {"dir": str(FINALDIR), "alone": {k: {lat: {w: {"ipc": ipc1(r), "instr": r["region"]["instr"],
                                                          "cycles": r["region"]["cycles"]} for w, r in v[lat].items()}
                                                 for lat in LATS} for k, v in al.items()}, "configs": {}, "ws_dead": {}}
@@ -805,12 +807,13 @@ def final(workers):
                       "dead": dl, "pairs": per}
         return e
 
-    print(f"\n**Exit 2 on the final pair set, blind** ({FINALDIR.name}; rtl_m2 revision 8; WS over the 42 pairs "
+    print(f"\n**Exit 2 on the final pair set, blind** ({FINALDIR.name}; rtl_m2 revision {REV}; WS over the 42 pairs "
           "against each program alone on today's core; geometric means over the pairs that run; 30 / 120 / 250 "
           "cycles)\n")
     print("| Configuration | All pairs | memory + memory | compute + compute | mixed | Lowest pair | Hung, of the 42 | "
           "Hung, of the 16 working-set pairs |\n|---|---|---|---|---|---|---|---|")
-    rows = [(n, c, al["rev8"]) for n, c in cfgs.items()] + [(ref7, {**PAIR_CFGS[FINAL_REF], **REV7}, al["rev7"])]
+    rows = [(n, c, al[f"rev{REV}"]) for n, c in cfgs.items()]
+    rows += [(ref7, {**PAIR_CFGS[FINAL_REF], **REV7}, al["rev7"])]
     for n, c, base in rows:
         e = ev(c, base)
         out["configs"][n] = e
@@ -843,12 +846,12 @@ def final(workers):
         print(f"| {p} | {g} | " + " | ".join(" / ".join(cell(out["configs"][n], lat) for lat in LATS)
                                            for n in list(cfgs) + [ref7]) +
               " | " + (" + ".join(f"{x:.2f}" for x in s5["speedup"]) if s5 else "hung") + " |")
-    print("\n**Alone** (revision 8; IPC over the first region, slot 0 / slot 1; region instructions; cycles at 30 / "
-          "120 / 250; revision 7's IPC change at 120)\n")
+    print(f"\n**Alone** (revision {REV}; IPC over the first region, slot 0 / slot 1; region instructions; cycles at "
+          "30 / 120 / 250; revision 7's IPC change at 120)\n")
     print("| Program | IPC, 30 | 120 | 250 | Instructions | Cycles, 30 / 120 / 250 | Revision 7, 120 |\n"
           "|---|---|---|---|---|---|---|")
     for p in smt.MEM + smt.COMP:
-        a8, a7 = al["rev8"], al["rev7"]
+        a8, a7 = al[f"rev{REV}"], al["rev7"]
         cells = [" / ".join(f"{ipc1(a8[lat][f'{p}.s{s}']):.3f}" for s in (0, 1)) for lat in LATS]
         print(f"| {p} | " + " | ".join(cells) + f" | {a8[120][f'{p}.s0']['region']['instr']:,} | " +
               " / ".join(f"{a8[lat][f'{p}.s0']['region']['cycles']:,}" for lat in LATS) +
@@ -939,7 +942,8 @@ def main():
     ap.add_argument("--pair", action="store_true", help="exit 2 blind on verif-2's pair runner (TG_PAIRDIR)")
     ap.add_argument("--homes", action="store_true", help="D4's alternatives: where hart 1's registers live at reset")
     ap.add_argument("--calib", action="store_true", help="the runner's programs alone against verif-2's RTL alone runs")
-    ap.add_argument("--final", action="store_true", help="exit 2 blind on the final pair set (TG_FINALDIR), revision 8")
+    ap.add_argument("--final", action="store_true",
+                    help="exit 2 blind on the final pair set (TG_FINALDIR), today's rtl_m2")
     ap.add_argument("--workers", type=int, default=16)
     a = ap.parse_args()
     res = json.loads(OUT.read_text()) if OUT.exists() else {}

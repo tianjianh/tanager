@@ -816,7 +816,7 @@ python3 scripts/m7_smt.py --calib --final # §13.10's RTL alone comparison; §13
 | D3 as revised (§13.9) | Per-hart lists that take a free register from the sibling's list when short, with FP banks of 96: no deadlock over 87 pairs or the suite, throughput equal to ideal shared lists (shared lists with a flush walk lose 0.5–2.6%), a lone hart −0.2 to −0.3%. FP 128 changes nothing; FP 64 still deadlocks | Build it, with the donor keeping one free register and FP banks of 96 |
 | D2 | Static halves cost a lone thread 3–4.5% (memsuite 8–12%). With the merge it keeps 98.7–99.95%: 0.05–0.4% lost at timer-tick wakes, 0.6–1.3% at today's 4,096-cycle WFI timeout | Build the merge; raise WFI's timeout for a sleeping sibling; drain the split only to the half if the halves allow it; merge after 64 cycles |
 | Decode, rename and commit groups (§13.8) | Mixed groups gain 0–0.7% over one thread a group | One thread a group (under the 1% bar) |
-| Exit 2 on the final pair set (§13.12, blind; REPEAT builds, rtl_m2 revision 8) | Step 5 (no caps) + the drain's priority: 1.310 / 1.292 / 1.272. Without the priority, 6 of the 42 hang. Step 7: 50% caps with a bank's last row kept, 1.333 / 1.348 / 1.332, the only form above 1.3 at every point, by 0.03–0.05. Never a whole bank: 1.298 / 1.328 / 1.322. Miss-entry or long-latency-tag caps don't help | The drain's priority; at step 7, 50% caps with the on-demand last row; expect step 5 below 1.3 |
+| Exit 2 on the final pair set (§13.12, blind; REPEAT builds, rtl_m2 revision 9 since 10-20 evening) | Step 5 (no caps) + the drain's priority: 1.279 / 1.266 / 1.246. Without the priority, 6 of the 42 hang. Step 7: 50% caps with a bank's last row kept, 1.302 / 1.316 / 1.301, the only form at or above 1.3 at every point, by 0.001–0.016 (0.03–0.05 on revision 8: TAGE-lite's new rule makes minver 42% faster alone). Never a whole bank: 1.269 / 1.297 / 1.292. Miss-entry or long-latency-tag caps don't help | The drain's priority; at step 7, 50% caps with the on-demand last row; expect step 5 below 1.3, and step 7 within the model's error of the bar |
 | D4's homes (§13.11) | Hart 1's integer homes over B1 and B2 take a lone hart from −0.2–0.3% (ms_chase8f16 −8.6%) to 0.0%, with pairs unchanged and no hang. All homes in B0 costs a lone hart 1.2–2.1% with steering and hangs it without | Hart 1's x1–x16 in B1, x17–x31 in B2 |
 | Exit 2 on verif-2's pair runner (§13.10, blind) | Step 5 as built: 1.408 / 1.423 / 1.408 with the drain's priority. Without it, 6 of the 42 pairs (chase8's) hang. Step 7 with 50% caps and a bank's last row kept: 1.388 / 1.432 / 1.426. The runner restarts memory kernels with their set-up and so reads up to 0.12 above §13.2's basis. With the kernels repeating their region, step 5 reads 1.324 / 1.306 / 1.288 and step 7's two bank rules 1.31–1.36 | The drain's priority before step 5's pair runs; a `REPEAT` build of the memory kernels for the runner; 50% caps with the on-demand last row at step 7 |
 
@@ -1509,6 +1509,32 @@ A hart therefore needs, in every bank, room for its architectural registers plus
 - the same hangs.
 
 The pair programs' code fits the I$, so the prediction stands.
+
+**On revision 9 (10-20 evening, area_recovery.md §6.17).** Main now has fix B and TAGE-lite's new allocation rule (c06345bf), and the preset follows (`btage_alloc` 1). This section was run again on it (`results/m7_smt_rv64gc.json`, "final"; revision 8's run is kept as "final_rev8"). It is still blind, since no RTL pair has run, and it moves down by 0.025–0.032:
+- **Step 5 + the drain's priority:** 1.279 / 1.266 / 1.246.
+- **50% caps with a bank's last row kept:** 1.302 / 1.316 / 1.301. It is still the only form at or above 1.3 at every point, but now by 0.001–0.016.
+- **Never a whole bank:** 1.269 / 1.297 / 1.292.
+- **Unchanged:** the hangs, and the revision-7 check (1.319 / 1.309 / 1.290).
+
+**Why it moved: minver.**
+- **Alone,** in the pair set's build, minver's loops thrashed TAGE-lite on revision 8 (IPC 1.30). With the new rule it runs at 1.85, 42% faster.
+- **In its pairs** it had already escaped the thrash, so its IPC there barely moves: 1.04 → 1.05 beside CoreMark.
+- **So its share of its alone speed falls:** 0.80 → 0.57 beside CoreMark. Its four compute pairs lose 0.15–0.24 of WS each, and compute + compute goes from 1.34 to 1.27.
+- **huffbench** runs 6.8% faster alone, and its pairs lose about 0.03.
+- **What it means:** revision 8's minver alone was too slow, so its pairs read high.
+- **The RTL:** its minver most likely thrashed in these builds too before c06345bf. On the runner's earlier build, verif-2's RTL alone run read 1.385 against the model's 1.395 (§13.10). Both are far under the 1.79–1.85 that minver reaches without the thrash (area_recovery §6.17's build).
+  - On today's main, step 5's RTL pairs should show the same drop.
+  - WS needs alone runs on the same main: alone runs from before c06345bf would make minver's and huffbench's pairs read high.
+
+| Pair (step 5 + the drain's priority, 120 cycles) | WS, revision 8 | WS, revision 9 | Shares of alone speed, revision 8 → 9 |
+|---|---|---|---|
+| huffbench + minver | 1.479 | 1.241 | 0.66 + 0.82 → 0.62 + 0.62 |
+| minver + CoreMark | 1.424 | 1.187 | 0.80 + 0.62 → 0.57 + 0.62 |
+| nsichneu + minver | 1.510 | 1.287 | 0.75 + 0.76 → 0.75 + 0.53 |
+| minver + matmult | 1.189 | 1.042 | 0.63 + 0.56 → 0.53 + 0.51 |
+| stride + minver | 1.181 | 1.110 | 0.98 + 0.20 → 0.97 + 0.14 |
+
+**Exit 2 at step 7 is now inside the model's ±0.05 error band.** On the model's evidence alone it could land either side of 1.3.
 
 **Decisions:** none here. Revision 8 is used in this section only, as the coordinator was told; §13.2–13.11 stay on revision 7.
 
