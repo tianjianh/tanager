@@ -1,0 +1,9 @@
+== journal boot -2, 985-1275 s, other than the set's own sudo and ssh:
+[ 1269.719637] tanager systemd[1]: Started run-p1776-i2076.timer - [systemd-run] /usr/sbin/reboot.
+== journal boot -1, 985-1275 s, other than the set's own sudo and ssh:
+[  988.506260] tanager CRON[491]: pam_env(cron:session): Unable to open env file: /etc/default/locale
+[  988.513709] tanager CRON[491]: pam_unix(cron:session): session opened for user root(uid=0) by root(uid=0)
+[  988.536660] tanager CRON[493]: (root) CMD (cd / && run-parts --report /etc/cron.hourly)
+[  988.605893] tanager CRON[491]: pam_unix(cron:session): session closed for user root
+[ 1269.156903] tanager systemd[1]: Started run-p1680-i1980.timer - [systemd-run] /usr/sbin/reboot.
+== journal boot 0, 985-1275 s, other than the set's own sudo and ssh:

@@ -1,0 +1,16 @@
+17:42:58 boot 1: the reboot command
+17:46:29 boot 1: login seen on COM5 211 s after the reboot command
+17:46:43 boot 1: systemd running at 147.04 s
+tmpfiles-clean exited at 920977316 us; the set starts at 990.91 s
+18:05:26 boot 1: 21 TGLB lines, 13 MEMGAP lines, 1 end
+18:05:26 boot 2: the reboot command
+18:08:32 boot 2: login seen on COM5 185 s after the reboot command
+18:08:47 boot 2: systemd running at 144.98 s
+tmpfiles-clean exited at 908848312 us; the set starts at 990.83 s
+18:27:31 boot 2: 21 TGLB lines, 13 MEMGAP lines, 1 end
+18:27:31 boot 3: the reboot command
+18:30:42 boot 3: login seen on COM5 191 s after the reboot command
+18:30:52 boot 3: systemd running at 144.39 s
+tmpfiles-clean exited at 919448860 us; the set starts at 991.24 s
+18:49:37 boot 3: 21 TGLB lines, 13 MEMGAP lines, 1 end
+driver exit 0

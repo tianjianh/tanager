@@ -1,0 +1,22 @@
+The RISC-V Debian (p3), read at its boot after the mode switch, 10-21 17:40 UTC (its clock reads 7 h behind: no NTP).
+2026-10-21T10:36:58Z
+ 10:36:58 up 2 min,  3 users,  load average: 3.59, 1.51, 0.56
+
+boot -1 first:
+[   82.398422] tanager kernel: Linux version 6.12.113+deb13-riscv64 (debian-kernel@lists.debian.org) (riscv64-
+boot -1 last 8:
+[ 3892.889521] tanager systemd-networkd[354]: eth0: Lost carrier
+[ 4553.515313] tanager CRON[1271]: pam_env(cron:session): Unable to open env file: /etc/default/locale
+[ 4553.521601] tanager CRON[1271]: pam_unix(cron:session): session opened for user root(uid=0) by root(uid=0)
+[ 4553.545167] tanager CRON[1273]: (root) CMD (cd / && run-parts --report /etc/cron.hourly)
+[ 4553.613894] tanager CRON[1271]: pam_unix(cron:session): session closed for user root
+[ 5701.256387] tanager kernel: macb ff0e0000.ethernet eth0: Link is Up - 1Gbps/Full - flow control off
+[ 5701.266250] tanager systemd-networkd[354]: eth0: Gained carrier
+[ 5701.310814] tanager systemd-timesyncd[299]: Network configuration changed, trying to establish connection.
+boot -1 shutdown-path lines: 0
+boot -1 kernel warnings, last 6:
+[   82.885927] tanager kernel: sdhci_of_arasan: loading out-of-tree module taints kernel.
+[  120.539138] tanager kernel: platform regulatory.0: Direct firmware load for regulatory.db failed with error -2
+boot -2 last:
+[  169.004433] tanager systemd-journald[253]: Received SIGTERM from PID 1 (systemd-shutdow).
+[  169.008874] tanager systemd-journald[253]: Journal stopped
