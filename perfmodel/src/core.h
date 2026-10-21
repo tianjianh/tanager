@@ -154,7 +154,7 @@ struct SqEntry {
 #define TG_M7_STATS(X) X(prf_xfers) X(flush_walks) X(disp_stall_walk) X(prf_xbanks) X(prf_starved) \
   X(rn_held) X(rn_blocked) X(rn_room_skips) X(rn_held_rob) X(rn_held_lq) X(rn_held_sq) X(rn_held_reg) X(rn_held_iq) \
   X(rn_held_other) X(fetch_hold) X(fetch_hold_other) X(cm_none) X(cm_none_ready) X(fld_held) X(fld_held_cycles) \
-  X(fld_replays) X(fh_ld_lost) X(fh_fp_lost)
+  X(fld_replays) X(fh_ld_lost) X(fh_fp_lost) X(fld_waits)
 
 struct Stats {
 #define TG_SDECL(n) uint64_t n = 0;
@@ -430,9 +430,12 @@ class Core {
   std::array<std::array<uint64_t, 128>, 2> p4w_{};
   std::unordered_map<uint64_t, int> ldw_;
   std::vector<uint64_t> fpld_pend_;
-  bool fh_active_ = false, fh_ld_block_ = false, fh_fp_block_ = false;   // and prf_fp_collide 2's guards this cycle
-  int fh_bank_ = 0, fh_fails_ = 0;
-  uint64_t fh_id_ = 0, fh_issue_ = 0, fh_w0_ = 0, fh_done_ = 0;   // its load, the write it missed, completion offset
+  // the hold's entries (prf_fp_fh): each a load, its bank, failed takes, the write it missed and its completion offset
+  struct FhEnt { bool on = false; int bank = 0, fails = 0; uint64_t id = 0, issue = 0, w0 = 0, done = 0; };
+  std::array<FhEnt, 2> fh_{};
+  struct FhWait { uint64_t id = 0, issue = 0, done = 0; };
+  std::deque<FhWait> fh_wait_;   // prf_fp_wait: colliding loads waiting for a free entry, oldest first
+  bool fh_ld_block_ = false, fh_fp_block_ = false, fh_pause_ = false;   // the guards this cycle; B's IQ-FP pause
   void fp_collide();
   // early-retired uop id -> t_ready
   std::unordered_map<uint64_t, uint64_t> pending_;

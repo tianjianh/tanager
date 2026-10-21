@@ -783,7 +783,7 @@ python3 scripts/m7_smt.py --rnstall        # §13.14: the RTL's one RN stage and
 python3 scripts/m7_smt.py --bankrule --icount --caplift   # §13.15 on the second final set (bash bench/build_m7.sh first)
 TG_FINALDIR=<the first final set> python3 scripts/m7_smt.py --recon5   # §13.16 (TG_RTL5C_LOGS/TG_RTL5D_LOGS: the logs)
 python3 scripts/m7_smt.py --recon7         # §13.16's step 7, on the second final set
-python3 scripts/m7_smt.py --final7 --fp64q # §13.17 (step 7 as decided) and §13.18 (fpu-2's FP 64 questions)
+python3 scripts/m7_smt.py --final7 --fp64q --fp64r   # §13.17 (step 7 as decided), §13.18 (fpu-2's FP 64 questions)
 ```
 
 **Where results live.**
@@ -830,7 +830,7 @@ python3 scripts/m7_smt.py --final7 --fp64q # §13.17 (step 7 as decided) and §1
 | Step 7 in fpu-2's form (§13.15, the second final set) | R2 as worded (a bank's last free row kept for the sibling's waiting group) costs 2.5–3.5%: 1.258 / 1.269 / 1.264 with round robin. "Never all of a bank's rows", for every bank the waiting group needs, reads 1.299 / 1.311 / 1.300, with no hang either way. ICOUNT adds 0.0–0.3% over round robin, and counting decode and rename doesn't matter. Lifting the caps while the sibling sleeps costs the waking task up to 0.4K cycles a wake and gives a lone memory thread up to 45% | R2 plus "… and the sibling holds none of that bank's rows"; round robin; keep the lift |
 | Step 5 against core-2's 5c and C, step 7 for C and B (§13.16) | The RTL's commit turns, round robin and its shared fetch pipe take the model's C from 1.397 to 1.334 against the RTL's 1.243 (5c: 1.276 against 1.227); about 0.09 remains. At step 7 the shared fetch pipe costs C 7–14%: 1.184 / 1.128 / 1.107 with core-2's commit fix, mixed pairs below 1.0 at 250. With the hold fixed, C reads 1.289 / 1.303 / 1.291 and B 1.207 / 1.210 / 1.204 | Fix the fetch hold before step 7's pairs; core-2's commit fix; C (the parking form) over B, by 6.8–7.7% |
 | Step 7 as decided: C, core-2's fix, FP 64 across both (§13.17) | FP 64 with the crossed write in the cycle matches FP 96 to the cycle. C with core-2's fix: 1.184 / 1.128 / 1.107 as built, 1.289 / 1.303 / 1.291 with the fetch hold fixed; the 25 FP pairs 1.341 / 1.326 / 1.291 and 1.387 / 1.379 / 1.371. No C form hangs. B's room check, counting only an op's own FP bank, hangs 20 of 32 FP-type pairs | Fix the fetch hold (§13.16) |
-| FP 64's write ports and transfers (§13.18, fpu-2) | P4 first with a colliding FP load held (tg_lsu's `fh`, its guards as built) costs the FP pairs 0.12–0.27%, a lone FP restore 6–10%, tk_dgemm 0.45%, the suite 0.6%. IQ-LD's block from the 4th failed take halves the pairs' cost. Without FP transfers nothing hangs; a lone nbody on the merged window loses 5.6%, the suite 0.16% | IQ-LD's block from the 4th failed take; keep IQ-FP's at the 8th; keep the FP transfers unless the chip is over budget (40–80 LUTs a core) |
+| FP 64's write ports and transfers (§13.18, fpu-2) | P4 first with a colliding FP load held (tg_lsu's `fh`, its guards as built) costs the FP pairs 0.12–0.27%, a lone FP restore 6–10%, tk_dgemm 0.45%, the suite 0.6%. IQ-LD's block from the 4th failed take halves the pairs' cost. No restore fix removes the restore's cost: a waiting load instead of a replay, a pause of IQ-FP, a second hold entry or an earlier IQ-FP block leave it at −8 to −14%, and the best of them take the FP pairs from −0.12% to −0.43–0.45% at 30 cycles. Without FP transfers nothing hangs; a lone nbody on the merged window loses 5.6%, the suite 0.16% | IQ-LD's block from the 4th failed take; keep IQ-FP's at the 8th; none of A, B, D; keep the FP transfers unless the chip is over budget (40–80 LUTs a core) |
 | D3 with FP banks of 64 (§13.13) | Every rule that keeps an op in its own FP bank deadlocks, including a lone hart's single FP restore. Renaming into the other FP bank when the hart's own is exhausted, both ways, never deadlocks (by construction, and 0 of 90 pairs and 37 lone programs). It matches FP 96 when a crossed write costs nothing extra, and loses 0.3–0.6% on FP pairs at 2 cycles more, 0.7–1.0% at 4 | FP 64 with renaming across both ways, if core-2 and fpu-2 cost it well under FP 96's +1,575 LUTs a core |
 
 ### 13.2 Exit 2: the blind prediction
@@ -2105,10 +2105,36 @@ At 120 and 250 cycles only copy (+28% / +23%), hashprobe (−27% / −31%) and s
 - **Answer to fpu-2's question:** yes, the guards move the FP pairs by more than 0.05% at 30 and 120 cycles, and tk_dgemm by 0.4%.
   - **Recommendation:** move IQ-LD's block to the 4th failed take. It is a one-constant change: it recovers most of the pairs' cost and loses nothing elsewhere.
   - Keep IQ-FP's block at the 8th.
-- **What would remove the restore's cost** (not modelled yet; fpu-2's to cost):
-  - a second hold entry, so a second colliding load waits instead of replaying;
-  - or a replayed load that waits for the hold to empty rather than colliding again every few cycles.
-  - I can model either if wanted.
+- **fpu-2 took IQ-LD's block at the 4th failed take** and asked for three fixes of the restore's cost on top of it (`m7_smt.py --fp64r`). The rows below compare each against the same-cycle crossed write:
+  - **A** (`prf_fp_wait` 1): a load that collides while the hold is full waits in a new LQ state, using neither AG nor M2, instead of replaying. The replay path picks one waiting load a cycle while the hold is free.
+  - **A+B** (`prf_fp_wait` 2): A, and IQ-FP's select paused from the cycle after a load waits until none waits and the hold is empty.
+  - **D** (`prf_fp_fh` 2): a second hold entry, the oldest taking first, one a cycle; and D+A.
+  - Beside them, IQ-FP's block from an earlier failed take (`prf_fp_guard_fp`).
+
+| On the hold, IQ-LD's block from the 4th failed take | The 25 FP pairs | Lone, merged: restore 32 / 64 flds; m7_fpcompute; tk_dgemm; all 37 | Lone, its half: restore 32 / 64; all 37 |
+|---|---|---|---|
+| **IQ-FP's block from the 8th (as built)** | −0.12% / −0.12% / −0.10% | −10.0% / −6.7%; −4.0%; −0.45%; −0.60% | −9.8% / −6.6%; −0.57% |
+| A: wait, don't replay | −0.14% / −0.11% / −0.08% | −13.9% / −5.2%; −4.6%; −0.46%; −0.69% | −13.7% / −7.1%; −0.72% |
+| A+B: and IQ-FP paused while a load waits | −0.45% / −0.27% / −0.16% | −8.6% / −5.7%; −3.4%; −0.46%; −0.51% | −8.4% / −5.7%; −0.49% |
+| D: two hold entries | −0.13% / −0.14% / −0.12% | as built | as built |
+| D+A | −0.19% / −0.17% / −0.04% | −9.3% / −6.2%; −3.7%; −0.46%; −0.55% | −9.1% / −6.1%; −0.53% |
+| IQ-FP's block from the 4th | −0.23% / −0.21% / −0.18% | −10.0% / −6.7%; −4.0%; −0.05%; −0.59% | −9.8% / −6.6%; −0.56% |
+| IQ-FP's block from the 2nd | −0.43% / −0.37% / −0.24% | −7.9% / −5.2%; −3.1%; −0.03%; −0.46% | −7.7% / −5.2%; −0.43% |
+| IQ-FP's block from the 1st | −0.55% / −0.51% / −0.34% | −8.6% / −5.7%; −3.4%; −0.62%; −0.52% | −8.4% / −5.7%; −0.50% |
+
+*No configuration hangs. nbody, cubic, minver and st move by 0.2% at most (0.4% for minver with IQ-FP's block from the 1st).*
+
+- **The restore's cost is the held load's wait for P4's stream, not the replays.**
+  - In the lone restore at 120 cycles, a held load waits 14.5 cycles as built: P4 writes F0 every cycle until IQ-FP's block at the 8th failed take empties its pipelines.
+  - D holds twice as many loads (30 a kilo-instruction against 15) and replays a third as often, yet the restore's IPC doesn't move (1.0284 either way).
+  - A+B cuts the wait to 6 cycles and gains 1.4 points. A alone lengthens the 32-fld restore (−13.9%): its waiting loads return while P4 still runs, and collide again.
+- **Nothing removes it.** P4 cannot hold, so a load that meets a running FP stream waits for its pipelines to drain: 4–6 cycles even with IQ-FP blocked at once.
+  - The best case is −7.7 to −8.6% on the restore: IQ-FP's block from the 2nd failed take, or A+B.
+  - The FP pairs then read −0.43 to −0.45% at 30 cycles against −0.12%, since the block pauses the sibling's FP work too.
+- **Recommendation: none of A, B or D; keep IQ-FP's block at the 8th failed take, and IQ-LD's at the 4th.**
+  - The restore runs once per context switch of an FP task, a small share of a real workload's time. The FP pairs' throughput, which A+B or an earlier IQ-FP block would spend, is ongoing.
+  - IQ-FP's block from the 4th would buy a lone tk_dgemm 0.4% for 0.1% of the FP pairs: a wash.
+- **Why loads cross at all in a restore:** a lone hart's share of F1 (16 renaming registers and what it borrows from its sibling) is smaller than a 32-register restore, so the last flds go to F0.
 
 **Q2: the FP transfers buy 5.6% on one lone program, and nothing elsewhere.**
 - **No hang without them:** none of the 32 FP-type pairs, and none of the 37 lone programs on either window.

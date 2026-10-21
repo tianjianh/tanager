@@ -1510,33 +1510,32 @@ FP64Q = {"FP 64, the crossed write in the cycle (§13.13)": FP64B,
 FP_LONE = ["embench_nbody", "embench_cubic", "embench_minver", "embench_st", "tk_dgemm"] + RESTORE + ["m7_fpcompute"]
 
 
-def fp64q(workers):
-    """fpu-2's two questions on DR-179 (10-21), on step 7 with C (50% caps, never all of a bank, core-2's commit fix,
-    the fetch hold fixed): Q1, each FP bank's one write port, P4 first and a colliding load held as tg_lsu builds it
-    (prf_fp_collide), against the write in the cycle; Q2, no transfers in the FP banks (prf_fp_noxfer). The 25 FP
-    pairs (WS against one program on today's core) with hangs over them, the 4 FP restores and the 3 F0 fills; a lone
-    hart on the merged window and on its half over the suite, tk_dgemm, the FP restores and m7_fpcompute."""
+def fp64_tables(cfgs, workers):
+    """FP banks of 64 on step 7 with C, each configuration against the first (the crossed write in the cycle): the 25
+    FP pairs (WS against one program on today's core) with hangs over them, the 4 FP restores and the 3 F0 fills; a
+    lone hart on the merged window and on its half over the suite, tk_dgemm, the FP restores and m7_fpcompute; the
+    hold's counters, and the select cycles its guards cost."""
     extra = FP_PAIRS + RESTORE_PAIRS + F0_PAIRS
     suite = [w["name"] for w in tgrun.manifest(ISA)] + ["tk_dgemm"] + RESTORE + ["m7_fpcompute"]
     halves = LONE["static halves, no caps"]
-    jobs = [(PRESET, {**c, "dram_lat": lat}, a, b) for c in FP64Q.values() for lat in LATS for _, a, b in extra]
-    jobs += [(PRESET, {**single(c), **h, "dram_lat": lat}, w, None) for c in FP64Q.values() for h in ({}, halves)
+    jobs = [(PRESET, {**c, "dram_lat": lat}, a, b) for c in cfgs.values() for lat in LATS for _, a, b in extra]
+    jobs += [(PRESET, {**single(c), **h, "dram_lat": lat}, w, None) for c in cfgs.values() for h in ({}, halves)
              for lat in LATS for w in suite]
     run_all(jobs, workers)
     out = {"pairs": {}, "lone": {}}
     f3 = lambda xs: " / ".join("–" if x is None else f"{x:.4f}" for x in xs)
     rel = lambda xs, ys: " / ".join("–" if x is None or y is None else f"{x / y - 1:+.3%}" for x, y in zip(xs, ys))
     print("\n**The 25 FP pairs** (WS against one program on today's core, 30 / 120 / 250 cycles; hangs over the 32; "
-          "at 120, a kilo-instruction's colliding FP loads held and replayed and load selects the guards cost, and a "
-          "held load's wait)\n")
+          "at 120 a kilo-instruction's colliding FP loads held, replayed and waiting, the IQ-LD and IQ-FP select "
+          "cycles the guards cost, and a held load's wait)\n")
     print("| Configuration | WS, fp + fp | WS, fp + int | WS, the 25 | Against the first | Hung, of 32 | Held, "
-          "replayed, selects lost / 1K; wait |\n|---|---|---|---|---|---|---|")
+          "replayed, waited / 1K; IQ-LD / IQ-FP cycles lost / 1K; wait |\n|---|---|---|---|---|---|---|")
     ref = None
-    for n, c in FP64Q.items():
+    for n, c in cfgs.items():
         row = {"fpfp": [], "fpint": [], "all": [], "dead": [], "held": None}
         for lat in LATS:
             same = {**alone(BASE7, lat), **alone(BASE7, lat, "extra")}
-            w, ins, held, rep, cyc, lost = {}, 0, 0, 0, 0, 0
+            w, ins, held, rep, cyc, lld, lfp, wt = {}, 0, 0, 0, 0, 0, 0, 0
             for g, a, b in FP_PAIRS:
                 r = run7(PRESET, {**c, "dram_lat": lat}, a, b)
                 ip = ipc2(r)
@@ -1548,7 +1547,9 @@ def fp64q(workers):
                     held += t["region"].get("fld_held", 0)
                     rep += t["region"].get("fld_replays", 0)
                     cyc += t["region"].get("fld_held_cycles", 0)
-                    lost += t["region"].get("fh_ld_lost", 0) + t["region"].get("fh_fp_lost", 0)
+                    lld += t["region"].get("fh_ld_lost", 0)
+                    lfp += t["region"].get("fh_fp_lost", 0)
+                    wt += t["region"].get("fld_waits", 0)
             gm = lambda g: smt.gm(x for gg, x in w.values() if g in (None, gg)) if w else None
             row["fpfp"].append(gm("fp+fp"))
             row["fpint"].append(gm("fp+int"))
@@ -1556,26 +1557,27 @@ def fp64q(workers):
             row["dead"].append([smt.pname(a, b) for _, a, b in extra
                                 if dead(run7(PRESET, {**c, "dram_lat": lat}, a, b))])
             if lat == 120:
-                row["held"] = (1000 * held / max(1, ins), 1000 * rep / max(1, ins), 1000 * lost / max(1, ins),
-                               cyc / max(1, held))
+                k = 1000 / max(1, ins)
+                row["held"] = (held * k, rep * k, wt * k, lld * k, lfp * k, cyc / max(1, held))
         out["pairs"][n] = row
         ref = ref or row
         h = row["held"]
         print(f"| {n} | {f3(row['fpfp'])} | {f3(row['fpint'])} | **{f3(row['all'])}** | {rel(row['all'], ref['all'])} "
               f"| " + " / ".join(str(len(d)) for d in row["dead"]) + f" | {h[0]:.2f}, {h[1]:.2f}, {h[2]:.2f}; "
-              f"{h[3]:.1f} |")
+              f"{h[3]:.2f} / {h[4]:.2f}; {h[5]:.1f} |")
     for n, row in out["pairs"].items():
         for lat, dl in zip(LATS, row["dead"]):
             if dl:
                 print(f"- {n}, {lat} cycles: {', '.join(dl)} hung")
     for hn, h in (("merged window", {}), ("its half", halves)):
         print(f"\n**A lone hart on the {hn}** (IPC against the first row, 30 / 120 / 250 cycles; the FP programs, "
-              f"and the geometric mean over the {len(suite)}; hangs)\n")
-        print("| Configuration | " + " | ".join(FP_LONE) + f" | All {len(suite)} | Hung |\n|---|" +
-              "---|" * (len(FP_LONE) + 2))
-        base = {lat: {w: ipc1(run7(PRESET, {**single(list(FP64Q.values())[0]), **h, "dram_lat": lat}, w, None))
+              f"and the geometric mean over the {len(suite)}; hangs; the IQ-LD and IQ-FP select cycles the guards "
+              "cost a kilo-instruction over them at 120)\n")
+        print("| Configuration | " + " | ".join(FP_LONE) + f" | All {len(suite)} | Hung | IQ-LD / IQ-FP lost |\n|---|" +
+              "---|" * (len(FP_LONE) + 3))
+        base = {lat: {w: ipc1(run7(PRESET, {**single(list(cfgs.values())[0]), **h, "dram_lat": lat}, w, None))
                       for w in suite} for lat in LATS}
-        for n, c in FP64Q.items():
+        for n, c in cfgs.items():
             rs = {lat: {w: run7(PRESET, {**single(c), **h, "dram_lat": lat}, w, None) for w in suite} for lat in LATS}
             dl = sorted({w for lat in LATS for w, r in rs[lat].items() if dead(r)})
 
@@ -1587,9 +1589,41 @@ def fp64q(workers):
                                         for lat in LATS)
             allg = " / ".join(f"{smt.gm(x for x in (ratio(lat, w) for w in suite) if x is not None) - 1:+.3%}"
                               for lat in LATS)
-            out["lone"][f"{hn}: {n}"] = {"dead": dl, "fp": {w: [ratio(lat, w) for lat in LATS] for w in FP_LONE}}
-            print(f"| {n} | " + " | ".join(cell(w) for w in FP_LONE) + f" | {allg} | {', '.join(dl) or 'none'} |")
+            g120 = [r["region"] for r in rs[120].values() if not dead(r)]
+            ins = max(1, sum(g["instr"] for g in g120))
+            lost = tuple(1000 * sum(g.get(k, 0) for g in g120) / ins for k in ("fh_ld_lost", "fh_fp_lost"))
+            out["lone"][f"{hn}: {n}"] = {"dead": dl, "fp": {w: [ratio(lat, w) for lat in LATS] for w in FP_LONE},
+                                         "lost": lost}
+            print(f"| {n} | " + " | ".join(cell(w) for w in FP_LONE) + f" | {allg} | {', '.join(dl) or 'none'} | "
+                  f"{lost[0]:.2f} / {lost[1]:.2f} |")
     return out
+
+
+def fp64q(workers):
+    """fpu-2's two questions on DR-179 (10-21), on step 7 with C (50% caps, never all of a bank, core-2's commit fix,
+    the fetch hold fixed): Q1, each FP bank's one write port, P4 first and a colliding load held as tg_lsu builds it
+    (prf_fp_collide), with and without f5d9f294's guards, against the write in the cycle; Q2, no transfers in the FP
+    banks (prf_fp_noxfer)."""
+    return fp64_tables(FP64Q, workers)
+
+
+FP64G = {**FP64B, "prf_fp_collide": 2, "prf_fp_guard_ld": 4}   # the hold with its guards as fpu-2 takes them
+FP64R = {"FP 64, the crossed write in the cycle (§13.13)": FP64B,
+         "P4 first, the guards (IQ-LD's block from the 4th failed take)": FP64G,
+         "A: a load colliding while the hold is full waits instead of replaying": {**FP64G, "prf_fp_wait": 1},
+         "A+B: and IQ-FP paused while a load waits": {**FP64G, "prf_fp_wait": 2},
+         "D: two hold entries": {**FP64G, "prf_fp_fh": 2},
+         "D+A: two hold entries, and waiting": {**FP64G, "prf_fp_fh": 2, "prf_fp_wait": 1},
+         "IQ-FP's block from the 4th failed take (not the 8th)": {**FP64G, "prf_fp_guard_fp": 4},
+         "IQ-FP's block from the 2nd failed take": {**FP64G, "prf_fp_guard_fp": 2},
+         "IQ-FP's block from the 1st failed take": {**FP64G, "prf_fp_guard_fp": 1}}
+
+
+def fp64r(workers):
+    """fpu-2's fixes for the FP restore's cost (10-21), on the hold with its guards (IQ-LD's block from the 4th failed
+    take): A, a load that collides while the hold is full waits for a free entry instead of replaying; A+B, IQ-FP also
+    paused while a load waits; D, a second hold entry; D+A."""
+    return fp64_tables(FP64R, workers)
 
 
 def main():
@@ -1619,6 +1653,7 @@ def main():
     ap.add_argument("--final7", action="store_true", help="step 7 as decided (DR-178, DR-179), with the FP pairs")
     ap.add_argument("--fp64q", action="store_true", help="fpu-2's FP 64 questions: the write-port collision rule, "
                     "and the FP transfers")
+    ap.add_argument("--fp64r", action="store_true", help="fpu-2's fixes for the FP restore's cost under the hold")
     ap.add_argument("--workers", type=int, default=16)
     a = ap.parse_args()
     res = json.loads(OUT.read_text()) if OUT.exists() else {}
@@ -1627,7 +1662,8 @@ def main():
                      ("prediction", prediction), ("groups", groups), ("d3rev", d3rev), ("pair", pairrun),
                      ("homes", homes), ("calib", calib), ("final", final), ("d3fp64", d3fp64),
                      ("rnstall", rnstall), ("icount", icount), ("caplift", caplift), ("bankrule", bankrule),
-                     ("recon5", recon5), ("recon7", recon7), ("final7", final7), ("fp64q", fp64q)):
+                     ("recon5", recon5), ("recon7", recon7), ("final7", final7), ("fp64q", fp64q),
+                     ("fp64r", fp64r)):
         if getattr(a, name):
             res[name] = fn(a.workers)
             OUT.write_text(json.dumps(res, indent=1) + "\n")

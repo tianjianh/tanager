@@ -1916,26 +1916,52 @@ void Core::fp_collide() {
   std::sort(fpld_pend_.begin(), fpld_pend_.end());
   fpld_pend_.erase(std::unique(fpld_pend_.begin(), fpld_pend_.end()), fpld_pend_.end());
   const uint64_t w = t_ + 1;
+  const int nfh = c_.prf_fp_fh >= 2 ? 2 : 1;
   auto p4 = [&](int b, uint64_t c) { return p4w_[(size_t)b][c % p4w_[0].size()] == c; };
-  // the hold: its guards from the takes failed so far (registered), then this cycle's take
+  auto live = [&](uint64_t id, uint64_t issue) {
+    Uop* u = find(id);
+    return u && u->state == 2 && u->t_issue == issue ? u : nullptr;
+  };
+  for (auto& e : fh_) if (e.on && !live(e.id, e.issue)) e.on = false;   // its thread's flush dropped it
+  fh_wait_.erase(std::remove_if(fh_wait_.begin(), fh_wait_.end(),
+                                [&](const FhWait& x) { return !live(x.id, x.issue); }), fh_wait_.end());
+  // the guards from the takes failed so far (registered), and B's pause; then this cycle's take, the oldest first, one
+  // a cycle (it writes the result register)
   fh_ld_block_ = fh_fp_block_ = false;
-  if (fh_active_) {
-    Uop* h = find(fh_id_);
-    if (!h || h->state != 2 || h->t_issue != fh_issue_) {
-      fh_active_ = false;   // its thread's flush dropped it
-    } else {
-      fh_ld_block_ = c_.prf_fp_collide >= 2 && fh_fails_ >= c_.prf_fp_guard_ld;
-      fh_fp_block_ = c_.prf_fp_collide >= 2 && c_.prf_fp_guard_fp > 0 && fh_fails_ >= c_.prf_fp_guard_fp;
-      if ((!ldw_.count(w) && !p4(fh_bank_, w)) || w >= fh_w0_ + 64) {
-        h->t_ready = w;
-        h->t_done = w + fh_done_;
-        ldw_[w]++;
-        th_[(size_t)h->tid]->st.fld_held_cycles += w - fh_w0_;
-        fh_active_ = false;
-      } else {
-        fh_fails_++;
-      }
+  for (const auto& e : fh_)
+    if (e.on && c_.prf_fp_collide >= 2) {
+      fh_ld_block_ = fh_ld_block_ || e.fails >= c_.prf_fp_guard_ld;
+      fh_fp_block_ = fh_fp_block_ || (c_.prf_fp_guard_fp > 0 && e.fails >= c_.prf_fp_guard_fp);
     }
+  fh_fp_block_ = fh_fp_block_ || (c_.prf_fp_wait == 2 && fh_pause_);
+  const int first = fh_[1].on && (!fh_[0].on || fh_[1].w0 < fh_[0].w0) ? 1 : 0;
+  for (int k : {first, 1 - first}) {
+    FhEnt& e = fh_[(size_t)k];
+    if (!e.on) continue;
+    if ((!ldw_.count(w) && !p4(e.bank, w)) || w >= e.w0 + 64) {
+      Uop* h = find(e.id);
+      h->t_ready = w;
+      h->t_done = w + e.done;
+      ldw_[w]++;
+      th_[(size_t)h->tid]->st.fld_held_cycles += w - e.w0;
+      e.on = false;
+    } else {
+      e.fails++;
+    }
+  }
+  auto free_fh = [&]() {
+    for (int k = 0; k < nfh; k++) if (!fh_[(size_t)k].on) return k;
+    return -1;
+  };
+  // A: while the hold has a free entry, the replay path picks the oldest waiting load; it reaches M2 again later
+  if (c_.prf_fp_wait && !fh_wait_.empty() && free_fh() >= 0) {
+    const FhWait x = fh_wait_.front();
+    fh_wait_.pop_front();
+    Uop* u = find(x.id);
+    u->t_ready = t_ + (uint64_t)c_.prf_fp_replay + 1;
+    u->t_done = u->t_ready + x.done;
+    ldw_[u->t_ready]++;
+    fpld_pend_.push_back(x.id);
   }
   std::vector<uint64_t> keep;
   for (uint64_t id : fpld_pend_) {
@@ -1946,7 +1972,14 @@ void Core::fp_collide() {
     if (!p4(b, w)) continue;
     Thread& T = *th_[(size_t)u->tid];
     if (--ldw_[w] <= 0) ldw_.erase(w);
-    if (fh_active_) {   // the hold is full: replay
+    const int k = free_fh();
+    if (k < 0 && c_.prf_fp_wait) {   // A: the hold is full: wait for an entry, using neither AG nor M2
+      fh_wait_.push_back({id, u->t_issue, u->t_done - u->t_ready});
+      u->t_ready = u->t_done = NEVER / 2;
+      T.st.fld_waits++;
+      continue;
+    }
+    if (k < 0) {   // the hold is full: replay
       u->t_ready += (uint64_t)c_.prf_fp_replay;
       u->t_done += (uint64_t)c_.prf_fp_replay;
       ldw_[u->t_ready]++;
@@ -1954,17 +1987,15 @@ void Core::fp_collide() {
       keep.push_back(id);
       continue;
     }
-    fh_active_ = true;   // held from w: no wake, no completion until it takes
-    fh_id_ = id;
-    fh_issue_ = u->t_issue;
-    fh_bank_ = b;
-    fh_w0_ = w;
-    fh_done_ = u->t_done - u->t_ready;
-    fh_fails_ = 0;
+    FhEnt& e = fh_[(size_t)k];   // held from w: no wake, no completion until it takes
+    e = {true, b, 0, id, u->t_issue, w, u->t_done - u->t_ready};
     u->t_ready = u->t_done = NEVER / 2;
     T.st.fld_held++;
   }
   fpld_pend_.swap(keep);
+  // B: IQ-FP pauses from the cycle after a load waits until none waits and the hold is empty
+  if (!fh_wait_.empty()) fh_pause_ = true;
+  else if (!fh_[0].on && !fh_[1].on) fh_pause_ = false;
 }
 
 // The queues hold both threads' uops in dispatch order, so select is oldest first across threads.
@@ -2006,11 +2037,8 @@ void Core::issue() {
         ready.push_back(u);
         if ((int)ready.size() >= ports && !(q == Q_A0 && c_.br_first && !first_br)) break;
       }
-      if ((q == Q_LD && fh_ld_block_) || (q == Q_FP && fh_fp_block_)) {   // prf_fp_collide 2's guards
-        if (!ready.empty() && fh_active_) {
-          Thread& H = *th_[(size_t)(fh_id_ >> TID_SHIFT)];
-          (q == Q_LD ? H.st.fh_ld_lost : H.st.fh_fp_lost) += (uint64_t)std::min<int64_t>(ports, (int64_t)ready.size());
-        }
+      if ((q == Q_LD && fh_ld_block_) || (q == Q_FP && fh_fp_block_)) {   // prf_fp_collide's guards and pause
+        if (!ready.empty()) (q == Q_LD ? th_[0]->st.fh_ld_lost : th_[0]->st.fh_fp_lost)++;   // select cycles lost
         continue;
       }
       if (q == Q_A0 && first_br) { take(first_br); continue; }

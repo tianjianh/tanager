@@ -180,6 +180,8 @@ namespace tg {
   X(prf_fp_guard_ld, 1, "prf_fp_collide 2: the failed takes before IQ-LD's select is blocked") \
   X(prf_fp_guard_fp, 8, "prf_fp_collide 2: the failed takes before IQ-FP's select is blocked (0 = never)") \
   X(prf_fp_replay, 4, "prf_fp_collide: cycles before a replayed FP load reaches M2 again") \
+  X(prf_fp_wait, 0, "prf_fp_collide: an FP load that collides while the hold is full waits, using neither AG nor M2, instead of replaying; the replay path picks one waiting load a cycle while the hold has a free entry (fpu-2's A); 2 = also IQ-FP's select paused from the cycle after a load waits until none waits and the hold is empty (A+B)") \
+  X(prf_fp_fh, 1, "prf_fp_collide: the hold's entries, 1 or 2 (fpu-2's D); one takes the result register a cycle, the oldest first") \
   X(prf_fp_noxfer, 0, "prf_xfer: no transfers in the FP banks (the integer banks keep theirs)") \
   X(prf_fp_xbank_lat, 0, "prf_fp_xbank: cycles added to the result of an op renamed across (a cracked fld's move, for instance)") \
   X(prf_fp_homes, 0, "with prf_split: 1 = each hart's f0-f15 at reset in F0 and f16-f31 in F1, rather than all 32 in F<t>") \
