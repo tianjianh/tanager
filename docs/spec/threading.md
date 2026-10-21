@@ -67,7 +67,8 @@ both harts. A hart parked in WFI costs its sibling nothing measurable (core-pipe
   serial uop is not picked (5c).
 - **Decode, rename and commit** take one thread's group a cycle: the first-served thread alternates, and an idle thread is
   skipped; so is a thread behind a serial uop at decode and rename, and one whose head is a WFI still waiting at
-  commit (5c). Commit's choice is made a cycle ahead, so the head window is still read from flip-flops
+  commit (5c). Decode also passes over a thread whose window may not take one more group while the other thread's
+  queue holds instructions, and serves a thread with room first (5d, core-pipeline.md §3.5, §5.4). Commit's choice is made a cycle ahead, so the head window is still read from flip-flops
   (core-pipeline.md §8.4).
 - **Mixed groups** (a thread taking the slots its sibling leaves, D7 as first written) come only if the model shows them
   gaining 1% or more weighted throughput (DR-154's rule): they cost a second head window's reads (the payload and each
