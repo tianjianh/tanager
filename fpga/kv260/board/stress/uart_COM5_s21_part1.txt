@@ -232,3 +232,4 @@ STRESS pass 227 ok=1 fails=0 116s cpu2=90.46 mem2=125.36 thr2=2226 up=26976.43 l
 STRESS pass 228 ok=1 fails=0 117s cpu2=90.28 mem2=124.78 thr2=2227 up=27093.61 load=2.02 2.00 2.00
 STRESS pass 229 ok=1 fails=0 116s cpu2=90.42 mem2=124.59 thr2=2226 up=27210.80 load=2.09 2.04 2.01
 STRESS pass 230 ok=1 fails=0 117s cpu2=90.33 mem2=123.00 thr2=818 up=27328.61 load=2.47 2.12 2.04
+STRESS pass 231 ok=1 fails=0 127s cpu2=48.50 mem2=79.01 thr2=1922 up=27457.31 load=3.02 2.49 2.20

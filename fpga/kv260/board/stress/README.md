@@ -466,5 +466,13 @@ It meets 100 MHz at WNS +0.367 ns with 105,934 LUTs. The package is d4r1-riscv w
   - COM5's last line is pass 229 at 27,210.80 s of uptime, at 01:26:58. Check 8, due at 01:28:22, was missed.
   - At 01:29 the board was still running: up 27,342.61 s (no reset since s21 began), the stress running, the watch armed, no SD1 timeout.
   - The laptop itself had not rebooted: up since 10-12.
-  - Logging resumed at 01:29 ([`uart_COM5_s21_part1.txt`](uart_COM5_s21_part1.txt) holds the part before), and the checks resume at 02:28:22.
+  - **Correction:** the original loggers and the hourly check survived the app restart. They kept COM5 and COM7 and ran check 8 at 01:28:22, which pass 230 overlapped. Only their notifications to this session were lost, so a fresh watcher reads their log. Nothing was missed.
 - **The coming full shutdown:** the coordinator has asked the user to keep the laptop off for at least 15 s and not to touch COM5's adapter. The CH340's line then stays low past the PMOD hook's 10.7 s ceiling, so it can't look like a reset request. After it, the board's uptime and the pass counter will show whether the board kept running.
+- **About 01:32–01:35 UTC: the laptop's full shutdown and reboot** (it was up again at 01:35:05). Every laptop process died with it: the COM5 and COM7 loggers, the watcher, the hourly check and the timers.
+  - COM5's last line before it was pass 231 at 27,457 s (01:31:04), and check 8 at 01:28:22 had passed.
+  - **The board kept running.** COM5's first line after it, at 01:40:43, was pass 236 with `fails=0` at 28,049 s of uptime. Passes 232–235 ran unlogged, and the cumulative failure count shows them clean.
+  - COM7's shell at 01:41:55 read 28,108 s of uptime: no reset since s21 began.
+  - Logging restarted at 01:40 ([`uart_COM5_s21_part1.txt`](uart_COM5_s21_part1.txt) holds the part before).
+  - **The board's network is down, on the laptop's side.** eth0 lost its link four times while the laptop rebooted (27,630–27,716 s). Its link came back at 1 Gb/s/Full, but it has no IPv4 address ([`uart_COM7_s21_net.txt`](uart_COM7_s21_net.txt)).
+  - The laptop's connection sharing reports itself running, but nothing listens on UDP 67 (DHCP) or 53 (DNS), and the laptop's ARP entry for 192.168.137.6 stays "Incomplete". This is the known ICS fault after a reboot, and the user's restart of ICS fixes it.
+  - The hourly checks resume once the lease is back; until then, the checks are what's missing.
