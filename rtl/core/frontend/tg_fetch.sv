@@ -1597,7 +1597,7 @@ module tg_fetch
     if (rst) begin
       f1_valid_q  <= 1'b1;
       fpc_q       <= boot_pc;
-      ft_q        <= 1'b0;
+      ft_q        <= strm(RUN_TID);              // (the running hart's stream: 1 with SOLO_TID)
       pw_q        <= 1'b0;
       sv_s_q      <= '0;
       stop_s_q    <= '0;

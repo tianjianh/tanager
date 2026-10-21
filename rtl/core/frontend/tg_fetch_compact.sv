@@ -258,7 +258,7 @@ module tg_fetch_compact
     end
     // decode's next thread (MT): the other one after a take from this one, or when this one's queue is empty, if
     // the other's holds instructions
-    if (rst) rt_q <= 1'b0;
+    if (rst) rt_q <= MT && RUN_TID[0];
     else if (MT && occ_n[ro] != '0 && (take != '0 || occ_n[rq] == '0)) rt_q <= ro;
   end
 
