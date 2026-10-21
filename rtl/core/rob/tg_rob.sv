@@ -926,12 +926,15 @@ module tg_rob
       assert (!hp[0].dexc) else $error("tg_rob: a serial instruction with a decode exception retires");
   end
   // The registered timer-pending bit (tg_csr, DR-146) settles two cycles after a CSR write, which
-  // retires alone and flushes: no interrupt may be taken within that margin
-  logic [1:0] csr_ago_q;                  // a CSR instruction retired one / two cycles ago
+  // retires alone and flushes: no interrupt may be taken within that margin. Each hart's pending bits
+  // are its own, so the margin is per thread: with hart 1 the other thread may take its interrupt
+  // (verif-2's two-hart random programs, 10-21)
+  logic [NT-1:0][1:0] csr_ago_q;          // each thread: a CSR instruction of its retired one / two cycles ago
   always_ff @(posedge clk) begin
-    csr_ago_q <= rst ? '0 : {csr_ago_q[0], do_csr};
+    for (int t = 0; t < NT; t++)
+      csr_ago_q[t] <= rst ? '0 : {csr_ago_q[t][0], do_csr && t_cm == tid_t'(t)};
     if (rs_q && !rst && do_irq)
-      assert (csr_ago_q == '0) else $error("tg_rob: an interrupt within two cycles of a CSR write");
+      assert (csr_ago_q[t_cm] == '0) else $error("tg_rob: an interrupt within two cycles of its thread's CSR write");
   end
 `endif
 
