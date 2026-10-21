@@ -206,6 +206,7 @@ class Core {
     bool bt_exact = true, bt_partial = false;
     BlockTage::Ix bt_ix;
     uint64_t bt_blk = 0;
+    uint64_t bt_ghu = 0;          // the history the block's TAGE read used (TGSIM_BTTRACE)
     int bt_nbr = 0;
     // fe_m2: blocks fetched (numbered from 1), and blocks the youngest retired instruction's block follows: the
     // FTQ (m2_ftq) holds blk_seq - blk_head of them
@@ -382,6 +383,10 @@ class Core {
   int lone_phase_ = 0;
   uint64_t lone_next_ = 0, lone_t0_ = 0;
   uint64_t ctrace_from_ = 0, ctrace_to_ = 0;  // TGSIM_CTRACE=FROM:TO: each retired uop's timing, on stderr
+  std::vector<std::pair<uint64_t, int>> bttrace_;  // TGSIM_BTTRACE=BLK:SLOT,...: TAGE reads and updates there
+  bool bttrace_all_ = false;  // TGSIM_BTTRACE=all: every update, and each request the full queue drops
+  bool bt_traced(uint64_t blk, int slot) const;
+  bool bt_traced_base(uint32_t base, int slot) const;
   uint64_t lone_splits_ = 0, lone_drain_sum_ = 0, lone_drain_max_ = 0, lone_cyc_[4] = {0, 0, 0, 0};
   void lone_step();
   // issue

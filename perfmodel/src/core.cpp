@@ -82,6 +82,7 @@ Core::Core(const Config& c, const std::vector<ThreadSpec>& specs)
   if (c.fe_m2 && c.m2_dir && c.m2_btage)
     btage_ = std::make_unique<BlockTage>((int)c.btage_li, (int)c.btage_tw, (int)c.btage_bi, (int)c.fetch_bytes / 2,
                                          (int)c.btage_nt);
+  if (btage_) btage_->alloc_invalid_first = c.btage_alloc == 1;
   if (c.dirpred == 2)
     dir_ = std::make_unique<Tage>((int)c.tage_base_log, (int)c.tage_tables, (int)c.tage_log, (int)c.tage_tag,
                                   (int)c.tage_hmin, (int)c.tage_hmax);
@@ -160,6 +161,17 @@ Core::Core(const Config& c, const std::vector<ThreadSpec>& specs)
     ctrace_from_ = std::strtoull(ct, nullptr, 0);
     if (const char* c2 = std::strchr(ct, ':')) ctrace_to_ = std::strtoull(c2 + 1, nullptr, 0);
   }
+  if (const char* bt = std::getenv("TGSIM_BTTRACE"))  // calibration: TAGE reads and updates at BLK:SLOT (hex, decimal)
+    for (const char* p = bt; *p;) {
+      if (std::strcmp(p, "all") == 0) { bttrace_all_ = true; break; }
+      char* e = nullptr;
+      const uint64_t b = std::strtoull(p, &e, 16);
+      if (!e || *e != ':') break;
+      const int s = (int)std::strtol(e + 1, &e, 10);
+      bttrace_.emplace_back(b, s);
+      if (*e != ',') break;
+      p = e + 1;
+    }
   if ((int)specs.size() < nthr_ || !th_.back()->iss) err_ = "a program is needed for every thread";
 }
 
@@ -532,7 +544,8 @@ void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
   if (btage_ && !cont) {
     // m2_btage: the block's read. F1 reads a block as F2 delivers the one before it, so a block right behind
     // another lacks that block's history bits (btage_lag); a read after a redirect, a flush or an I$ miss has them.
-    T.bt_ix = btage_->hash(blk, (T.bt_exact || !c_.btage_lag) ? T.bgh : T.bt_h0);
+    T.bt_ghu = (T.bt_exact || !c_.btage_lag) ? T.bgh : T.bt_h0;
+    T.bt_ix = btage_->hash(blk, T.bt_ghu);
     T.bt_h0 = T.bgh;
   }
   T.bt_blk = blk;
@@ -594,6 +607,9 @@ void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
         // trained at commit (train_predictors); m2_btage: by slot from the block's read
         const bool dp = btage_ ? btage_->dir(T.bt_ix, slot) : dir_->predict(di->pc ^ T.salt, T.ghr);
         if (btage_) { r.bt.ix = T.bt_ix; r.bt.slot = (uint8_t)slot; r.bt.v = true; r.bt.pred = dp; }
+        if (btage_ && !bttrace_.empty() && bt_traced(T.bt_blk, slot))
+          std::fprintf(stderr, "MT L %llu %09llx %d %08x %s dir=%d\n", (unsigned long long)t_, (unsigned long long)T.bt_blk,
+                       slot, (unsigned)(T.bt_ghu & 0xffffffffu), btage_->dump(T.bt_ix, slot).c_str(), dp ? 1 : 0);
         if (dp && !(here && l.target == tgt)) { pred_taken = true; pred_tgt = tgt; fixed = true; }
         else if (!dp) {
           pred_taken = false;
@@ -1732,12 +1748,32 @@ void Core::train_predictors(const Uop& u) {
   }
 }
 
+bool Core::bt_traced(uint64_t blk, int slot) const {
+  for (const auto& [b, s] : bttrace_) if (b == blk && s == slot) return true;
+  return false;
+}
+
+bool Core::bt_traced_base(uint32_t base, int slot) const {  // as tg_tage's training request: its base index and slot
+  if (bttrace_all_) return true;
+  const uint64_t m = (1ull << c_.btage_bi) - 1;
+  for (const auto& [b, s] : bttrace_) if ((b & m) == base && s == slot) return true;
+  return false;
+}
+
 // m2_btage: the training queue at the cycle's end, as tg_tage.sv's: T2 writes its request's update; port B reads the
 // queue's head (T1) unless T2 wrote this cycle; then this cycle's requests from commit enter, a full queue dropping
 // them.
 void Core::bt_edge() {
   if (!btage_) return;
-  if (bt_t2v_) btage_->train(bt_t2_.ix, bt_t2_.slot, bt_t2_.taken, bt_t2_.pred);
+  if (bt_t2v_) {
+    const bool tr = (bttrace_all_ || !bttrace_.empty()) && bt_traced_base(bt_t2_.ix.base, bt_t2_.slot);
+    const std::string before = tr ? btage_->dump(bt_t2_.ix, bt_t2_.slot) : std::string();
+    btage_->train(bt_t2_.ix, bt_t2_.slot, bt_t2_.taken, bt_t2_.pred);
+    if (tr)
+      std::fprintf(stderr, "MT T %llu %03x %d taken=%d pred=%d %s > %s\n", (unsigned long long)t_, bt_t2_.ix.base,
+                   bt_t2_.slot, bt_t2_.taken ? 1 : 0, bt_t2_.pred ? 1 : 0, before.c_str(),
+                   btage_->dump(bt_t2_.ix, bt_t2_.slot).c_str());
+  }
   const bool deq = !btq_.empty() && !bt_t2v_;
   if (deq) {
     bt_t2_ = btq_.front();
@@ -1745,7 +1781,10 @@ void Core::bt_edge() {
   }
   for (const BtReq& q : bt_new_) {
     if ((int64_t)btq_.size() < c_.btage_tq) btq_.push_back(q);
-    else th_[0]->st.bt_drops++;
+    else {
+      th_[0]->st.bt_drops++;
+      if (bttrace_all_) std::fprintf(stderr, "MT D %llu\n", (unsigned long long)t_);
+    }
   }
   bt_new_.clear();
   bt_t2v_ = deq;
