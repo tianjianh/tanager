@@ -673,16 +673,19 @@ module tg_rename
 
   logic ds_free;
   // (CMT) the group's issue-queue rows: each uop's bank has one for it a group ahead (st_free, the flags STEER_LA's
-  // steering reads), so a group short of rows waits in its own RN register, not at DS, where it would hold the other
-  // thread's group (without hart 1 DS waits for them, as before)
-  logic iq_rows;
+  // steering reads). While the other thread's register holds a group, a group short of rows waits in its own RN
+  // register, not at DS, where it would hold that group too; otherwise it goes on and DS waits for the rows, as
+  // without hart 1 (the row is taken the cycle it frees: waiting at RN would cost a lone thread a cycle a time,
+  // 1.5-2.3% of CoreMark and Dhrystone)
+  logic iq_rows, rows_need;
   always_comb begin
     iq_rows = 1'b1;
     for (int k = 0; k < W; k++)
       if (rn_valid_q[k] && ren[k].has_q && !st_free[ren[k].q][k]) iq_rows = 1'b0;
   end
+  assign rows_need = CMT && |rn_v_q[CMT ? !sel_q : 1'b0];
   assign rn_fire = (|rn_valid_q) && rn_ok && ds_free && !block_q[t_rn] && !flush && ready && start &&
-                   irdy_ready && frdy_ready && (!rn_serial || window_empty) && (!CMT || iq_rows);
+                   irdy_ready && frdy_ready && (!rn_serial || window_empty) && (!rows_need || iq_rows);
   assign blk_o   = CMT ? block_q : '0;
 
   // With hart 1 (step 5d) each register's group is judged from registered state: it looks able to rename when its
@@ -1235,6 +1238,8 @@ module tg_rename
   // A group is a prefix of valid slots. Only allocated LLTs are released (a flush frees them
   // all, and a release registered from that cycle may follow).
   logic flush_d;
+  logic ds_nr_q;                    // (CMT) DS's group left RN without its rows (the other register was empty)
+  always_ff @(posedge clk) if (rn_fire) ds_nr_q <= !iq_rows;
   always_ff @(posedge clk) flush_d <= flush;
   always_ff @(posedge clk) begin
     if (!rst) begin
@@ -1243,9 +1248,10 @@ module tg_rename
       for (int k = 1; k < W; k++)
         assert (!rn_valid_q[k] || rn_valid_q[k-1]) else $error("tg_rename: group is not a prefix");
       assert ((tag_free & ~tag_busy_q) == '0 || flush) else $error("tg_rename: a free tag returned");
-      // with hart 1 a group leaves RN only with its banks' rows after DS's write (iq_rows), so DS never waits: the
-      // one stage both threads pass must not hold one thread's group (step 5d)
-      if (CMT && |ds_valid_q) assert (ds_ok) else $error("tg_rename: DS holds a group with hart 1");
+      // with hart 1 a group leaves RN without its banks' rows after DS's write (iq_rows) only while the other
+      // thread's register is empty, so DS waits only for such a group: the one stage both threads pass never holds
+      // one thread's group while the other thread's waited at RN (step 5d)
+      if (CMT && |ds_valid_q) assert (ds_ok || ds_nr_q) else $error("tg_rename: DS holds a group that had its rows");
     end
   end
   // The resource check's flags give what the compares gave
