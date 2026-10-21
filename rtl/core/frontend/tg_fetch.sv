@@ -1757,15 +1757,14 @@ module tg_fetch
     f1r = 1'b0;
     for (int t = 0; t < NS; t++) begin
       if (red_s[t]) begin
-        if (MT && fl_slp && fl_s[t]) begin
-          // (step 6) a sleep's redirect waits in its stream's slot, which a blocked stream never leaves, so the
-          // thread resumes there when it wakes; its old block in F1 goes
-          if (f1v_n && ft_n == 1'(t)) f1v_n = 1'b0;
-          sv_n[t] = 1'b1; spc_n[t] = red_pc_s[t];
-        end else if (!MT || !f1v_n || (!f1r && (ft_n == 1'(t) || stop_s_q[ft_n] || blk_s[ft_n] || red_s[ft_n]))) begin
+        if (!(MT && fl_slp && fl_s[t]) &&
+            (!MT || !f1v_n || (!f1r && (ft_n == 1'(t) || stop_s_q[ft_n] || blk_s[ft_n] || red_s[ft_n])))) begin
           f1v_n = 1'b1; fpc_n = red_pc_s[t]; ft_n = 1'(t); pw_n = 1'b0; f1r = 1'b1;
           sv_n[t] = 1'b0;
         end else begin
+          // (step 6) a sleep's redirect always waits here, in its stream's slot, which a blocked stream never leaves,
+          // so the thread resumes there when it wakes; its old block in F1 goes
+          if (MT && fl_slp && fl_s[t] && f1v_n && ft_n == 1'(t)) f1v_n = 1'b0;
           sv_n[t] = 1'b1; spc_n[t] = red_pc_s[t];
         end
       end
