@@ -125,6 +125,7 @@ module tg_lsu
   output logic [63:0]                  hd_sva,        // head's tval when a load or store traps there
   input  logic                         iw_req,        // fetch walks
   input  logic [63:0]                  iw_va,
+  input  tid_t                         iw_tid,        // ... the walking thread's (M7's step 5b)
   output logic                         iw_ack,
   output logic                         iw_done,
   output logic                         iw_ok,
@@ -254,13 +255,15 @@ module tg_lsu
   logic   [LQ_ENTRIES-1:0][1:0]      lq_size_q;
   // Cold fields, written at AG and read by index (M2, the MMIO load, the LQ head), live in
   // LUTRAM, not CAM flip-flops: the VA (tval, the ROB head's walk), the ROB index, and the
-  // result's destination, LLT and format.
+  // result's destination, LLT and format. The destination's index is the wider of the integer and FP files' (FP
+  // banks of 96 with hart 1: 7 bits).
+  localparam int LDW = (EXT_FD && FPIDX_W > PIDX_W) ? FPIDX_W : PIDX_W;
   typedef struct packed {
     robid_t            rob;
     logic              dv;                         // writes a register
     logic              fp;                         // ... an f register (EXT_FD)
     logic              uns;                        // zero-extends (FP: raw bits)
-    logic [PIDX_W-1:0] dst;
+    logic [LDW-1:0]    dst;
     llt_t              llt;
     logic [63:0]       va;
   } lqc_t;
@@ -304,6 +307,8 @@ module tg_lsu
   assign t_cm = (NT > 1 && SPLIT) ? cm_tid : RUN_TID;
   assign t_fl = (NT > 1 && SPLIT) ? flush_tid : RUN_TID;
   assign t_hd = (NT > 1 && SPLIT) ? hd_tid : RUN_TID;
+  tid_t t_iw;                                   // fetch's walk's thread
+  assign t_iw = (NT > 1 && SPLIT) ? iw_tid : RUN_TID;
   logic [LQ_ENTRIES-1:0] fl_lq;                 // the flushed thread's half (Vivado selects no bit of a function's value)
   logic [SQ_ENTRIES-1:0] fl_sq;
   assign fl_lq = lq_part(t_fl);
@@ -816,7 +821,7 @@ module tg_lsu
   assign lm_req = m2_v_q && !kill_t[t_m2] && (m2_pt_q ? !m2_hit_q && !m2_clash_q && !pt_den : m2_out_w == O_MISS);
   assign lm_pa  = m2_pa_q;
   assign ld_m2_will  = m2_okw && lqc_rd[0].dv && !lqc_rd[0].fp;
-  assign ld_m2_dst   = lqc_rd[0].dst;
+  assign ld_m2_dst   = PIDX_W'(lqc_rd[0].dst);
   assign fld_m2_will = EXT_FD && m2_okw && lqc_rd[0].dv && lqc_rd[0].fp;
   assign fld_m2_idx  = FPIDX_W'(lqc_rd[0].dst);
 
@@ -896,7 +901,7 @@ module tg_lsu
   // register is written, so fld_data is the value P4 writes to F1 with no logic after the register.
   logic            r_v_q, r_dv_q, r_mmio_q;
   logic            r_fv_q;                    // the result writes F1 (EXT_FD)
-  logic [PIDX_W-1:0] r_dst_q;
+  logic [LDW-1:0]    r_dst_q;
   logic [63:0]     r_data_q;
   robid_t          r_rob_q;
   llt_t            r_llt_q;
@@ -904,7 +909,7 @@ module tg_lsu
   assign fld_valid    = r_fv_q;
   assign fld_idx      = FPIDX_W'(r_dst_q);
   assign fld_data     = r_data_q;
-  assign ld_res_dst   = r_dst_q;
+  assign ld_res_dst   = PIDX_W'(r_dst_q);
   assign ld_res_data  = r_data_q;
   assign ld_cmp_valid = r_v_q;
   assign ld_cmp_rob   = r_rob_q;
@@ -1364,7 +1369,7 @@ module tg_lsu
   assign pw_req[1]  = iw_req && EXT_SU;
   assign pw_va[1]   = iw_va;
   assign pw_at[1]   = ACC_X;
-  assign pw_mode[1] = priv[RUN_TID];
+  assign pw_mode[1] = priv[t_iw];
   assign pw_req[2]  = dpf_v_q;
   assign pw_va[2]   = dpf_va_q;
   assign pw_at[2]   = dpf_at_q;
@@ -1373,7 +1378,7 @@ module tg_lsu
   // the prefetch's access's
   tid_t [2:0]       pw_tid;
   assign pw_tid[0]  = t_hd;
-  assign pw_tid[1]  = RUN_TID;
+  assign pw_tid[1]  = t_iw;
   assign pw_tid[2]  = dpf_tid_q;
   tg_ptw u_ptw (
     .clk, .rst, .flush, .flush_tid(t_fl), .satp_ppn, .sum, .mxr, .pmp_d, .pmp_al, .pmp_p2m,
@@ -1458,9 +1463,6 @@ module tg_lsu
     return h;
   endfunction
   /* verilator lint_on UNUSEDSIGNAL */
-  if (EXT_FD && FPIDX_W > PIDX_W) begin : g_bad_fpidx
-    $error("tg_lsu: the LQ keeps an FP load's F1 index in its PIDX_W-bit destination field");
-  end
   function automatic logic snoop(input preg_t p, input logic [INT_BANKS-1:0] we,
                                  input logic [INT_BANKS-1:0][PIDX_W-1:0] wi);
     logic h;
@@ -1472,7 +1474,9 @@ module tg_lsu
   assign lqc_ra[1] = x_lq_q;
   assign lqc_ra[2] = hl;
   assign lqc_wd = '{rob: ld_ag_pl.rob, dv: ld_ag_pl.dst_en, fp: EXT_FD && ld_ag_pl.dst_fp,
-                    uns: ld_ag_pl.mem_uns, dst: preg_idx(ld_ag_pl.dst), llt: ld_ag_pl.llt,
+                    uns: ld_ag_pl.mem_uns,
+                    dst: (EXT_FD && ld_ag_pl.dst_fp) ? LDW'(fpreg_idx(ld_ag_pl.dst)) : LDW'(preg_idx(ld_ag_pl.dst)),
+                    llt: ld_ag_pl.llt,
                     va: ld_ag_addr};
   tg_ram_lut #(.DEPTH(LQ_ENTRIES), .WIDTH($bits(lqc_t)), .NR(3)) u_lqc (
     .clk, .we(ld_ag_valid && !kill_t[t_ldag]), .waddr(ld_ag_pl.lq[LIW-1:0]), .wdata(lqc_wd), .raddr(lqc_ra),
@@ -1701,7 +1705,7 @@ module tg_lsu
         r_v_q    <= 1'b1;
         r_dv_q   <= am_dv_q[am_t_q];
         r_fv_q   <= 1'b0;
-        r_dst_q  <= am_dst_q[am_t_q];
+        r_dst_q  <= LDW'(am_dst_q[am_t_q]);
         r_data_q <= am_res_q;
         r_rob_q  <= am_rob_q[am_t_q];
         r_llt_q  <= am_llt_q[am_t_q];

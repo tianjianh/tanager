@@ -134,6 +134,39 @@ The redirecting instruction stays in the group; younger slots are dropped. Its `
   - The queue's take then counts a group as ending only at the instructions that go alone.
   - Every redirect costs one more front-end cycle: bench +2.5% / +2.3% (st / smt2).
 
+### 3.5 Per thread (M7's step 5b, DR-175; docs/spec/threading.md)
+With hart 1 (`HART1_ON`) the front end runs a **stream** per thread; without it every stream index is 0 and nothing
+below changes a cycle.
+- **F1, F2, the registered action and F3** each hold one block and its stream. Per stream: its next block when F1 holds
+  the other's (a waiting PC), its park state (an I$ miss, an ITLB walk) with the parked block's PC and PA, its stop after
+  a fault block, its faulting page, its straddler. **F1 picks** the other stream's waiting block when its own block moves
+  on (round robin, D7; ICOUNT comes with step 7's caps), and an empty or stopped F1 takes a waiting block; the select is
+  at fpc_q's input, the F1 loop that fix G (below) cleared. F1's ITLB lookup, privilege, Sv39 mode and PMP descriptors
+  are its block's hart's; the micro-BTB is looked up with F1's thread and trained with the trained branch's
+  (`upd_tid`); TAGE reads with F1's stream's history and takes the stream as the block address's top bit.
+- **Redirects per stream:** a flush and decode's redirect may come in one cycle for different threads and both apply;
+  for one stream the flush wins. A redirect kills only its stream's blocks in F1, F2 and F3 and its pending action; F2's
+  action likewise drops only its stream's later blocks (the other stream's block in F2 waits a cycle, and the I$ data
+  and TAGE are read only when F2 takes F1's block, `f2_ld`).
+- **Shared:** the I$, its refill and prefetch engines (one Get each), the valid sweep and generations, the micro-BTB,
+  TAGE's tables, the ITLB. The refill engine serves a stream already parked before one parking now, and a refill's
+  end restarts the streams parked on its line; one fetch walk at a time, a waiting stream's first.
+- **The histories and the FTQ** per stream: the speculative and committed histories, the FTQ's pointers, its LUTRAMs
+  with the stream as an address bit; each stream keeps every entry TAGE's training queue names for it. **A
+  return-address stack per thread** (two `tg_ras`). **The instruction queue** per thread at `{tid, row}` (16 entries
+  each), with its own straddler; decode reads one thread's queue a cycle, the other's after a take, an empty one
+  skipped (D7). **Decode** reads its group's hart's state (misa, FS, frm, the mode, TVM/TW/TSR).
+- **Measured for step 7** (the coordinator): cycles an F2 hold stalls another stream's fetch, and cycles a group at
+  rename holds the other thread's group in decode (`TG-STALL2` on stderr).
+- **Timing fixes** (spikes.md §7.1, approved, exact): G, f1_fault out of the next-PC select (a faulting block's stream
+  stops, so its next address is never used); A, `krt_q` the stack's top; B and E, the exit's target and `tsrc` selected
+  after F3's register; C, the stack's late operations without the flush gate (asserted never together); D, the FTQ
+  entry's branch bits written a cycle late (decode reads an entry three cycles after delivery at the earliest); F,
+  TAGE's tagged tables without the depth cascade.
+- **Checks:** `tests/unit/fetch` runs two harts' streams under random flushes and decode redirects (both at once too),
+  FENCE.I, misses and memory delays, and checks every instruction decode takes against its thread's stream; it found
+  the two bugs above (the reads, the engine's starvation) before hart 1 ran.
+
 ## 4. Decode (`tg_decode`)
 
 `DECODE_WIDTH` copies of a combinational RV64IM + Zicsr + Zifencei + system decoder. Output: `dec_t` (`tg_core_pkg`): class (ALU, BR, MUL, DIV, LD, ST, CSR, SYS), sources and destination, ALU control (`alu_ctl_t`), 64-bit immediate (AUIPC, JAL and JALR link values are precomputed: PC + imm, PC + 4), branch fields, memory size and sign, MUL/DIV op, CSR op, and a decode-time exception (illegal 2 with `tval` = instruction bits, 16-bit for a compressed encoding; ECALL 11 with `tval` 0; EBREAK 3 with `tval` = PC; fetch fault 1 with `tval` = PC).
@@ -199,7 +232,7 @@ The redirecting instruction stays in the group; younger slots are dropped. Its `
 - **Window allocation:** the ROB, LQ and SQ tails, their room flags and the serialisation block are per thread. Each thread's room flags are computed from its registers and the group's thread picks them at the end, so the compares stay off the steering.
 - **A flush** recovers its thread's tails, lists and map, returns the tags and LLTs that thread holds (each records its thread when given out), and clears the RN and DS stages only when they hold that thread's group. The divide and FP counts stay shared until two threads run (step 5).
 - **Split mode (`SPLIT`, D1):** the tails wrap in the thread's halves and the room checks count against the halves' sizes. The registers are not split: the running thread keeps the lists and homes above.
-- **Two threads (step 5):** the lists divide (`SPLIT_L`, `FIRST_S`) and thread 1 gets its homes (D4: bank 1's indices 0–31 and F1's, x0 staying bank 0's register 0; `tg_rmap`'s `HSPLIT`, a 64-cycle sweep). A static division alone deadlocks: the banks are writer-sharded, so a thread can need all its architectural registers plus one in one bank (B1 through MUL/DIV, B2 through loads, F1 through FP loads, F0 through FP ops). Every bank must hold both threads' architectural registers plus one, and a starved thread must be able to take the sibling's spare registers (smt2-study's model, smt2_report §13). The integer banks of 64 hold that; the FP banks of 64 do not (32 + 32 + 1). D3's revision is the coordinator's call (threading.md).
+- **Hart 1 (step 5, `HART1_ON`):** the lists divide (`SPLIT_L`, `FIRST_S`) and thread 1 gets its homes (D4, refined under DR-154: x1–x16 at bank 1's indices 0–15, x17–x31 at the load bank's 0–14, f0–f31 at F1's 0–31, x0 staying bank 0's register 0; `tg_rmap`'s `HSPLIT`, a 64-cycle sweep; `tg_core_pkg` `H1_*`). Each bank's registers above the homes are divided, the lower half thread 0's: bank 0 16/16, bank 1 24/24, the load bank 24/25, F0 and F1 16/16 (32/32 once 96 deep, 5c). A static division alone deadlocks: the banks are writer-sharded, so a thread can need all its architectural registers plus one in one bank (B1 through MUL/DIV, B2 through loads, F1 through FP loads, F0 through FP ops). So (D3 revised) the FP banks become 96 deep with hart 1 at step 5c, when it runs (`tg_ram_lut`'s 64 + 32 form; the lists' pointers already wrap at any multiple of `FL_BANKS` with a lap bit; issue's and the LQ's FP-load index fields widen), and a starved thread takes its sibling's spare registers by **transfers**: when the rename group's thread needs more of a bank's registers than its list holds (registered, `want`), the bank's list moves its sibling's last entry (tail − 1, free both speculatively and after any flush) to the taker's tail as a committed push, one a cycle, the sibling keeping 1, in a cycle with no push to the bank and no flush; a second read port per sub-bank reads it. A sibling asleep in WFI gives up its spares this way. With hart 1 on and hart 0 alone (5a), hart 0 takes about 20 registers on CoreMark (banks 1 and 2) and runs it 0.03% slower than the split window alone. `tests/unit/freelist` checks the transfers against its model every cycle.
 
 ## 6. Issue (`tg_iq`, `tg_wake`; spike S2 RTL)
 

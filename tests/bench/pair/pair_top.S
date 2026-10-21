@@ -45,7 +45,7 @@ park:
 pair_shared:
   .dword HART0_SLOT, HART1_SLOT, HART2_SLOT, HART3_SLOT
   .dword ACTIVE
-  .dword 0, 0, 0
+  .dword 0, 0, 0                   /* at_start, done, print_lock */
   .space 2 * 64
 
   .section .tohost, "aw", @progbits

@@ -174,16 +174,25 @@ module tg_rename
   logic [INT_BANKS-1:0][COMMIT_WIDTH-1:0] fl_push_v;
   logic [INT_BANKS-1:0][COMMIT_WIDTH-1:0][PIDX_W-1:0] fl_push_idx;
   logic [INT_BANKS-1:0][idx_w(COMMIT_WIDTH+1)-1:0] fl_cmt_n;
+  // Transfers (HART1_ON, D3 revised): a group waiting for a bank's registers asks that bank's list for its sibling's,
+  // one a cycle; the want is registered (off rename's fire path), and taken while the group's thread is at RN
+  logic [INT_BANKS-1:0] fl_want_q, fl_xfer;
+  logic [1:0]           ffl_want_q, ffl_xfer;
+  tid_t                 want_t_q;
   for (genvar b = 0; b < INT_BANKS; b++) begin : g_fl
-    // homes: bank 0 for the running thread; with two threads (step 5) thread 1's are bank 1's (D4), FIRST_S
+    // homes: bank 0's 0-31 for the running thread; with hart 1 (step 5) its homes too (tg_core_pkg H1_*: bank 1's
+    // 0-15, the load bank's 0-14), and the rest of each bank divided between the harts (FIRST_S), with transfers
     tg_freelist #(.DEPTH(INT_PREGS_PER_BANK), .NB(FL_BANKS), .NPOP(W), .NPUSH(COMMIT_WIDTH),
-                  .FIRST(b == 0 ? 32 : 0), .FIRST_S(b <= 1 ? 32 : 0)) u_fl (
+                  .FIRST(b == 0 ? 32 : 0), .SPLIT_L(HART1_ON),
+                  .FIRST_S(b == 0 ? 32 : b == H1_LO_BANK ? H1_LO_N : b == H1_HI_BANK ? H1_HI_N : 0)) u_fl (
       .clk, .rst, .ready(fl_ready[b]), .count(fl_count[b]), .pop_tid(t_rn), .pop_idx(fl_pop[b]),
       .pop_n(fl_pop_n[b]), .pop(rn_fire), .push_tid(t_cm), .push_v(fl_push_v[b]), .push_idx(fl_push_idx[b]),
-      .commit_n(fl_cmt_n[b]), .flush, .flush_tid(t_fl));
+      .commit_n(fl_cmt_n[b]), .flush, .flush_tid(t_fl), .want(fl_want_q[b]), .want_tid(want_t_q),
+      .xfer(fl_xfer[b]));
   end
 
-  // ---- FP free lists (EXT_FD): F0 starts with indices 32-63 (f0-f31 map to F0 0-31), F1 0-63
+  // ---- FP free lists (EXT_FD): F0 starts with indices 32-63 (f0-f31 map to F0 0-31), F1 0-63; with hart 1 (step 5)
+  // its f0-f31 are F1's 0-31, the banks are 96 deep, and each bank's rest is divided between the harts
   logic [1:0]                         ffl_ready;
   logic [1:0][NT-1:0][FPIDX_W:0]      ffl_count;
   logic [1:0][W-1:0][FPIDX_W-1:0]     ffl_pop;
@@ -195,15 +204,17 @@ module tg_rename
   if (EXT_FD) begin : g_ffl
     for (genvar b = 0; b < 2; b++) begin : g_b
       tg_freelist #(.DEPTH(FP_PREGS_PER_BANK), .NB(FL_BANKS), .NPOP(W), .NPUSH(COMMIT_WIDTH),
-                    .FIRST(b == FPB_F0 ? 32 : 0), .FIRST_S(32)) u_fl (
+                    .FIRST(b == FPB_F0 ? 32 : 0), .SPLIT_L(HART1_ON), .FIRST_S(32)) u_fl (
         .clk, .rst, .ready(ffl_ready[b]), .count(ffl_count[b]), .pop_tid(t_rn), .pop_idx(ffl_pop[b]),
         .pop_n(ffl_pop_n[b]), .pop(rn_fire), .push_tid(t_cm), .push_v(ffl_push_v[b]), .push_idx(ffl_push_idx[b]),
-        .commit_n(ffl_cmt_n[b]), .flush, .flush_tid(t_fl));
+        .commit_n(ffl_cmt_n[b]), .flush, .flush_tid(t_fl), .want(ffl_want_q[b]), .want_tid(want_t_q),
+        .xfer(ffl_xfer[b]));
     end
   end else begin : g_noffl
     assign ffl_ready = '1;
     assign ffl_count = '0;
     assign ffl_pop   = '0;
+    assign ffl_xfer  = '0;
     logic unused;
     assign unused = ^{ffl_pop_n, ffl_push_v, ffl_push_idx, ffl_cmt_n};
   end
@@ -246,8 +257,9 @@ module tg_rename
   for (genvar j = 0; j < COMMIT_WIDTH; j++) begin : g_icm
     assign icm_we[j] = cm_valid[j] && cm_rd_en[j] && !cm_rd_fp[j];
   end
-  tg_rmap #(.W(W), .CW(COMMIT_WIDTH), .PW(PRW), .DW(PDW), .NR(NMR), .NRD(2 * W),
-            .H1(INT_PREGS_PER_BANK), .X0(1'b1)) u_imap (
+  tg_rmap #(.W(W), .CW(COMMIT_WIDTH), .PW(PRW), .DW(PDW), .NR(NMR), .NRD(2 * W), .HSPLIT(HART1_ON), .HIW(PIDX_W),
+            .HSPL(1 + H1_LO_N), .HB_LO(H1_LO_BANK), .HOFF_LO(-1), .HB_HI(H1_HI_BANK), .HOFF_HI(-(1 + H1_LO_N)),
+            .X0(1'b1)) u_imap (
     .clk, .rst, .flush, .flush_tid(t_fl), .ready(imap_ready), .rtid(t_rn), .ctid(t_cm), .ra(map_ra), .rd_p(im_rdp), .rd_d(im_rdd),
     .we(im_we), .wa(im_wa), .wd_p(im_wdp), .wd_d(im_wdd), .cwe(icm_we), .cwa(cm_rd),
     .cwd(cm_dst));
@@ -287,8 +299,8 @@ module tg_rename
       assign fm_wdp[k] = FRW'(ren[k].dst);
       assign fm_wdd[k] = ren[k].wid;
     end
-    tg_rmap #(.W(W), .CW(COMMIT_WIDTH), .PW(FRW), .DW(COL_W), .NR(FNMR), .NRD(3 * W),
-              .H1(FP_PREGS_PER_BANK), .X0(1'b0)) u_fmap (
+    tg_rmap #(.W(W), .CW(COMMIT_WIDTH), .PW(FRW), .DW(COL_W), .NR(FNMR), .NRD(3 * W), .HSPLIT(HART1_ON),
+              .HIW(FPIDX_W), .HSPL(32), .HB_LO(FPB_F1), .HOFF_LO(0), .X0(1'b0)) u_fmap (
       .clk, .rst, .flush, .flush_tid(t_fl), .ready(fmap_ready), .rtid(t_rn), .ctid(t_cm), .ra(fmap_ra), .rd_p(fmap_p),
       .rd_d(fmap_w),
       .we(fm_we), .wa(fm_wa), .wd_p(fm_wdp), .wd_d(fm_wdd), .cwe(fcm_we), .cwa(cm_rd),
@@ -617,6 +629,55 @@ module tg_rename
   for (genvar b = 0; b < INT_BANKS; b++) begin : g_pops
     assign fl_pop_n[b] = pops[b];
   end
+
+  // Transfers' wants (HART1_ON): the group at RN needs more of a bank's registers than its thread's list holds
+  always_ff @(posedge clk) begin
+    if (rst || !HART1_ON) begin
+      fl_want_q  <= '0;
+      ffl_want_q <= '0;
+      want_t_q   <= '0;
+    end else begin
+      want_t_q <= t_rn;
+      for (int b = 0; b < INT_BANKS; b++)
+        fl_want_q[b] <= |rn_valid_q && int'(pops[b]) > int'(fl_count[b][t_rn]);
+      for (int b = 0; b < 2; b++)
+        ffl_want_q[b] <= EXT_FD && |rn_valid_q && int'(fpops[b]) > int'(ffl_count[b][t_rn]);
+    end
+  end
+`ifndef SYNTHESIS
+  // The transfers, per bank, on stderr at the end of a run with hart 1 (stdout is compared with Spike)
+  longint unsigned nxf[INT_BANKS + 2];
+  always_ff @(posedge clk)
+    if (rst) begin
+      for (int b = 0; b < INT_BANKS + 2; b++) nxf[b] <= 0;
+    end else begin
+      for (int b = 0; b < INT_BANKS; b++) if (fl_xfer[b]) nxf[b] <= nxf[b] + 1;
+      for (int b = 0; b < 2; b++) if (ffl_xfer[b]) nxf[INT_BANKS + b] <= nxf[INT_BANKS + b] + 1;
+    end
+  // The shared stall the coordinator asked to measure (M7's step 5): cycles a group waits at RN (it does not fire)
+  // while decode holds the other thread's group, which waits behind it; on stderr at the end with hart 1
+  longint unsigned n_rnhold2;
+  always_ff @(posedge clk)
+    if (rst) n_rnhold2 <= 0;
+    else if (HART1_ON && |rn_valid_q && !rn_fire && de_valid[0] && de_uop[0].tid != t_rn) n_rnhold2 <= n_rnhold2 + 1;
+  final if (HART1_ON) $fwrite(32'h8000_0002, "TG-STALL2 %m: RN holds the other thread's group %0d cycles\n", n_rnhold2);
+  // +xfer_log=FILE appends the counts to FILE, a line a run (a regress run's total: the lines' sum)
+  string xf_log;
+  final if (HART1_ON) begin
+    int fd;
+    $fwrite(32'h8000_0002, "TG-XFER %m:");
+    for (int b = 0; b < INT_BANKS; b++) $fwrite(32'h8000_0002, " B%0d %0d", b, nxf[b]);
+    $fwrite(32'h8000_0002, " F0 %0d F1 %0d\n", nxf[INT_BANKS], nxf[INT_BANKS + 1]);
+    if ($value$plusargs("xfer_log=%s", xf_log)) begin
+      fd = $fopen(xf_log, "a");
+      if (fd != 0) begin
+        for (int b = 0; b < INT_BANKS + 2; b++) $fwrite(fd, "%0d ", nxf[b]);
+        $fwrite(fd, "\n");
+        $fclose(fd);
+      end
+    end
+  end
+`endif
 
   always_comb begin                  // the picks' columns (each slot's vectors are 0 unless it uses one)
     wid_alloc = '0;

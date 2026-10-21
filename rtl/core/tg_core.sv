@@ -91,6 +91,9 @@ module tg_core
   if (SOLO_TID && TID_W == 0) begin : g_bad_solo
     $error("tg_core: SOLO_TID needs an SMT2 configuration (TID_W = 1)");
   end
+  if (HART1_ON && TID_W == 0) begin : g_bad_hart1
+    $error("tg_core: HART1_ON needs an SMT2 configuration (TID_W = 1)");
+  end
   localparam int CW  = COMMIT_WIDTH;
   localparam int NCW = idx_w(CW + 1);
 
@@ -120,6 +123,8 @@ module tg_core
   logic misa_m, misa_b, misa_c, misa_a, misa_f, misa_d;
   logic [1:0] fs;
   logic [2:0] frm;
+  logic [NUM_THREADS-1:0][2:0] frm_h;                 // each hart's (tg_fcsr)
+  dec_state_t [NUM_THREADS-1:0] dst_csr;               // each hart's decode state from tg_csr (its frm: frm_h)
   // fcsr (tg_fcsr, EXT_FD; instantiated with P4 below)
   logic [4:0] fc_fflags;
   logic       fc_wvalid;
@@ -141,6 +146,7 @@ module tg_core
   tid_t        tlb_flush_tid;                // the hart whose TLB entries the flush clears (M7's step 4)
   logic        iw_req, iw_ack, iw_done, iw_ok, it_fill;
   logic [63:0] iw_va;
+  tid_t        iw_tid;                   // fetch's walk's thread (M7's step 5b)
   logic [3:0]  iw_cause;
   logic [26:0] it_fill_vpn;
   logic [1:0]  it_fill_lvl;
@@ -164,10 +170,14 @@ module tg_core
   // The return-address stack (RAS_ON): decode (RAS_DEC) or fetch (RAS_FE, with TAGE) reads its top
   // and moves it; commit keeps its committed copy; a flush restores it from that copy, and with
   // RAS_FE decode's redirect repairs it from fetch's FTQ
-  logic                    ras_v, ras_push, ras_pop;
+  logic                    ras_v, ras_push, ras_pop;          // decode's view: its thread's stack
   logic [38:1]             ras_top, ras_link;
-  logic [RAS_PW-1:0]       ras_tos;
-  logic [RAS_PW:0]         ras_cnt;
+  // The stacks, one per thread with hart 1 (M7's step 5b; else the one), as fetch sees them
+  logic [NUM_THREADS-1:0]              ras_v_t;
+  logic [NUM_THREADS-1:0][38:1]        ras_top_t;
+  logic [NUM_THREADS-1:0][RAS_PW-1:0]  ras_tos_t;
+  logic [NUM_THREADS-1:0][RAS_PW:0]    ras_cnt_t;
+  tid_t                    fras_tid;                          // fetch's operation's or repair's thread
   logic                    fras_push, fras_pop, fras_rv, fras_rwr;
   logic [38:1]             fras_link, fras_rtop;
   logic [RAS_PW-1:0]       fras_rtos;
@@ -185,20 +195,27 @@ module tg_core
   // change only as a trap, an xRET or a serialising CSR write commits, and the flush that follows
   // is the next cycle, so fetch resumes after the copy has caught up (timing, DR-145: the CSR's
   // registers are far from F1's PMP select; any difference falls in a flush cycle, asserted)
-  priv_e priv_f_q;
-  logic  xl_f_q;
-  always_ff @(posedge clk) begin
-    priv_f_q <= rst ? PRIV_M : priv;
-    xl_f_q   <= !rst && EXT_SU && satp_sv39 && priv != PRIV_M;
-  end
+  // (per hart, M7's step 5b: fetch takes its F1 block's hart's)
+  priv_e [NUM_THREADS-1:0] priv_f_q;
+  logic  [NUM_THREADS-1:0] xl_f_q;
+  always_ff @(posedge clk)
+    for (int t = 0; t < NUM_THREADS; t++) begin
+      priv_f_q[t] <= rst ? PRIV_M : priv_h[t];
+      xl_f_q[t]   <= !rst && EXT_SU && sv39_h[t] && priv_h[t] != PRIV_M;
+    end
 `ifndef SYNTHESIS
   logic rs_fq;
   initial rs_fq = 1'b0;
   always @(posedge clk) begin
     if (rst) rs_fq <= 1'b1;
     if (rs_fq && !rst)
-      assert (flush || (priv_f_q == priv && xl_f_q == (EXT_SU && satp_sv39 && priv != PRIV_M)))
-        else $error("tg_core: fetch's privilege copy differs outside a flush");
+      for (int t = 0; t < NUM_THREADS; t++)
+        assert (flush || (priv_f_q[t] == priv_h[t] && xl_f_q[t] == (EXT_SU && sv39_h[t] && priv_h[t] != PRIV_M)))
+          else $error("tg_core: fetch's privilege copy of hart %0d differs outside a flush", t);
+    // the running hart's is the one fetch took before M7's step 5b
+    if (rs_fq && !rst)
+      assert (priv_h[RUN_TID] == priv && sv39_h[RUN_TID] == satp_sv39 && pmp_d_h[RUN_TID] == pmp_d)
+        else $error("tg_core: the running hart's translation state differs from tg_csr's scalars");
   end
 `endif
   // The LSU's own copy of the privilege, the data privilege, SUM, MXR and satp, a cycle behind
@@ -228,24 +245,38 @@ module tg_core
                           mxr_l_q[t] == mxr_h[t] && sv39_l_q[t] == sv39_h[t] && satp_ppn_l_q[t] == satp_ppn_h[t]))
           else $error("tg_core: the LSU's privilege copy of hart %0d differs outside a flush", t);
 `endif
-  // The decoders' state, as decode gets it, for the instruction queue's decode bits too (declared
-  // ahead of u_fetch, which takes it: a name a port uses before its declaration is a new, undriven
+  // The decoders' state per hart, as decode gets it (its group's hart's), for the instruction queue's decode bits too
+  // (declared ahead of u_fetch, which takes it: a name a port uses before its declaration is a new, undriven
   // implicit net in Vivado, Synth 8-11241, while Verilator resolves it)
-  dec_state_t de_state;
-  assign de_state = '{misa_m: misa_m, misa_b: misa_b, misa_c: misa_c, misa_a: misa_a, misa_f: misa_f,
-                      misa_d: misa_d, fs: fs, frm: frm, priv: priv, tvm: tvm, tw: tw, tsr: tsr};
+  dec_state_t [NUM_THREADS-1:0] de_state_h;
+  always_comb
+    for (int t = 0; t < NUM_THREADS; t++) begin
+      de_state_h[t]     = dst_csr[t];
+      de_state_h[t].frm = frm_h[t];
+    end
+`ifndef SYNTHESIS
+  // the running hart's is the one decode read before M7's step 5b
+  always_ff @(posedge clk)
+    if (!rst) assert (de_state_h[RUN_TID] == '{misa_m: misa_m, misa_b: misa_b, misa_c: misa_c, misa_a: misa_a,
+                                               misa_f: misa_f, misa_d: misa_d, fs: fs, frm: frm, priv: priv, tvm: tvm,
+                                               tw: tw, tsr: tsr})
+      else $error("tg_core: the running hart's decode state differs from tg_csr's");
+`endif
+  tid_t dred_tid;
+  tid_t [CW-1:0] cm_tid;                              // the retiring instructions' threads (fetch's predictors take it)
   tg_fetch u_fetch (
     .clk, .rst, .boot_pc(64'(boot_addr_i)), .ready(fe_ready),
-    .flush, .flush_pc, .icinv, .dred, .dred_pc, .dred_ftq, .dred_slot, .dred_rop, .dred_rlink,
+    .flush, .flush_tid, .flush_pc, .icinv, .dred, .dred_tid, .dred_pc, .dred_ftq, .dred_slot, .dred_rop, .dred_rlink,
     .c_cbr(cm_cbr), .c_taken(cm_ctaken), .c_pred(cm_cpred), .c_ftq(cm_cftq), .c_slot(cm_cslot),
-    .c_hv(cm_hv), .c_hftq(cm_hftq),
-    .ras_v, .ras_top, .ras_tos, .ras_cnt, .ras_push(fras_push), .ras_pop(fras_pop), .ras_link(fras_link),
+    .c_hv(cm_hv), .c_hftq(cm_hftq), .c_tid(cm_tid[0]),
+    .ras_v_s(ras_v_t), .ras_top_s(ras_top_t), .ras_tos_s(ras_tos_t), .ras_cnt_s(ras_cnt_t), .ras_tid(fras_tid),
+    .ras_push(fras_push), .ras_pop(fras_pop), .ras_link(fras_link),
     .ras_rv(fras_rv), .ras_rwr(fras_rwr), .ras_rtos(fras_rtos), .ras_rcnt(fras_rcnt), .ras_rtop(fras_rtop),
-    .upd_valid, .upd_way, .upd_pc, .upd_slot, .upd_target, .upd_inval,
+    .upd_valid, .upd_way, .upd_pc, .upd_slot, .upd_target, .upd_inval, .upd_tid,
     .iq_valid, .iq_insn, .iq_take,
-    .xl_i(xl_f_q), .dst(de_state), .priv(priv_f_q), .pmp_d, .pmp_busy, .tlb_flush, .tlb_flush_tid,
+    .xl_h(xl_f_q), .dst(de_state_h), .priv_h(priv_f_q), .pmp_d_h, .pmp_busy, .tlb_flush, .tlb_flush_tid,
     .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte, .it_fill_tid,
-    .iw_req, .iw_va, .iw_ack, .iw_done, .iw_ok, .iw_cause,
+    .iw_req, .iw_va, .iw_tid, .iw_ack, .iw_done, .iw_ok, .iw_cause,
     .l1i_a_o, .l1i_a_valid_o, .l1i_a_ready_i, .l1i_d_i, .l1i_d_valid_i, .l1i_d_ready_o);
 
   // ---- Decode ----
@@ -253,24 +284,67 @@ module tg_core
   uop_t [DECODE_WIDTH-1:0] de_uop;
   logic                    de_take;
   tg_decode_stage u_de (
-    .clk, .rst, .flush, .misa_m, .misa_b, .misa_c, .misa_a, .misa_f, .misa_d, .fs, .frm, .priv, .tvm, .tw, .tsr,
+    .clk, .rst, .flush, .dst_h(de_state_h),
     .iq_valid, .iq_insn, .iq_take, .de_valid, .de_uop, .de_take,
-    .dred, .dred_pc, .dred_ftq, .dred_slot, .dred_rop, .dred_rlink, .ras_v, .ras_top, .ras_push, .ras_pop, .ras_link);
+    .dred, .dred_tid, .dred_pc, .dred_ftq, .dred_slot, .dred_rop, .dred_rlink, .ras_v, .ras_top, .ras_push, .ras_pop,
+    .ras_link);
   if (RAS_ON) begin : g_ras
-    tg_ras #(.NE(RAS_ENTRIES), .CW(COMMIT_WIDTH), .LATE(RAS_FE)) u_ras (
-      .clk, .rst, .flush, .top_v(ras_v), .top(ras_top), .s_tos(ras_tos), .s_cnt(ras_cnt),
-      .d_push(RAS_FE ? fras_push : ras_push), .d_pop(RAS_FE ? fras_pop : ras_pop),
-      .d_link(RAS_FE ? fras_link : ras_link),
-      .r_v(RAS_FE && fras_rv), .r_wr(fras_rwr), .r_tos(fras_rtos), .r_cnt(fras_rcnt), .r_top(fras_rtop),
-      .c_push(cm_ras_push), .c_pop(cm_ras_pop), .c_link(cm_ras_link));
+    // A stack per thread with hart 1 (u_ras thread 0's, g_t1's thread 1's); each takes its thread's operations,
+    // repairs, commits and flush. Without hart 1 the one stack, every operation the running thread's
+    localparam bit RMT = HART1_ON && NUM_THREADS > 1;
+    localparam int RNS = RMT ? 2 : 1;
+    logic [RNS-1:0]              rv;
+    logic [RNS-1:0][38:1]        rt;
+    logic [RNS-1:0][RAS_PW-1:0]  rtos;
+    logic [RNS-1:0][RAS_PW:0]    rcnt;
+    logic de_s, fr_s, cm_s, fl_s;                                 // decode's, fetch's, commit's, the flush's stack
+    assign de_s = RMT && (RAS_FE ? iq_insn[0].tid[0] : de_uop[0].tid[0]);
+    assign fr_s = RMT && fras_tid[0];
+    assign cm_s = RMT && cm_tid[0][0];
+    assign fl_s = RMT && flush_tid[0];
+    logic dr_s;                                                    // decode's operations' stack (RAS_DEC)
+    assign dr_s = RMT && de_uop[0].tid[0];
+    for (genvar s = 0; s < RNS; s++) begin : g_s
+      logic       sf, sp, sq, sr;
+      assign sf = flush && fl_s == 1'(s);
+      assign sp = RAS_FE ? fr_s == 1'(s) : dr_s == 1'(s);
+      assign sr = RAS_FE && fras_rv && fr_s == 1'(s);
+      assign sq = cm_s == 1'(s);
+      if (s == 0) begin : g_t0
+        tg_ras #(.NE(RAS_ENTRIES), .CW(COMMIT_WIDTH), .LATE(RAS_FE)) u_ras (
+          .clk, .rst, .flush(sf), .top_v(rv[s]), .top(rt[s]), .s_tos(rtos[s]), .s_cnt(rcnt[s]),
+          .d_push(sp && (RAS_FE ? fras_push : ras_push)), .d_pop(sp && (RAS_FE ? fras_pop : ras_pop)),
+          .d_link(RAS_FE ? fras_link : ras_link),
+          .r_v(sr), .r_wr(fras_rwr), .r_tos(fras_rtos), .r_cnt(fras_rcnt), .r_top(fras_rtop),
+          .c_push(cm_ras_push & {COMMIT_WIDTH{sq}}), .c_pop(cm_ras_pop & {COMMIT_WIDTH{sq}}), .c_link(cm_ras_link));
+      end else begin : g_t1
+        tg_ras #(.NE(RAS_ENTRIES), .CW(COMMIT_WIDTH), .LATE(RAS_FE)) u_ras (
+          .clk, .rst, .flush(sf), .top_v(rv[s]), .top(rt[s]), .s_tos(rtos[s]), .s_cnt(rcnt[s]),
+          .d_push(sp && (RAS_FE ? fras_push : ras_push)), .d_pop(sp && (RAS_FE ? fras_pop : ras_pop)),
+          .d_link(RAS_FE ? fras_link : ras_link),
+          .r_v(sr), .r_wr(fras_rwr), .r_tos(fras_rtos), .r_cnt(fras_rcnt), .r_top(fras_rtop),
+          .c_push(cm_ras_push & {COMMIT_WIDTH{sq}}), .c_pop(cm_ras_pop & {COMMIT_WIDTH{sq}}), .c_link(cm_ras_link));
+      end
+    end
+    // fetch's view, by stream (index 0 without hart 1); decode's, its thread's
+    for (genvar t = 0; t < NUM_THREADS; t++) begin : g_fv
+      assign ras_v_t[t]   = rv[RMT ? t : 0];
+      assign ras_top_t[t] = rt[RMT ? t : 0];
+      assign ras_tos_t[t] = rtos[RMT ? t : 0];
+      assign ras_cnt_t[t] = rcnt[RMT ? t : 0];
+    end
+    assign ras_v   = rv[de_s];
+    assign ras_top = rt[de_s];
   end else begin : g_noras
-    assign ras_v   = 1'b0;
-    assign ras_top = '0;
-    assign ras_tos = '0;
-    assign ras_cnt = '0;
+    assign ras_v     = 1'b0;
+    assign ras_top   = '0;
+    assign ras_v_t   = '0;
+    assign ras_top_t = '0;
+    assign ras_tos_t = '0;
+    assign ras_cnt_t = '0;
     logic unused_ras;                   // no operation is ever decoded or committed without it
     assign unused_ras = ^{ras_push, ras_pop, ras_link, cm_ras_push, cm_ras_pop, cm_ras_link, fras_push, fras_pop,
-                          fras_link, fras_rv, fras_rwr, fras_rtos, fras_rcnt, fras_rtop};
+                          fras_link, fras_rv, fras_rwr, fras_rtos, fras_rcnt, fras_rtop, fras_tid};
   end
 
   // ---- Rename and dispatch ----
@@ -318,7 +392,6 @@ module tg_core
   robid_t                           fp_cmp_rob;
   logic [4:0]                       fp_cmp_fflags;
   logic [CW-1:0][4:0]               cm_fflags;
-  tid_t [CW-1:0]                    cm_tid;     // the retiring instructions' threads
   // Translation (M3): the TLBs flush with the flush after SFENCE.VMA, a satp change or a PMP
   // write (the TLBs cache PMP results). Each retires alone in slot 0: the flush clears that hart's
   // entries (M7's step 4)
@@ -539,7 +612,7 @@ module tg_core
     .priv(priv_l_q), .priv_d(priv_dl_q), .sum(sum_l_q), .mxr(mxr_l_q), .satp_sv39(sv39_l_q),
     .satp_ppn(satp_ppn_l_q), .pmp_d(pmp_d_h), .pmp_al(pmp_al_h), .pmp_p2m(pmp_p2m_h), .tlb_flush, .tlb_flush_tid,
     .tlbm_valid, .tlbm_rob, .hd_tlb, .hd_retry, .hd_fault, .hd_cause, .hd_lva, .hd_sva,
-    .iw_req, .iw_va, .iw_ack, .iw_done, .iw_ok, .iw_cause,
+    .iw_req, .iw_va, .iw_tid, .iw_ack, .iw_done, .iw_ok, .iw_cause,
     .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte, .it_fill_tid,
     .l1d_a_o, .l1d_a_valid_o, .l1d_a_ready_i, .l1d_b_i, .l1d_b_valid_i, .l1d_b_ready_o,
     .l1d_c_o, .l1d_c_valid_o, .l1d_c_ready_i, .l1d_d_i, .l1d_d_valid_i, .l1d_d_ready_o,
@@ -561,7 +634,7 @@ module tg_core
     .trap_target, .irq_target, .xret_v, .xret_s, .xepc_o(xepc), .irq_take, .irq_code, .wfi_wake, .misa_m, .misa_b,
     .misa_c, .misa_a, .misa_f, .misa_d, .fs, .fc_fflags, .fc_frm(frm), .fc_wvalid, .fc_waddr,
     .fc_wdata, .fs_dirty, .cm_pc(tr_epc), .priv, .tvm, .tw, .tsr, .satp_sv39,
-    .satp_asid, .satp_wr, .pmp_d, .pmp_wr, .pmp_busy, .priv_h, .priv_d_h, .sum_h, .mxr_h, .sv39_h, .satp_ppn_h,
+    .satp_asid, .satp_wr, .pmp_d, .pmp_wr, .pmp_busy, .dst_h(dst_csr), .priv_h, .priv_d_h, .sum_h, .mxr_h, .sv39_h, .satp_ppn_h,
     .pmp_d_h, .pmp_al_h, .pmp_p2m_h,
     .irq_mei(irq_mei_i), .irq_mti(irq_mti_i), .irq_msi(irq_msi_i), .irq_sei(irq_sei_i),
     .irq_ssi(irq_ssi_i), .mtime(mtime_i));
@@ -673,6 +746,7 @@ module tg_core
       .er_ret_valid(1'b0), .er_ret_tid('0), .er_valid(1'b0), .er_tid('0), .er_fflags('0),
       .er_busy(er_busy_t), .fs_dirty(fs_dirty_t));
     assign frm      = frm_t[RUN_TID];
+    assign frm_h    = frm_t;
     assign fs_dirty = fs_dirty_t;
     logic unused;
     assign unused = ^{er_busy_t, frm_t, p4_fpi.wid, p4_cmp_tid, p4_er_tid,
@@ -705,6 +779,7 @@ module tg_core
     assign fpi_fflags    = '0;
     assign tag_free_p4   = '0;
     assign frm           = '0;
+    assign frm_h         = '0;
     assign fc_fflags     = '0;
     assign fs_dirty      = '0;
     logic unused;
@@ -715,7 +790,7 @@ module tg_core
   logic unused;
   assign unused = ^{debug_req_i, rob_tail_t,
                     st_dropped, satp_asid,        // the TLBs flush on satp changes: no ASID tags
-                    upd_tid, div_done_tid};       // (M7 step 5: fetch's micro-BTB in 5b, rename's counts in 5c)
+                    div_done_tid};                // (M7 step 5: rename's divide count in 5c)
   // Board debug (DBG_WORD): the status word, the allocation logs and the select, a register
   if (DBG_WORD) begin : g_dbg
     logic [31:0] dbg_q;

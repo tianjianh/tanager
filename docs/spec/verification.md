@@ -828,7 +828,23 @@ tools/ci/boot_lockstep.py --nightly | --install-cron
   - **Why the CPU time showed the unpack 25–39% slow** (area_recovery.md §6.12: the window `clk: Disabling` to `Freeing`, +39.2% on d4s2). From the unpack's start through `clk: Disabling unused clocks`, which init prints before it waits for the unpack, the board prints 16 lines (1,091 characters, 94.7 ms at 115200 baud), and the unpack runs through them on the other core. Taking each line's console time off the board's timestamps is right for the thread that prints, but it takes those 94.7 ms off the unpack too. d4s2's 107.3 ms excess is those 94.7 ms, the 9.4 ms by which the simulation runs the initcalls in between faster, and 3.1 ms of the unpack (the medians of three boots). smt2-study's accounting, which charges a console line only to the thread that prints it, puts every milestone within −3.5% to +0.3% of the board on d2 and d4s2.
   - **End to end** (`SERIAL=1`: the console on the serial line, as on the board; `board` timing): the raw timestamps of all 100 kernel lines to `Freeing unused kernel image` are within 1.0–1.8% of each of the board's three boots, and every milestone within −1.2% to +0.8% of their medians: `NET: Registered PF_PACKET` −0.3%, `clk: Disabling unused clocks` −1.2%, `Freeing unused kernel image` 0.9293 s against 0.9219 s (+0.8%), `Run /init` 0.9362 s against 0.9289 s (+0.8%). Read this way the window `clk: Disabling` to `Freeing` is 0.2933 s against 0.2780 s (+5.5%): the simulation reaches `clk: Disabling` 7.9 ms early, and the unpack ends where the board's does.
   - **So, with the console off the serial line,** compare in CPU time only what runs on the thread that prints. A milestone that waits for work on another core (the unpack, `Freeing unused kernel image`, `Run /init`) compares by its span from that work's start, or raw against a `SERIAL=1` run.
-  - **memcal** (`tests/bench/mem`): the memory system's streaming rates and latency, bare-metal on hart 0, the same program in `tb_boot` (`memcal.bin`) and on the board (`memcal-big.bin`, its DDR tests four times; `tanager-host boot --fw memcal-big.bin --kernel /dev/null --dtb /dev/null --timeout 20`). It prints `MEMCAL <test> bytes=N cycles=C` for a memset of 16 MiB in the kernel's loop (32 `sd` per 256 B), a memcpy of 8 MiB, the two at 1 MiB, a streaming read of 8 MiB and a dependent chase over 4 MiB (there `bytes` counts the loads). d4s2 at `board`: memset-16M 0.865 bytes per cycle (74.0 cycles per line: one ownership round trip a line, as `free_initmem`'s poison), memcpy-8M 0.810 (79.0), memset-1M 1.684 (38.0, in the L2), memcpy-1M 0.819 (78.2: source and destination are twice the L2), read-8M 3.94 (16.3 cycles per line: four misses in flight) and chase-4M 64.3 cycles per load. The board's run, on d4s2 and d4r1, follows the coordinator's 24-hour soak (10-20): a check of the DDR model's rates, which nothing waits on.
+  - **memcal** (`tests/bench/mem`): the memory system's streaming rates and latency, bare-metal on hart 0, the same program in `tb_boot` (`memcal.bin`) and on the board (`memcal-big.bin`, its DDR tests four times; `tanager-host boot --fw memcal-big.bin --kernel /dev/null --dtb /dev/null --timeout 20`). It prints `MEMCAL <test> bytes=N cycles=C` for a memset of 16 MiB in the kernel's loop (32 `sd` per 256 B), a memcpy of 8 MiB, the two at 1 MiB, a streaming read of 8 MiB and a dependent chase over 4 MiB (there `bytes` counts the loads). d4s2 at `board`: memset-16M 0.865 bytes per cycle (74.0 cycles per line: one ownership round trip a line, as `free_initmem`'s poison), memcpy-8M 0.810 (79.0), memset-1M 1.684 (38.0, in the L2), memcpy-1M 0.819 (78.2: source and destination are twice the L2), read-8M 3.94 (16.3 cycles per line: four misses in flight) and chase-4M 64.3 cycles per load.
+    - **The board against the model** (2026-10-21, the board session's `board/memcal/`: `memcal-big.bin` twice each on d4s2, d4r1 and d4r2, with the package's Image and device tree in the boot's other slots, clear of memcal's buffers; the runs within 0.3% of each other; cycles per byte on the board / in `tb_boot` at `board` timing; chase in cycles per load):
+
+      | Test | d4s2 | d4r1 | d4r2 |
+      |---|---|---|---|
+      | memset-16M | 1.135 / 1.156 (−1.8%) | 0.591 / 0.617 (−4.3%) | 0.506 / 0.477 (**+6.2%**) |
+      | memcpy-8M | 1.209 / 1.234 (−2.0%) | 0.741 / 0.747 (−0.8%) | 0.740 / 0.748 (−1.1%) |
+      | memset-1M ×8 | 0.594 / 0.594 (0.0%) | 0.492 / 0.492 (0.0%) | 0.492 / 0.492 (0.0%) |
+      | memcpy-1M ×8 | 1.209 / 1.221 (−1.0%) | 0.739 / 0.755 (−2.0%) | 0.739 / 0.753 (−1.9%) |
+      | read-8M | 0.242 / 0.254 (−4.7%) | 0.242 / 0.254 (−4.6%) | 0.242 / 0.254 (−4.7%) |
+      | chase-4M | 64.56 / 64.28 (+0.4%) | 64.56 / 64.28 (+0.4%) | 64.56 / 64.28 (+0.4%) |
+
+    - **What it says about the DDR model:** 17 of the 18 figures are within 5%.
+      - The latency is right: the dependent chase is within 0.4%.
+      - What stays in the L2 is exact.
+      - Streaming reads are 4.7% slow in the model on every bitstream: 16.3 cycles a line against the board's 15.5.
+      - The exception is d4r2's large memset. Its three store prefetches gain 23% over d4r1 in the model but 14% on the board, so the model lets more ownership requests overlap than the board's memory does. A fit of the DDR model would take both: read bursts a little faster, and concurrent ownership requests a little slower.
 
 ### 4.8 Pair throughput (`tests/bench/pair`, M7's exit 2)
 
@@ -859,17 +875,25 @@ M7's exit 2 (m7-smt2-plan §1): weighted throughput at least 1.3 times single-th
 - **Commands:**
   - `make -C tests/bench/pair [REPEAT=0]` builds the 13 programs at both slots, 26 alone images and 42 pair images. Builds repeat bit for bit. `manifest.md5` lists every ELF's md5 and `build.info` the tree, so the model and the RTL can check that they run the same files; a program's code moves with any change to the runtime, which is linked first;
   - `replay` runs the images Spike against Spike;
-  - `run [ONLY=alone|pairs|all] [LAT=30,120,250] [LOCKSTEP=0] [SELECT=prog,a+b]` runs them in `tg_vsim` with `CFG=smt2`, lockstep on by default. It writes the figures as JSON in the build directory: each run's region cycles, instructions, IPC and restarts per slot, the alone runs' whole cycles, each pair's WS, the hangs, and the group and overall figures.
-    - The alone runs go first. `ONLY=pairs` takes the alone figures from `ONLY=alone`'s JSON.
-    - `SELECT` runs some programs (their alone runs and every pair they are in) or some pairs.
+  - `run BASIS=half|merged [ALONE_SIM=<tg_vsim>] [ONLY=alone|pairs|all] [LAT=30,120,250] [LOCKSTEP=0] [SELECT=prog,a+b]` runs them in `tg_vsim` with `CFG=smt2`, lockstep on by default. It writes the figures as JSON in the build directory: the basis, each run's region cycles, instructions, IPC and restarts per slot, the alone runs' whole cycles, each pair's WS, the pairs left out, and the group and overall figures.
+    - The alone runs go first. `ONLY=pairs` takes the alone figures from `ONLY=alone`'s JSON, and refuses one of another basis.
+    - `SELECT` runs some programs (every pair they are in) or some pairs; every program in those runs alone too.
+    - `run_pair.py --only pairs --alone FILE --pairs-from FILE` runs nothing: it scores an earlier run's pairs against other alone figures, for example the same pairs on the merged basis from a hart-1-off build's alone runs.
+    - **Every pair counts or is named.** A pair that hangs, fails or lacks a line of output is left out of the means. The report lists each with its reason, and the overall figure needs all three groups.
+    - **Same-program pairs before the print lock** (fixed 10-21): chase8 + chase8 and CoreMark + CoreMark came out NaN on step 5c's RTL. The two copies' regions end within cycles of each other, and the first finisher's `PAIR-STOP` line interleaved on the UART with the last one's results. The runtime now prints under a lock. On 5c, at 30 cycles, they read 1.001 and 1.158.
     - The alone runs must use the same images as the pairs: a change to the runtime alone moved CoreMark's alone cycles by 1%, through code alignment.
+- **The basis** (`--basis`, required on the RTL, printed and kept in the JSON) is what each program alone had (smt2_report §13.14):
+  - **half:** its half of the split window. On a build with hart 1 on, before step 6 merges the window while the sibling sleeps, this is what alone runs on the pairs' build get;
+  - **merged:** the whole window. That is step 6's merge, or before step 6 a build with hart 1 off, given as `ALONE_SIM` (`--alone-sim`);
+  - **exit 2 is judged on merged.** Half-window alone runs are slower and read memory pairs high: on step 5c's RTL the half basis gave 1.221, where the model reads 1.376 on that basis and 1.279 on merged.
 - **Hangs:**
   - **What the model predicts:** without the drain's priority, smt2-study's model hangs six pairs at step 5 — chase8 with stream, spmv, copy, minver and Dhrystone, and chase8 + chase8 at 120 and 250. The sibling's committed stores wait for miss entries that chase8's loads keep taking.
   - **The limit:** each pair's cycle limit is three times its two programs' whole alone runs (`--cap`).
   - **The report:** a pair that reaches the limit is reported as a hang, naming the slot whose first region never ended. The first program to finish prints `PAIR-STOP slot=<s>`.
   - **A full deadlock** is `tg_vsim`'s own HANG: no commit on any hart for 100,000 cycles.
 - **Spike against Spike** (2026-10-20): all 68 images pass. WS is exactly 2, since each of Spike's harts retires one instruction a step.
-- **The final set for exit 2** (2026-10-20 02:26) is built with REPEAT from a clean tree at b7db3e16, which carries smt2-study's memsuite change. Its `manifest.md5` has md5 22d3ecf4153bb5adbed9c65336db6bcf, and smt2-study's model predicts on the same files. A second build reproduces it, and so does a build from main with smt2-study's switch (fe4083c6).
+- **The final set** since 2026-10-21 is built from a clean tree at 39b16a6a, with the print lock and REPEAT. Its `manifest.md5` has md5 7ed7f3c48da30dfbb99eeb1e647b1bd9, and it is frozen as `pair-final-39b16a6a`. The runtime's change moved every program's code, so smt2-study reruns its model on these files.
+- **The first final set** (2026-10-20 02:26, kept as `pair-final-b7db3e16`) is what smt2_report §13.12 and step 5c's first RTL run used. It is built with REPEAT from a clean tree at b7db3e16, which carries smt2-study's memsuite change. Its `manifest.md5` has md5 22d3ecf4153bb5adbed9c65336db6bcf, and smt2-study's model predicts on the same files. A second build reproduces it, and so does a build from main with smt2-study's switch (fe4083c6).
   - On Spike, every memory kernel's restart count is 0 in all 29 pairs it is in.
   - Next to the build without REPEAT, chase8's region is 8 instructions shorter and hashprobe's 1, because the compiler treats the region's code differently with the loop after it.
 - **Alone on the RTL** (2026-10-20, hart 1 parked, lockstep on, on the images smt2-study's prediction used, before the `PAIR-STOP` line): 78 runs in 13.5 minutes. The table gives slot 0's IPC. Slot 1's agrees within 0.9%; the largest difference is ms_stride at 30 cycles. A region's instruction count is the same at both slots and on Spike. ms_stride's region is short, so it restarts most often in a pair.
@@ -901,7 +925,13 @@ M7's exit 2 (m7-smt2-plan §1): weighted throughput at least 1.3 times single-th
   - **step 5 without the priority:** the six chase8 pairs above hang;
   - **without caps, fairness is poor:** at 120 cycles, a program beside a memory kernel keeps as little as 0.10–0.15 of its alone IPC (minver, Dhrystone, stream and copy beside chase8, CoreMark beside gather);
   - **step 7:** 50% caps with a bank's last row kept on demand give 1.333 / 1.348 / 1.332, the only form above 1.3 at every point. Never a whole bank gives 1.298 / 1.328 / 1.322, and 75% caps with the priority 1.316 / 1.304 / 1.284.
-- **The pairs** run once hart 1 fetches (M7's step 5). The alone runs are repeated on that build, and again after step 6 merges D2's window: both steps change the core one hart sees.
+- **On the second final set** (`pair-final-39b16a6a`; smt2_report §13.12, 10-21; merged basis):
+  - **step 7** (50% caps, a bank's last row kept): 1.304 / 1.312 / 1.300;
+  - **step 5 with the drain's priority:** 1.271 / 1.258 / 1.242;
+  - **the hangs** are the same six chase8 pairs without the priority.
+  - The print lock moved the code, and single programs moved with it: stream alone fell 26% at 30 cycles on the RTL, because its loop's branch now straddles a 16-byte fetch block (2.41 cycles an iteration on the RTL, 0.75 in the model). minver's straddler went away (+17%).
+  - The set stays frozen, since any layout has straddlers. If the front end changes how it handles them, the alone runs are repeated with the pairs on one build.
+- **The pairs** run once hart 1 fetches (M7's step 5c). The alone runs are repeated on that build (the half basis until step 6), and on the merged basis for exit 2: after step 6 on the same build, or before it on a build with hart 1 off.
 
 ## 5. The test core (`tg_tcore`)
 

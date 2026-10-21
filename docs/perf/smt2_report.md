@@ -778,6 +778,9 @@ python3 scripts/m7_smt.py --groups --d3rev # §13.8 and §13.9
 python3 scripts/m7_smt.py --pair           # §13.10: verif-2's pair runner (its ELFs in TG_PAIRDIR)
 python3 scripts/m7_smt.py --homes          # §13.11: D4's alternatives for hart 1's register homes
 python3 scripts/m7_smt.py --calib --final # §13.10's RTL alone comparison; §13.12 on the final set (TG_FINALDIR)
+python3 scripts/m7_smt.py --d3fp64         # §13.13: D3 with FP banks of 64 (bash bench/build_m7.sh first, for m7_fpcompute)
+python3 scripts/m7_smt.py --rnstall        # §13.14: the RTL's one RN stage and decode's room check (results/pair_rtl_5c_f2936949.json)
+python3 scripts/m7_smt.py --bankrule --icount --caplift   # §13.15 on the second final set (bash bench/build_m7.sh first)
 ```
 
 **Where results live.**
@@ -816,9 +819,13 @@ python3 scripts/m7_smt.py --calib --final # §13.10's RTL alone comparison; §13
 | D3 as revised (§13.9) | Per-hart lists that take a free register from the sibling's list when short, with FP banks of 96: no deadlock over 87 pairs or the suite, throughput equal to ideal shared lists (shared lists with a flush walk lose 0.5–2.6%), a lone hart −0.2 to −0.3%. FP 128 changes nothing; FP 64 still deadlocks | Build it, with the donor keeping one free register and FP banks of 96 |
 | D2 | Static halves cost a lone thread 3–4.5% (memsuite 8–12%). With the merge it keeps 98.7–99.95%: 0.05–0.4% lost at timer-tick wakes, 0.6–1.3% at today's 4,096-cycle WFI timeout | Build the merge; raise WFI's timeout for a sleeping sibling; drain the split only to the half if the halves allow it; merge after 64 cycles |
 | Decode, rename and commit groups (§13.8) | Mixed groups gain 0–0.7% over one thread a group | One thread a group (under the 1% bar) |
-| Exit 2 on the final pair set (§13.12, blind; REPEAT builds, rtl_m2 revision 9 since 10-20 evening) | Step 5 (no caps) + the drain's priority: 1.279 / 1.266 / 1.246. Without the priority, 6 of the 42 hang. Step 7: 50% caps with a bank's last row kept, 1.302 / 1.316 / 1.301, the only form at or above 1.3 at every point, by 0.001–0.016 (0.03–0.05 on revision 8: TAGE-lite's new rule makes minver 42% faster alone). Never a whole bank: 1.269 / 1.297 / 1.292. Miss-entry or long-latency-tag caps don't help | The drain's priority; at step 7, 50% caps with the on-demand last row; expect step 5 below 1.3, and step 7 within the model's error of the bar |
+| Exit 2 on the final pair set (§13.12, blind; REPEAT builds, rtl_m2 revision 10; verif-2's second set since 10-21) | Step 5 (no caps) + the drain's priority: 1.271 / 1.258 / 1.242. Without the priority, 6 of the 42 hang. Step 7: 50% caps with a bank's last row kept, 1.304 / 1.312 / 1.300, on the bar at 250 (the first set: 1.322 / 1.311 / 1.295; 0.03–0.05 over the bar on revision 8, before TAGE-lite's new rule made minver 42% faster alone). Never a whole bank: 1.278 / 1.300 / 1.296. Miss-entry or long-latency-tag caps don't help. The second set's code layout moves single programs alone by up to 26% on the RTL (stream's loop branch now straddles a fetch block) | The drain's priority; at step 7, 50% caps with the on-demand last row; expect step 5 below 1.3, and step 7 within the model's error of the bar |
 | D4's homes (§13.11) | Hart 1's integer homes over B1 and B2 take a lone hart from −0.2–0.3% (ms_chase8f16 −8.6%) to 0.0%, with pairs unchanged and no hang. All homes in B0 costs a lone hart 1.2–2.1% with steering and hangs it without | Hart 1's x1–x16 in B1, x17–x31 in B2 |
 | Exit 2 on verif-2's pair runner (§13.10, blind) | Step 5 as built: 1.408 / 1.423 / 1.408 with the drain's priority. Without it, 6 of the 42 pairs (chase8's) hang. Step 7 with 50% caps and a bank's last row kept: 1.388 / 1.432 / 1.426. The runner restarts memory kernels with their set-up and so reads up to 0.12 above §13.2's basis. With the kernels repeating their region, step 5 reads 1.324 / 1.306 / 1.288 and step 7's two bank rules 1.31–1.36 | The drain's priority before step 5's pair runs; a `REPEAT` build of the memory kernels for the runner; 50% caps with the on-demand last row at step 7 |
+
+| Step 5's gap: the one RN stage (§13.14) | On the RTL's own basis (alone on its half) the gap is 0.155 (model 1.376, RTL 1.221). One RN register reproduces the stall and closes 62% of it (1.280). core-2's room check recovers 54–68% of the stall at step 5 and fails at step 7 (starving pairs with 50% caps, 1.126 with never a whole bank). A same-cycle check with issue rows reaches 1.22–1.24 at step 7 | A second RN register, one per thread (step 7 1.322 / 1.311 / 1.295 on revision 10; 1.304 / 1.312 / 1.300 on the second final set), if core-2 costs it within DR-154; else the same-cycle check with issue rows |
+| Step 7 in fpu-2's form (§13.15, the second final set) | R2 as worded (a bank's last free row kept for the sibling's waiting group) costs 2.5–3.5%: 1.258 / 1.269 / 1.264 with round robin. "Never all of a bank's rows", for every bank the waiting group needs, reads 1.299 / 1.311 / 1.300, with no hang either way. ICOUNT adds 0.0–0.3% over round robin, and counting decode and rename doesn't matter. Lifting the caps while the sibling sleeps costs the waking task up to 0.4K cycles a wake and gives a lone memory thread up to 45% | R2 plus "… and the sibling holds none of that bank's rows"; round robin; keep the lift |
+| D3 with FP banks of 64 (§13.13) | Every rule that keeps an op in its own FP bank deadlocks, including a lone hart's single FP restore. Renaming into the other FP bank when the hart's own is exhausted, both ways, never deadlocks (by construction, and 0 of 90 pairs and 37 lone programs). It matches FP 96 when a crossed write costs nothing extra, and loses 0.3–0.6% on FP pairs at 2 cycles more, 0.7–1.0% at 4 | FP 64 with renaming across both ways, if core-2 and fpu-2 cost it well under FP 96's +1,575 LUTs a core |
 
 ### 13.2 Exit 2: the blind prediction
 
@@ -1536,8 +1543,380 @@ The pair programs' code fits the I$, so the prediction stands.
 
 **Exit 2 at step 7 is now inside the model's ±0.05 error band.** On the model's evidence alone it could land either side of 1.3.
 
+**On revision 10 (10-21, area_recovery.md §6.19: fpu-2's filter C).** This section was run again (`results/m7_smt_rv64gc.json`: "final" is revision 10's, "final_rev9" revision 9's):
+- **Step 5 + the drain's priority:** 1.292 / 1.262 / 1.241.
+- **50% caps with a bank's last row kept:** 1.322 / 1.311 / 1.295. This is now 0.005 under 1.3 at 250.
+- **Never a whole bank:** 1.294 / 1.295 / 1.287.
+- **Unchanged:** the revision-7 check (1.319 / 1.309 / 1.290) and the hangs.
+- The filter moves the mixed and memory pairs at 30 (+0.030 and +0.013), under 0.01 at 120 and 250, and the compute pairs by 0.002 at most.
+
+**On verif-2's second final set (10-21, `pair-final-39b16a6a`).** The runtime now prints under a lock, so every pair counts (verification.md §4.8). The set's 94 ELFs match its manifest (md5 7ed7f3c4…). The lock moved every program's code, by 0x38 bytes in stream's case. The data didn't move: the heap is at 0x80900000 in both sets. This section was run again on it, on revision 10 (`results/m7_smt_rv64gc.json`: "final" is this set's, "final_b7db3e16" the first set's):
+
+| The 42, merged basis (30 / 120 / 250) | First set | Second set |
+|---|---|---|
+| Step 5 + the drain's priority | 1.292 / 1.262 / 1.241 | 1.271 / 1.258 / 1.242 |
+| **Step 7: 50% caps, a bank's last row kept** | 1.322 / 1.311 / 1.295 | **1.304 / 1.312 / 1.300** |
+| Step 7: never a whole bank | 1.294 / 1.295 / 1.287 | 1.278 / 1.300 / 1.296 |
+| Check: step 5 + the drain's priority on revision 7 | 1.319 / 1.309 / 1.290 | 1.314 / 1.287 / 1.269 |
+
+- **The hangs are unchanged.** Without the drain's priority the same six chase8 pairs hang; with it, none do. The working-set pairs are as before.
+- **What moved, by group** (step 5 + the drain's priority):
+  - **compute + compute:** 1.262 → 1.233 at every latency, in every configuration. In the model Dhrystone alone runs 15% faster (1.452 → 1.669 at 30), so its four pairs read 5–8% lower.
+  - **memory + memory:** 1.244 → 1.217 at 30, within 0.006 at 120 and 250. gather + stride and stride + hashprobe read 8–9% lower. stream alone runs 12% slower, and its pairs read up to 21% higher.
+  - **mixed:** within 0.01 at 30, +0.02 at 120 and 250.
+- **Step 7 now sits on the bar:** 1.2998 at 250, and 0.004 and 0.012 over it at 30 and 120.
+
+**The alone runs beside the RTL.** The RTL here is main f9600313's smt2 build with hart 1 off: one thread on the whole window, exit 2's merged basis before step 6. IPC at 30 cycles, slot 0 (slot 1 is within 0.8% on both sides):
+
+| Program | RTL: first set → second | Model: first set → second | Model against the RTL: first set → second |
+|---|---|---|---|
+| ms_stream | 1.290 → 0.958 (−26%) | 1.599 → 1.411 (−12%) | +24% → +47% |
+| embench_minver | 1.528 → 1.788 (+17%) | 1.878 → 1.840 (−2%) | +23% → +2.9% |
+| dhrystone | 1.656 → 1.618 (−2%) | 1.452 → 1.669 (+15%) | −12% → +3.1% |
+| ms_gather | 0.533 → 0.588 (+10%) | 0.537 → 0.586 (+9%) | +0.8% → −0.3% |
+| ms_copy | 0.499 → 0.492 | 0.686 → 0.685 | +38% → +39% |
+| ms_hashprobe | 0.414 → 0.424 | 0.352 → 0.356 | −15% → −16% |
+| The other seven | | | within 4.5% in both sets |
+
+At 120 and 250 cycles only copy (+28% / +23%), hashprobe (−27% / −31%) and stream (+17% / +9%) are more than 4% from the RTL. copy and hashprobe are area_recovery.md §6.15's known items.
+
+**Why single programs moved: code layout, which the two sides feel differently.**
+- **stream: a straddling branch.**
+  - The measured loop's `bne` is now at 0x8010048e, so its four bytes cross the fetch block at 0x80100490. In the first set it sat at 0x80100456, inside its block.
+  - Otherwise the loop is the same: 9 instructions over three fetch blocks, with the same data addresses.
+  - The RTL takes 2.41 cycles more an iteration (6.98 → 9.39 at 30, over 131,072 iterations). The model takes 0.75 more.
+  - The RTL's commit trace shows no refills at the branch: 2 in 131,071 taken outcomes, as in the first set. So its loss is in fetch, decode or dispatch, and its F2 refetch counters would split it.
+  - In the model F2 overrides the branch once an iteration, since the micro-BTB never predicts a straddler (area_recovery.md §6.5).
+- **minver: the first set's straddler is gone** (area_recovery.md §6.19). The RTL now runs it at the calibration build's speed (1.788).
+- **Dhrystone: the model's own layout effect.**
+  - In the first set the model met 4,218 memory-ordering violations and 15,000 straddle overrides. In the second it meets 738 and 3.
+  - The RTL moved 2%.
+  - So §6.19's separate gap on the pair set's Dhrystone came from that layout, not from a calibration error.
+- **gather** moved 9–10% on both sides alike.
+
+**What it means:**
+- **For exit 2:** stream's six pairs will likely read higher on the RTL than in the first set. Its alone run lost 26% to the straddler, and in a pair the sibling fills its front end's bubbles. In the model they rose by up to 21%.
+- **For verif-2:** keep the frozen set. Any layout has straddlers, and Linux's code will too. If core-2 changes how the front end handles a straddler before step 7's pairs, rerun the alone runs with the pairs, on one build.
+- **For core-2** (through the coordinator): a second reproducer for the straddler cost, this time with no mispredicts. It is this set's `img/alone-ms_stream-s0.elf` on main's smt2 build, at the `bne` at 0x8010048e. The model's form of a straddler costs a third as much.
+- **For the calibration:** one program alone can move 10–26% with a rebuild, on either side, and the two sides don't move together. Check a single program's gap on a second layout before calling it a calibration error.
+
 **Decisions:** none here. Revision 8 is used in this section only, as the coordinator was told; §13.2–13.11 stay on revision 7.
 
 **Learned:**
 - **The runner's REPEAT reads the same as the model's method.** Emulated repeating on the old builds (1.324 / 1.306 / 1.288) and real REPEAT builds (1.319 / 1.309 / 1.290) agree within 0.005.
 - **A cap on miss entries costs more than it returns** when the memory thread's own speed is all parallel misses.
+- **A rebuild moves single programs by up to a quarter.** Straddling branches and PC-hashed tables follow the code's layout, and the RTL and the model feel them differently. A pair set's alone runs and pair runs must come from one build and one RTL.
+
+### 13.13 D3 with FP banks of 64: is any rule deadlock-free? (10-20)
+
+*The coordinator asked (10-20). core-2's step 5a measured FP banks of 96 at +1,575 LUTs a core with hart 1 on (+3.15K a chip), against the plan's ≈0.45K. The FP register index widens from 6 to 7 bits everywhere it travels: the file +572, the FP unit +282, rename +455, the LSU +181, issue and exec +64. The question: is there a deadlock-free D3 with 64-deep FP banks, at no IPC cost or under 1%? 5a merges with FP 96 behind HART1=1, and the decision comes at step 7, or sooner if the answer is clear.*
+
+*The model (`m7_smt.py --d3fp64`):*
+- *§13.10's step-7 configuration (75% caps, a hart never taking all of a slot bank), one thread a group, D3 as revised (per-hart lists, transfers, the donor keeping one) and D4 (b), on rtl_m2 revision 9.*
+- *Pairs: the 87, plus three with a new test, `m7_fpcompute` (32 flds, then four blocks of 32 FP ops writing every f register), whose two harts fill F0. Run at 30, 120 and 250 cycles.*
+- *A lone hart, its sibling asleep with its registers at their homes, over the 36 programs and `m7_fpcompute`.*
+- *WS against one program on today's core; a lone hart against today's one-hart core.*
+
+**Why 64 can deadlock.**
+- **The banks are writer-sharded** (core-fp.md): P4's results write F0 and FP loads write F1, each through the bank's one write port.
+- **Each hart has 32 architectural f registers** (f0 is a real register), so two harts have 64: a whole bank.
+- **One bank can fill:**
+  - after 32 flds, a hart's f registers all live in F1; after 32 FP ops, all in F0;
+  - both harts' 64 can then fill one bank;
+  - so can one hart's 32 beside the 32 a sleeping or integer-only sibling leaves parked there.
+- **Then nothing is free or in flight** in that bank. An op that must write it cannot rename, and no older op is left to free one.
+- **No rule about who takes which free register helps,** because there is none to take.
+- **Two ways out:** a deeper bank (96 = 64 + 32), or a second destination, with the op renamed into the other FP bank.
+
+**Pairs** (90; WS at 30 / 120 / 250 cycles):
+
+| FP banks and rule | WS, the 42 | WS, the 25 FP pairs, against FP 96 | Deadlocked pairs (30 / 120 / 250) | Renamed across, a kilo-instruction |
+|---|---|---|---|---|
+| FP 96 (5a: per-hart lists, transfers, the donor keeps one) | 1.273 / 1.298 / 1.292 | 1.372 / 1.352 / 1.335 | 0 / 0 / 0 | – |
+| FP 64, the same: each hart's last register its reserve | the same | −0.2 / −0.2 / −0.0% | **3 / 2 / 2** | – |
+| FP 64: a starved hart takes the last one, its sibling waiting | the same | −0.2 / −0.5 / −0.2% | **2 / 2 / 2** | – |
+| FP 64: homes split (each hart's f0–f15 in F0, f16–f31 in F1) | the same | −0.2 / −0.1 / −0.1% | **0 / 0 / 1** | – |
+| FP 64: an fld short of F1 cracked into F0 (+4 cycles) | the same | −0.2 / −0.3 / −0.1% | **1 / 1 / 1** | 1.0 |
+| FP 64: P4's results into F1 when short | the same | +0.1 / −0.1 / 0.0% | **2 / 1 / 1** | 4.9 |
+| **FP 64: across both ways** (each bank's write port takes either source) | **the same** | **0.0 / 0.0 / 0.0%** | **0 / 0 / 0** | 7.1–7.3 |
+| ... a crossed write 2 cycles late | the same | −0.3 / −0.6 / −0.5% | 0 / 0 / 0 | 7.5–7.6 |
+| ... a crossed write 4 cycles late | the same | −0.8 / −1.0 / −0.7% | 0 / 0 / 0 | 8.0–8.1 |
+
+**A lone hart** (37 programs):
+
+| FP banks and rule | Against FP 96 (30 / 120 / 250) | Largest loss at 120 | Deadlocks |
+|---|---|---|---|
+| FP 64, the reserve | −0.01% | tk_dgemm −0.3% | **m7_fprestore, m7_fprestore2, m7_fpcompute** |
+| FP 64, a starved hart's priority | 0.00% | – | **m7_fprestore2** |
+| FP 64, homes split | 0.00% | – | none |
+| FP 64, an fld cracked into F0 (+4) | −0.09 / −0.04 / −0.04% | nbody −1.8% | none |
+| FP 64, P4's results into F1 | −0.02% | tk_dgemm −0.3% | **m7_fprestore, m7_fprestore2, m7_fpcompute** |
+| **FP 64, across both ways** | **0.00%** | nbody −0.2% | **none** |
+| ... a crossed write 2 cycles late | −0.04 / 0.00 / −0.01% | nbody −0.9% | none |
+| ... 4 cycles late | −0.10 / −0.05 / −0.06% | nbody −2.2% | none |
+
+*The deadlocked pairs:*
+- *the reserve: m7_fprestore2 with itself (at 30), m7_fprestore2 + nbody, CoreMark + m7_fprestore;*
+- *a starved hart's priority: the two-hart double restore and m7_fpcompute with itself;*
+- *homes split: the double restore at 250;*
+- *the crack: CoreMark + m7_fprestore;*
+- *P4's results into F1: the double restore (at 30) and m7_fprestore2 + nbody.*
+
+**What it shows:**
+- **Every rule that keeps an op in its own bank deadlocks,** as the structure says:
+  - **The reserve (5a's rule at 64) deadlocks a lone hart's single FP restore,** the 32 flds Linux runs at each switch to a task that used the FPU. The sleeping sibling's 32 f registers sit in F1, so the hart gets 31 there and needs 33.
+  - **It also deadlocks CoreMark beside an FP restore.** The integer-only hart's 32 f registers stay in F0, so the FP hart's FP results get 31 there. One hart doing integer work beside an FP task is ordinary under Linux.
+  - **A starved hart's priority adds a deadlock.** Its sibling waits, so neither can free anything once a bank holds both harts' registers (m7_fpcompute with itself).
+  - **Homes split** saves the lone hart: neither bank holds more than 16 parked registers. Two harts that both restore still fill F1 (at 250).
+  - **One direction of crossing is not enough.** Loads into F0 alone leave F0 short beside an integer-only sibling (CoreMark + m7_fprestore); P4's results into F1 alone leave the restores stuck in F1.
+- **Across both ways never deadlocks,** here or by construction:
+  - a hart whose op can rename into neither bank has no register on its lists, and its sibling has at most one free in each bank to keep;
+  - its own older ops still commit, and each frees a register onto its lists that it can use in either bank;
+  - so it can stay stuck only with none of its own in flight. Then at least 62 of the 128 FP registers (128 less the 64 architectural and the sibling's 2) would be the sibling's in flight, more than the sibling's half of the ROB holds (40);
+  - a lone hart's in-flight ops are all its own, and they commit and free theirs.
+- **Its throughput equals FP 96** when a crossed write costs nothing extra: the 42 and the FP pairs are identical, and a lone hart loses 0.00% (nbody −0.2%).
+- **Crossing is routine in FP code at 64,** not only an escape:
+  - a lone hart crosses 10–44 times a kilo-instruction on nbody, tk_dgemm, ms_stream, ms_spmv and minver, and dgemm pairs 95–170 times;
+  - most look like FP loads going into F0, because a sleeping or second hart's 32 f registers hold half of F1. With only loads allowed across, nbody still crosses 23 times a kilo-instruction against 35 both ways; tk_dgemm, ms_stream and minver cross as often either way.
+  - So the crossed write must be fast. At 2 cycles late, FP pairs lose 0.3–0.6% (nbody alone −0.9%); at 4, 0.7–1.0% (nbody −2.2%). The 42 never move.
+
+**The hardware** (for core-2 and fpu-2 to cost; my sketch, not a measurement):
+- **`tg_fprf`:** each bank's one write port gains a 2:1 select on 64 data bits and the 6-bit index (P4's result or a load's), with arbitration when both want one bank in a cycle.
+  - That collision is the "late" rows above. A loser held one cycle is about the +2 row.
+- **Rename:** the bank is picked per op. It is the op's own bank when the hart has a register there (its list or a transfer), else the other bank. The FP register name already carries the bank bit, so no field widens.
+- **Other paths:**
+  - the LQ keeps an FP load's bank bit beside its index;
+  - each bank's ready-table set port takes either source;
+  - the wakeups (tags for P4, LLTs for loads) don't depend on the bank.
+- **My rough size:** 150–300 LUTs a core, against FP 96's +1,575. FP 64 itself stays as the plan sized it.
+
+**What to decide** (the coordinator's; the LUT saving is over DR-154's 1,200 a chip, so it may be the user's):
+- **FP 96** (5a as merged): safe and measured, +3.15K LUTs a chip.
+- **FP 64 with renaming across both ways:** safe by construction. On my rough figure it saves about 2.6–2.8K LUTs a chip against FP 96. It costs 0–0.6% on FP pairs, depending on how fast fpu-2 makes the crossed write; at 4 cycles late, up to 1.0%.
+- **FP 64 with any rule that keeps ops in their bank:** not safe. A lone hart's FP restore deadlocks.
+- **Recommendation:** FP 64 with renaming across both ways, if core-2 and fpu-2 cost it well under FP 96's and the crossed write within about 2 cycles. If not, keep 96.
+
+**Decisions:** none here. The model's new switches (`prf_fp_xbank`, `prf_fp_xbank_lat`, `prf_fp_homes`, `prf_xfer` 3) and `m7_fpcompute` change no earlier result.
+
+**Learned:**
+- **A reserve can't fix a capacity deadlock.** When architectural state alone fills a bank, there's nothing to reserve.
+- **An integer-only sibling is the same hazard as a sleeping one.** Its parked f registers take half a bank. The pairs need an integer + FP case, not only FP + FP.
+- **The second destination is also capacity.** At 64 it is the FP rename window, so its speed matters more than its rarity.
+
+### 13.14 Step 5's gap: the RTL's one RN stage, and decode's room check (10-20)
+
+*The coordinator asked for this check of core-2's diagnosis (10-20), before core-2 builds the fix.*
+- *core-2's 5c pair runner on f2936949 measured 1.221 at 30 cycles (memory 1.274, compute 1.172, mixed 1.219), against the model's 1.279 (§13.12, revision 9).*
+- *core-2's diagnosis: the RTL has one RN stage. A thread's group that cannot rename (its ROB, LQ or SQ half, its registers) sits at RN, and the sibling's group waits behind it in decode.*
+- *TG-STALL2 counts RN holding the other thread while that thread had room: 53.4% of a memory pair's cycles, 38.5% of a mixed pair's, 6.0% of a compute pair's.*
+- *The model's rename skips a stalled thread (D7), so it never had this stall.*
+- *core-2's fix: decode hands RN a thread's group only when the thread's registered room flags, a cycle late, say it fits; otherwise decode serves the other thread.*
+
+*The model (`m7_smt.py --rnstall`):*
+- *Switches:*
+  - *`smt_rn_one` is RN as the RTL has it. A thread whose group stalls (any reason) keeps RN until the group moves.*
+  - *`smt_rn_room` is the fix: 1, core-2's flags (ROB, LQ and SQ halves, registers), a cycle late; 2, the issue queues' rows too; 3, as 2 with the flags of the cycle itself.*
+  - *`smt_commit_rr` tries the RTL's commit turns, chosen a cycle ahead among threads with entries.*
+- *Setup:*
+  - *verif-2's final pair set with the runner's barrier, addresses and finish (§13.12);*
+  - *step 5 as built (no caps, the drain's priority), and step 7's two forms;*
+  - *rtl_m2 revision 9, at 30, 120 and 250 cycles.*
+- *Two bases for WS:*
+  - *each program alone on the merged window (§13.12's, and exit 2's once D2 merges at step 6);*
+  - *each alone on its half, as the RTL's step-5 alone runs (hart 1 parked, before D2), over the 37 pairs the RTL's run reports.*
+- *With the switches off, every result is identical to 8ad0acc0's (14 runs on tanager_v1, rtl_m2 and step-5 pairs).*
+
+**Step 5, the 42 pairs, merged basis** (30 / 120 / 250 cycles):
+
+| Rename | WS | memory + memory | compute + compute | mixed | Hung | RN keeping the sibling out at 30 (memory / compute / mixed) |
+|---|---|---|---|---|---|---|
+| Skips a stalled thread (the model before) | **1.279 / 1.266 / 1.246** | 1.231 / 1.189 / 1.167 | 1.264 / 1.267 / 1.270 | 1.345 / 1.348 / 1.306 | 0 | – |
+| **1: one RN register (the RTL as built)** | **1.178 / 1.138 / 1.120** | 1.137 / 1.113 / 1.101 | 1.236 / 1.236 / 1.236 | 1.163 / 1.070 / 1.034 | 0 | 45.8 / 3.0 / 36.2% (the RTL: 53.4 / 6.0 / 38.5%) |
+| **1 + 2: core-2's fix** (ROB, LQ, SQ, registers; a cycle late) | **1.233 / 1.220 / 1.206** | 1.176 / 1.140 / 1.124 | 1.239 / 1.242 / 1.243 | 1.286 / 1.281 / 1.255 | 0 | 40.7 / 2.7 / 22.5% |
+| 1 + 2 with the issue queues' rows, a cycle late | 1.235 / 1.231 / 1.213 | 1.191 / 1.157 / 1.134 | 1.236 / 1.239 / 1.241 | 1.279 / 1.299 / 1.268 | 2 / 1 / 1 | 17.3 / 1.5 / 11.4% |
+| **1 + 2 with the issue queues' rows, the cycle's own flags** | **1.275 / 1.262 / 1.246** | 1.224 / 1.183 / 1.162 | 1.263 / 1.266 / 1.268 | 1.340 / 1.341 / 1.312 | 0 / 1 / 1 | 6.5 / 0.0 / 4.9% |
+| 1 + the RTL's commit turns, as modelled | 1.154 / 1.119 / 1.108 | 1.102 / 1.072 / 1.069 | 1.216 / 1.216 / 1.215 | 1.146 / 1.075 / 1.048 | 7 / 5 / 5 | 48.1 / 3.9 / 41.4% |
+
+**Why RN is held** (switch 1, 30 cycles; the share of a pair's cycles, memory / compute / mixed): issue-queue rows 23.1 / 2.7 / 10.4%, the SQ half 6.1 / 0.1 / 0.7%, the LQ half 1.5 / 0.0 / 2.1%, the ROB half 1.0 / 0.1 / 1.8%, registers 0. With core-2's fix the issue-queue holds stay (26.9 / 2.7 / 13.0%): its flags don't see them.
+
+**At 30 cycles on the RTL's basis** (the 37 pairs the RTL's run reports, against each program alone on its half):
+
+| | WS | memory + memory | compute + compute | mixed |
+|---|---|---|---|---|
+| **The RTL (5c, f2936949)** | **1.221** | 1.274 | 1.172 | 1.219 |
+| The model, rename skipping (before) | 1.376 | 1.397 | 1.282 | 1.454 |
+| **1: one RN register** | **1.280** | 1.293 | 1.253 | 1.293 |
+| 1 + 2: core-2's fix | 1.332 | 1.336 | 1.256 | 1.409 |
+| 1 + 2 with the issue queues' rows, the cycle's own flags | 1.370 | 1.386 | 1.281 | 1.448 |
+
+**Alone at 30 cycles** (IPC, slot 0; the RTL with hart 1 parked):
+
+| Program | The RTL | The model, on its half | The model, merged |
+|---|---|---|---|
+| ms_stream | 0.825 | 0.973 | 1.599 |
+| ms_copy | 0.375 | 0.513 | 0.654 |
+| ms_spmv | 0.581 | 0.604 | 0.737 |
+| embench_minver | 1.346 | 1.738 | 1.852 |
+| dhrystone | 1.548 | 1.420 | 1.453 |
+| ms_hashprobe | 0.386 | 0.346 | 0.350 |
+| The other 7 | | within 3% of the RTL | |
+
+**What it shows:**
+- **1.221 and 1.279 are on different bases.**
+  - At step 5 the RTL's alone runs use half the window, since D2's merge comes at step 6. stream alone runs at 0.97 on its half against 1.60 merged in the model, and copy at 0.51 against 0.65.
+  - So the RTL's WS reads high for memory pairs. On its basis the model before reads 1.376: the gap is 0.155, not 0.058.
+- **Switch 1 reproduces the stall.**
+  - It keeps the sibling out 46 / 3 / 36% of memory / compute / mixed cycles, against TG-STALL2's 53 / 6 / 39%.
+  - It closes 0.096 of the 0.155 (62%): memory 1.397 → 1.293 against the RTL's 1.274, mixed 1.454 → 1.293 against 1.219.
+- **What is left is mostly compute pairs: 1.253 against 1.172.**
+  - RN holds them only 3% of the time, yet their two threads' summed IPC is still 10.6% above the RTL's (1.897 against 1.715). The memory and mixed pairs' sums are 10% and 15% above.
+  - The alone runs differ too (minver 1.346 in the RTL against 1.738 in the model, dhrystone 1.548 against 1.420), which moves single pairs both ways.
+  - **Commit turns don't explain it.** The RTL's commit turns, as modelled (chosen a cycle ahead), cost 2% more. But they hang 7 pairs at 30 cycles, 6 of which the RTL runs (5 of those with stream), so they are not what the RTL does.
+  - Leads for core-2's counters, in compute pairs: commit cycles whose chosen thread commits nothing while the other could, and decode slots left empty when a thread has under a group ready.
+- **core-2's fix recovers about half of the stall at step 5:** 54 / 64 / 68% of switch 1's loss at 30 / 120 / 250 (1.233 / 1.220 / 1.206).
+  - It clears the ROB, LQ and SQ holds. The issue-queue holds, most of them, remain.
+  - With the issue queues' rows in a check made in the decode cycle itself, it recovers 96–100% (1.275 / 1.262 / 1.246).
+  - The same check a cycle late does no better than core-2's: the stale flags let a thread at its limit take RN again right after each dispatch.
+
+**At step 7** (the 42, merged basis, 30 / 120 / 250):
+
+| Step 7 form, and rename | WS | Hung |
+|---|---|---|
+| 50% caps, a bank's last row kept: rename skipping (§13.12) | 1.302 / 1.316 / 1.301 | 0 |
+| ... 1: one RN register | 1.125 / 1.094 / 1.080 | 7 |
+| ... 1 + 2: core-2's fix | 1.181 / 1.176 / 1.164 | 8 / 7 / 7 |
+| ... 1 + 2 with the issue queues' rows, the cycle's own flags | 1.223 / 1.232 / 1.220 | 1 / 0 / 0 |
+| 75% caps, never a whole bank: rename skipping | 1.269 / 1.297 / 1.292 | 0 |
+| ... 1 + 2: core-2's fix | 1.126 / 1.127 / 1.124 | 0 |
+| ... 1 + 2 with the issue queues' rows, the cycle's own flags | 1.228 / 1.239 / 1.240 | 0 / 1 / 0 |
+
+- **With one RN register the caps can't stop starvation.**
+  - A memory thread at its cap stalls, and its group then holds RN for a miss latency. The 7 hung pairs are chase8's, its sibling's window empty.
+  - The "last row kept while the sibling waits" rule has a further risk. It reads the sibling's last stall, which goes stale while the sibling waits in decode, so with one RN register it can keep a row for a thread that cannot reach it.
+- **core-2's fix doesn't change that.** "Never a whole bank" avoids the hangs but reads 1.126, since compute pairs then hold RN 8% of the time.
+- **Even the best check leaves step 7 about 0.07 below rename skipping:** 1.22–1.24 against 1.27–1.32. Exit 2 then misses.
+
+**What to decide** (the coordinator's, with core-2):
+- **A. core-2's fix as planned:** registered flags for ROB, LQ, SQ and registers.
+  - Step 5: about half the loss back.
+  - Step 7: 7–8 starving pairs with 50% caps, or 1.126 with never a whole bank.
+  - Exit 2: missed.
+- **B. The room check including the issue queues' rows, caps and the bank rule, made in the decode cycle.**
+  - Step 5: about as rename skipping.
+  - Step 7: 1.22–1.24 with one starving pair at one latency.
+  - Exit 2: missed by about 0.07.
+  - More logic and a longer path into decode's choice: core-2 to cost.
+- **C. A second RN register, one per thread, so a stalled group never blocks its sibling,** as the model had assumed.
+  - Step 7: 1.302 / 1.316 / 1.301 (50% caps, last row kept).
+  - Exit 2: met, thinly (§13.12).
+  - Cost: a second group register at RN and a select into rename. My rough guess is a few hundred LUTs and about 400 FFs a core; core-2 to cost.
+- **Recommendation:** C, if core-2's cost is within DR-154's limits, since exit 2 at step 7 depends on it in the model. Otherwise B, knowing exit 2 then likely misses. A alone is not enough for step 7.
+
+**On revision 10 (10-21, area_recovery.md §6.19).** This section was run again with fpu-2's filter C in the preset (`results/m7_smt_rv64gc.json`: "rnstall" is revision 10's, "rnstall_rev9" revision 9's). The picture is the same:
+
+| Merged basis, the 42 (30 / 120 / 250) | Step 5 | Step 7 (50% caps, last row kept) |
+|---|---|---|
+| Rename skips a stalled thread (C, a register per thread) | 1.292 / 1.262 / 1.241 | 1.322 / 1.311 / 1.295 |
+| 1: one RN register (the RTL as built) | 1.182 / 1.127 / 1.110 | 1.137 / 1.087 / 1.072, 7 hung |
+| 1 + 2: core-2's room check | 1.243 / 1.214 / 1.200 (1 hung at 30) | 1.196 / 1.176 / 1.163, 7 hung |
+| 1 + 2 with issue rows, the cycle's own flags | 1.289 / 1.258 / 1.238 | 1.236 / 1.222 / 1.206 |
+
+*On the RTL's basis at 30 (its 37 pairs, alone on its half): the RTL 1.221; the model with rename skipping 1.397, with one RN register 1.288, with core-2's check 1.350.*
+
+**For verif-2:**
+- Exit 2 at step 7 must use alone runs on the merged window, after step 6. Step 5's half-window alone runs read memory pairs high.
+- `run_pair.py` reports NaN WS for the two same-program pairs (chase8 + chase8, CoreMark + CoreMark), so its group means leave them out.
+
+**Decisions:** none here. The switches (`smt_rn_one`, `smt_rn_room`, `smt_commit_rr`) are off by default, with presets unchanged. The RTL's pair run is kept as `results/pair_rtl_5c_f2936949.json`.
+
+**Learned:**
+- **A stage shared by two threads must not hold one thread's stalled work,** or the other thread's progress depends on the first's slowest resource.
+- **Room flags a cycle late re-admit a thread at its limit right after each dispatch.** A check that keeps a stalled group out has to see the same cycle's state, issue rows included.
+- **Compare weighted throughput on one basis.** Half-window alone runs raised the RTL's step-5 WS by about 0.1 and hid most of the model's gap.
+
+### 13.15 Step 7 in fpu-2's form: the bank rule, ICOUNT, and the caps while a sibling sleeps (10-21)
+
+*The coordinator asked about step 7 with C (a rename register per thread, DR-178 as amended) in fpu-2's form:*
+- *R1: a 50% cap per issue queue, counting a thread's rows and its groups at dispatch and rename;*
+- *R2: a thread never takes a bank's last free row while its sibling's waiting group needs a row there, for every bank that group needs;*
+- *R3: no group ever waits in the shared dispatch stage.*
+
+*The questions:*
+- *What does ICOUNT at fetch add over round robin? ICOUNT counts the issue-queue rows each thread holds, as tg_issue will export them, a cycle late. Does counting decode and rename too matter? The bar is about 0.5% weighted.*
+- *Does lifting the caps while the sibling is parked in WFI, before step 6, cost a pair whose sibling wakes?*
+
+*The model (`m7_smt.py --bankrule --icount --caplift`): verif-2's second final set, rtl_m2 revision 10, the drain's priority; WS over the 42 on the merged basis; hangs over the 42 and §13.4's 16 working-set pairs.*
+- *R1 is `smt_iq_cap` 50. The model writes a group's rows in the cycle it dispatches, so no group is ever in flight uncounted.*
+- *R2 is `smt_iq_cap_bank` 4 (new). The sibling's waiting group is its next decode group.*
+- *R3 holds with C: a stalled group waits in its own thread's rename register.*
+- *Fetch (`smt_fetch`, new values 2 and 3): round robin (1); ICOUNT on the issue-queue rows each thread holds, a cycle late (2); ICOUNT on the fetch queue, decode, rename and the issue queues, a cycle late (3); the same, this cycle (0, §13.12's).*
+
+**1. R2 as worded costs 2.5–3.5% against §13.12's bank rule, with the same fetch.** Splitting its two changes (`smt_iq_cap_bank` 5 and 6, new):
+
+| Bank rule (C, 50% caps; 30 / 120 / 250) | ICOUNT this cycle (§13.12's) | Round robin | ICOUNT on rows, a cycle late |
+|---|---|---|---|
+| 3: never all of a bank's rows, for the bank the sibling waits on (§13.12) | 1.304 / 1.312 / 1.300 | 1.296 / 1.309 / 1.297 | 1.301 / 1.309 / 1.298 |
+| 5: not a bank's last free row, for the bank the sibling waits on | 1.276 / 1.286 / 1.279 | 1.271 / 1.285 / 1.275 | 1.273 / 1.287 / 1.277 |
+| **6: never all of a bank's rows, for every bank the waiting group needs** | **1.306 / 1.315 / 1.303** | **1.299 / 1.311 / 1.300** | **1.303 / 1.313 / 1.302** |
+| 4: R2 as worded: not a bank's last free row, for every bank the waiting group needs | 1.258 / 1.272 / 1.266 | 1.258 / 1.269 / 1.264 | 1.255 / 1.270 / 1.264 |
+
+- **No form hangs** any of the 42 pairs or the 16 working-set pairs.
+- **What costs is "the last free row".** The two wordings differ only when one row of the bank is free and the sibling holds some of the others.
+  - "Never all of a bank's rows" lets the thread take the row then. It is stopped only when it holds every other row.
+  - "Not the last free row" keeps the row for the sibling even then.
+- **Why that costs:** in a mixed pair the memory thread is nearly always waiting, its group needing a load row and often an ALU row.
+  - R2 then keeps the last free row of each of those banks from the compute thread, though the memory thread's own rows there will free a row for it.
+  - Mixed pairs fall from 1.468 to 1.364 (form 6 against 4), memory pairs from 1.235 to 1.201, and compute pairs from 1.231 to 1.217.
+- **Naming every bank is right.** With "never all", it adds 0.2–0.3% over naming one (6 against 3). It is also the form §13.4 expected to remove the deadlocks left at 75% caps (not run here).
+- **The fix is one more condition on R2: "… and the sibling holds none of that bank's rows."** With one row free and none of the sibling's, the thread holds all the others, so this is form 6 exactly.
+  - **Cost:** per bank, whether any of its rows is the sibling's: an OR over the rows' valid and tid bits, which the rows already store. My guess is a few tens of LUTs a core, against R2 as worded; fpu-2 to cost.
+  - **Throughput:** +2.8 to +3.8% over R2 as worded, and no hang.
+
+**2. ICOUNT adds 0.0–0.3%, under the 0.5% bar** (R2 as worded):
+
+| Fetch | WS (30 / 120 / 250) | Against round robin |
+|---|---|---|
+| Round robin | 1.258 / 1.269 / 1.264 | – |
+| ICOUNT on the issue-queue rows, a cycle late | 1.255 / 1.270 / 1.264 | −0.24% / +0.03% / 0.00% |
+| ICOUNT on the fetch queue, decode, rename and the rows, a cycle late | 1.258 / 1.270 / 1.264 | −0.01% / +0.05% / 0.00% |
+| The same, this cycle | 1.258 / 1.272 / 1.266 | +0.03% / +0.25% / +0.18% |
+
+- **With form 6:** ICOUNT on rows, a cycle late, reads +0.31 / +0.12 / +0.14% over round robin.
+- **Counting decode and rename doesn't matter:** within ±0.2% of the rows alone.
+- **No hang** with any.
+- **Why so little:** with 50% caps no thread can fill a queue. That is what ICOUNT prevented in §13.3, where it gave +0.2–0.5% at 75% caps.
+- **Recommendation: round robin.** ICOUNT's per-thread counts and compare cost LUTs for at most 0.3%.
+  - At 30 cycles, form 6 reads 1.299 with round robin and 1.303 with ICOUNT. Both are within the model's ±0.05 of the bar, so ICOUNT doesn't change the outlook.
+
+**3. Lifting the caps while the sibling sleeps costs the waking task up to a few hundred cycles a wake.**
+
+*The test (`bench/m7/wfiburst.c`, new):*
+- *A task wakes, runs a burst of about 450 loads and integer ops on 64 words, and sleeps in WFI, 200 times.*
+- *Each WFI sleeps 2,000 or 10,000 cycles, as a timer's wake (`wfi_sleep`, new).*
+- *While the task sleeps with an empty window, the caps and the bank rule don't bind its partner (`smt_cap_lift`, new).*
+- *The partners are each memory kernel, CoreMark and Dhrystone. The form is R2 as worded with ICOUNT on rows, and the halves stay static (before step 6).*
+- *Measured: the task's cycles a burst (its region less its sleeps), and its partner's IPC.*
+
+| Partner (30 / 120 / 250) | Task's burst, 2,000-cycle sleeps | Partner's IPC | Task's burst, 10,000-cycle sleeps | Partner's IPC |
+|---|---|---|---|---|
+| gather | +1.3% / +5.5% / +17.3% | +36% / +34% / +33% | +13.6% / +6.3% / +13.1% | +45% / +45% / +44% |
+| chase8 | +10.0% / +4.0% / +2.3% | 0 | +3.7% / +16.6% / +32.2% | 0 |
+| stride | −0.9% / +0.2% / +2.3% | within 0.2% | −1.9% / −1.1% / +1.7% | −1.7% / −0.3% / −0.2% |
+| spmv, hashprobe, stream, copy | within 1% | within 1.3% | within 1.4% | within 1.5% |
+| CoreMark | within 0.2% | +1.3% | within 0.2% | +1.4% to +1.5% |
+| Dhrystone | within 0.1% | −0.8% | within 0.3% | −0.4% to −0.5% |
+
+- **The waking task pays beside a partner that fills the queues:**
+  - 142 cycles a wake beside gather at 250 cycles with 2,000-cycle sleeps (5% of its period);
+  - 372 cycles beside chase8 at 250 cycles with 10,000-cycle sleeps (3.3%).
+- **Why:** while the task sleeps, its partner takes rows past its cap. When the task wakes the caps bind again, but its ops wait for those rows to drain, each up to a miss.
+- **The partner gains up to 45% (gather).** That is what 50% caps cost a lone memory thread with independent misses. chase8 gains nothing: its chains can't use more rows.
+- **Recommendation: keep the lift.**
+  - The cost to a waking task is small, and the gain goes to a lone memory-bound thread, the common case on a lightly loaded system.
+  - From step 6, D2's merge lifts the caps for a lone thread anyway (`lone_caps` 1).
+
+**Decisions:** none here. The R2 form and ICOUNT are the coordinator's, with fpu-2. Under DR-154, keeping R2 as worded would trade about 3% for a few tens of LUTs, over the 1% line.
+
+**Learned:**
+- **A reservation must not hold a row for a thread that will free one itself.** Keeping the last free row for a waiting sibling that already holds rows in the bank throttles the fast thread for nothing.
+- **State a rule's guarantee in one exact form.** §13.4 described the bank rule two ways, "never all of a bank's rows" and "never the last free row", and they differ by 3–4% at step 7.
