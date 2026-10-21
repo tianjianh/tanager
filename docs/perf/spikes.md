@@ -1453,11 +1453,11 @@ All four synthesize cleanly: no forward references and no implicit nets, with 12
   - step 7's caps, +0.2–0.4K.
   That puts hu1 at about 118.0–118.8K after `opt_design`, still over the device.
 - **So M7's product chip needs about 2–7K LUTs back before the URF-on build places:** about 2K just to place at the device's edge, about 7K to reach the 96% where this chip still closes 100 MHz. A lower clock comes only after every other method (DR-177).
-- **The recorded levers** (DR-167, area_recovery §7.8):
-  - PMP with 8 entries: 2,710, plus about 1.7K of hart 1's;
+- **The recorded levers left** (DR-167, area_recovery §7.8):
   - the shared LD/STA PMP checker: 0.9–1.8K, small IPC;
   - the FP and LD queue trims: 0.8K, −0.2%;
   - radix-4 divide: 1.25K, −2.4% single-thread.
+- **PMP with 8 entries is already in these chips:** it has been the default since 10-19 (9db66da, `TG_PMP_ENTRIES`), and the netlists confirm it. The CSR's `pmpaddr` store is `DEPTH(NPMP * NT)` = 16 (8 entries × 2 harts; 16 entries would make it 32). The three checkers keep their 8-entry sizes in hn0 as in §8.17's m7b0: 446 (fetch), 427 (loads) and 442 (stores) LUTs.
   `opt_design`'s other directives on hu1's synthesis are below.
 - **`opt_design`'s directive is not the lever** ([`q_opt_directives.tcl`](../../fpga/spikes/tcl/query/q_opt_directives.tcl) on hu1's synthesis):
   - ExploreArea, the flow's own, leaves 119,295 LUTs;
@@ -1465,6 +1465,56 @@ All four synthesize cleanly: no forward references and no implicit nets, with 12
   - AddRemap, Default and ExploreWithRemap leave 1,437–1,693 more.
 
 Results: `fpga/spikes/results/h100_hu0/`, `h100_hu1/` (their `errors.txt` and summaries), `h100_hu0_synth/`, `h100_hu1_synth/`, `h100_hp0_synth/`, `h100_hn0_synth/`, and `h100_hu_util/`. The last holds the hierarchical utilization of hn0, hp0, hu0 and §8.17's m7b0 ([`q_util_hier.tcl`](../../fpga/spikes/tcl/query/q_util_hier.tcl)), and the unit diffs from [`util_diff.py`](../../fpga/spikes/scripts/util_diff.py).
+
+#### Where hart 1's LUTs go (2026-10-21)
+
+**Asked** (the coordinator): where inside fetch, rename, the LSU, the CSR file and the ROB hart 1's LUTs went, and which of them are flip-flop state behind wide muxes that LUTRAM with the thread as an address bit could hold. The aim is a ranked list of no-IPC rewrites, for core-2 and fpu-2 to take after M7's features (DR-155). Synthesis only.
+
+**Method:**
+- **hz0 = hn0 with `TG_HART1=0`**, on the same commit (071de15c) with the same flow. So hz0 → hn0 is hart 1 alone.
+- **Per unit:** the hierarchical reports, in `diff_hz0_hn0.txt`.
+- **Per signal:** every LUT and flip-flop cell, named for the signal it drives or holds ([`q_cell_groups.tcl`](../../fpga/spikes/tcl/query/q_cell_groups.tcl), [`cell_groups_diff.py`](../../fpga/spikes/scripts/cell_groups_diff.py), `diff_cells_hz0_hn0.txt`). Cell counts run 0.6–1.0× the report's LUTs, because synthesis packs pairs of small LUTs, such as 2:1 muxes sharing a select, into one.
+
+**Hart 1 costs +13,319 LUTs a chip at synthesis** (110,874 → 124,193), 1,808 of them LUTRAM, and +4,909 flip-flops. Steps 4–5c add almost nothing with hart 1 off: hz0 is §8.17's m7b0 less its filler and injectors, within about 0.2K.
+
+| Core 0 | LUTs added | Where (LUT cells, from the cell groups) | Form |
+|---|---|---|---|
+| Rename | +1,737 | the five free lists +1,112 (the two FP lists +700: 96 deep, so their pointers wrap by compare); the maps +216; `de_take` +124; FP ready bits +88 | per-thread pointers and counts (the lists are already LUTRAM at {tid, row}) |
+| Fetch | +1,708 | the waiting-block PCs `spc_s_q` +793 (and 126 flip-flops); the PMP checker's descriptor select +561; the FTQ history's write data +170; miss state +110; the two histories +126; the faulting page +54 | per-stream registers with several writers, and select logic |
+| LSU | +987 | the two PMP checkers' descriptor selects +1,147 cells (about 0.58K LUTs, dual-packed); forwarding's thread match +132; DTLB +111; the page walker +102 | select and compare logic |
+| FP unit | +847 | the register file's banks of 96 (`u_rf` +836) | DR-179's |
+| CSR file | +490 | the read mux `ex_rdata` +285, the timer compares +65; 994 flip-flops of per-hart state | per-hart registers, most read for both harts at once |
+| ROB | +469 | the per-thread exception records and their capture, WFI counters +81 | per-thread capture logic |
+| Second RAS | +313 | thread 1's stack and its pointers | per-thread stack |
+
+**Findings:**
+- **Hart 1's LUTs are mostly duplicated control and selection logic, not flip-flop arrays behind a mux.**
+- **The largest single item crosses units: the PMP descriptor selects**, about 1.8K cells a core and about 1K LUTs. Every checker (fetch, loads, stores, the walker) selects its thread's eight descriptors (8 × about 70 bits) from the CSR file's two sets (`pmp_d_h`). That is logic in front of eight parallel compares, and neither alternative pays:
+  - a LUTRAM descriptor store, one read port per checker, costs about the same LUTs and puts a LUTRAM read into fetch's PMP path (+0.36 ns in core 1, §7.1);
+  - comparing against both harts' entries and selecting the eight results costs about what it saves (the compares are about 50 LUTs an entry).
+- **Fetch's per-stream registers have several writers in one cycle** (a refetch or restart on one stream, a redirect on the other), and the next F1 PC reads the waiting PC's next value, not the register. So a one-write-port LUTRAM doesn't hold them as they stand.
+- **The CSR file's per-hart registers are mostly read for both harts at once**: the interrupt logic (`mie`, `mideleg`, `stimecmp`), decode's view, the MMU (`satp`), the counters (`mcountinhibit`) and the PMP descriptors (`pmpcfg`). Its cold CSRs (the trap vectors, scratch, EPC, cause and tval) are LUTRAM already.
+- **The biggest units overall in core 0 (hn0):** LSU 13.2K LUTs, fetch 7.8K, FP 7.6K, exec 7.5K, rename 5.4K, issue 5.3K, ROB 3.1K, decode 2.0K, CSR 1.8K.
+
+**Ranked no-IPC rewrites** (LUTs a chip, estimated from the cell groups):
+
+| # | Rewrite | Where | LUTs a chip | Status |
+|---|---|---|---|---|
+| 1 | FP banks of 64 with renaming across both (DR-179) | FP register file, FP free lists, ready bits, map | about −2.6K (the coordinator's figure). Hart 1's share measured here: the 96-entry banks +1.7K, the FP lists' 96-deep wrap about +0.7K, ready bits and map about +0.4K | planned |
+| 2 | Each stream's next PC as one flat priority select (redirect, restart, refetch, F1's next, hold), with the shared sources computed once | fetch: `spc_s_q`, `fpc_q` | about −0.4 to −0.6K | for core-2: which same-cycle paths keep fetch zero-bubble |
+| 3 | `mcounteren`, `scounteren`, `mcontext` and `scontext` into the cold-CSR LUTRAM (at {tid, csr}) | CSR file | about −0.2K | only CSR instructions read them |
+| — | Not levers as they stand: rename's per-thread free-list pointers and counts, the second RAS (an operation and a repair can come for different threads in one cycle), the ROB's exception capture, the LSU's per-thread selects | | — | concurrent per-thread updates or parallel reads |
+
+- **With a small IPC cost:** the shared LD/STA PMP checker. It is on record at 0.9–1.8K a chip before hart 1; it now also removes one descriptor select, about 0.6K a chip more.
+- **The arithmetic does not close yet:**
+  - hu1's 119,295 LUTs after `opt_design`, less the rest of M7 (−0.3 to −1.2K, DR-179 included), less rewrites 2 and 3 (−0.6 to −0.8K), leaves 117.3–118.4K. That is still at or over the device.
+  - The shared checker brings it to about 114.9–116.9K (98–100%), still above the 96% (112.4K) at which this chip has closed 100 MHz.
+- **The remaining room:**
+  - the product windows' +3.1K (soc-2 is reviewing them);
+  - the recorded levers with an IPC cost: the queue trims 0.8K and radix-4 divide 1.25K;
+  - rewrites inside the largest units.
+
+Results: `fpga/spikes/results/h100_hz0_synth/` and `h100_hu_util/` (`util_hz0.rpt`, `groups_hz0.tsv`, `groups_hn0.tsv`, `diff_hz0_hn0.txt`, `diff_cells_hz0_hn0.txt`).
 
 ## 9. S1: PL → PS DDR latency and bandwidth
 
