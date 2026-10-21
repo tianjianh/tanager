@@ -247,10 +247,10 @@ package tg_core_pkg;
   localparam bit SPLIT = HART1_ON;
 `endif
   // M7's step 7 (DR-175): the issue-queue caps, with hart 1 (tg_issue's flags, rename's check; smt2_report §13.4,
-  // §13.12). A thread holds at most IQ_CAP_PCT of each queue's rows (tg_cfg: 50%; TG_IQ_CAP_PCT=75 for the A/B), and
-  // the bank rule TG_IQ_BANK_RULE: 1 (the default), a thread does not take a bank's last free row while its
-  // sibling's waiting group needs a row there; 2, a thread never holds all of a bank's rows; 0, none. Neither
-  // applies while a thread waits in WFI (it holds no rows)
+  // §13.12, §13.15). A thread holds at most IQ_CAP_PCT of each queue's rows (tg_cfg: 50%; TG_IQ_CAP_PCT=75 for the
+  // A/B), and the bank rule TG_IQ_BANK_RULE: 1 (the default), a thread does not take a row that would leave it
+  // holding all of a bank's rows while its sibling's waiting group needs a row in that bank; 2, it never does; 0,
+  // none. Neither applies while a thread waits in WFI (it holds no rows)
 `ifdef TG_IQ_BANK_RULE
   localparam int IQ_BANK_RULE = `TG_IQ_BANK_RULE;
 `else

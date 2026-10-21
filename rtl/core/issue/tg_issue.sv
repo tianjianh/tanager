@@ -34,9 +34,9 @@ module tg_issue
   output logic [N_IQ-1:0][DW-1:0]      bank_free,
   output logic [N_IQ-1:0][DW-1:0]      bank_free2,    // at least two rows free (rename's steering, STEER_LA)
   // M7 step 7's caps (tg_iq; rename applies them; registered): a bank's free rows (at most 3); thread t may take n
-  // more rows of a queue under its cap ([q][t][n-1], n up to 2 DW: a group in DS and one at RN); with
-  // IQ_BANK_RULE 2, j more rows of bank k and not hold it all ([q][t][k][j-1]). The caps apply with hart 1 while no
-  // thread is parked in WFI (the ROB's wait), else all ones
+  // more rows of a queue under its cap ([q][t][n-1], n up to 2 DW: a group in DS and one at RN); with IQ_BANK_RULE 1
+  // or 2, j more rows of bank k and not hold it all ([q][t][k][j-1]). The caps apply with hart 1 while no thread is
+  // parked in WFI (the ROB's wait), else all ones
   output logic [N_IQ-1:0][DW-1:0][1:0] bank_nfree,
   output logic [N_IQ-1:0][NUM_THREADS-1:0][2*DW-1:0] room_ge,
   output logic [N_IQ-1:0][NUM_THREADS-1:0][DW-1:0][1:0] bank_left,
@@ -440,7 +440,7 @@ module tg_issue
     tg_iq #(
       .ROWS(ROWS), .DW(DW), .NCOL(NCOL), .PAYLOAD_W(PW), .CAP(CAP), .STALE(STALE), .CBLK(q == Q_FP),
       .WAKE_NOW(1'b0), .WAKE_ENC(1), .ROBW(ROBW), .DUP_SEL(DUP_SEL), .EARLY_W(EW),
-      .MX(MX), .RA(RA), .PRE_RDY(1'b0), .BANK_CAP(IQ_BANK_RULE == 2)
+      .MX(MX), .RA(RA), .PRE_RDY(1'b0), .BANK_CAP(IQ_BANK_RULE != 0)
     ) u_iq (
       .clk, .rst,
       .disp_valid(disp_we[q]), .disp_tid(dtid), .disp_dep(disp_dep), .disp_dep_ph(no_ph),
