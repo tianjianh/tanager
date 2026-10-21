@@ -831,7 +831,27 @@ module tg_lsu
   // its LQ state, not M2's outcome or the integer paths (ld_m2_will, the miss request).
   logic m2_fcol, m2_fhold, m2_fretry;
   logic fh_v_q;
-  assign m2_fcol   = EXT_FD && lqc_rd[0].dv && lqc_rd[0].fp && p4_nx_we && p4_nx_bank == lqc_rd[0].fb;
+  logic fk_hold;          // a phantom P4 write in every bank next cycle (the hold's test mode, below)
+`ifdef SYNTHESIS
+  assign fk_hold = 1'b0;
+`else
+  // Simulation only: +fhold_pct=N treats N% of the cycles as P4 writing every bank next cycle, so FP loads are held,
+  // taken and retried with or without real collisions (none before rename crosses). Its own xorshift32 sequence:
+  // the testbench's $urandom stays as it was
+  bit          fk_on;
+  int unsigned fk_pct;
+  logic [31:0] fk_r_q;
+  initial fk_on = $value$plusargs("fhold_pct=%d", fk_pct);
+  assign fk_hold = fk_on && !rst && fk_r_q % 100 < fk_pct;
+  always_ff @(posedge clk) begin
+    logic [31:0] y;
+    y = fk_r_q ^ (fk_r_q << 13);
+    y = y ^ (y >> 17);
+    fk_r_q <= rst ? 32'h6a09_e667 : y ^ (y << 5);
+  end
+`endif
+  assign m2_fcol   = EXT_FD && lqc_rd[0].dv && lqc_rd[0].fp &&
+                     ((p4_nx_we && p4_nx_bank == lqc_rd[0].fb) || fk_hold);
   assign m2_fhold  = m2_fcol && !fh_v_q;
   assign m2_fretry = m2_fcol && fh_v_q;
   // The miss request does not wait for the PMP checker either (timing: it feeds the D$'s port
@@ -1026,7 +1046,31 @@ module tg_lsu
   assign am_wdata = rep(am_new, am_size);
   assign am_take  = am_st_q == AM_RES && !m2_okw && !xr_take && !kill_t[am_t_q];
   assign fh_take  = fh_v_q && !m2_okw && !xr_take && !am_take && !kill_t[fh_tid_q] &&
-                    !(p4_nx_we && p4_nx_bank == fh_fb_q);
+                    !(p4_nx_we && p4_nx_bank == fh_fb_q) && !fk_hold;
+`ifndef SYNTHESIS
+  // A held load never outlives its thread's flush: the flush frees its LLT and its register at once (rename), so a
+  // later take would wake an LLT given out again and write a register with a new owner
+  logic fh_kill_q;
+  always_ff @(posedge clk) begin
+    fh_kill_q <= !rst && fh_v_q && kill_t[fh_tid_q];
+    if (!rst && fh_kill_q) assert (!fh_v_q) else $error("tg_lsu: a held FP load outlived its thread's flush");
+  end
+  // The hold's events, on stderr at the end with +fhold_pct (TG-FHOLD)
+  longint unsigned fk_n_hold, fk_n_take, fk_n_retry, fk_n_drop;
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      fk_n_hold <= 0; fk_n_take <= 0; fk_n_retry <= 0; fk_n_drop <= 0;
+    end else begin
+      if (m2_ok && m2_fhold) fk_n_hold <= fk_n_hold + 1;
+      if (fh_take) fk_n_take <= fk_n_take + 1;
+      if (m2_v_q && !m2_pt_q && !kill_t[t_m2] && m2_out == O_OK && m2_fretry) fk_n_retry <= fk_n_retry + 1;
+      if (fh_v_q && kill_t[fh_tid_q]) fk_n_drop <= fk_n_drop + 1;
+    end
+  end
+  final if (fk_on)
+    $fwrite(32'h8000_0002, "TG-FHOLD %m: %0d FP loads held, %0d taken, %0d retried, %0d dropped by a flush (+fhold_pct=%0d)\n",
+            fk_n_hold, fk_n_take, fk_n_retry, fk_n_drop, fk_pct);
+`endif
 
   logic [NT-1:0]           rsv_v_d;
   (* keep = "true" *) logic [NT-1:0] rsv_v_e;   // all but a trap's or xRET's clear, kept as a net

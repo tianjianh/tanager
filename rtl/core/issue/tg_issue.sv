@@ -169,7 +169,8 @@ module tg_issue
     logic                mem_uns;       // zero-extend (an FP load: raw bits)
     sqid_t               sq;            // the stores before this SQ ID are older
     logic                dst_en, dst_fp;
-    logic [LDW-1:0]      dst;           // the destination's index (an FP load: F1's, FPIDX_W bits)
+    logic                dst_fb;        // an FP load's bank (F1; F0 when rename crossed it, DR-179)
+    logic [LDW-1:0]      dst;           // the destination's index (an FP load: its bank's, FPIDX_W bits)
     llt_t                llt;
     logic [4:0]          ph;            // its PC's hash (SPEC_WAKE's filter)
     tid_t                tid;           // its thread (SPEC_WAKE: a flush drops its wakeup)
@@ -331,7 +332,7 @@ module tg_issue
         assign dpl[k] = f_ld_t'{rob: disp_pl[k].rob, imm: disp_pl[k].imm[11:0],
                                 lq: disp_pl[k].lq[LQ_IDX_W-1:0], mem_size: disp_pl[k].mem_size,
                                 mem_uns: disp_pl[k].mem_uns || fp, sq: disp_pl[k].sq,
-                                dst_en: disp_pl[k].dst_en, dst_fp: fp,
+                                dst_en: disp_pl[k].dst_en, dst_fp: fp, dst_fb: fp && fpreg_bank(disp_pl[k].dst),
                                 dst: fp ? LDW'(fpreg_idx(disp_pl[k].dst)) : LDW'(preg_idx(disp_pl[k].dst)),
                                 llt: disp_pl[k].llt, ph: ph_of(disp_pl[k].pc[15:1]), tid: disp_pl[k].tid,
                                 src1: disp_pl[k].src1};
@@ -348,7 +349,7 @@ module tg_issue
         up.sq       = b.sq;
         up.dst_en   = b.dst_en;
         up.dst_fp   = b.dst_fp;
-        up.dst      = preg_t'(b.dst);            // the index only: the LSU knows the bank
+        up.dst      = b.dst_fp ? mk_fpreg(int'(b.dst_fb), FPIDX_W'(b.dst)) : preg_t'(b.dst);   // an FP load: {bank, index}
         up.llt      = b.llt;
         up.tid      = b.tid;
         up.src1     = b.src1;
