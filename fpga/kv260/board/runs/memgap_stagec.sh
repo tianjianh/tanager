@@ -16,7 +16,7 @@ grep -E "^loaded|^fan|^pl0" $D/load_memgap.txt
 ( for i in $(seq 1 1800); do grep -a -q "MEMGAP-BRIDGE-NOW" $D/linux_shell.txt 2>/dev/null && break; sleep 2; done
   sleep 10; sudo sh $G/ps-memregs --bridge > $G/memregs_stagec.txt 2>&1; echo "ps-memregs --bridge exit $?" ) &
 LOGIN_S=2400 DBG=1 CMDS_S=5400 OFF_S=900 SH_KERNEL=u-boot.bin SH_DTB=tanager-kv260-virtio.dtb SH_TIMEOUT=9000 \
-  SH_USER=- SH_POWEROFF="sudo poweroff" SH_ARGS="--blk $P --rng --dbg" CMDS="bash ~/memgap_set.sh stagec" ./tg.sh shell
+  SH_USER=- SH_POWEROFF="sudo poweroff" SH_ARGS="--blk $P --rng --dbg" CMDS="cd ~/memgap && { [ -x memgap ] || gcc -O2 -pthread -o memgap memgap.c; } && bash ~/memgap_set.sh stagec" ./tg.sh shell
 wait
 cp $D/linux_shell.txt $G/linux_shell_memgap_stagec.txt
 tr -d '\r' < $G/linux_shell_memgap_stagec.txt | sed -n '/MEMGAP-FILES-BEGIN/,/MEMGAP-FILES-END/p' > $G/files_stagec.txt
