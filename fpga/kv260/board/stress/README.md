@@ -510,3 +510,17 @@ It meets 100 MHz at WNS +0.367 ns with 105,934 LUTs. The package is d4r1-riscv w
 - `reboot` and `poweroff` still reset the board.
 
 **s23, the short stress with the fixed tree, without the watch:** from 09:35:29 UTC (`STRESS start 2026-10-21T09:03:45Z up=157.47`, [`uart_COM5_s23_start.txt`](uart_COM5_s23_start.txt)).
+- **s23: 10 of 10 passes clean** (to `STRESS stop after pass 10, fails=0`, at 09:54 UTC). Debian stays up in RISC-V mode. Logs: [`uart_COM5_s23.txt`](uart_COM5_s23.txt), [`uart_COM5_s23_stop.txt`](uart_COM5_s23_stop.txt).
+
+**Before and after the PMP tree fix** (d4r2, RISC-V mode, no watch, 10 passes each):
+
+| | s22, the old tree | s23, the fixed tree | Change | s20, stage C (with the watch) |
+|---|---|---|---|---|
+| Pass | 116.0 s | 114.1 s | −1.6% | 114.7 s |
+| cpu | 92.77 events/s | 93.81 events/s | +1.1% | 91.02 |
+| **memory** | 127.14 MiB/s | **146.23 MiB/s** | **+15.0%** | 142.81 |
+| threads | 2,286 events | 2,323 events | +1.6% | 2,257 |
+
+- **RISC-V mode now runs at stage C's speed.** s23's memory figure (146.2) matches stage C's without the watch: s20's 142.8 with the watch's measured 2.9% taken out is 147.1, and memgap's sysbench run read 144.5–146.1.
+- cpu and threads rise less because they rarely store to memory or read the clock.
+- These are d4r2's figures in the product mode, without the watch.
