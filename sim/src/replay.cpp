@@ -4,7 +4,6 @@
 #include <cinttypes>
 #include <cstring>
 #include <deque>
-#include <functional>
 #include <memory>
 #include <set>
 #include <string>
@@ -660,55 +659,10 @@ int main(int argc, char** argv) {
     return false;
   };
 
-  // --atomic-early: each hart's records and writebacks wait in a queue of its own; at the end of a cycle all of
-  // that cycle or earlier go to the checker, the earliest first, each after the atomic of another hart its read
-  // needs and that hart's records before it (as in tanager-lockstep)
-  struct held_t {
-    uint64_t cyc = 0, idx = 0;
-    bool wb = false;
-    tr_rec_t r;
-    tr_wb_t w;
-  };
-  std::vector<std::deque<held_t>> held(o.harts);
-  uint64_t held_idx = 0, n_early = 0;
-  std::function<bool(size_t, unsigned)> deliver_head = [&](size_t b, unsigned busy) -> bool {
-    busy |= 1u << b;
-    {
-      const held_t& hd = held[b].front();
-      std::vector<const tr_rec_t*> later;
-      std::vector<std::pair<size_t, size_t>> at;
-      for (size_t h = 0; h < held.size(); h++)
-        for (size_t k = 0; !(busy >> h & 1) && k < held[h].size() && held[h][k].cyc <= hd.cyc + ATOMIC_EARLY; k++)
-          if (!held[h][k].wb && held[h][k].r.mem_st) {
-            later.push_back(&held[h][k].r);
-            at.push_back({h, k});
-          }
-      if (const int e = hd.wb ? ls.early_atomic(hd.w, later) : ls.early_atomic(hd.r, later); e >= 0) {
-        n_early++;
-        for (size_t j = 0; j <= at[size_t(e)].second; j++)
-          if (!deliver_head(at[size_t(e)].first, busy)) return false;
-      }
-    }
-    held_t it = std::move(held[b].front());
-    held[b].pop_front();
-    std::vector<tr_rec_t> rr;
-    std::vector<tr_wb_t> ww;
-    if (it.wb) ww.push_back(it.w);
-    else rr.push_back(it.r);
-    return ls.cycle(rr, ww);
-  };
-  auto deliver = [&](uint64_t upto) -> bool {
-    for (;;) {
-      int best = -1;
-      for (size_t i = 0; i < held.size(); i++)
-        if (!held[i].empty() && held[i].front().cyc <= upto &&
-            (best < 0 || held[i].front().cyc < held[size_t(best)].front().cyc ||
-             (held[i].front().cyc == held[size_t(best)].front().cyc && held[i].front().idx < held[size_t(best)].front().idx)))
-          best = int(i);
-      if (best < 0) return true;
-      if (!deliver_head(size_t(best), 0)) return false;
-    }
-  };
+  // --atomic-early: the records and writebacks go through the checker's cycle-order queue (hart_order_t); at the
+  // end of a cycle all of that cycle or earlier go, each after the atomic of another hart its read needs, as in
+  // tanager-lockstep
+  hart_order_t order(ls, plat.hartids);
 
   FILE* logf = o.log.empty() ? nullptr : fopen(o.log.c_str(), "w");
   auto dis = [&](uint32_t i) { return ls.disasm(i); };
@@ -771,7 +725,7 @@ int main(int argc, char** argv) {
           live_tags[h].erase(w.wb_tag);
           free_tags[h].push_back(w.wb_tag);
           pend.erase(pend.begin() + long(k--));
-          if (o.atomic_early) held[h].push_back({cycle, held_idx++, true, {}, w});
+          if (o.atomic_early) order.push(w);
           else wbs.push_back(w);
         }
         if (wait) continue;
@@ -844,7 +798,7 @@ int main(int argc, char** argv) {
       if (skip_next) { skip_next = false; continue; }
       if (r.mem_ld) ld_seen[r.hart] = true;
       recs.push_back(r);
-      if (o.atomic_early) held[h].push_back({r.cycle, held_idx++, false, r, {}});
+      if (o.atomic_early) order.push(r);
     }
     // Deliver due writebacks, at most wb_ports per cycle, in random order among the due ones.
     std::vector<size_t> due;
@@ -891,8 +845,8 @@ int main(int argc, char** argv) {
       for (auto& w : wbs) fprintf(logf, "%s\n", format_wb(w).c_str());
     }
     if (o.atomic_early) {  // in cycle order (above)
-      for (auto& w : wbs) held[w.hart].push_back({cycle, held_idx++, true, {}, w});
-      if (!deliver(exit_seen && pend.empty() ? ~0ull : cycle)) { status = EXIT_MISMATCH; why = ls.error(); break; }
+      for (auto& w : wbs) order.push(w);
+      if (!order.drain(exit_seen && pend.empty() ? ~0ull : cycle)) { status = EXIT_MISMATCH; why = ls.error(); break; }
     } else if (!ls.cycle(recs, wbs)) {
       status = EXIT_MISMATCH;
       why = ls.error();
@@ -946,6 +900,6 @@ int main(int argc, char** argv) {
                         (unsigned long long)ls.ext_loads_new()).c_str() : "",
          o.sb || o.atomic_early ? strfmt(" loads_old=%llu reapplied=%llu late_stores=%llu early_atomics=%llu",
                                          (unsigned long long)ls.hart_loads_old(), (unsigned long long)ls.hart_reapplied(),
-                                         (unsigned long long)ls.hart_late(), (unsigned long long)n_early).c_str() : "");
+                                         (unsigned long long)ls.hart_late(), (unsigned long long)order.early()).c_str() : "");
   return status;
 }
