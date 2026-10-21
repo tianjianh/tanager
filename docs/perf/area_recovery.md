@@ -1918,12 +1918,19 @@ The CPU-time rows use §6.12's accounting, the one §6.13 predicted in. Correcte
 - **The M7 drivers' caches** (`m7_smt.py`'s runs, `smt.py`'s pairs) now key on the preset's revision from 8 on, so no revision-7 result is reused. Revision-7 runs keep their old keys.
 
 **What is left outside 10%, and why:**
-- **crc32 (−17%): the RTL's return-address stack, most likely an RTL performance bug.**
+- **crc32 (−17%): an RTL performance bug in the LSU, which the return-address stack sets off.** This entry first blamed the stack itself; fpu-2 found the cause (the last point).
   - **Bisected** over main's 21 core merges since 10-18, on st builds: crc32 runs in 2,636,645 region cycles at bb32a580 and in 3,620,851 from aae05036 on (the M6 set's merge). Every later point gives the same.
-  - **The return-address stack is the piece.** On c6676bd5 with it off (`TG_RAS=0`), crc32 runs in 2,658,359; with TAGE off (`TG_TAGE=0`), still 3,449,374.
+  - **The return-address stack is the trigger.** On c6676bd5 with it off (`TG_RAS=0`), crc32 runs in 2,658,359; with TAGE off (`TG_TAGE=0`), still 3,449,374.
   - **Everywhere else the stack helps:** Dhrystone −35.6% (rv64gc) and −22.9% (rv64im), tk_bigcode −13.3%, CoreMark −1.6% to −6.4%, statemate −1.6%, the rest within 0.1%. crc32 alone loses 36.2%.
   - **The pattern:** crc32's loop calls a 12-instruction function (`rand_beebs`) every iteration and returns. The RTL takes 21 cycles an iteration (from its commit log) against 14 without the stack.
   - **Why a bug:** a return the micro-BTB predicts should never cost more with a stack beside it. The model keeps the intended behavior; this goes to core-2 with the reproducer (below).
+  - **The cause (fpu-2, 10-20): a store-wait replay meeting the store's drain.**
+    - A load waiting on an older store's data became ready only on the store queue's data-valid bit, a cycle after the data arrived.
+    - When that store completed as the ROB's head, it committed the next cycle and drained the cycle after. The load's replay then read its D$ row in the same cycle the drain wrote it: a row clash, a retry and a second replay.
+    - That kept crc32's loop at 21 cycles an iteration. The stack's earlier returns are what put it there.
+    - **Fix B** (42bd2f6d, `tg_lsu.sv`, on fpu-2's branch for core-2's review): the load also becomes ready on the store's data capture, so its replay reads the row before the drain writes it.
+    - **Gain:** crc32 −22.5% (3,620,946 → 2,804,879 region cycles, st, native); the other 17 programs −1.9% (Dhrystone rv64im) to 0.0%, ud −1.4%. On smt2, §6.17.
+    - **The model never had the race.** Its waiting load completes a fixed 8 cycles after the store's data (`ld_fwd_wait`), a figure calibrated on the RTL before B. §6.17 rechecks it.
 - **ud (−17%): TAGE-lite on loop exits.**
   - **TAGE is ud's whole gain:** without it, ud runs in 3,556,065 cycles, 2.3× slower.
   - **The RTL mispredicts 3× more:** with TAGE, its commit log shows 9,108 refills (gaps of 8 or more cycles after a control instruction; `scripts/rtl_mpcmp.py`) against the model's 3,093 mispredicts.
@@ -1949,7 +1956,8 @@ The CPU-time rows use §6.12's accounting, the one §6.13 predicted in. Correcte
 **Decisions:** revision 8 is mine (the model as built). The return-stack case and the TAGE study are core-2's to take or leave.
 
 **Learned:**
-- **make perf's three programs can miss a front-end pathology.** The stack is −36% on Dhrystone and +36% on crc32. A short leaf function called from a tight loop is a common shape in kernels and libraries, so a calibration set needs one.
+- **make perf's three programs can miss a pathology.** The stack is −36% on Dhrystone and +36% on crc32. A short leaf function called from a tight loop is a common shape in kernels and libraries, so a calibration set needs one.
+- **A bisect names the trigger, not always the cause** (fpu-2's finding). The merge that slowed crc32 added the stack, but the cost was an LSU race the stack's timing exposed.
 - **A feature that wins on the mean can still lose badly on one shape.** Check it per program, not on the suite's mean.
 - **Bisect on the cheapest build that shows it.** The st build ran crc32 the same as smt2 and built just as fast, so two rounds of five and four builds named the merge in about 25 minutes.
 
@@ -1987,13 +1995,83 @@ The CPU-time rows use §6.12's accounting, the one §6.13 predicted in. Correcte
 - **For fpu-2 or core-2** (the coordinator's routing, as with crc32): the change is in `tg_tage.sv`'s allocation loop, which today takes way 0 whenever it is invalid or not useful. The scratch patch is `~/tanager-build/smt2-study/tage-ud-1020-155920/alloc_patch.py`, in the worktree `rtlexp`.
 
 **Decisions:**
-- The RTL change is core-2's or fpu-2's.
-- In the model, `btage_alloc` stays 0, tg_tage as built, until the RTL changes; then `rtl_m2` revision 9 sets it to 1.
+- The RTL change is fpu-2's (the coordinator, 10-20), after crc32's fix B. It is c1c21281, on fpu-2's branch for core-2's review, and gives the scratch patch's cycles exactly (§6.17).
+- In the model, `btage_alloc` stays 0, tg_tage as built, until the RTL changes; then `rtl_m2` revision 9 sets it to 1 (checked in §6.17).
 - The probe and the trace stay as tools.
 
 **Learned:**
 - **When two models share every rule, compare their state, not their rules.** The divergence was 3% of the lookups' histories, amplified by a rule with a chaotic edge.
 - **"Invalid or not useful" should prefer invalid.** Evicting a fresh entry while a free way sits beside it thrashes two loop exits forever.
+
+### 6.17 rtl_m2 revision 9, checked before fpu-2's two RTL changes land (2026-10-20)
+
+*The coordinator routed both RTL changes to fpu-2 (10-20): crc32's fix B first (§6.15), then the TAGE allocation (§6.16). When the allocation is on main, `rtl_m2` switches to its rule. Both changes are on fpu-2's branches for core-2's review: B is 42bd2f6d (`tg_lsu.sv`) and the allocation c1c21281 (`tg_tage.sv`). This checks the switch before they land, so it is one line when they do.*
+
+*Method:*
+- *Scratch trees of main 76bb5f44, whose RTL is c6676bd5's, with B, with the allocation, and with both (applied, not committed). Each is built as the smt2 tg_vsim.*
+- *§6.15's 18 ELFs and model settings, at native (30) and 120 cycles (`scripts/rtlcal.py`).*
+- *Revision 9 is revision 8 with `btage_alloc` 1.*
+
+**fpu-2's allocation is the scratch patch.** It gives the same region cycles as §6.16's scratch build on all 18 programs (st, native).
+
+**What the changes do in the RTL** (smt2, native / 120; each column against the one before):
+
+| Program | Main, region cycles | + B | + B + the allocation |
+|---|---|---|---|
+| Embench crc32 | 3,620,895 / 3,620,808 | **−21.7 / −22.5%** | 0.0 / 0.0% |
+| Embench ud | 1,560,364 / 1,560,378 | **−6.9 / −6.9%** | **−10.7 / −10.7%** |
+| Embench minver | 272,839 / 272,889 | 0.0 / 0.0% | **−9.4 / −9.4%** |
+| Embench huffbench | 1,863,410 / 1,865,513 | +0.2 / +0.1% | **−6.8 / −6.9%** |
+| Dhrystone rv64gc | 95,759 / 92,381 | **−6.1** / −1.3% | 0.0 / −0.4% |
+| Dhrystone rv64im | 103,128 / 104,478 | −1.9 / −1.9% | 0.0 / 0.0% |
+| CoreMark A/B, rv64gc and rv64im | | −0.2% to 0.0% | −0.7% to +0.1% |
+| The other 8 | | 0.0% | −0.4% to 0.0% |
+
+- **B on the st build gives fpu-2's figures exactly:** crc32 −22.5%, ud −1.4%, Dhrystone rv64gc −1.7% and rv64im −1.9%, the rest −0.2% to 0.0%.
+- **On smt2 it moves ud and Dhrystone rv64gc more, through timing.**
+  - ud's thrash depends on fetch timing (§6.16), and B shifts it: −6.9% on smt2 against −1.4% on st. The allocation removes the thrash on both.
+  - Dhrystone rv64gc's native point loses its race (below).
+
+**The model against them** (a positive error is the model slower):
+
+| Program | RTL IPC with both (native / 120) | Model IPC, revision 9 | Revision 8 against main | Revision 8 against + B | Revision 9 against + B + the allocation |
+|---|---|---|---|---|---|
+| Embench crc32 | 1.351 / 1.366 | 1.274 / 1.274 | **−17.0 / −17.0%** | +6.0 / +7.2% | +6.0 / +7.2% |
+| Embench ud | 1.825 / 1.825 | 1.919 / 1.919 | **−16.9 / −16.9%** | **−10.7 / −10.7%** | −4.9 / −4.9% |
+| Embench minver | 1.788 / 1.788 | 1.801 / 1.801 | **−10.1 / −10.1%** | **−10.1 / −10.1%** | −0.7 / −0.7% |
+| Embench huffbench | 1.243 / 1.245 | 1.274 / 1.274 | −2.2 / −2.3% | −2.4 / −2.4% | −2.4 / −2.3% |
+| Embench edn | 1.676 / 1.676 | 1.777 / 1.777 | −5.8 / −5.8% | −5.8 / −5.8% | −5.7 / −5.7% |
+| Dhrystone rv64gc | 1.591 / 1.575 | 1.387 / 1.377 | +7.7 / **+12.5%** | **+14.7 / +14.0%** | **+14.7 / +14.4%** |
+| Dhrystone rv64im | 1.415 / 1.396 | 1.517 / 1.499 | −8.6 / −8.6% | −6.8 / −6.9% | −6.8 / −6.8% |
+| tk_bigcode | 0.496 / 0.166 | 0.514 / 0.195 | −3.6 / **−14.9%** | −3.6 / **−14.9%** | −3.6 / **−14.9%** |
+| memcpy, 0.5 MiB | 0.524 / 0.228 | 0.656 / 0.239 | **−20.1** / −4.5% | **−20.1** / −4.5% | **−20.1** / −4.5% |
+| Hash lookups, 0.5 MiB | 0.451 / 0.265 | 0.392 / 0.200 | **+15.0 / +32.0%** | **+15.0 / +32.0%** | **+15.1 / +32.6%** |
+| The other 8 | | | within ±2.1% | within ±2.1% | within ±2.1% |
+| **Mean error (absolute), 18 programs** | | | **6.54% / 7.46%** | **5.86% / 6.54%** | **4.99% / 5.71%** |
+| **Outside 10%** | | | 5 / 6 | 5 / 5 | 3 / 3 |
+
+**What it shows:**
+- **Revision 9 follows the RTL's rule.** With the allocation in both, ud's error goes from −16.9% to −4.9% and minver's from −10.1% to −0.7%.
+  - The RTL's minver had the thrash too: −9.4% with the fix. The model's never did (its cycles move 0.003%).
+- **The old rule would fit the mean slightly better, by chance.** Revision 8 against the fixed RTL gives 4.78% / 5.52%: ud −0.0%, since the model's ud escaped the thrash, but huffbench +4.7%. It is not the RTL's rule, so revision 9 takes the new one. Every program the rule moves stays within 10%.
+- **crc32 after B: the model is 6–7% slow, inside 10%.**
+  - B makes a load waiting to forward a store's data ready a cycle earlier, so the model's 8 cycles (`ld_fwd_wait`) might be 7.
+  - At 7, crc32 doesn't move, no program moves more than 0.6% (the two Dhrystones), and the mean improves 0.05 points. As in §6.3, the set can't fit it, so 8 stays.
+  - A lead for the rest: each store-wait load cancels the speculative-wakeup shadow in both, about five issues each in the model (1.34M cancelled issues in crc32's region). fpu-2's scratch measurement C, which turns speculative wakeup off for such loads, saves the RTL another 6.8%. So the two sides' cancels are worth comparing.
+- **Dhrystone rv64gc is a model gap, not a race.** Before B, the RTL ran it faster at 120 than at native (§6.15). With B, native is the faster (89,939 against 91,160 cycles), and the model is 14–15% slow at both latencies. Finding why needs a profile: the model's `TGSIM_CTRACE` against the RTL's commit log.
+- **Left outside 10%, as in §6.15:** memcpy at native (the ownership prefetch's port), the hash lookups (the RTL's wrong-path misses), tk_bigcode at 120 (the model's simpler I$ prefetch), and Dhrystone rv64gc.
+
+**When the changes land on main:**
+- With the allocation: revision 9 is `btage_alloc = 1` in `rtl_m2` (`config.cpp`) and `PRESET_REV` 9 (`dse.py`), with this table rerun on main's build.
+- If B lands alone first, the preset stays at revision 8, since B changes no model rule. The middle column is the check.
+
+**Decisions:**
+- **Revision 9 = revision 8 + `btage_alloc` 1,** committed once c1c21281, or core-2's form of it, is on main. That is my call (the model as built); the RTL change is fpu-2's.
+- **`ld_fwd_wait` stays 8 with B:** the calibration set can't tell 7 from 8.
+
+**Learned:**
+- **A race can hide a model gap.** Dhrystone rv64gc's error at native was a timing race before B (§6.15). With the race fixed, the model is 14% slow at both latencies.
+- **Matching the RTL's rules can raise the mean error.** The model had escaped a thrash by chance, and the as-built rule removes that luck. Judge a preset by its rules and by per-program errors, not by the mean.
 
 ---
 
