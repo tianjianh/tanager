@@ -30,6 +30,7 @@ spike_platform_t platform_of(const lockstep_cfg_t& c) {
   p.rom_size = c.rom_size;
   p.dev_regions = c.dev_regions;
   p.deny = c.deny;
+  p.mtgsmt = c.mtgsmt;
   return p;
 }
 

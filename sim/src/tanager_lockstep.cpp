@@ -64,6 +64,7 @@ struct opts_t {
   uint64_t reorder = 1024;        // records a hart may stay silent before it counts as idle (0: stream order)
   unsigned hart_window = 512;     // other harts' writes: records a hart may still read their old bytes (0: off)
   uint64_t early = ATOMIC_EARLY;  // cycles before its record another hart may read an atomic's write (0: none)
+  bool mtgsmt = false;            // the cores have mtgsmt (0x7C0): built with hart 1
 };
 
 [[noreturn]] void usage() {
@@ -82,6 +83,8 @@ struct opts_t {
           "                    N more records have arrived (default 1024; 0: in arrival order)\n"
           "  --hart-window=N   several harts: a hart may read the bytes another hart's write replaced for N of\n"
           "                    its own records after it (store queue, early loads; default 512; 0: off)\n"
+          "  --mtgsmt=0|1      the cores have M7's mtgsmt CSR (0x7C0), one per core of two harts: a build with\n"
+          "                    hart 1 (HART1=1) has it; without, Spike traps on it as the core does (default 0)\n"
           "  --atomic-early=N  several harts: a read may return what another hart's AMO or SC wrote up to N\n"
           "                    cycles before the atomic's record (it performs before it retires; default %llu;\n"
           "                    0: never)\n"
@@ -133,6 +136,7 @@ opts_t parse(int argc, char** argv) {
     else if (k == "reorder") o.reorder = num(v, "--reorder");
     else if (k == "hart-window") o.hart_window = unsigned(num(v, "--hart-window"));
     else if (k == "atomic-early") o.early = num(v, "--atomic-early");
+    else if (k == "mtgsmt") o.mtgsmt = num(v, "--mtgsmt") != 0;
     else { fprintf(stderr, "tanager-lockstep: unknown option --%s\n", k.c_str()); usage(); }
   }
   if (o.fw.empty()) usage();
@@ -260,6 +264,7 @@ int main(int argc, char** argv) {
   lc.pmp_regions = o.pmp;
   lc.history = o.history;
   lc.hart_window = o.hart_window;
+  lc.mtgsmt = o.mtgsmt;
   lc.dram_base = DRAM_BASE;
   lc.dram_size = o.mem_mb << 20;
   lc.rom_base = BOOTROM_BASE;
