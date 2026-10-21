@@ -92,7 +92,8 @@ namespace tg {
   X(shadow, 2, "load shadow cycles cancelled on a wrong hit guess")                                \
   X(hitmiss_flush, 0, "a wrong hit guess flushes the pipeline (NaxRiscv)")                         \
   X(spec_int_only, 0, "speculative wakeup for integer loads only; FP loads wake on the confirmed result (the RTL)") \
-  X(spec_fwd, 0, "with spec_wakeup, a store-to-load forward completing at M2 wakes dependants as a hit does (load-to-use 3)") \
+  X(spec_filter, 0, "with spec_wakeup: the RTL's filter C (tg_issue): rtl_m2 from revision 10. a 2-bit count per hash of an integer load's PC (32; PC bits 5:1 ^ 10:6 ^ 15:11), +1 when the load fails to complete in M2 (a miss, a store-data wait, a row clash, no miss entry), -1 when it completes there; from 2 its dependants wait for its result and it cancels nothing") \
+  X(spec_fwd,0, "with spec_wakeup, a store-to-load forward completing at M2 wakes dependants as a hit does (load-to-use 3)") \
   X(fwd_wait_cancel, 0, "with spec_wakeup: a load that finds an older store's address without its data, or not covering it, cancels the shadow as a miss does (the RTL's STQ verdict at M2)") \
   X(dc_row_clash, 0, "a load whose AG (D$ row read) meets a store draining into the same row (VA[11:4]) retries (the RTL's D$)") \
   X(clash_delay, 4, "dc_row_clash: cycles a clashing load's result is delayed (its replay from the LQ)") \
@@ -153,7 +154,7 @@ namespace tg {
   X(whole_run, 0, "ignore the region markers: the region's counters cover the whole run (as an RTL profile does)") \
   /* multithreading (plan section 6); ignored when threads = 1 */                                  \
   X(threads, 1, "hardware threads: 1, or 2 (SMT2: two programs share the core)")                   \
-  X(smt_fetch, 0, "front-end thread priority: 0 ICOUNT (fewest uops in IQ/rename/issue queues), 1 round robin") \
+  X(smt_fetch, 0, "front-end thread priority: 0 ICOUNT (fewest uops in the fetch queue, decode, rename and the issue queues), 1 round robin, 2 ICOUNT on the issue-queue rows each thread holds, a cycle late (tg_issue's export), 3 as 0 a cycle late") \
   X(smt_part, 1, "ROB/LQ/SQ/completion buffer: 1 static per-thread halves, 0 shared with smt_win_cap") \
   X(smt_win_cap, 75, "shared ROB/LQ/SQ/completion buffer (smt_part=0): percent one thread may hold") \
   X(smt_iq_cap, 75, "percent of each issue queue one thread may hold")                             \
@@ -161,9 +162,12 @@ namespace tg {
   X(smt_llt_cap, 100, "percent of the long-latency tags one thread may hold")                      \
   X(smt_bp_hash, 1, "hash the thread ID into shared predictor tables (0 = threads share entries by PC)") \
   X(smt_mix, 1, "decode, rename and commit slots one thread leaves unused go to the other thread") \
+  X(smt_rn_one, 0, "two threads, one thread a group: one rename register, as the RTL's RN stage. A thread whose group stalls there (its ROB, LQ or SQ half, registers, issue rows) keeps RN until the group moves, and the sibling's group waits in decode") \
+  X(smt_rn_room, 0, "with smt_rn_one: decode hands RN a thread's group only when that thread's room flags of the cycle before say the group fits, otherwise it serves the other thread: 1 = its ROB, LQ and SQ halves and its free registers; 2 = also a row in each of its uops' issue queues (the slot's bank); 3 = as 2 with this cycle's flags (no lag)") \
+  X(smt_commit_rr, 0, "two threads, one thread a group: the commit thread is chosen a cycle ahead and commits what it can, possibly nothing; 2 = as the RTL's ROB (tg_rob's ct_n): the other thread whenever its ROB holds entries; 3 = a thread whose head is complete, the other first, else as 2; 1 = as 2 with a thread's decoded uops not yet dispatched counted as entries (§13.14's form); 0: the first thread whose head can commit, the first alternating") \
   /* M7 (docs/spec/m7-smt2-plan.md); off by default */                                              \
   X(smt_drain_rr, 1, "two threads: the thread whose committed SQ head the D$ store port tries first alternates every cycle (D8; 0 = thread 0 always first)") \
-  X(smt_iq_cap_bank, 0, "two threads, iq_slot_bank: the issue-queue cap holds in each dispatch-slot bank of rows too, a thread taking at most smt_iq_cap% of a bank's rows (rounded up) and never all of them, so its sibling finds a row in either bank; 2 = only never all of a bank's rows; 3 = not the bank's last row while the sibling waits on that bank") \
+  X(smt_iq_cap_bank, 0, "two threads, iq_slot_bank: the issue-queue cap holds in each dispatch-slot bank of rows too, a thread taking at most smt_iq_cap% of a bank's rows (rounded up) and never all of them, so its sibling finds a row in either bank; 2 = only never all of a bank's rows; 3 = not the bank's last row while the sibling waits on that bank; 4 = not a bank's last free row while the sibling's waiting group needs a row there, every bank that group needs (fpu-2's R2); 5 = not a bank's last free row while the sibling waits on that bank; 6 = as 3, every bank the sibling's waiting group needs") \
   X(prf_split, 0, "D3: 1 = a free list per thread in each register bank, each bank's free registers halved between the two harts, each hart's architectural registers homed as D4 (hart t's x1-x31 in integer bank t, f0-f31 in F<t>; bank 0 keeps the zero register); 2 = the same for the integer banks, the FP lists shared; with one thread, its own lists (the sibling's architectural registers still held); 3 = the FP banks only, the integer lists shared") \
   X(prf_homes, 0, "D4 with prf_split: 0 = hart t's x1-x31 at reset in integer bank t; 1 = both harts' in B0 (hart 0's at 1-31, hart 1's at 32-62); 2 = hart 0's in B0, hart 1's x1-x16 in B1 and x17-x31 in B2") \
   X(prf_steer, 0, "D3: rename steers an ALU op away from an ALU whose bank has no free register on the thread's list, to the other ALU when its bank has one") \
@@ -177,6 +181,8 @@ namespace tg {
   X(lone_awake, 0, "D2: cycles the sibling runs after a split before it sleeps in WFI again") \
   X(lone_merge, 64, "D2: cycles the sibling spends in WFI with an empty half before the halves merge (-1 = never: static halves)") \
   X(lone_split, 0, "D2: 0 = the split waits until the thread's ROB, LQ and SQ are empty; 1 = until each fits its half") \
+  X(wfi_sleep, 0, "a thread dispatches nothing past a WFI, and after it commits sleeps this many cycles (a timer's wake); parked while asleep with an empty window") \
+  X(smt_cap_lift, 0, "two threads: the issue-queue caps and bank rules don't bind a thread while its sibling is parked in WFI (wfi_sleep)") \
   X(lone_caps, 1, "D2: 1 = the issue-queue caps (smt_iq_cap) bind a lone thread while its window is split; 2 = always") \
   X(smt_align, 0, "two threads (verif-2's pair runner): a thread's first-run region start (marker 1) waits at commit until every thread's has reached its commit head, so the two first regions start together") \
   X(smt_pa_flat, 0, "two threads share one physical address space: each program's addresses are its own (the pair runner's programs, linked at their slots' bases); 0 = thread 1's offset by 64 GiB + 21 pages") \
