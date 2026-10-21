@@ -1,6 +1,7 @@
 // tgsim: branch predictors and small per-PC predictor tables.
 #pragma once
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace tg {
@@ -80,6 +81,9 @@ class BlockTage {
   Ix hash(uint64_t blk, uint64_t gh) const;                  // blk: the fetch block's number (pc[38:4])
   bool dir(const Ix& x, int slot) const;
   void train(const Ix& x, int slot, bool taken, bool pred);  // pred: the fetch-time direction
+  // TGSIM_BTTRACE: "b=<base ctr> t<t>:<idx>/<tag> <w0> <w1> ...", each sub-entry v.slot.tag.ctr.u (as prof_tage.sv)
+  std::string dump(const Ix& x, int slot) const;
+  bool alloc_invalid_first = false;  // btage_alloc 1: a table's invalid way before a not-useful one (tg_tage: first)
  private:
   struct Sub { bool v = false; uint8_t slot = 0; uint16_t tag = 0; uint8_t ctr = 0, u = 0; };
   struct Ent { Sub w[2]; };
