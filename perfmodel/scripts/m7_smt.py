@@ -151,14 +151,19 @@ def exit2(workers):
 # ---------------------------------------------------------------- runs that may deadlock (D3, D8) and D2's knobs
 
 
-def run7(preset, sets, a, b=None):
-    """One run, a single thread (b None) or a pair, cached in results/m7 with any error (a deadlock) kept."""
+def cache7(preset, sets, a, b=None):
+    """run7's cache file for one run."""
     key = [ISA, preset, sorted(sets.items()), a, b, dse.MODEL_VERSION, smt.SMT_VERSION, M7_VERSION]
     if dse.PRESET_REV.get(preset, 0) >= 8:   # the preset's revision, from 8 on (earlier runs were cached without it)
         key.append(["rev", dse.PRESET_REV[preset]])
     hs = [smt.WS[w]["hash"] for w in (a, b) if w and "hash" in smt.WS[w]]   # the pair runner's ELFs, by content
     raw = json.dumps(key + ([hs] if hs else []))
-    f = CACHE7 / f"{hashlib.sha1(raw.encode()).hexdigest()[:16]}.json"
+    return CACHE7 / f"{hashlib.sha1(raw.encode()).hexdigest()[:16]}.json"
+
+
+def run7(preset, sets, a, b=None):
+    """One run, a single thread (b None) or a pair, cached in results/m7 with any error (a deadlock) kept."""
+    f = cache7(preset, sets, a, b)
     if f.exists():
         return json.loads(f.read_text())
     if b is None:
@@ -1147,6 +1152,245 @@ def rnstall(workers):
     return out
 
 
+F7 = {**STEP5, "smt_iq_cap": 50, "smt_iq_cap_bank": 4, "drain_guard": 1, **REV8}   # step 7 with C, fpu-2's form:
+# R1 50% caps per queue, R2 no bank's last free row while the sibling's waiting group needs one there (every bank it
+# needs); R3 (no group waits in a shared dispatch stage) holds with C, a rename register per thread
+FETCH = {"round robin": {"smt_fetch": 1},
+         "ICOUNT on the issue-queue rows, a cycle late (tg_issue's export)": {"smt_fetch": 2},
+         "ICOUNT on fetch queue, decode, rename and the issue queues, a cycle late": {"smt_fetch": 3},
+         "ICOUNT on the same, this cycle (the model's until now)": {"smt_fetch": 0}}
+
+
+def ws_table(title, head, cfgs, workers):
+    """WS over the 42 on verif-2's final pair set (TG_FINALDIR; the runner's barrier, addresses and finish) at 30, 120
+    and 250 cycles against each program alone on today's core (the merged window), by group, each configuration against
+    the first; hangs over the 42 and §13.4's 16 working-set pairs; per pair WS."""
+    names = pair_workloads(FINALDIR)
+    jobs = [(PRESET, {**RUNNER, **c, "dram_lat": lat}, f"{a}.s0", f"{b}.s1") for c in cfgs.values() for lat in LATS
+            for _, a, b in smt.PAIRS]
+    jobs += [(PRESET, {**ALONE, **REV8, "dram_lat": lat}, w, None) for lat in LATS for w in names]
+    jobs += [(PRESET, {**c, "dram_lat": lat}, a, b) for c in cfgs.values() for lat in LATS for _, a, b in WS_PAIRS]
+    run_all(jobs, workers)
+    al = {lat: {w: ipc1(run7(PRESET, {**ALONE, **REV8, "dram_lat": lat}, w, None)) for w in names} for lat in LATS}
+    out = {}
+    print(f"\n**{title}** ({FINALDIR.name}; WS over the 42 against each program alone on the merged window; "
+          "30 / 120 / 250 cycles)\n")
+    print(f"| {head} | WS | Against the first | memory + memory | compute + compute | mixed | Lowest pair | "
+          "Hung, of the 42 | Hung, of the 16 working-set pairs |\n|---|---|---|---|---|---|---|---|---|")
+    ref = None
+    f3 = lambda xs: " / ".join(f"{x:.3f}" for x in xs)
+    for n, c in cfgs.items():
+        row = {"ws": [], "groups": [], "min": [], "dead": [], "ws_dead": [], "pairs": []}
+        for lat in LATS:
+            per, dl = {}, []
+            for g, a, b in smt.PAIRS:
+                ip = ipc2(run7(PRESET, {**RUNNER, **c, "dram_lat": lat}, f"{a}.s0", f"{b}.s1"))
+                if ip is None:
+                    dl.append(smt.pname(a, b))
+                    continue
+                per[smt.pname(a, b)] = (g, ip[0] / al[lat][f"{a}.s0"] + ip[1] / al[lat][f"{b}.s1"])
+            gs = {g: smt.gm(w for gg, w in per.values() if gg == g) for g in GROUPS}
+            row["ws"].append(smt.gm(gs.values()))
+            row["groups"].append(gs)
+            row["min"].append(min(w for _, w in per.values()))
+            row["dead"].append(dl)
+            row["ws_dead"].append([smt.pname(a, b) for _, a, b in WS_PAIRS
+                                   if dead(run7(PRESET, {**c, "dram_lat": lat}, a, b))])
+            row["pairs"].append({p: w for p, (_, w) in per.items()})
+        out[n] = row
+        ref = ref or row
+        print(f"| {n} | **{f3(row['ws'])}** | " +
+              " / ".join(f"{x / y - 1:+.2%}" for x, y in zip(row["ws"], ref["ws"])) + " | " +
+              " | ".join(f3(gs[g] for gs in row["groups"]) for g in GROUPS) + f" | {f3(row['min'])} | " +
+              " / ".join(str(len(d)) for d in row["dead"]) + " | " + " / ".join(str(len(d)) for d in row["ws_dead"]) +
+              " |")
+    for n, row in out.items():
+        for lat, dl, wd in zip(LATS, row["dead"], row["ws_dead"]):
+            if dl or wd:
+                print(f"- {n}, {lat} cycles: {', '.join(dl + wd)} hung")
+    print("\n*Per pair (WS, 30 / 120 / 250):*\n\n| Pair | Group | " + " | ".join(cfgs) + " |\n|---|---|" +
+          "---|" * len(cfgs))
+    for g, a, b in smt.PAIRS:
+        p = smt.pname(a, b)
+        print(f"| {p} | {g} | " + " | ".join(" / ".join("hung" if p not in d else f"{d[p]:.2f}" for d in r["pairs"])
+                                           for r in out.values()) + " |")
+    return out
+
+
+def icount(workers):
+    """The coordinator (10-21): what ICOUNT at fetch adds at step 7 with C in fpu-2's form (F7), against round robin."""
+    return ws_table("Step 7 with C, fpu-2's form: fetch order", "Fetch",
+                    {n: {**F7, **v} for n, v in FETCH.items()}, workers)
+
+
+BANKS = {"3: never all of a bank's rows, while the sibling waits on that bank (§13.12's step 7)": 3,
+         "5: not a bank's last free row, while the sibling waits on that bank": 5,
+         "6: never all of a bank's rows, every bank the sibling's waiting group needs": 6,
+         "4: not a bank's last free row, every bank the sibling's waiting group needs (fpu-2's R2)": 4}
+
+
+def bankrule(workers):
+    """fpu-2's R2 against §13.12's bank rule, on step 7 with C and 50% caps (F7): what a hart leaves its waiting
+    sibling (the bank's last free row, or never all of the bank's rows), and for which banks (the one the sibling
+    waits on, or every bank its waiting group needs); ICOUNT on this cycle's counts (§13.12's), then round robin and
+    ICOUNT on the issue-queue rows a cycle late for each."""
+    cfgs = {f"{n}, {f}": {**F7, "smt_iq_cap_bank": b, **FETCH[f]} for f in
+            ("ICOUNT on the same, this cycle (the model's until now)", "round robin",
+             "ICOUNT on the issue-queue rows, a cycle late (tg_issue's export)") for n, b in BANKS.items()}
+    return ws_table("Step 7 with C, 50% caps: the bank rule", "Bank rule, fetch", cfgs, workers)
+
+
+WFI_PAIRS = [("wfi", "m7_wfiburst", p) for p in smt.MEM + ["coremark_A", "dhrystone"]]
+WFI_REPS = 200   # bench/m7/wfiburst.c's REPS: the WFIs in the task's region
+CAPLIFT = {**{f"sleep {s}, caps always": {"wfi_sleep": s} for s in (2000, 10000)},
+           **{f"sleep {s}, caps lifted while parked": {"wfi_sleep": s, "smt_cap_lift": 1} for s in (2000, 10000)}}
+
+
+def caplift(workers):
+    """The coordinator (10-21): fpu-2's choice to lift the issue-queue caps while the sibling is parked in WFI, before
+    step 6. m7_wfiburst (bursts of work between WFIs, each sleeping wfi_sleep cycles) beside each memory kernel and two
+    compute programs (the model's own builds), on F7 with ICOUNT on the issue-queue rows, at 30, 120 and 250 cycles:
+    the task's cycles a burst (its region less its sleeps) and its partner's IPC, caps always against lifted."""
+    jobs = [(PRESET, {**F7, "smt_fetch": 2, **v, "dram_lat": lat}, a, b) for v in CAPLIFT.values() for lat in LATS
+            for _, a, b in WFI_PAIRS]
+    run_all(jobs, workers)
+    out = {}
+    for s in (2000, 10000):
+        print(f"\n**WFI every burst, {s:,}-cycle sleeps: caps always → caps lifted while the task is parked** "
+              "(the task's cycles a burst; its partner's IPC; 30 / 120 / 250 cycles)\n")
+        print("| Partner | The task's cycles a burst | Change | The partner's IPC | Change |\n|---|---|---|---|---|")
+        for _, a, b in WFI_PAIRS:
+            cells = {}
+            for k in ("always", "lifted"):
+                v = CAPLIFT[f"sleep {s}, caps always" if k == "always" else f"sleep {s}, caps lifted while parked"]
+                rs = [run7(PRESET, {**F7, "smt_fetch": 2, **v, "dram_lat": lat}, a, b) for lat in LATS]
+                cells[k] = [None if r.get("error") else
+                            ((r["threads"][0]["region"]["cycles"] - WFI_REPS * s) / WFI_REPS,
+                             r["threads"][1]["region"]["instr"] / max(1, r["threads"][1]["region"]["cycles"]))
+                            for r in rs]
+            out[f"{s} {b}"] = cells
+            fmt = lambda i, d: " / ".join("hung" if c is None else (f"{c[i]:.0f}" if i == 0 else f"{c[i]:.3f}")
+                                         for c in cells[d])
+            chg = lambda i: " / ".join("–" if x is None or y is None else f"{y[i] / x[i] - 1:+.1%}"
+                                       for x, y in zip(cells["always"], cells["lifted"]))
+            print(f"| {b} | {fmt(0, 'always')} → {fmt(0, 'lifted')} | {chg(0)} | {fmt(1, 'always')} → "
+                  f"{fmt(1, 'lifted')} | {chg(1)} |")
+    return out
+
+
+RTL_5D = {"5c (9cba5f9b)": ROOT / "results" / "pair_rtl_5c_9cba5f9b.json",   # core-2's pair runner at 30 cycles
+          "C (4c60872b)": ROOT / "results" / "pair_rtl_5d_4c60872b.json"}    # on the first final set, 10-21
+CM_RTL, CM_FIX, CM_FIX1 = {"smt_commit_rr": 2}, {"smt_commit_rr": 0}, {"smt_commit_rr": 3}
+RECON5 = {"5c as modelled: one RN register (§13.14's 1)": {**S5B, **RN_ONE},
+          "5c: one RN register, the RTL's commit turns": {**S5B, **RN_ONE, **CM_RTL},
+          "C as modelled: rename skips a stalled thread": S5B,
+          "C, the RTL's commit turns": {**S5B, **CM_RTL}}
+
+
+def recon5(workers):
+    """The coordinator (10-21): the model against core-2's two step-5 measurements on the RTL, 5c (one RN register,
+    1.227) and C (a rename register per thread, 1.243), the pair runner at 30 cycles on the first final set
+    (TG_FINALDIR=pair-final-b7db3e16), each program alone on its half (the RTL's alone runs before D2's merge); the
+    RTL's commit turns as tg_rob builds them (smt_commit_rr 2); per pair, and the threads' summed IPC by group."""
+    names = pair_workloads(FINALDIR)
+    rtl = {k: json.loads(p.read_text()) for k, p in RTL_5D.items()}
+    jobs = [(PRESET, {**RUNNER, **c, "dram_lat": lat}, f"{a}.s0", f"{b}.s1") for c in RECON5.values() for lat in LATS
+            for _, a, b in smt.PAIRS]
+    jobs += [(PRESET, {**c, "dram_lat": lat}, w, None) for c in (ALONE, ALONE_HALVES) for lat in LATS for w in names]
+    run_all(jobs, workers)
+    al = {k: {lat: {w: ipc1(run7(PRESET, {**c, "dram_lat": lat}, w, None)) for w in names} for lat in LATS}
+          for k, c in (("merged", ALONE), ("halves", ALONE_HALVES))}
+    rp = {k: {(p["a"], p["b"]): p for p in r["pairs"] if p["ws"] == p["ws"] and p["ws"] > 0} for k, r in rtl.items()}
+    sub = set.intersection(*(set(v) for v in rp.values()))   # the pairs both RTL runs report (37)
+
+    def ev(c, lat, basis, subset=None):
+        per = {}
+        for g, a, b in smt.PAIRS:
+            if subset is not None and (a, b) not in subset:
+                continue
+            ip = ipc2(run7(PRESET, {**RUNNER, **c, "dram_lat": lat}, f"{a}.s0", f"{b}.s1"))
+            if ip is not None:
+                per[(a, b)] = {"group": g, "ipc": ip,
+                               "ws": ip[0] / al[basis][lat][f"{a}.s0"] + ip[1] / al[basis][lat][f"{b}.s1"]}
+        gs = {g: smt.gm(m["ws"] for m in per.values() if m["group"] == g) for g in GROUPS}
+        return {"ws": smt.gm(gs.values()), "groups": gs, "per": per,
+                "hung": [smt.pname(a, b) for _, a, b in smt.PAIRS if (subset is None or (a, b) in subset)
+                         and (a, b) not in per]}
+
+    out = {"rtl_basis": {}, "merged": {}, "sums": {}, "alone": {}}
+    print(f"\n**Step 5 on the RTL's basis at 30 cycles** ({FINALDIR.name}; the {len(sub)} pairs both RTL runs report; "
+          "against each program alone on its half)\n")
+    print("| | All | memory + memory | compute + compute | mixed | Hung, of the 42 |\n|---|---|---|---|---|---|")
+    for k, r in rtl.items():
+        per = {ab: p for ab, p in rp[k].items() if ab in sub}
+        gs = {g: smt.gm(p["ws"] for p in per.values() if p["group"] == g) for g in GROUPS}
+        out["rtl_basis"][f"RTL {k}"] = {"ws": smt.gm(gs.values()), "groups": gs}
+        print(f"| The RTL, {k} | **{smt.gm(gs.values()):.3f}** | " + " | ".join(f"{gs[g]:.3f}" for g in GROUPS) +
+              f" | {len(r.get('hangs', []))} |")
+    for n, c in RECON5.items():
+        e, full = ev(c, 30, "halves", sub), ev(c, 30, "halves")
+        out["rtl_basis"][n] = {"ws": e["ws"], "groups": e["groups"], "hung": full["hung"],
+                               "per": {smt.pname(a, b): v["ws"] for (a, b), v in e["per"].items()}}
+        print(f"| The model, {n} | **{e['ws']:.3f}** | " + " | ".join(f"{e['groups'][g]:.3f}" for g in GROUPS) +
+              f" | {len(full['hung'])}{' (' + ', '.join(full['hung']) + ')' if full['hung'] else ''} |")
+    print("\n**The two threads' summed IPC in a pair, model over RTL** (geometric mean over the group's pairs that "
+          "both report; 30 cycles)\n")
+    print("| Model, against | memory + memory | compute + compute | mixed |\n|---|---|---|---|")
+    for n, k in ((list(RECON5)[0], "5c (9cba5f9b)"), (list(RECON5)[1], "5c (9cba5f9b)"),
+                 (list(RECON5)[2], "C (4c60872b)"), (list(RECON5)[3], "C (4c60872b)")):
+        e = ev(RECON5[n], 30, "halves", sub)
+        rat = {g: smt.gm(sum(v["ipc"]) / (rp[k][ab]["slots"]["0"]["ipc"] + rp[k][ab]["slots"]["1"]["ipc"])
+                         for ab, v in e["per"].items() if v["group"] == g) for g in GROUPS}
+        out["sums"][f"{n} / {k}"] = rat
+        print(f"| {n}, against the RTL's {k} | " + " | ".join(f"{rat[g]:.3f}" for g in GROUPS) + " |")
+    print("\n**Merged basis** (the 42, 30 / 120 / 250 cycles)\n")
+    print("| Configuration | All | memory + memory | compute + compute | mixed | Hung |\n|---|---|---|---|---|---|")
+    f3 = lambda v: " / ".join(f"{x:.3f}" for x in v)
+    for n, c in RECON5.items():
+        es = [ev(c, lat, "merged") for lat in LATS]
+        out["merged"][n] = [{"ws": e["ws"], "groups": e["groups"], "hung": e["hung"]} for e in es]
+        print(f"| {n} | **{f3(e['ws'] for e in es)}** | " + " | ".join(f3(e["groups"][g] for e in es) for g in GROUPS) +
+              " | " + " / ".join(str(len(e["hung"])) for e in es) + " |")
+    print("\n**Alone at 30 cycles** (IPC, slot 0 / slot 1): the RTL's two runs (hart 1 parked) against the model on "
+          "its half\n")
+    print("| Program | RTL 5c | RTL C | Model, its half |\n|---|---|---|---|")
+    cell = lambda v: " / ".join("–" if x is None else f"{x:.3f}" for x in v)
+    for p in smt.MEM + smt.COMP:
+        rts = [[r["alone"].get(f"{p}@s{s}@30", {}).get("ipc") for s in (0, 1)] for r in rtl.values()]
+        mh = [al["halves"][30][f"{p}.s{s}"] for s in (0, 1)]
+        out["alone"][p] = {"rtl": rts, "halves": mh}
+        print(f"| {p} | {cell(rts[0])} | {cell(rts[1])} | {cell(mh)} |")
+    print("\n**Per pair at 30 cycles** (WS against each program alone on its half)\n")
+    ns = list(RECON5)
+    print("| Pair | Group | RTL 5c | RTL C | " + " | ".join(ns) + " |\n|---|---|---|---|" + "---|" * len(ns))
+    for g, a, b in smt.PAIRS:
+        p = smt.pname(a, b)
+        rt = [rp[k].get((a, b), {}).get("ws") for k in rtl]
+        cells = [out["rtl_basis"][n]["per"].get(p) for n in ns]
+        print(f"| {p} | {g} | " + " | ".join("–" if x is None else f"{x:.3f}" for x in rt + cells) + " |")
+    return out
+
+
+S7R = {**STEP5, "smt_iq_cap": 50, "drain_guard": 1, **REV8, **FETCH["round robin"]}   # step 7 less its bank rule
+BANK7 = {"never all of a bank's rows, every bank the waiting group needs (smt_iq_cap_bank 6)": 6,
+         "R2 as worded: not a bank's last free row (4)": 4}
+
+
+def recon7(workers):
+    """The coordinator (10-21): step 7 re-predicted for C (a rename register per thread) and B (one RN register, the
+    room check in the decode cycle with the issue queues' rows, caps and bank rule), each with the RTL's commit turns
+    (smt_commit_rr 2) and with a fix in which a thread whose head is ready commits when the chosen one can't (0: in
+    the same cycle; 3: chosen a cycle ahead); 50% caps, round robin, the drain's priority; for two bank rules.
+    verif-2's second final set (TG_FINALDIR), the merged basis."""
+    cfgs = {}
+    for bn, b in BANK7.items():
+        for rn, r in (("C", {}), ("B", RN_ROOM_NOW)):
+            for cn, cm in (("the RTL's commit turns", CM_RTL), ("the fix, same cycle", CM_FIX),
+                           ("the fix, chosen a cycle ahead", CM_FIX1)):
+                cfgs[f"{rn}, {cn}; {bn}"] = {**S7R, "smt_iq_cap_bank": b, **r, **cm}
+    return ws_table("Step 7 re-predicted: C and B, the commit turns", "Configuration", cfgs, workers)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--policy", action="store_true")
@@ -1164,6 +1408,13 @@ def main():
                     help="exit 2 blind on the final pair set (TG_FINALDIR), today's rtl_m2")
     ap.add_argument("--d3fp64", action="store_true", help="D3 with FP banks of 64: deadlock-free rules against FP 96")
     ap.add_argument("--rnstall", action="store_true", help="the RTL's one RN stage and decode's room check (core-2)")
+    ap.add_argument("--icount", action="store_true", help="step 7 with C in fpu-2's form: round robin against ICOUNT")
+    ap.add_argument("--caplift", action="store_true", help="the caps lifted while the sibling is parked in WFI")
+    ap.add_argument("--bankrule", action="store_true", help="fpu-2's R2 against the step-7 bank rule, and fetch order")
+    ap.add_argument("--recon5", action="store_true",
+                    help="step 5 against core-2's 5c and C on the RTL (TG_FINALDIR: the first final set)")
+    ap.add_argument("--recon7", action="store_true",
+                    help="step 7 re-predicted: C and B, the RTL's commit turns and a fix")
     ap.add_argument("--workers", type=int, default=16)
     a = ap.parse_args()
     res = json.loads(OUT.read_text()) if OUT.exists() else {}
@@ -1171,7 +1422,8 @@ def main():
     for name, fn in (("policy", policy), ("exit2", exit2), ("deadlock", deadlock), ("fp", fp), ("lone", lone),
                      ("prediction", prediction), ("groups", groups), ("d3rev", d3rev), ("pair", pairrun),
                      ("homes", homes), ("calib", calib), ("final", final), ("d3fp64", d3fp64),
-                     ("rnstall", rnstall)):
+                     ("rnstall", rnstall), ("icount", icount), ("caplift", caplift), ("bankrule", bankrule),
+                     ("recon5", recon5), ("recon7", recon7)):
         if getattr(a, name):
             res[name] = fn(a.workers)
             OUT.write_text(json.dumps(res, indent=1) + "\n")

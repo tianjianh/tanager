@@ -237,15 +237,58 @@ uint64_t Core::icount(const Thread& T) const {
   return n;
 }
 
+// smt_fetch 2: the issue-queue rows a thread holds, waiting or held after select (tg_issue's per-thread count)
+uint64_t Core::icount_rows(const Thread& T) const {
+  uint64_t n = 0;
+  for (auto& v : iq_)
+    for (uint64_t id : v) if ((id >> TID_SHIFT) == (uint64_t)T.tid) n++;
+  for (const auto& hq : held_)
+    for (const Held& h : hq) n += h.t_free > t_ && (int)(h.id >> TID_SHIFT) == T.tid;
+  return n;
+}
+
 // Thread priority this cycle (two threads). Fetch uses the smt_fetch policy: ICOUNT puts the thread with
-// fewer uops in the pre-issue stages first (ties alternate), round robin alternates. Decode and rename always
-// alternate: ICOUNT there would starve the thread whose uops are waiting, since waiting raises its count.
+// fewer uops in the pre-issue stages first (ties alternate), round robin alternates; 2 and 3 compare counts of the
+// cycle before (2: issue-queue rows only). Decode and rename always alternate: ICOUNT there would starve the thread
+// whose uops are waiting, since waiting raises its count.
 void Core::order(int* o, bool fetch_stage) const {
   const int first = (int)(t_ % (uint64_t)nthr_);
   o[0] = first;
   o[1] = 1 - first;
-  if (fetch_stage && c_.smt_fetch == 0 && icount(*th_[(size_t)o[1]]) < icount(*th_[(size_t)o[0]]))
-    std::swap(o[0], o[1]);
+  if (!fetch_stage) return;
+  if (c_.smt_fetch == 0 && icount(*th_[(size_t)o[1]]) < icount(*th_[(size_t)o[0]])) std::swap(o[0], o[1]);
+  if (c_.smt_fetch >= 2) {
+    if (icnt_t_ != t_) {  // once a cycle: last cycle's counts become the ones fetch reads
+      for (int t = 0; t < nthr_; t++) {
+        icnt_late_[t] = icnt_now_[t];
+        icnt_now_[t] = c_.smt_fetch == 2 ? icount_rows(*th_[(size_t)t]) : icount(*th_[(size_t)t]);
+      }
+      icnt_t_ = t_;
+    }
+    if (icnt_late_[o[1]] < icnt_late_[o[0]]) std::swap(o[0], o[1]);
+  }
+}
+
+// wfi_sleep: a thread asleep in WFI whose window has drained
+bool Core::parked(int tid) const {
+  const Thread& T = *th_[(size_t)tid];
+  return c_.wfi_sleep && !T.wfi_pending && t_ < T.wfi_until && T.rob_count == 0;
+}
+
+// smt_iq_cap_bank 4 and 6: whether the sibling's next group (its decode group's uops not yet dispatched) needs a row in
+// queue q's bank k; an ALU op not yet steered may take either ALU queue
+bool Core::sib_group_needs(const Thread& S, uint8_t q, int k) const {
+  const Uop* g = find(S.disp_next);
+  int n = 0;
+  for (uint64_t id = S.disp_next; g && n < c_.decode_width; id++, n++) {
+    const Uop* u = find(id);
+    if (!u || u->t_disp_ok > t_ || u->dgrp != g->dgrp) break;
+    if ((c_.iq_slot_bank ? u->dslot % 2 : 0) != k) continue;
+    uint8_t uq = u->q;
+    if (uq == Q_ALU_ANY && u->steer_q != 0xff) uq = u->steer_q;
+    if (uq == q || (uq == Q_ALU_ANY && (q == Q_A0 || q == Q_A1))) return true;
+  }
+  return false;
 }
 
 int Core::iq_occ(uint8_t q, int tid) const {
@@ -270,7 +313,8 @@ int64_t Core::iq_cap(uint8_t q) const {
 int64_t Core::iq_free(uint8_t q, int tid) const {
   int64_t f = iq_cap(q) - (int64_t)iq_[q].size() - (c_.iq_hold ? held(q, -1) : 0);
   // lone_caps (D2): a lone thread is capped while its window is split (1), or always (2)
-  const bool capped = nthr_ > 1 || c_.lone_caps == 2 || (c_.lone_caps == 1 && lone_phase_ != 0);
+  const bool capped = (nthr_ > 1 && !(c_.smt_cap_lift && parked(1 - tid))) || c_.lone_caps == 2 ||
+                      (c_.lone_caps == 1 && lone_phase_ != 0);
   if (capped && c_.smt_iq_cap < 100 && q != Q_SERIAL) {
     const int64_t cap = std::max<int64_t>(1, (iq_cap(q) * c_.smt_iq_cap + 99) / 100);
     f = std::min<int64_t>(f, cap - iq_occ(q, tid));
@@ -310,15 +354,20 @@ int64_t Core::slot_free(uint8_t q, int k) const {
 // after their select). The cap of the whole queue alone can leave the sibling's one free row in the other bank.
 bool Core::bank_capped(uint8_t q, int k, int tid) const {
   if (nthr_ == 1 || !c_.smt_iq_cap_bank || c_.smt_iq_cap >= 100 || q == Q_SERIAL) return false;
-  if (c_.smt_iq_cap_bank == 3) {  // 3: the bank's last row stays free only while the sibling waits on this bank
-    const Thread& S = *th_[(size_t)(1 - tid)];
-    if (!(S.disp_why == DW_IQ && S.disp_why_q == q && S.disp_why_k == k)) return false;
-  }
+  if (c_.smt_cap_lift && parked(1 - tid)) return false;   // smt_cap_lift: the sibling is parked in WFI
+  const Thread& S = *th_[(size_t)(1 - tid)];
+  // on demand, while the sibling waits for a row: 3 and 5 for the bank it waits on, 4 and 6 for every bank its waiting
+  // group needs (fpu-2's R2 is 4)
+  const int b = c_.smt_iq_cap_bank;
+  if (b >= 3 && !(S.disp_why == DW_IQ &&
+                  (b == 3 || b == 5 ? S.disp_why_q == q && S.disp_why_k == k : sib_group_needs(S, q, k))))
+    return false;
+  if (b == 4 || b == 5) return slot_free(q, k) <= 1;   // 4 and 5: not the bank's last free row
+  // 1, 2, 3 and 6: never all of the bank's rows (1: nor over the cap's share of them)
   const int64_t w = std::max<int64_t>(1, c_.decode_width);
   const int64_t rows = (iq_cap(q) - k + w - 1) / w;
   const int64_t pct = std::max<int64_t>(1, (rows * c_.smt_iq_cap + 99) / 100);
-  // 1: the cap's share of the bank, never all of it; 2 and 3: only never all of it
-  const int64_t cap = std::max<int64_t>(1, c_.smt_iq_cap_bank >= 2 ? rows - 1 : std::min(pct, rows - 1));
+  const int64_t cap = std::max<int64_t>(1, b >= 2 ? rows - 1 : std::min(pct, rows - 1));
   int64_t n = 0;
   for (uint64_t id : iq_[q]) {
     const Uop* u = find(id);
@@ -1310,6 +1359,7 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
       if (T.align_id && u.id > T.align_id) { T.disp_why = DW_EMPTY; break; }
       if (T.lap == 0 && u.di && u.di->marker == 1) T.align_id = u.id;
     }
+    if (c_.wfi_sleep && (T.wfi_pending || t_ < T.wfi_until)) { T.disp_why = DW_EMPTY; break; }  // asleep in WFI
     if (nthr_ > 1 && c_.flush_walk && t_ < T.walk_until) {  // flush_walk: rename waits for the flush's walk
       T.st.disp_stall_walk++;
       T.disp_why = DW_ROB;
@@ -1520,6 +1570,7 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
     }
     T.disp_next++;
     n++;
+    if (c_.wfi_sleep && u.di && u.di->d->op == Op::WFI) { T.wfi_pending = true; break; }  // nothing younger goes
   }
 }
 
@@ -2045,6 +2096,10 @@ void Core::retire(Uop& u, bool early) {
   }
   if (u.has_ckpt) { T.ckpt_used--; u.has_ckpt = false; }
   if (u.in_lq) T.lq_count--;
+  if (c_.wfi_sleep && u.di && u.di->d->op == Op::WFI) {  // wfi_sleep: asleep until the timer's wake
+    T.wfi_pending = false;
+    T.wfi_until = t_ + (uint64_t)c_.wfi_sleep;
+  }
   if (u.is_store)
     for (auto& s : T.sq) if (s.id == u.id) { s.committed = true; s.t_commit = t_; break; }
   if (u.dst_arch >= 0) {
@@ -2085,9 +2140,22 @@ void Core::commit() {
   if ((t_ & 1023) == 0)
     for (auto it = pending_.begin(); it != pending_.end();) it = it->second <= t_ ? pending_.erase(it) : std::next(it);
   if (nthr_ == 1) { commit_thread(*th_[0], (int)c_.commit_width); return; }
+  if (c_.smt_commit_rr >= 2 && !c_.smt_mix) {
+    // 2: the RTL's ROB (tg_rob's ct_n): the thread chosen the cycle before commits what it can, possibly nothing, and
+    // next cycle's is the other thread whenever its ROB holds entries, so two busy threads alternate. 3: next cycle's
+    // is a thread whose head is complete, the other first; as 2 when neither's is
+    const int c = std::max(0, commit_tid_), o = 1 - c;
+    commit_thread(*th_[(size_t)c], (int)c_.commit_width);
+    auto ready = [&](const Thread& T) {
+      return !T.win.empty() && T.win.front().state == 2 && T.win.front().t_done <= t_ + 1;
+    };
+    const Thread &C = *th_[(size_t)c], &O = *th_[(size_t)o];
+    if (c_.smt_commit_rr == 3 && (ready(O) || ready(C))) commit_tid_ = ready(O) ? o : c;
+    else commit_tid_ = O.rob_count > 0 ? o : c;
+    return;
+  }
   if (c_.smt_commit_rr && !c_.smt_mix) {
-    // the RTL's ROB: the commit thread was chosen the cycle before, threads with entries taking turns; it commits what
-    // it can, possibly nothing
+    // 1 (§13.14's form): as 2, but a thread holding decoded uops not yet dispatched takes turns too
     if (commit_tid_ >= 0) commit_thread(*th_[(size_t)commit_tid_], (int)c_.commit_width);
     int next = -1;
     for (int k = 1; k <= nthr_ && next < 0; k++) {
@@ -2242,6 +2310,7 @@ void Core::flush_from(Thread& T, uint64_t from_id, uint64_t resume_seq) {
       T.rob_count--;
       if (u.state == 1 && u.q != Q_SERIAL) iq_remove(u);
       if (u.in_lq) T.lq_count--;
+      if (c_.wfi_sleep && u.di && u.di->d->op == Op::WFI) T.wfi_pending = false;  // a flushed WFI never sleeps
       if (u.dst_bank >= 0) {
         bank_inflight_[u.dst_bank]--;
         bank_held_[(size_t)T.tid][u.dst_bank]--;

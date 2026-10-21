@@ -199,6 +199,8 @@ class Core {
     // front end
     uint64_t fetch_seq = 0, fe_resume = 0;
     bool fe_blocked = false;
+    bool wfi_pending = false;      // wfi_sleep: a WFI dispatched and not yet committed; nothing younger dispatches
+    uint64_t wfi_until = 0;        // wfi_sleep: asleep until this cycle
     std::deque<FetchRec> fetchq;
     Ras ras;
     Hist ghr;
@@ -319,6 +321,10 @@ class Core {
   // multithreading
   void order(int* o, bool fetch_stage) const;  // thread priority this cycle (ICOUNT or round robin)
   uint64_t icount(const Thread& T) const;
+  uint64_t icount_rows(const Thread& T) const;   // smt_fetch 2: the issue-queue rows the thread holds
+  mutable uint64_t icnt_now_[MAX_THREADS] = {}, icnt_late_[MAX_THREADS] = {}, icnt_t_ = ~0ull;  // smt_fetch 2, 3
+  bool parked(int tid) const;                     // wfi_sleep: asleep in WFI with an empty window
+  bool sib_group_needs(const Thread& S, uint8_t q, int k) const;   // smt_iq_cap_bank 4
   int64_t iq_cap(uint8_t q) const;
   int64_t iq_free(uint8_t q, int tid) const;  // entries thread tid may still take in queue q
   int iq_occ(uint8_t q, int tid) const;     // entries of queue q held by thread tid
