@@ -35,18 +35,7 @@ module tg_decode_stage
   input  logic                clk,
   input  logic                rst,
   input  logic                flush,
-  input  logic                misa_m,
-  input  logic                misa_b,
-  input  logic                misa_c,
-  input  logic                misa_a,
-  input  logic                misa_f,
-  input  logic                misa_d,
-  input  logic [1:0]          fs,
-  input  logic [2:0]          frm,
-  input  priv_e               priv,
-  input  logic                tvm,
-  input  logic                tw,
-  input  logic                tsr,
+  input  dec_state_t [NUM_THREADS-1:0] dst_h,   // each hart's decode state (M7: the group's hart's is read)
   // Instruction queue
   input  logic [W-1:0]        iq_valid,
   input  fe_insn_t [W-1:0]    iq_insn,
@@ -57,6 +46,7 @@ module tg_decode_stage
   input  logic                de_take,
   // Decode-time redirect (registered)
   output logic                dred,
+  output tid_t                dred_tid,     // ... the redirecting instruction's thread (M7)
   output logic [63:0]         dred_pc,
   output logic [FTQW-1:0]     dred_ftq,     // the redirecting instruction's FTQ entry and last slot,
   output logic [SLOT_W-1:0]   dred_slot,    // for the history's repair (TAGE_ON)
@@ -69,6 +59,17 @@ module tg_decode_stage
   output logic                ras_pop,
   output logic [38:1]         ras_link
 );
+  // The queue presents one thread's instructions a cycle (M7): the decoders take that hart's state
+  dec_state_t ds;
+  assign ds = dst_h[iq_insn[0].tid];
+  logic       misa_m, misa_b, misa_c, misa_a, misa_f, misa_d, tvm, tw, tsr;
+  logic [1:0] fs;
+  logic [2:0] frm;
+  priv_e      priv;
+  assign {misa_m, misa_b, misa_c, misa_a, misa_f, misa_d} = {ds.misa_m, ds.misa_b, ds.misa_c, ds.misa_a, ds.misa_f,
+                                                              ds.misa_d};
+  assign {fs, frm, priv, tvm, tw, tsr} = {ds.fs, ds.frm, ds.priv, ds.tvm, ds.tw, ds.tsr};
+
   // The offset of a branch (jal = 0) or JAL (jal = 1), bits 20:0 with the sign at 20, from the raw
   // encoding: B and J types, or RVC's CB (c.beqz, c.bnez) and CJ (c.j); as decode adds it to the PC
   function automatic logic [20:0] bimm_of(input logic [31:0] x, input logic jal);
@@ -435,6 +436,7 @@ module tg_decode_stage
       for (int j = 0; j < W; j++) begin
         if (de_take && n == TKW'(j + 1) && redir[j]) begin
           dred      <= 1'b1;
+          dred_tid  <= xq[j].tid;
           dred_pc   <= npc[j];
           dred_ftq  <= xq[j].ftq;
           dred_slot <= xq[j].pc[SLOT_W:1] + SLOT_W'(!xq[j].rvc);

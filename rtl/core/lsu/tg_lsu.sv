@@ -125,6 +125,7 @@ module tg_lsu
   output logic [63:0]                  hd_sva,        // head's tval when a load or store traps there
   input  logic                         iw_req,        // fetch walks
   input  logic [63:0]                  iw_va,
+  input  tid_t                         iw_tid,        // ... the walking thread's (M7's step 5b)
   output logic                         iw_ack,
   output logic                         iw_done,
   output logic                         iw_ok,
@@ -306,6 +307,8 @@ module tg_lsu
   assign t_cm = (NT > 1 && SPLIT) ? cm_tid : RUN_TID;
   assign t_fl = (NT > 1 && SPLIT) ? flush_tid : RUN_TID;
   assign t_hd = (NT > 1 && SPLIT) ? hd_tid : RUN_TID;
+  tid_t t_iw;                                   // fetch's walk's thread
+  assign t_iw = (NT > 1 && SPLIT) ? iw_tid : RUN_TID;
   logic [LQ_ENTRIES-1:0] fl_lq;                 // the flushed thread's half (Vivado selects no bit of a function's value)
   logic [SQ_ENTRIES-1:0] fl_sq;
   assign fl_lq = lq_part(t_fl);
@@ -1366,7 +1369,7 @@ module tg_lsu
   assign pw_req[1]  = iw_req && EXT_SU;
   assign pw_va[1]   = iw_va;
   assign pw_at[1]   = ACC_X;
-  assign pw_mode[1] = priv[RUN_TID];
+  assign pw_mode[1] = priv[t_iw];
   assign pw_req[2]  = dpf_v_q;
   assign pw_va[2]   = dpf_va_q;
   assign pw_at[2]   = dpf_at_q;
@@ -1375,7 +1378,7 @@ module tg_lsu
   // the prefetch's access's
   tid_t [2:0]       pw_tid;
   assign pw_tid[0]  = t_hd;
-  assign pw_tid[1]  = RUN_TID;
+  assign pw_tid[1]  = t_iw;
   assign pw_tid[2]  = dpf_tid_q;
   tg_ptw u_ptw (
     .clk, .rst, .flush, .flush_tid(t_fl), .satp_ppn, .sum, .mxr, .pmp_d, .pmp_al, .pmp_p2m,

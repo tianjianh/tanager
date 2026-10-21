@@ -127,8 +127,9 @@ module tg_ras
         p_pop_q  <= 1'b0;
         p_rv_q   <= 1'b0;
       end else begin
-        p_push_q <= d_push && !flush;
-        p_pop_q  <= d_pop && !flush;
+        // (C, spikes.md §7.1: an operation never comes in a flush's cycle, asserted below, so no gate here)
+        p_push_q <= d_push;
+        p_pop_q  <= d_pop;
         p_rv_q   <= r_v && !flush;
       end
       p_link_q <= d_link;

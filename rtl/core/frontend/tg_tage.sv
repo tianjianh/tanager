@@ -50,7 +50,10 @@ module tg_tage
   input  logic [CW-1:0]        t_pred,
   output logic                 q_v,
   output logic [FW-1:0]        q_ftq,
-  input  logic [NT*(LI+TW)+BI-1:0] q_ix
+  input  logic [NT*(LI+TW)+BI-1:0] q_ix,
+  // every queued request's FTQ entry, oldest first, and how many (each thread's oldest is the FTQ's to keep, M7)
+  output logic [3:0][FW-1:0]   q_all,
+  output logic [2:0]           q_n
 );
   localparam int IXW = NT * (LI + TW) + BI;
   // history lengths, geometric to 40 bits: by table count (the M6 size study's first pass)
@@ -165,6 +168,10 @@ module tg_tage
   end
   assign q_v   = qn_q != '0;
   assign q_ftq = q_q[0].ftq;
+  for (genvar k = 0; k < QN; k++) begin : g_qall
+    assign q_all[k] = q_q[k].ftq;
+  end
+  assign q_n = 3'(qn_q);
 
   // ---- Memories: port A predicts, port B trains ----
   ent_t [NT-1:0]        ra, rb, wb;
@@ -174,7 +181,8 @@ module tg_tage
   assign b_we = t2_v_q;
   for (genvar t = 0; t < NT; t++) begin : g_tab
     logic [EW-1:0] da, db;
-    tg_ram_tdp #(.DEPTH(1 << LI), .WIDTH(EW)) u_mem (
+    // (F, spikes.md §7.1: no depth cascade, the two RAMB36 side by side: 1.19 ns clock-to-out, not 1.73)
+    tg_ram_tdp #(.DEPTH(1 << LI), .WIDTH(EW), .CASCADE_HEIGHT(1)) u_mem (
       .clk, .en_a(re), .we_a(1'b0), .addr_a(ix_idx(ix_f1, t)), .wdata_a('0), .rdata_a(da),
       .en_b(b_en), .we_b(b_we), .addr_b(t2_v_q ? ix_idx(t2_q.ix, t) : ix_idx(q_ix, t)),
       .wdata_b(wb[t]), .rdata_b(db));
