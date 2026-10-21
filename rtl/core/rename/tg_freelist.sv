@@ -22,7 +22,9 @@
 // taker's at its tail, as a committed push (tail and both counts + 1). A transfer runs only while the taker's group is
 // at rename (pop_tid), so the sibling does not pop, and in a cycle with no push to this bank and no flush, so the write
 // port and both tails are its own; it reads the sibling's entry on a second read port of each sub-bank. A sibling
-// asleep in WFI gives up its spares this way.
+// asleep in WFI gives up its spares this way. With `give_last` (the FP lists, which cross, while the giver is blocked:
+// parked in WFI or behind a serial uop) the giver gives its last one too (count >= 1 is all the entry needs); it takes
+// one back the same way once it runs and finds both FP banks short.
 // The pointers wrap at DEPTH, a multiple of NB but not necessarily a power of two (DR-175's FP banks of 96, before
 // DR-179): each is an index below DEPTH and a lap bit, which is the plain binary pointer when DEPTH is a power of two.
 // The free counts (tail - spec head) are registers, kept with the commit counts (tail - commit head) that they take on
@@ -64,6 +66,7 @@ module tg_freelist
   input  tid_t                      flush_tid,
   input  logic                      want,       // divided lists: want_tid's group waits for this bank's registers
   input  tid_t                      want_tid,
+  input  logic                      give_last,  // the giver may give its last free register (else it keeps 1)
   output logic                      xfer        // a register moves to want_tid's list from its sibling's this cycle
 );
   if (NB < NPOP || NB < NPUSH || (DEPTH % NB) != 0 || (NB & (NB - 1)) != 0) begin : g_bad
@@ -117,7 +120,7 @@ module tg_freelist
   assign xt  = (NT > 1) ? want_tid : tid_t'(0);
   assign xg  = (NT > 1) ? ~want_tid : tid_t'(0);
   assign xge = pdec(tail_q[xg]);
-  assign xgo = XF && ready && want && pt == xt && int'(count_q[xg]) >= 2 && !(|push_v) && !flush;
+  assign xgo = XF && ready && want && pt == xt && int'(count_q[xg]) >= (give_last ? 1 : 2) && !(|push_v) && !flush;
   assign xfer = xgo;
 
   // ---- Writes: the init sequence, the pushes at the pushing thread's tail + rank, or a transfer at the taker's ----
@@ -258,7 +261,7 @@ module tg_freelist
           else $error("tg_freelist: thread %0d's list overflows", t);
       end
       // a transfer leaves the giver at least one register and comes with no pop of the giver's
-      if (xgo) assert (int'(count_q[xg]) >= 2 && pt != xg) else $error("tg_freelist: a transfer from a short list");
+      if (xgo) assert (int'(count_q[xg]) >= (give_last ? 1 : 2) && pt != xg) else $error("tg_freelist: a transfer from a short list");
     end
   end
 `endif

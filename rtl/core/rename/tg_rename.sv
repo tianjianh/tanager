@@ -224,13 +224,16 @@ module tg_rename
       .clk, .rst, .ready(fl_ready[b]), .count(fl_count[b]), .pop_tid(t_rn), .pop_idx(fl_pop[b]),
       .pop_n(fl_pop_n[b]), .pop(rn_fire), .push_tid(t_cm), .push_v(fl_push_v[b]), .push_idx(fl_push_idx[b]),
       .commit_n(fl_cmt_n[b]), .flush, .flush_tid(t_fl), .want(fl_want_q[b]), .want_tid(want_t_q),
-      .xfer(fl_xfer[b]));
+      .give_last(1'b0), .xfer(fl_xfer[b]));
   end
 
   // ---- FP free lists (EXT_FD): F0 starts with indices 32-63 (f0-f31 map to F0 0-31), F1 0-63; with hart 1 (step 5)
   // its f0-f31 are F1's 0-31 and each bank's rest (32-63) is divided between the harts. With hart 1 an FP destination
   // whose own bank (P4's results F0, FP loads F1) has no register left for its thread takes the other's (DR-179)
   localparam bit FXB = EXT_FD && HART1_ON;
+  logic [1:0] fown_s;               // (FXB) a destination found its own bank short for its thread (it crossed)
+  logic       fgl;                  // (FXB) the FP lists' giver (want_t_q's sibling) is blocked: it gives its last
+  assign fgl = FXB && block_q[CMT ? !want_t_q : 1'b0];
   logic [1:0]                         ffl_ready;
   logic [1:0][NT-1:0][FPIDX_W:0]      ffl_count;
   logic [1:0][W-1:0][FPIDX_W-1:0]     ffl_pop;
@@ -246,7 +249,7 @@ module tg_rename
         .clk, .rst, .ready(ffl_ready[b]), .count(ffl_count[b]), .pop_tid(t_rn), .pop_idx(ffl_pop[b]),
         .pop_n(ffl_pop_n[b]), .pop(rn_fire), .push_tid(t_cm), .push_v(ffl_push_v[b]), .push_idx(ffl_push_idx[b]),
         .commit_n(ffl_cmt_n[b]), .flush, .flush_tid(t_fl), .want(ffl_want_q[b]), .want_tid(want_t_q),
-        .xfer(ffl_xfer[b]));
+        .give_last(fgl), .xfer(ffl_xfer[b]));
     end
   end else begin : g_noffl
     assign ffl_ready = '1;
@@ -507,6 +510,7 @@ module tg_rename
     logic found;
     pops = '0;
     fpops = '0;
+    fown_s = '0;
     nld = 0; nst = 0; ndiv = 0; nfdiv = 0; nfpi = 0; nrob = 0;
     port = 0; pref = 0; p = 0; b = 0; fb = 0;
     found = 1'b0;
@@ -625,7 +629,10 @@ module tg_rename
           fb = (rn_uop_q[k].d.cls == C_LD) ? FPB_F1 : FPB_F0;
           // (DR-179) its own bank's list for the thread has none left after the group's earlier slots: the other
           // bank's (its pops then checked below like the own bank's); the inputs are registers, the count flags
-          if (FXB && !fcv[fb][idx_w(W)'(fpops[fb])]) fb = 1 - fb;
+          if (FXB && !fcv[fb][idx_w(W)'(fpops[fb])]) begin
+            fown_s[fb] = 1'b1;
+            fb = 1 - fb;
+          end
           ren[k].dst = mk_fpreg(fb, ffl_pop[fb][fpops[fb]]);
           fpops[fb] = fpops[fb] + 1'b1;
         end else begin
@@ -791,8 +798,13 @@ module tg_rename
   end
 
   // Transfers' wants (HART1_ON): the group at RN needs more of a bank's registers than its thread's list holds. FP
-  // with crossing (DR-179): a group short in one bank is short in both (an op crosses before it overflows), so both
-  // banks take one from the sibling's list where it can give
+  // with crossing (DR-179): a group short in both banks asks in both; and while the sibling is blocked (parked in WFI,
+  // or behind a serial uop), a destination that finds its own bank short asks for one there although it crosses, so a
+  // lone thread takes the sleeping sibling's spares rather than crossing into the bank the other writer writes (its
+  // loads wait there for P4). Between two running threads it crosses without taking: taking would only move the
+  // shortage to the sibling
+  logic o_blk;
+  assign o_blk = CMT && block_q[CMT ? !t_rn : 1'b0];
   always_ff @(posedge clk) begin
     if (rst || !HART1_ON) begin
       fl_want_q  <= '0;
@@ -804,7 +816,8 @@ module tg_rename
         fl_want_q[b] <= |rn_valid_q && int'(pops[b]) > int'(fl_count[b][t_rn]);
       for (int b = 0; b < 2; b++)
         ffl_want_q[b] <= EXT_FD && |rn_valid_q && (int'(fpops[b]) > int'(ffl_count[b][t_rn]) ||
-                                                   (FXB && int'(fpops[1-b]) > int'(ffl_count[1-b][t_rn])));
+                                                   (FXB && ((fown_s[b] && o_blk) ||
+                                                            int'(fpops[1-b]) > int'(ffl_count[1-b][t_rn]))));
     end
   end
 `ifndef SYNTHESIS
