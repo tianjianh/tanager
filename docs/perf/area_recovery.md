@@ -1986,11 +1986,18 @@ The CPU-time rows use §6.12's accounting, the one §6.13 predicted in. Correcte
 | Embench huffbench | 1,861,661 | 1,735,889 | **−6.8%** | −2.1% / −2.1% |
 | Embench minver | 291,795 | 276,494 | **−5.2%** | −15.1% / −10.4% |
 | CoreMark A/B, rv64gc and rv64im | | | −0.1% to −0.6% | |
-| The other 11 | | | within ±0.05% | |
+| Hash lookups, 0.5 MiB (ws_hash) | 4,173,706 | 4,175,976 | **+0.05%** (slower) | |
+| The other 10 | | | within ±0.04% | |
 | **Mean model error, 18 programs** | | | | **6.78% / 5.93%** |
 
-- **No program is slower.**
-- **Cost:** a two-way priority per tagged table, a few LUTs, and no new state.
+- **Slower, all small** (fpu-2's branch, 10-20; the coordinator took them under DR-154):
+  - ws_hash +0.05% (above);
+  - in make perf, Dhrystone rv64gc +0.02% (st) and +0.25% (smt2), while CoreMark B gains 0.6–0.7%;
+  - in cycle-identical, the smt2 boot retires 0.041% fewer records in 20M cycles and st's random suite takes 0.059% more
+    cycles (the st boot 0.011% more records, the bench suite −0.55% / −0.62% cycles).
+  - The board-memory boots are faster: 0.058% (c1 st) and 0.002% (c2 smt2) more instructions retired in 20M cycles.
+- **Cost:** a two-way priority per tagged table and no new state; measured, the core is 23 LUTs smaller (budget flow,
+  tg_core smt2).
 - **The model follows:** with the same rule (`btage_alloc` 1), huffbench gains −6.8% as the RTL does, and ud's error drops to −6.8%.
 - **For fpu-2 or core-2** (the coordinator's routing, as with crc32): the change is in `tg_tage.sv`'s allocation loop, which today takes way 0 whenever it is invalid or not useful. The scratch patch is `~/tanager-build/smt2-study/tage-ud-1020-155920/alloc_patch.py`, in the worktree `rtlexp`.
 
