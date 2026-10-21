@@ -1767,7 +1767,9 @@ def resid7(workers):
 
 RTL_RUNS = {   # the RTL's pair runs (the runner's ws.json, in results/), by final set: the build, the basis, the files
     "pair-final-39b16a6a": [("5c (071de15c)", "half", ["pair_rtl_5c_071de15c_half.json"]),     # verif-2, REPEAT, 10-21
-                            ("5c (071de15c)", "merged", ["pair_rtl_5c_071de15c_merged.json"])],
+                            ("5c (071de15c)", "merged", ["pair_rtl_5c_071de15c_merged.json"]),
+                            ("5e (main 3511f430)", "half", ["pair_rtl_5e_3511f430_half.json"]),   # 5d and 5e on main
+                            ("5e (main 3511f430)", "merged", ["pair_rtl_5e_3511f430_merged.json"])],
     "pair-final-b7db3e16": [("5c (9cba5f9b)", "half",   # core-2's, 10-21: 30 cycles, then 120 and 250
                              ["pair_rtl_5c_9cba5f9b.json", "pair_rtl_5c_9cba5f9b_120_250.json"]),
                             ("C (4c60872b)", "half",
