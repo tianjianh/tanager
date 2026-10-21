@@ -1035,9 +1035,19 @@ void Core::decode() {
     Thread &T = *th_[(size_t)dec_tid_], &O = *th_[(size_t)(1 - dec_tid_)];
     const int took = decode_thread(T, (int)c_.decode_width);
     T.st.decode_slots += (uint64_t)took;
+    if (took < c_.decode_width && !O.fetchq.empty() && O.fetchq.front().avail <= t_)   // TG-STALL2's decode count
+      T.st.dec_lost_other += (uint64_t)(c_.decode_width - took);
     const uint64_t buf = (uint64_t)(c_.decode_width * (c_.dec_to_disp + 1));
     auto holds = [&](const Thread& U) { return !U.fetchq.empty() && U.fetchq.front().avail <= t_ + 1; };
-    auto takes = [&](const Thread& U) { return U.next_id - U.disp_next < buf; };
+    // rename's acc_o: room for a group, or (2, 5e's) the register rename has chosen for the next cycle, its group
+    // able or not, or (3, 5f's) that register while its group looks able. A thread held at the runner's barrier
+    // (smt_align) is left out: on the RTL it spins there, its groups renaming
+    auto takes = [&](Thread& U) {
+      if (U.next_id - U.disp_next < buf) return true;
+      const bool barrier = c_.smt_align && !U.region_seen && U.align_id && U.disp_next > U.align_id;
+      return c_.smt_dec_rr >= 2 && c_.smt_rn_sel && rn_sel_ == U.tid && !barrier &&
+             (c_.smt_dec_rr == 2 || rn_able(U));
+    };
     if (holds(O) && takes(O) && (took > 0 || !holds(T) || !takes(T))) dec_tid_ = O.tid;
     return;
   }
