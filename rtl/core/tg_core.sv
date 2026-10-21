@@ -443,7 +443,7 @@ module tg_core
 
   // ---- Issue ----
   logic [NCOL-1:0] wake_reg, wake_x, wake_l, col_clr;
-  logic            a1_block, ld_block;
+  logic            a1_block, ld_block, fp_block;
   logic [N_IQ-1:0] iss_valid;
   iq_pl_t [N_IQ-1:0] iss_pl;
   preg_t [N_XQ-1:0][1:0] iss_src_n;     // URF: the RF stage's next source tags
@@ -459,7 +459,8 @@ module tg_core
   tg_issue u_is (
     .clk, .rst, .flush, .flush_tid, .disp_we(iq_we), .disp_dep(iq_dep),
     .disp_pl(iq_pl), .disp_mdep(iq_mdep), .bank_free(iq_bank_free), .bank_free2(iq_bank_free2), .mx_hold, .mx_alloc, .alloc(wid_alloc), .wake_reg, .ld_m2_will, .col_clr,
-    .w(w_vec), .busy(iq_busy), .a1_block, .ld_block, .fp_misc_block, .iss_valid, .iss_pl, .iss_src_n, .spec_cancel);
+    .w(w_vec), .busy(iq_busy), .a1_block, .ld_block, .fp_block, .fp_misc_block, .iss_valid, .iss_pl, .iss_src_n,
+    .spec_cancel);
 
   // LLTs are released the cycle after their register is written
   always_ff @(posedge clk) begin
@@ -621,7 +622,7 @@ module tg_core
     .flush_tid(lsu_flush_tid), .ds_fire, .ds_valid, .ds_uop,
     .ds_ren,
     .lq_head_o(lq_head_t), .sq_head_o(sq_head_t), .sq_cmt_o(sq_cmt_t),
-    .ld_ag_valid, .ld_ag_pl, .ld_ag_addr, .sta_ag_valid, .sta_ag_pl, .sta_ag_addr, .ld_block,
+    .ld_ag_valid, .ld_ag_pl, .ld_ag_addr, .sta_ag_valid, .sta_ag_pl, .sta_ag_addr, .ld_block, .fp_block,
     .ld_m2_will, .ld_m2_dst, .ld_res_valid, .ld_res_dst, .ld_res_data,
     .wake_ld(wake_l), .llt_done(llt_done_l), .fld_m2_will, .fld_m2_bank, .fld_m2_idx, .fld_valid, .fld_bank,
     .fld_idx, .p4_nx_we, .p4_nx_bank,

@@ -11,7 +11,8 @@
 // IQ-FP (EXT_FD) issues to P4 (tg_fp_exec). Its rows wait on 1-cycle integer producers until
 // their rows are freed (no mx_issued), so an FP op's integer source is in the register file by
 // P4's RF stage; FMISC ops with an FP destination are not selected while fp_misc_block is high
-// (the F0 slot three cycles after an FMA).
+// (the F0 slot three cycles after an FMA), and none while fp_block is (tg_lsu: a held FP load
+// waits for its bank's write port, DR-179).
 module tg_issue
   import tg_pkg::*, tg_alu_pkg::*, tg_fpu_pkg::*, tg_core_pkg::*;
 #(
@@ -46,6 +47,7 @@ module tg_issue
   // Select blocks (registered by their sources)
   input  logic                         a1_block,
   input  logic                         ld_block,
+  input  logic                         fp_block,        // registered (tg_lsu): IQ-FP's select blocked
   input  logic                         fp_misc_block,   // EXT_FD: P4's F0 slot is taken
   // RF stage
   output logic [N_IQ-1:0]              iss_valid,
@@ -407,7 +409,7 @@ module tg_issue
       end
     end
     logic blk;
-    assign blk = (q == 1) ? a1_block : (q == Q_LD) ? ld_block : 1'b0;
+    assign blk = (q == 1) ? a1_block : (q == Q_LD) ? ld_block : (q == Q_FP) ? fp_block : 1'b0;
     // IQ-FP: FMISC ops with an FP destination yield to fp_misc_block
     logic [DW-1:0] cblk;
     for (genvar k = 0; k < DW; k++) begin : g_cb

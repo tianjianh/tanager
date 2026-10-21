@@ -46,6 +46,7 @@ module tg_lsu
   input  iq_pl_t                       sta_ag_pl,
   input  logic [63:0]                  sta_ag_addr,
   output logic                         ld_block,      // registered: IQ-LD select blocked
+  output logic                         fp_block,      // registered: IQ-FP select blocked (a held FP load waits)
   // Load results
   output logic                         ld_m2_will,
   output logic [PIDX_W-1:0]            ld_m2_dst,
@@ -836,13 +837,14 @@ module tg_lsu
   assign fk_hold = 1'b0;
 `else
   // Simulation only: +fhold_pct=N treats N% of the cycles as P4 writing every bank next cycle, so FP loads are held,
-  // taken and retried with or without real collisions (none before rename crosses). Its own xorshift32 sequence:
-  // the testbench's $urandom stays as it was
+  // taken and retried with or without real collisions (none before rename crosses). Not while IQ-FP's select is
+  // blocked (fp_block, below), as P4 then empties. Its own xorshift32 sequence: the testbench's $urandom stays as it
+  // was
   bit          fk_on;
   int unsigned fk_pct;
   logic [31:0] fk_r_q;
   initial fk_on = $value$plusargs("fhold_pct=%d", fk_pct);
-  assign fk_hold = fk_on && !rst && fk_r_q % 100 < fk_pct;
+  assign fk_hold = fk_on && !rst && !fp_block && fk_r_q % 100 < fk_pct;
   always_ff @(posedge clk) begin
     logic [31:0] y;
     y = fk_r_q ^ (fk_r_q << 13);
@@ -973,8 +975,11 @@ module tg_lsu
   // verdict aside (m2_okw): a load the checker denies leaves the register empty that cycle, and
   // they take it the next (timing, DR-145: G6's load PMP checker -> the result take -> the
   // wakeup, -1.56 ns; a cycle only when one waits beside a PMP-denied load in M2)
-  logic xr_take;
-  assign xr_take = xr_v_q && !m2_okw && !kill_t[x_t];
+  // An FP load's response (an FP load from a device) also waits while P4 writes its bank next cycle (DR-179), and
+  // blocks IQ-FP's select meanwhile (fp_block, below)
+  logic xr_take, xr_fcol;
+  assign xr_fcol = EXT_FD && lqc_rd[1].dv && lqc_rd[1].fp && ((p4_nx_we && p4_nx_bank == lqc_rd[1].fb) || fk_hold);
+  assign xr_take = xr_v_q && !m2_okw && !kill_t[x_t] && !xr_fcol;
   // A held FP load's result (DR-179; M2 above): it takes the result register last, when nothing else does and P4
   // leaves its bank next cycle, so its write never meets P4's; a flush of its thread drops it
   tid_t            fh_tid_q;
@@ -984,6 +989,9 @@ module tg_lsu
   robid_t          fh_rob_q;
   llt_t            fh_llt_q;
   logic            fh_take;
+  logic            fh_stay;                // fh holds its load into the next cycle (a failed take)
+  logic [2:0]      fh_w_q;                 // fh's failed takes before this cycle (saturating)
+  localparam logic [2:0] FH_BLK = 3'd7;    // IQ-FP's select is blocked after 8 (fp_block, below)
 
   // ================= Atomics =================
   // AM_IDLE -> (ROB head, address and data known, older stores drained) -> AM_REQ: the D$ holds
@@ -1047,6 +1055,7 @@ module tg_lsu
   assign am_take  = am_st_q == AM_RES && !m2_okw && !xr_take && !kill_t[am_t_q];
   assign fh_take  = fh_v_q && !m2_okw && !xr_take && !am_take && !kill_t[fh_tid_q] &&
                     !(p4_nx_we && p4_nx_bank == fh_fb_q) && !fk_hold;
+  assign fh_stay  = fh_v_q && !fh_take && !kill_t[fh_tid_q];
 `ifndef SYNTHESIS
   // A held load never outlives its thread's flush: the flush frees its LLT and its register at once (rename), so a
   // later take would wake an LLT given out again and write a register with a new owner
@@ -1055,21 +1064,33 @@ module tg_lsu
     fh_kill_q <= !rst && fh_v_q && kill_t[fh_tid_q];
     if (!rst && fh_kill_q) assert (!fh_v_q) else $error("tg_lsu: a held FP load outlived its thread's flush");
   end
+  // ... nor waits long (core-2's check): from its second cycle IQ-LD's select is blocked, so M2 empties (each replay
+  // completes once), and after 8 failed takes IQ-FP's too, so P4's stream empties (ld_block and fp_block, below)
+  int unsigned fh_age;                    // the cycles fh has held its load before this one
+  always_ff @(posedge clk) begin
+    fh_age <= (rst || !fh_v_q) ? 0 : fh_age + 1;
+    if (!rst && fh_v_q) assert (fh_age < 64) else $error("tg_lsu: a held FP load waited 64 cycles");
+  end
   // The hold's events, on stderr at the end with +fhold_pct (TG-FHOLD)
-  longint unsigned fk_n_hold, fk_n_take, fk_n_retry, fk_n_drop;
+  longint unsigned fk_n_hold, fk_n_take, fk_n_retry, fk_n_drop, fk_n_fpb;
+  int unsigned     fk_max;
   always_ff @(posedge clk) begin
     if (rst) begin
-      fk_n_hold <= 0; fk_n_take <= 0; fk_n_retry <= 0; fk_n_drop <= 0;
+      fk_n_hold <= 0; fk_n_take <= 0; fk_n_retry <= 0; fk_n_drop <= 0; fk_n_fpb <= 0; fk_max <= 0;
     end else begin
       if (m2_ok && m2_fhold) fk_n_hold <= fk_n_hold + 1;
       if (fh_take) fk_n_take <= fk_n_take + 1;
       if (m2_v_q && !m2_pt_q && !kill_t[t_m2] && m2_out == O_OK && m2_fretry) fk_n_retry <= fk_n_retry + 1;
       if (fh_v_q && kill_t[fh_tid_q]) fk_n_drop <= fk_n_drop + 1;
+      if (fp_block) fk_n_fpb <= fk_n_fpb + 1;
+      if (fh_take && fh_age + 1 > fk_max) fk_max <= fh_age + 1;
     end
   end
-  final if (fk_on)
-    $fwrite(32'h8000_0002, "TG-FHOLD %m: %0d FP loads held, %0d taken, %0d retried, %0d dropped by a flush (+fhold_pct=%0d)\n",
-            fk_n_hold, fk_n_take, fk_n_retry, fk_n_drop, fk_pct);
+  final if (fk_on) begin
+    $fwrite(32'h8000_0002, "TG-FHOLD %m: %0d FP loads held, %0d taken, %0d retried, %0d dropped by a flush; ",
+            fk_n_hold, fk_n_take, fk_n_retry, fk_n_drop);
+    $fwrite(32'h8000_0002, "longest wait %0d cycles; IQ-FP blocked %0d cycles (+fhold_pct=%0d)\n", fk_max, fk_n_fpb, fk_pct);
+  end
 `endif
 
   logic [NT-1:0]           rsv_v_d;
@@ -1534,10 +1555,16 @@ module tg_lsu
   end
 `endif
 
-  // Replay or PTE read pending: block IQ-LD's select so the AG slot frees
+  // Replay or PTE read pending: block IQ-LD's select so the AG slot frees. Also a held FP load that failed its first
+  // take (DR-179): M2 then empties, its replays aside, so fh takes the result register. After 8 failed takes, or
+  // while an FP load's MMIO response meets P4, IQ-FP's select is blocked too: P4's stream empties (its pipelines and a
+  // divide's slot) and gives the load's bank its write port. Without them a stream of completing loads or of P4
+  // writes to that bank could starve the load (core-2's review)
   always_ff @(posedge clk) begin
     if (rst || flush) ld_block <= 1'b0;
-    else              ld_block <= |rp_ready || pt_req;
+    else              ld_block <= |rp_ready || pt_req || fh_stay;
+    fp_block <= !rst && ((fh_stay && fh_w_q == FH_BLK) || (xr_v_q && xr_fcol && !kill_t[x_t]));
+    fh_w_q   <= (rst || !fh_stay) ? 3'd0 : (fh_w_q == FH_BLK) ? FH_BLK : fh_w_q + 3'd1;
   end
 
   // ================= Cold storage: VAs and store data (LUTRAM) =================
