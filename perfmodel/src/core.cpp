@@ -767,10 +767,24 @@ void Core::fetch() {
 // the other thread's fetch, until its queue has room. A stopped (blocked) thread or one parked on a miss or redirect
 // takes no turn.
 void Core::fetch_held() {
-  auto can = [&](Thread& T) { return !T.fe_blocked && t_ >= T.fe_resume && get(T, T.fetch_seq) != nullptr; };
   // 1: a block holds when its thread's queue is full; 2: when the queue has no room for the whole block (F3's rule)
   const int64_t need = c_.smt_fetch_hold >= 2 ? std::max<int64_t>(1, c_.fetch_bytes / 2) : 1;
   auto room = [&](const Thread& T) { return (int64_t)T.fetchq.size() + need <= c_.fetchq; };
+  for (int k = 0; k < nthr_; k++)   // 3: a parked thread restarts once a whole block fits
+    if (th_[(size_t)k]->fe_park && room(*th_[(size_t)k])) th_[(size_t)k]->fe_park = false;
+  auto can = [&](Thread& T) {
+    return !T.fe_blocked && !T.fe_park && t_ >= T.fe_resume && get(T, T.fetch_seq) != nullptr;
+  };
+  // 3 (5e as built, QP_WAIT 2): while the other stream waits for the pipe, a thread whose queue has held
+  // instructions decode hasn't read for 2 cycles parks rather than hold: its block is dropped and the pipe goes on
+  auto parks = [&](Thread& T) {
+    if (c_.smt_fetch_hold < 3 || T.fetchq.empty() || T.fetchq.front().avail + 2 > t_ || T.dec_read_t + 2 > t_ ||
+        !can(*th_[(size_t)(1 - T.tid)]))
+      return false;
+    T.fe_park = true;
+    T.st.fetch_parks++;
+    return true;
+  };
   auto held = [&](Thread& H) {  // H's block holds the pipe this cycle; of them, as tg_fetch's TG-STALL2 count, with
     H.st.fetch_hold++;          // the other thread ready and room for a whole block in its queue
     Thread& O = *th_[(size_t)(1 - H.tid)];
@@ -778,7 +792,7 @@ void Core::fetch_held() {
   };
   if (hold_tid_ >= 0) {
     Thread& H = *th_[(size_t)hold_tid_];
-    if (can(H) && !room(H)) { held(H); return; }
+    if (can(H) && !room(H) && !parks(H)) { held(H); return; }
     hold_tid_ = -1;
     if (can(H)) { H.st.fetch_cycles++; fetch_thread(H); return; }   // its block goes on
   }
@@ -786,7 +800,12 @@ void Core::fetch_held() {
     Thread& T = *th_[(size_t)((fetch_turn_ + k) % nthr_)];
     if (!can(T)) continue;
     fetch_turn_ = T.tid;
-    if (!room(T)) { hold_tid_ = T.tid; held(T); return; }
+    if (!room(T)) {
+      if (parks(T)) continue;   // the other stream takes the pipe
+      hold_tid_ = T.tid;
+      held(T);
+      return;
+    }
     T.st.fetch_cycles++;
     fetch_thread(T);
     return;
@@ -1044,6 +1063,7 @@ int Core::decode_thread(Thread& T, int slots_avail) {
   }
   const bool blocked = T.next_id - T.disp_next >= (uint64_t)(c_.decode_width * (c_.dec_to_disp + 1));
   const int took = decode_take(T, slots_avail);
+  if (took > 0) T.dec_read_t = t_;
   if (blocked) {  // rename cannot take a group (the RTL: !de_take), charged to what stopped dispatch this cycle
     T.st.dec_blocked++;
     switch (T.disp_why) {

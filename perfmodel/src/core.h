@@ -154,7 +154,7 @@ struct SqEntry {
 #define TG_M7_STATS(X) X(prf_xfers) X(flush_walks) X(disp_stall_walk) X(prf_xbanks) X(prf_starved) \
   X(rn_held) X(rn_blocked) X(rn_room_skips) X(rn_held_rob) X(rn_held_lq) X(rn_held_sq) X(rn_held_reg) X(rn_held_iq) \
   X(rn_held_other) X(fetch_hold) X(fetch_hold_other) X(cm_none) X(cm_none_ready) X(fld_held) X(fld_held_cycles) \
-  X(fld_replays) X(fh_ld_lost) X(fh_fp_lost) X(fld_waits)
+  X(fld_replays) X(fh_ld_lost) X(fh_fp_lost) X(fld_waits) X(fetch_parks)
 
 struct Stats {
 #define TG_SDECL(n) uint64_t n = 0;
@@ -200,6 +200,8 @@ class Core {
     // front end
     uint64_t fetch_seq = 0, fe_resume = 0;
     bool fe_blocked = false;
+    bool fe_park = false;          // smt_fetch_hold 3: parked at F2 until a whole block fits its queue
+    uint64_t dec_read_t = 0;       // the last cycle decode read this thread's queue
     bool wfi_pending = false;      // wfi_sleep: a WFI dispatched and not yet committed; nothing younger dispatches
     uint64_t wfi_until = 0;        // wfi_sleep: asleep until this cycle
     std::deque<FetchRec> fetchq;
