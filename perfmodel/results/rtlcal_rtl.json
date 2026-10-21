@@ -1608,5 +1608,257 @@
   "region_cycles": 101142,
   "region_instret": 143050,
   "cycles": 200070
+ },
+ "acd8306793cba751:6da6dde2794da9c3:native": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rtl/embench_crc32.elf",
+  "lat": "native",
+  "region_cycles": 2835248,
+  "region_instret": 3831494,
+  "cycles": 2852151
+ },
+ "acd8306793cba751:6da6dde2794da9c3:120": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rtl/embench_crc32.elf",
+  "lat": "120",
+  "region_cycles": 2804879,
+  "region_instret": 3831494,
+  "cycles": 2826300
+ },
+ "acd8306793cba751:b00a1baaf0e2e9f1:native": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rtl/embench_edn.elf",
+  "lat": "native",
+  "region_cycles": 2033721,
+  "region_instret": 3397669,
+  "cycles": 2061587
+ },
+ "acd8306793cba751:b00a1baaf0e2e9f1:120": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rtl/embench_edn.elf",
+  "lat": "120",
+  "region_cycles": 2033724,
+  "region_instret": 3397669,
+  "cycles": 2066235
+ },
+ "acd8306793cba751:192a5a8c8434e49c:native": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rtl/embench_huffbench.elf",
+  "lat": "native",
+  "region_cycles": 1866605,
+  "region_instret": 2163543,
+  "cycles": 2066768
+ },
+ "acd8306793cba751:192a5a8c8434e49c:120": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rtl/embench_huffbench.elf",
+  "lat": "120",
+  "region_cycles": 1867274,
+  "region_instret": 2163543,
+  "cycles": 2080372
+ },
+ "acd8306793cba751:8a40193408afa749:native": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rtl/embench_matmult-int.elf",
+  "lat": "native",
+  "region_cycles": 1617167,
+  "region_instret": 3180612,
+  "cycles": 1677178
+ },
+ "acd8306793cba751:8a40193408afa749:120": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rtl/embench_matmult-int.elf",
+  "lat": "120",
+  "region_cycles": 1617183,
+  "region_instret": 3180612,
+  "cycles": 1687645
+ },
+ "acd8306793cba751:9e9210557ca4f8a1:native": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rtl/embench_minver.elf",
+  "lat": "native",
+  "region_cycles": 272872,
+  "region_instret": 441841,
+  "cycles": 276485
+ },
+ "acd8306793cba751:9e9210557ca4f8a1:120": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rtl/embench_minver.elf",
+  "lat": "120",
+  "region_cycles": 272852,
+  "region_instret": 441841,
+  "cycles": 278665
+ },
+ "acd8306793cba751:91be2bbdc54a9bb2:native": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rtl/embench_nsichneu.elf",
+  "lat": "native",
+  "region_cycles": 1744408,
+  "region_instret": 2399240,
+  "cycles": 1754298
+ },
+ "acd8306793cba751:91be2bbdc54a9bb2:120": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rtl/embench_nsichneu.elf",
+  "lat": "120",
+  "region_cycles": 1744310,
+  "region_instret": 2399240,
+  "cycles": 1772674
+ },
+ "acd8306793cba751:4ba86ac8d69e3396:native": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rtl/embench_statemate.elf",
+  "lat": "native",
+  "region_cycles": 844719,
+  "region_instret": 897574,
+  "cycles": 847494
+ },
+ "acd8306793cba751:4ba86ac8d69e3396:120": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rtl/embench_statemate.elf",
+  "lat": "120",
+  "region_cycles": 844812,
+  "region_instret": 897574,
+  "cycles": 851488
+ },
+ "acd8306793cba751:05395484088309b0:native": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rtl/embench_ud.elf",
+  "lat": "native",
+  "region_cycles": 1452483,
+  "region_instret": 2367780,
+  "cycles": 1457487
+ },
+ "acd8306793cba751:05395484088309b0:120": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rtl/embench_ud.elf",
+  "lat": "120",
+  "region_cycles": 1452453,
+  "region_instret": 2367780,
+  "cycles": 1460594
+ },
+ "acd8306793cba751:da94b75d0eb4d7ba:native": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rtl/tk_bigcode.elf",
+  "lat": "native",
+  "region_cycles": 445782,
+  "region_instret": 221132,
+  "cycles": 455979
+ },
+ "acd8306793cba751:da94b75d0eb4d7ba:120": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rtl/tk_bigcode.elf",
+  "lat": "120",
+  "region_cycles": 1330842,
+  "region_instret": 221132,
+  "cycles": 1353887
+ },
+ "acd8306793cba751:d25ccb8809baa04a:native": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rtl/ws_chase1_512.elf",
+  "lat": "native",
+  "region_cycles": 188054,
+  "region_instret": 12003,
+  "cycles": 1268934
+ },
+ "acd8306793cba751:d25ccb8809baa04a:120": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rtl/ws_chase1_512.elf",
+  "lat": "120",
+  "region_cycles": 548053,
+  "region_instret": 12003,
+  "cycles": 2756146
+ },
+ "acd8306793cba751:ccea7fcaddb8e782:native": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rtl/ws_copy_512.elf",
+  "lat": "native",
+  "region_cycles": 1224179,
+  "region_instret": 641227,
+  "cycles": 1496845
+ },
+ "acd8306793cba751:ccea7fcaddb8e782:120": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rtl/ws_copy_512.elf",
+  "lat": "120",
+  "region_cycles": 2809090,
+  "region_instret": 641227,
+  "cycles": 3478379
+ },
+ "acd8306793cba751:7312ddde50958d70:native": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rtl/ws_hash_512.elf",
+  "lat": "native",
+  "region_cycles": 4130558,
+  "region_instret": 1860901,
+  "cycles": 5203989
+ },
+ "acd8306793cba751:7312ddde50958d70:120": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rtl/ws_hash_512.elf",
+  "lat": "120",
+  "region_cycles": 7040391,
+  "region_instret": 1860901,
+  "cycles": 8777869
+ },
+ "acd8306793cba751:8fbeb0f1af445b75:native": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rv64gc-i10-r500/coremark_A.elf",
+  "lat": "native",
+  "region_cycles": 2231850,
+  "region_instret": 3377645,
+  "cycles": 2280770
+ },
+ "acd8306793cba751:8fbeb0f1af445b75:120": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rv64gc-i10-r500/coremark_A.elf",
+  "lat": "120",
+  "region_cycles": 2240177,
+  "region_instret": 3377645,
+  "cycles": 2308183
+ },
+ "acd8306793cba751:97df9645b65a8878:native": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rv64gc-i10-r500/coremark_B.elf",
+  "lat": "native",
+  "region_cycles": 2277693,
+  "region_instret": 3418934,
+  "cycles": 2326915
+ },
+ "acd8306793cba751:97df9645b65a8878:120": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rv64gc-i10-r500/coremark_B.elf",
+  "lat": "120",
+  "region_cycles": 2284576,
+  "region_instret": 3418934,
+  "cycles": 2352000
+ },
+ "acd8306793cba751:81bcb3971ff73d89:native": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rv64gc-i10-r500/dhrystone.elf",
+  "lat": "native",
+  "region_cycles": 89939,
+  "region_instret": 143054,
+  "cycles": 188690
+ },
+ "acd8306793cba751:81bcb3971ff73d89:120": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rv64gc-i10-r500/dhrystone.elf",
+  "lat": "120",
+  "region_cycles": 91160,
+  "region_instret": 143054,
+  "cycles": 213777
+ },
+ "acd8306793cba751:6b573c9dbf116c38:native": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rv64im-i10-r500/coremark_A.elf",
+  "lat": "native",
+  "region_cycles": 2200121,
+  "region_instret": 3377645,
+  "cycles": 2248935
+ },
+ "acd8306793cba751:6b573c9dbf116c38:120": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rv64im-i10-r500/coremark_A.elf",
+  "lat": "120",
+  "region_cycles": 2209834,
+  "region_instret": 3377645,
+  "cycles": 2280832
+ },
+ "acd8306793cba751:f2f03e1edb96443a:native": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rv64im-i10-r500/coremark_B.elf",
+  "lat": "native",
+  "region_cycles": 2273881,
+  "region_instret": 3418934,
+  "cycles": 2321395
+ },
+ "acd8306793cba751:f2f03e1edb96443a:120": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rv64im-i10-r500/coremark_B.elf",
+  "lat": "120",
+  "region_cycles": 2284048,
+  "region_instret": 3418934,
+  "cycles": 2354560
+ },
+ "acd8306793cba751:cb0855fcb5e45675:native": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rv64im-i10-r500/dhrystone.elf",
+  "lat": "native",
+  "region_cycles": 101137,
+  "region_instret": 143050,
+  "cycles": 199019
+ },
+ "acd8306793cba751:cb0855fcb5e45675:120": {
+  "elf": "/home/w/tanager-build/smt2-study/rev9-1020-165129/elfs/rv64im-i10-r500/dhrystone.elf",
+  "lat": "120",
+  "region_cycles": 102491,
+  "region_instret": 143050,
+  "cycles": 227646
  }
 }

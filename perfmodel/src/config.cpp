@@ -59,6 +59,9 @@ bool Config::apply_preset(const std::string& name) {
     // blocks is decoded with the second, and the micro-BTB never predicts or trains it; training writes the way that
     // predicted the instruction, else a pseudo-random one (tg_exec's upd_way).
     m2_strad = 1; m2_ub_way = 1;
+    // Revision 9 (area_recovery.md §6.16, §6.17): TAGE-lite (main's M6 set's m2_btage) allocates an invalid way
+    // before a not-useful one, as tg_tage does since fpu-2's c1c21281.
+    btage_alloc = 1;
     // From the rename-stall profile (area_recovery.md §6.8): rename picks an ALU op's queue a cycle before dispatch
     // and keeps it. DR-169's levers (§6.9): it reads flags that count the group in the dispatch stage (STEER_LA), and
     // a store's address issues on its base alone (STA_BASE).
