@@ -1404,6 +1404,207 @@ Results: `fpga/spikes/results/h100_urf/` (with `urf_chip.txt`, the register file
 
 Results: `fpga/spikes/results/h100_m7b0/`, `h100_m7b1/` (with `urf_chip.txt`), each with `near_families_*.txt`, and their `_synth/` folders.
 
+### 8.18 M7 step 5's product chip with real hart 1, the URF off and on (2026-10-21)
+
+**Asked** (the coordinator, 10-20 and 10-21):
+- **What to build:** M7 step 5c's full chip with hart 1 running. It is the board's product configuration (DR-177: M8's exit is defined on it), built by d4r2's recipe plus `TG_HART1=1` and the release form (`LAT_INJ=0`).
+- **The two chips:**
+  - with the URF off: the formal DR-175 trigger measurement (the URF switches on above about 96% placed, or below 100 MHz);
+  - with it on: the build soc-2 packages for the board if it closes.
+- **Also asked:** the cost of the product windows, from a plain against product synthesis pair.
+
+**Builds:**
+- **Commit:** main 071de15c, M7 step 5c with 5b's fetch fixes; §7.1's F and A are in.
+- **d4r2's recipe** (its `summary.txt`, profile `d4r2-smt2-notrace-pswin-fan`), in `g4_fit.tcl` terms:
+  - smt2, two cores, 100 MHz;
+  - no trace, the PMOD console and the fan's PL regulator;
+  - the uncore DSP mask's default;
+  - the windows `VIRTIO_WINDOW=1`, `HOST_DMA=1` and `TG_PS_WINDOW=1`;
+  - `-flatten_hierarchy rebuilt`, AreaOptimized_high and ExploreArea;
+  - no floorplan, as the board flow uses no pblocks;
+  - 1.0 ns of uncertainty through placement and routing on the core clock and on `clk2x`.
+- **This differs from §8.17's flow** (`-flatten_hierarchy none`, the `g4_uncore` pblocks, half the uncertainty on `clk2x`).
+- **Launch:** the build tree's `tools/launch_hu.sh`, in two `h7_guard.sh` series side by side. Each synthesis declared 24 GB and each placement 12 GB.
+
+| Point | What | Synthesis LUTs | After `opt_design` | Of 117,120 | Placement |
+|---|---|---|---|---|---|
+| hu0 | product, URF off | 126,994 | 121,893 | **104.1%** | **fails** (Place 30-487: 11,067 CLBs needed, 10,490 left) |
+| hu1 | product, URF on | 124,414 | 119,295 | **101.9%** | **fails** (11,059 CLBs needed, 10,814 left) |
+| hp0 | hu0 without the windows (synthesis only) | 123,861 | — | — | — |
+| hn0 | hp0 with §8.17's `-flatten_hierarchy none` (synthesis only) | 124,193 | — | — | — |
+
+All four synthesize cleanly: no forward references and no implicit nets, with 121 block-RAM tiles (the injectors' four are gone), 157 DSPs, 32 UltraRAMs with the URF off and 50 with it on. Synthesis takes 17.5–23.6 minutes and peaks at 8.2–9.1 GB in the main process. Both placements stop after 7–10 minutes of `place_design`. **So there is no routed checkpoint, no WNS on `clk` or `clk2x`, and no bitstream.**
+
+**Findings:**
+- **DR-175's trigger fires:** the URF-off chip needs 104% of the device's LUTs before placement.
+- **The URF-on chip does not fit either.** 119,295 LUTs after `opt_design` is 2,175 over the device and about 6.9K over the 112.4K at which §8.17's URF-off chip still closed 100 MHz (96.0%). The placer is 245 CLBs short.
+- **The windows cost 3,133 LUTs** (hu0 − hp0, synthesis), 344 of them LUTRAM, and 1,966 flip-flops:
+  - the uncore +2,505: the host DMA port 796, the crossbar's own logic +802, the PLIC's extra sources +553 and the virtio window 272;
+  - core 0 +468, core 1 +66, and the top level +94.
+- **`-flatten_hierarchy rebuilt` saves 332 LUTs** (hp0 − hn0) and 385 flip-flops. Units trade LUTs with each other under the rebuilt hierarchy, so only the total counts.
+- **The URF saves 2,598 LUTs after `opt_design`** (2,580 at synthesis), as tier B's did (§8.16), for 18 UltraRAMs.
+- **Against §8.17, like for like** (hn0 against `h100_m7b0`'s synthesis: no windows, `-flatten_hierarchy none`, URF off), the chip grew by +4,692 LUTs:
+  - −7,428 for the filler and −1,310 for the two injectors, both gone;
+  - +6.7K in each core: fetch +1,741 (its own logic +1,536), rename +1,708, the LSU +1,250, FP's register-file banks of 96 +836, the CSR +525, the ROB +420, the two per-thread RAS +338 net, decode −281.
+  - **Real hart 1 with steps 4–5c costs about 6.7K a core against the filler's 3.7K**, about 1.9K a core above the plan's +1.1K over the filler. The FP banks' excess (DR-179) is part of it.
+- **The rest of M7 (the coordinator's figures) nets about −0.5 to −1.3K a chip:**
+  - DR-179's 64-entry FP banks, about −2.6K;
+  - DR-178's per-thread rename register, +1.1–1.7K, plus +0.1–0.2K for the commit-turn fix;
+  - step 7's caps, +0.2–0.4K.
+  That puts hu1 at about 118.0–118.8K after `opt_design`, still over the device.
+- **So M7's product chip needs about 2–7K LUTs back before the URF-on build places:** about 2K just to place at the device's edge, about 7K to reach the 96% where this chip still closes 100 MHz. A lower clock comes only after every other method (DR-177).
+- **The recorded levers left** (DR-167, area_recovery §7.8):
+  - the shared LD/STA PMP checker: 0.9–1.8K, small IPC;
+  - the FP and LD queue trims: 0.8K, −0.2%;
+  - radix-4 divide: 1.25K, −2.4% single-thread.
+- **PMP with 8 entries is already in these chips:** it has been the default since 10-19 (9db66da, `TG_PMP_ENTRIES`), and the netlists confirm it. The CSR's `pmpaddr` store is `DEPTH(NPMP * NT)` = 16 (8 entries × 2 harts; 16 entries would make it 32). The three checkers keep their 8-entry sizes in hn0 as in §8.17's m7b0: 446 (fetch), 427 (loads) and 442 (stores) LUTs.
+  `opt_design`'s other directives on hu1's synthesis are below.
+- **`opt_design`'s directive is not the lever** ([`q_opt_directives.tcl`](../../fpga/spikes/tcl/query/q_opt_directives.tcl) on hu1's synthesis):
+  - ExploreArea, the flow's own, leaves 119,295 LUTs;
+  - ExploreSequentialArea leaves 119,161: 134 fewer, and 59 fewer flip-flops;
+  - AddRemap, Default and ExploreWithRemap leave 1,437–1,693 more.
+
+Results: `fpga/spikes/results/h100_hu0/`, `h100_hu1/` (their `errors.txt` and summaries), `h100_hu0_synth/`, `h100_hu1_synth/`, `h100_hp0_synth/`, `h100_hn0_synth/`, and `h100_hu_util/`. The last holds the hierarchical utilization of hn0, hp0, hu0 and §8.17's m7b0 ([`q_util_hier.tcl`](../../fpga/spikes/tcl/query/q_util_hier.tcl)), and the unit diffs from [`util_diff.py`](../../fpga/spikes/scripts/util_diff.py).
+
+#### Where hart 1's LUTs go (2026-10-21)
+
+**Asked** (the coordinator): where inside fetch, rename, the LSU, the CSR file and the ROB hart 1's LUTs went, and which of them are flip-flop state behind wide muxes that LUTRAM with the thread as an address bit could hold. The aim is a ranked list of no-IPC rewrites, for core-2 and fpu-2 to take after M7's features (DR-155). Synthesis only.
+
+**Method:**
+- **hz0 = hn0 with `TG_HART1=0`**, on the same commit (071de15c) with the same flow. So hz0 → hn0 is hart 1 alone.
+- **Per unit:** the hierarchical reports, in `diff_hz0_hn0.txt`.
+- **Per signal:** every LUT and flip-flop cell, named for the signal it drives or holds ([`q_cell_groups.tcl`](../../fpga/spikes/tcl/query/q_cell_groups.tcl), [`cell_groups_diff.py`](../../fpga/spikes/scripts/cell_groups_diff.py), `diff_cells_hz0_hn0.txt`). Cell counts run 0.6–1.0× the report's LUTs, because synthesis packs pairs of small LUTs, such as 2:1 muxes sharing a select, into one.
+
+**Hart 1 costs +13,319 LUTs a chip at synthesis** (110,874 → 124,193), 1,808 of them LUTRAM, and +4,909 flip-flops. Steps 4–5c add almost nothing with hart 1 off: hz0 is §8.17's m7b0 less its filler and injectors, within about 0.2K.
+
+| Core 0 | LUTs added | Where (LUT cells, from the cell groups) | Form |
+|---|---|---|---|
+| Rename | +1,737 | the five free lists +1,112 (the two FP lists +700: 96 deep, so their pointers wrap by compare); the maps +216; `de_take` +124; FP ready bits +88 | per-thread pointers and counts (the lists are already LUTRAM at {tid, row}) |
+| Fetch | +1,708 | the waiting-block PCs `spc_s_q` +793 (and 126 flip-flops); the PMP checker's descriptor select +561; the FTQ history's write data +170; miss state +110; the two histories +126; the faulting page +54 | per-stream registers with several writers, and select logic |
+| LSU | +987 | the two PMP checkers' descriptor selects +1,147 cells (about 0.58K LUTs, dual-packed); forwarding's thread match +132; DTLB +111; the page walker +102 | select and compare logic |
+| FP unit | +847 | the register file's banks of 96 (`u_rf` +836) | DR-179's |
+| CSR file | +490 | the read mux `ex_rdata` +285, the timer compares +65; 994 flip-flops of per-hart state | per-hart registers, most read for both harts at once |
+| ROB | +469 | the per-thread exception records and their capture, WFI counters +81 | per-thread capture logic |
+| Second RAS | +313 | thread 1's stack and its pointers | per-thread stack |
+
+**Findings:**
+- **Hart 1's LUTs are mostly duplicated control and selection logic, not flip-flop arrays behind a mux.**
+- **The largest single item crosses units: the PMP descriptor selects**, about 1.8K cells a core and about 1K LUTs. Every checker (fetch, loads, stores, the walker) selects its thread's eight descriptors (8 × about 70 bits) from the CSR file's two sets (`pmp_d_h`). That is logic in front of eight parallel compares, and neither alternative pays:
+  - a LUTRAM descriptor store, one read port per checker, costs about the same LUTs and puts a LUTRAM read into fetch's PMP path (+0.36 ns in core 1, §7.1);
+  - comparing against both harts' entries and selecting the eight results costs about what it saves (the compares are about 50 LUTs an entry).
+- **Fetch's per-stream registers have several writers in one cycle** (a refetch or restart on one stream, a redirect on the other), and the next F1 PC reads the waiting PC's next value, not the register. So a one-write-port LUTRAM doesn't hold them as they stand.
+- **The CSR file's per-hart registers are mostly read for both harts at once**: the interrupt logic (`mie`, `mideleg`, `stimecmp`), decode's view, the MMU (`satp`), the counters (`mcountinhibit`) and the PMP descriptors (`pmpcfg`). Its cold CSRs (the trap vectors, scratch, EPC, cause and tval) are LUTRAM already.
+- **The biggest units overall in core 0 (hn0):** LSU 13.2K LUTs, fetch 7.8K, FP 7.6K, exec 7.5K, rename 5.4K, issue 5.3K, ROB 3.1K, decode 2.0K, CSR 1.8K.
+
+**Ranked no-IPC rewrites** (LUTs a chip, estimated from the cell groups):
+
+| # | Rewrite | Where | LUTs a chip | Status |
+|---|---|---|---|---|
+| 1 | FP banks of 64 with renaming across both (DR-179) | FP register file, FP free lists, ready bits, map | about −2.6K (the coordinator's figure). Hart 1's share measured here: the 96-entry banks +1.7K, the FP lists' 96-deep wrap about +0.7K, ready bits and map about +0.4K | planned |
+| 2 | Each stream's next PC as one flat priority select (redirect, restart, refetch, F1's next, hold), with the shared sources computed once | fetch: `spc_s_q`, `fpc_q` | about −0.4 to −0.6K | for core-2: which same-cycle paths keep fetch zero-bubble |
+| 3 | `mcounteren`, `scounteren`, `mcontext` and `scontext` into the cold-CSR LUTRAM (at {tid, csr}) | CSR file | about −0.2K | only CSR instructions read them |
+| — | Not levers as they stand: rename's per-thread free-list pointers and counts, the second RAS (an operation and a repair can come for different threads in one cycle), the ROB's exception capture, the LSU's per-thread selects | | — | concurrent per-thread updates or parallel reads |
+
+- **With a small IPC cost:** the shared LD/STA PMP checker. It is on record at 0.9–1.8K a chip before hart 1; it now also removes one descriptor select, about 0.6K a chip more.
+- **The arithmetic does not close yet:**
+  - hu1's 119,295 LUTs after `opt_design`, less the rest of M7 (−0.3 to −1.2K, DR-179 included), less rewrites 2 and 3 (−0.6 to −0.8K), leaves 117.3–118.4K. That is still at or over the device.
+  - The shared checker brings it to about 114.9–116.9K (98–100%), still above the 96% (112.4K) at which this chip has closed 100 MHz.
+- **The remaining room:**
+  - the product windows' +3.1K (soc-2 is reviewing them);
+  - the recorded levers with an IPC cost: the queue trims 0.8K and radix-4 divide 1.25K;
+  - rewrites inside the largest units.
+
+Results: `fpga/spikes/results/h100_hz0_synth/` and `h100_hu_util/` (`util_hz0.rpt`, `groups_hz0.tsv`, `groups_hn0.tsv`, `diff_hz0_hn0.txt`, `diff_cells_hz0_hn0.txt`).
+
+#### hp1: the edge, placed (2026-10-21)
+
+**Asked** (the coordinator): one placed point near the device's edge, to find where this design actually closes. The 96% figure is §8.17's chip, built with filler; M8's target could lie anywhere from "just fit" to 96%.
+
+**Build:**
+- **hp1** is hu1 without the three product windows: hp0 with the URF on, on main 7864d3bf.
+- **Comparable with hu1:** the RTL since 071de15c only makes the speculative-wakeup filter switchable, with the default unchanged.
+- **Settings as hu1's otherwise:** d4r2's synthesis, no floorplan, 1.0 ns on the core clock and on `clk2x`, `LAT_INJ=0`, `TG_HART1=1`. 24 GB declared per step; the routed checkpoint is `fp/h100_hp1_routed.dcp`.
+
+| | LUTs | Of 117,120 |
+|---|---|---|
+| After synthesis | 121,295 | — |
+| After `opt_design` | 116,223 | 99.2% |
+| Placed | **113,636** (16,270 LUTRAM), 62,028 FFs, 121 BRAM tiles, 50 UltraRAMs | **97.0%** |
+
+**Result: it places and routes, but misses 100 MHz by 2.1 ns.**
+- **Run time:** placement 14 minutes, routing 2.5 hours (no routing errors).
+- **Core clock `c0`:** WNS **−2.098 ns** (about 83 MHz), TNS −8,566 ns, WHS +0.001 ns. 14,020 of 299,396 endpoints fail: core 0 8,912, core 1 3,859, the uncore 1,249.
+- **`clk2x` and the URF are not the limit:** +0.721 into `clk2x`, +1.329 within it, +0.604 back to the core clock.
+- **Congestion:** the placer ends at level 5 (32 × 32 windows) in every direction over both cores and the uncore. The router starts at level 6 (64 × 64, short wires east and west) over core 0, whose windows have 97–99% of their LUTs used.
+- **The worst paths are everywhere, and mostly wire.** 654 families fall below 1.0 ns, with 64–79% wire on the worst paths:
+  - the LSU 205 families, rename 171, the CSR file 101, fetch 94, the two RAS 30, the L2 28, the ROB 12;
+  - the worst: core 0's DTLB (−2.10, 16 levels, 9.5 ns of wire), rename's FP free-list counts (−2.09), the LSU's replay address (−2.09), F2's cone into the RAS (−2.07).
+
+**Findings:**
+- **"Just fit" does not close.** At 97.0% placed with the board's flow, wire dominates everywhere, not one path.
+- **Between §8.17's 96.0% (+0.022 ns) and hp1's 97.0% (−2.098 ns) lies a cliff of 2.1 ns for 1.2K more placed LUTs.** Fill and flow both changed: §8.17's chips had the `g4_uncore` pblocks and `-flatten_hierarchy none`. One more placement of hp1's own synthesis with §8.17's floorplan would separate the two, at no new synthesis.
+- **Until then, M8's target is the 96% end or lower:** about 7K LUTs a chip back from hu1, not 2K.
+
+Results: `fpga/spikes/results/h100_hp1/` (with `near_families_hp1.txt`, `urf_chip.txt`, `congestion.rpt` and `worst_paths.txt`, from [`q_congestion.tcl`](../../fpga/spikes/tcl/query/q_congestion.tcl)) and `h100_hp1_synth/`.
+
+#### hp1f: the same netlist with §8.17's floorplan (2026-10-21)
+
+**Asked** (the coordinator): place hp1's own synthesis once more with §8.17's `g4_uncore` pblocks (the two L2 banks and the crossbar), with nothing else changed, to separate the fill from the flow.
+
+**Build:**
+- **No new synthesis:** the floorplan names only three uncore cells, and they exist under the same names in hp1's flatten-rebuilt netlist.
+- **One pblock is overfull before placement:** the floorplan check shows bank 1's pblock at 101% (6,467 LUT cells for 6,400 sites, against §8.17's 95%); flatten rebuilt moved about 360 cells into bank 1. It placed anyway.
+- **A first run was lost** to the afternoon's disk cleanup (my list had included its live run folder) and was rerun unchanged.
+
+| | hp1 (no floorplan) | hp1f (§8.17's pblocks) |
+|---|---|---|
+| Placed LUTs | 113,636 (97.0%) | 113,893 (97.2%) |
+| WNS on the core clock (ns) | −2.098 | **−0.096** |
+| TNS (ns) | −8,566 | −1.131 |
+| Failing endpoints | 14,020 (core 0 8,912, core 1 3,859, uncore 1,249) | **31** (core 0 14, core 1 17, uncore 0) |
+| WNS on `clk2x` (into / within / back, ns) | +0.72 / +1.33 / +0.60 | +1.08 / +1.87 / +1.02 |
+| WHS (ns) | +0.001 | +0.006 |
+| Endpoints within 1 ns | 25,037, in 654 families | 7,215, in 369 families |
+| Routing time | 2.5 h | 1.45 h |
+
+**Findings:**
+- **The cliff was the flow, not the fill.** The same netlist at 97.2% placed comes within 0.1 ns of 100 MHz once the L2 banks and the crossbar sit in their pblocks. The board flow (`build.tcl`, d4r2's recipe) has no floorplan, and at this fill that costs about 2.0 ns.
+- **The families shrink, they don't move.** They are the same units as hp1's, about 2 ns better:
+  - the LSU keeps the most (205 → 160 families below 1 ns), then rename (171 → 119);
+  - fetch's F2 cone (94 → 52) now holds the worst endpoints: the I$ valid-bit RAM (26 levels, −0.096), TAGE's history count and the RAS target register;
+  - the CSR file's paths, congestion detours in hp1, mostly drop out (101 → 20).
+- **So with the floorplan, M8's target is "fit plus a little",** not 96%: hu1's product chip needs to come down to about hp1f's 113.9K placed. That is the windows' +3.1K less DR-180's −1.8K, plus a little margin, roughly 2K LUTs a chip rather than 7K. A second sample (1.05 ns of over-constraint) measures the placement noise around −0.1 ns.
+- **Congestion has the same levels, spread more evenly.**
+  - The placer ends at level 5 in every direction, as in hp1, with no global window (hp1 had one, west).
+  - The router starts at level 5 north and south and level 6 east and west, as in hp1.
+  - hp1's level-6 west window was 77% core 0. hp1f's level-6 windows each hold core 1 36–44%, core 0 28–32% and the uncore 26–29%, at 97–98% of their LUTs used (hp1: 97–99%).
+  - So the floorplan didn't lower the congestion; it evened it out across the cores and the uncore.
+- **The 31 failing endpoints are all in the cores,** none in the uncore:
+  - fetch's I$ valid-bit RAM (26 levels) and its I$-data cones into TAGE and the RAS;
+  - the D$'s `lose_line_q` enables;
+  - the LSU's M1 → M2 and age paths.
+- **The pblocks are soft.**
+  - Vivado 2025.2 creates them with IS_SOFT 1, before `opt_design`; nothing in this flow sets it.
+  - The placer kept each pblock's cells near it, but put 20% (bank 0), 15% (bank 1) and 28% (the crossbar) of their LUT cells just outside: the banks' own-level logic, register slice and LUTRAM buffers, and the crossbar's register slices and arbiters.
+  - So `report_utilization -pblocks` counts a pblock's own cells wherever they sit: bank 0's own cells fill 968 slices against its 800.
+  - hp1f's result is with soft pblocks. Hard ones are untested: bank 1's pblock, at 101% before `opt_design`, might not place hard.
+
+**DR-181: the floorplan in the board's flow.** The coordinator adopted `g4_uncore` for the board's product builds; soc-2 wires it into `build.tcl` and spikes-2 keeps it tuned. [`fp_lib.tcl`](../../fpga/spikes/tcl/fp_lib.tcl) adds two checks for every product build:
+- `tg_fp_check`, after the floorplan and before `opt_design`: each pblock's LUT cells against its LUT sites. It warns above 105% and calls the pblock tight above 115%.
+- `tg_fp_check_placed`, after `place_design`: each pblock's own LUTs against its sites. It warns above 85% and calls the pblock tight above 90%, which means resize it. It also logs IS_SOFT and the share of the pblock's own LUT cells placed outside it.
+
+| Pblock | LUT sites | hp1f before `opt_design` | hp1f own after placement | hp1f outside | Main e6691d53 with the product windows, before `opt_design` |
+|---|---|---|---|---|---|
+| `l2b0` (L2 bank 0) | 6,400 | 95% | 73% | 20% | 94% |
+| `l2b1` (L2 bank 1) | 6,400 | 101% | 77% | 15% | 102% |
+| `xbar` (the crossbar) | 4,032 | 52% | 45% | 28% | 72% |
+
+- **The two thresholds agree.** After `opt_design` and LUT packing, a pblock's own LUTs came to 76–87% of its estimate, so 105% before `opt_design` is about 80–90% own after placement.
+- **The product windows** grow the crossbar's pblock from 52% to 72%; the banks barely change.
+- **Resizing:** a bank's pblock grows by two SLICE rows (160 LUT sites a row in the X2 column). The crossbar has room in X1.
+
+Results: `fpga/spikes/results/h100_hp1f/` (with `near_families_hp1f.txt`, `urf_chip.txt`, `floorplan.txt`, `congestion.rpt` and `worst_paths.txt`; `fp_checks.txt` from [`q_fp_checks.tcl`](../../fpga/spikes/tcl/query/q_fp_checks.tcl); `pb_spill.txt` and `pb_soft.txt`, the cells outside, from [`q_pb_spill.tcl`](../../fpga/spikes/tcl/query/q_pb_spill.tcl) and [`q_pb_soft.tcl`](../../fpga/spikes/tcl/query/q_pb_soft.tcl)); main's check in `h100_ex1_synth/fp_check_g4_uncore.txt`.
+
 ## 9. S1: PL → PS DDR latency and bandwidth
 
 **Status: done on the board (2026-10-14).** The bitstream meets 200 MHz (WNS +0.809 ns with the fan rule of DR-129; +0.513 before it; 4,081 LUTs, 5,133 flip-flops, one block-RAM tile), and the board session ran it at 200 MHz. The design, the A53 program and the step-by-step instructions (SD image, boot firmware, network, files, commands) are in [`fpga/spikes/s1/README.md`](../../fpga/spikes/s1/README.md).

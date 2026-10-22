@@ -1,14 +1,19 @@
 // Port P4 from the issue grant onward (docs/spec/fpu.md, "Core integration (P4 back end)"):
-// register read and bypass, routing to the FPU's units (tg_fpu_pkg::fpu_unit_of), the F0
+// register read and bypass, routing to the FPU's units (tg_fpu_pkg::fpu_unit_of), P4's
 // writeback stream, wakeups, completions, the hand-off of integer results to the core's
 // bank-1 arbiter, and squashing by thread. Contains tg_fprf and tg_fpu.
 //   s     IQ-FP select (the core); fmisc_block masks FMISC rows with an FP destination
 //   s+1   RF: tg_fprf read, bypass selects, the integer source through the core's shared port
 //   s+2   EX0: operand multiplexers, the request to the FMA or FMISC, or into the FDIV queue
-//   s+4   FMISC result: written to F0 at the end of the cycle, or into the B1 queue
-//   s+7   FMA result: written to F0 at the end of the cycle
-//   c     a divide result claims the free F0 slot c+1 (its wakeup fires); written in c+1
-// F0 has one writer, the F0 stream, which is also the bypass source of every F0 result.
+//   s+4   FMISC result: written to its bank at the end of the cycle, or into the B1 queue
+//   s+7   FMA result: written to its bank at the end of the cycle
+//   c     a divide result claims P4's free slot c+1 (its wakeup fires); written in c+1
+// A cycle s in which tg_lsu blocks IQ-FP's select (fp_block) leaves P4's slot s+7 free for a held FP load (DR-179): no
+// FMISC result is selected into it (fmisc_block at s+3) and no divide claims it (at s+6).
+// P4's stream writes one result a cycle into the bank its destination names: F0, or F1 when rename crossed it
+// (DR-179). It is the bypass source of every P4 result. FP loads come from the load path into their bank (F1, or
+// F0 when crossed); P4 wins a bank both want, and the LSU holds the load a cycle from P4's announcement
+// (p4_nx_we_o, p4_nx_bank_o).
 // Every operation the core issues goes through its unit; whether it is still live (not
 // flushed) travels beside it, so each one also leaves its queue once and returns its credit.
 module tg_fp_exec
@@ -33,25 +38,32 @@ module tg_fp_exec
   input  logic                         iss_valid,
   input  fp_iss_t                      iss_pl,
   output logic                         fmisc_block,
+  input  logic                         fp_block,      // tg_lsu: IQ-FP's select blocked (frees P4's slot 7 cycles on)
   // Integer source (RF stage): the core's shared integer read port
   output logic                         isrc_valid,
   output preg_t                        isrc_tag,
   input  logic [63:0]                  isrc_data,
-  // FP loads: written to F1 at the end of the fld_valid cycle, announced one cycle ahead
+  // FP loads: written to their bank at the end of the fld_valid cycle, announced one cycle ahead
   input  logic                         fld_m2_will,
+  input  logic                         fld_m2_bank,
   input  logic [FPIDX_W-1:0]           fld_m2_idx,
   input  logic                         fld_valid,
+  input  logic                         fld_bank,
   input  logic [FPIDX_W-1:0]           fld_idx,
-  input  logic [63:0]                  fld_data,     // the value F1 gets (FLW already boxed)
+  input  logic [63:0]                  fld_data,     // the value the register gets (FLW already boxed)
+  // P4's write next cycle (its bank): the LSU holds an FP load bound for that bank a cycle
+  output logic                         p4_nx_we_o,
+  output logic                         p4_nx_bank_o,
   // FP store data and trace reads (combinational), from both banks: the user selects by the tag's
   // bank, folding that select into its own multiplexer (fpga_friendly.md T7)
   input  preg_t                        fsd_tag,
   output logic [1:0][63:0]             fsd_data,
   input  preg_t [NTR-1:0]              tr_tag,
   output logic [1:0][NTR-1:0][63:0]    tr_data,
-  // F0 writes, for the core's FP ready table
-  output logic                         f0_we_o,
-  output logic [FPIDX_W-1:0]           f0_widx_o,
+  // Each bank's writes (P4's and the loads', after the select; not the reset's zeros in F0), for the core's FP ready
+  // tables and the LSU's store-data snoop
+  output logic [1:0]                   fp_we_o,
+  output logic [1:0][FPIDX_W-1:0]      fp_widx_o,
   // Wakeups: W set at the end of this cycle; divide LLTs written this cycle
   output logic [NCOL-1:0]              wake_reg,
   output logic [LLT_ENTRIES-1:0]       llt_done,
@@ -104,18 +116,23 @@ module tg_fp_exec
   // ------------------------------------------------------------------------------------------
   // Register file
   // ------------------------------------------------------------------------------------------
-  logic                       f0_we;
-  logic [FPIDX_W-1:0]         f0_wa;
-  logic [63:0]                f0_wd;
+  logic                       p4_sel;       // P4's stream has a live slot owner (registered: the selects)
+  logic                       p4_we;        // ... which writes (with the late flush)
+  logic                       p4_wb;        // ... into this bank
+  logic [FPIDX_W-1:0]         p4_wa;
+  logic [63:0]                p4_wd;
+  logic [1:0]                 bank_we;
+  logic [1:0][FPIDX_W-1:0]    bank_wa;
   logic [NRP-1:0][FPTAG_W-1:0] rtag;
   logic [1:0][NRP-1:0][63:0]   bank_rd;
-  // The reset sequence's zero writes take the F0 port: nothing else writes F0 then, and the zero
-  // and its index fold into the F0 stream's multiplexers (below)
+  // The reset sequence's zero writes take P4's side into F0: nothing else writes F0 then, and the zero
+  // and its index fold into P4's stream multiplexers (below)
   tg_fprf #(.NR(NRP)) u_rf (
-    .clk,
-    .f0_we(f0_we || init_we), .f0_waddr(f0_wa), .f0_wdata(f0_wd),
-    .f1_we(fld_valid), .f1_waddr(fld_idx), .f1_wdata(fld_data),
-    .rtag, .bank_rd);
+    .clk, .rst,
+    .p4_sel(p4_sel || init_we), .p4_we(p4_we || init_we), .p4_bank(p4_wb && !init_we), .p4_waddr(p4_wa),
+    .p4_wdata(p4_wd),
+    .ld_we(fld_valid), .ld_bank(fld_bank), .ld_waddr(fld_idx), .ld_wdata(fld_data),
+    .bank_we, .bank_waddr(bank_wa), .rtag, .bank_rd);
   // FADD/FSUB take their second operand in c (docs/spec/fpu.md, "Interface"): port 2 reads rs2
   logic rf_add;
   assign rf_add  = iss_pl.fop == FOP_FADD || iss_pl.fop == FOP_FSUB;
@@ -143,8 +160,9 @@ module tg_fp_exec
   typedef struct packed {
     logic               v;
     logic               live;
-    logic               fpd;         // writes F0
+    logic               fpd;         // writes an FP register
     tid_t               tid;
+    logic               bank;        // ... in this bank (F1: crossed)
     logic [FPIDX_W-1:0] idx;
     logic [FXW-1:0]     wid;         // fixed-latency wakeup column (tag)
   } sh_t;
@@ -160,6 +178,7 @@ module tg_fp_exec
     tid_t               tid;
     robid_t             rob;
     llt_t               llt;
+    logic               bank;
     logic [FPIDX_W-1:0] idx;
     logic               retired;      // retired early: survives flushes, flags to tg_fcsr
     logic               squashed;     // flushed before retiring: its result is dropped
@@ -177,6 +196,7 @@ module tg_fp_exec
   // ------------------------------------------------------------------------------------------
   logic               slot_busy;     // an FMA or FMISC FP result writes F0 next cycle
   logic               nx_we;
+  logic               nx_bank;
   logic [FPIDX_W-1:0] nx_idx;
   logic               fdv_v, fdv_rdy, fdv_claim, fdv_live;
   fpu_resp_t          fdv_resp;
@@ -186,40 +206,42 @@ module tg_fp_exec
   // flush of its thread (the core's contract, asserted below), so the registered bit suffices
   // here and the late fdiv_ret_* inputs stay off this path.
   assign fdv_live = !fdv_e.squashed && (fdv_e.retired || !tid_hit(flush, flush_tid, fdv_e.tid));
-  assign slot_busy = fsh_q[ML-2].v || (msh_q[SL-2].v && msh_q[SL-2].fpd);
+  // A cycle of IQ-FP's select blocked by tg_lsu (fp_block, at s) leaves P4's slot at s+7 free for a held FP load:
+  // no FMISC result is selected into it (fmisc_block at s+3) and no divide claims it (at s+6)
+  logic [5:0] fpb_q;                 // fp_block, 1 to 6 cycles ago
+  assign slot_busy = fsh_q[ML-2].v || (msh_q[SL-2].v && msh_q[SL-2].fpd) || fpb_q[5];
   // A squashed result is drained at once; a live one needs the free slot.
   assign fdv_rdy   = !fdv_live || !slot_busy;
   assign fdv_claim = fdv_v && fdv_rdy;
   always_comb begin
-    nx_we  = 1'b0;
-    nx_idx = '0;
+    nx_we   = 1'b0;
+    nx_bank = 1'b0;
+    nx_idx  = '0;
     if (fsh_q[ML-2].v && fsh_q[ML-2].live) begin
-      nx_we = 1'b1; nx_idx = fsh_q[ML-2].idx;
+      nx_we = 1'b1; nx_bank = fsh_q[ML-2].bank; nx_idx = fsh_q[ML-2].idx;
     end else if (msh_q[SL-2].v && msh_q[SL-2].fpd && msh_q[SL-2].live) begin
-      nx_we = 1'b1; nx_idx = msh_q[SL-2].idx;
+      nx_we = 1'b1; nx_bank = msh_q[SL-2].bank; nx_idx = msh_q[SL-2].idx;
     end else if (fdv_claim && fdv_live) begin
-      nx_we = 1'b1; nx_idx = fdv_e.idx;
+      nx_we = 1'b1; nx_bank = fdv_e.bank; nx_idx = fdv_e.idx;
     end
   end
+  assign p4_nx_we_o   = nx_we;
+  assign p4_nx_bank_o = nx_bank;
 
   // ------------------------------------------------------------------------------------------
   // RF (s+1)
   // ------------------------------------------------------------------------------------------
-  // Bypass. RF takes an F1 write of its own cycle (a load) into the operand register, so EX0
-  // chooses among four sources: the register value, the F0 stream of EX0's cycle or of RF's, and
-  // the F1 write of EX0's cycle.
-  typedef enum logic [1:0] { BP_RF, BP_F0X, BP_F0W, BP_F1X } bsel_e;
-  function automatic bsel_e bsel(input logic [FPTAG_W-1:0] t, input logic nwe,
-                                 input logic [FPIDX_W-1:0] nidx, input logic cwe,
+  // Bypass. RF takes a load's write of its own cycle into the operand register, so EX0 chooses
+  // among four sources: the register value, P4's stream of EX0's cycle or of RF's, and the load's
+  // write of EX0's cycle. Either writer can write either bank (crossing), so each compare takes
+  // the whole tag, {bank, index}.
+  typedef enum logic [1:0] { BP_RF, BP_P4X, BP_P4W, BP_LDX } bsel_e;
+  function automatic bsel_e bsel(input logic [FPTAG_W-1:0] t, input logic nwe, input logic nbank,
+                                 input logic [FPIDX_W-1:0] nidx, input logic cwe, input logic cbank,
                                  input logic [FPIDX_W-1:0] cidx);
-    logic [FPIDX_W-1:0] i;
-    i = t[FPIDX_W-1:0];
-    if (!t[FPIDX_W]) begin
-      if (nwe && nidx == i) return BP_F0X;      // F0 written next cycle (EX0's cycle)
-      if (cwe && cidx == i) return BP_F0W;      // F0 written this cycle
-    end else begin
-      if (fld_m2_will && fld_m2_idx == i) return BP_F1X;   // F1 written next cycle
-    end
+    if (nwe && {nbank, nidx} == t) return BP_P4X;                       // P4 writes it next cycle (EX0's)
+    if (cwe && {cbank, cidx} == t) return BP_P4W;                       // P4 writes it this cycle
+    if (fld_m2_will && {fld_m2_bank, fld_m2_idx} == t) return BP_LDX;   // a load writes it next cycle
     return BP_RF;
   endfunction
 
@@ -241,11 +263,11 @@ module tg_fp_exec
   // T7; in tg_fprf it was a level of its own).
   logic [2:0][63:0] rf_val;
   for (genvar k = 0; k < 3; k++) begin : g_rfv
-    logic [1:0] rs;                   // 0: bank 0, 1: bank 1, 2: the F1 write, 3: integer source
+    logic [1:0] rs;                   // 0: bank 0, 1: bank 1, 2: a load's write, 3: integer source
     always_comb begin
-      if (k == 0 && !iss_pl.src1_fp)                                                rs = 2'd3;
-      else if (rtag[k][FPIDX_W] && fld_valid && fld_idx == rtag[k][FPIDX_W-1:0])   rs = 2'd2;
-      else                                                                         rs = {1'b0, rtag[k][FPIDX_W]};
+      if (k == 0 && !iss_pl.src1_fp)                   rs = 2'd3;
+      else if (fld_valid && {fld_bank, fld_idx} == rtag[k]) rs = 2'd2;
+      else                                             rs = {1'b0, rtag[k][FPIDX_W]};
       unique case (rs)
         2'd0:    rf_val[k] = bank_rd[0][k];
         2'd1:    rf_val[k] = bank_rd[1][k];
@@ -257,9 +279,9 @@ module tg_fp_exec
   always_ff @(posedge clk) begin
     ex_pl_q     <= iss_pl;
     ex_rf_q     <= rf_val;
-    ex_sel_q[0] <= iss_pl.src1_fp ? bsel(rtag[0], nx_we, nx_idx, f0_we, f0_wa) : BP_RF;
-    ex_sel_q[1] <= bsel(rtag[1], nx_we, nx_idx, f0_we, f0_wa);
-    ex_sel_q[2] <= bsel(rtag[2], nx_we, nx_idx, f0_we, f0_wa);
+    ex_sel_q[0] <= iss_pl.src1_fp ? bsel(rtag[0], nx_we, nx_bank, nx_idx, p4_we, p4_wb, p4_wa) : BP_RF;
+    ex_sel_q[1] <= bsel(rtag[1], nx_we, nx_bank, nx_idx, p4_we, p4_wb, p4_wa);
+    ex_sel_q[2] <= bsel(rtag[2], nx_we, nx_bank, nx_idx, p4_we, p4_wb, p4_wa);
   end
 
   // A divide takes a free table entry in RF, so an early retirement can find it from then on.
@@ -283,14 +305,14 @@ module tg_fp_exec
   assign ex_live = ex_live_q && !tid_hit(flush, flush_tid, ex_pl_q.tid);
   assign ex_unit = fpu_unit_of(ex_pl_q.fop);
 
-  logic [63:0] f0_wb_q;               // the F0 stream of last cycle
+  logic [63:0] p4_wd_q;               // P4's stream of last cycle
   logic [2:0][63:0] opnd;
   for (genvar k = 0; k < 3; k++) begin : g_op
     always_comb begin
       unique case (ex_sel_q[k])
-        BP_F0X:  opnd[k] = f0_wd;
-        BP_F0W:  opnd[k] = f0_wb_q;
-        BP_F1X:  opnd[k] = fld_data;
+        BP_P4X:  opnd[k] = p4_wd;
+        BP_P4W:  opnd[k] = p4_wd_q;
+        BP_LDX:  opnd[k] = fld_data;
         default: opnd[k] = ex_rf_q[k];
       endcase
     end
@@ -397,30 +419,31 @@ module tg_fp_exec
   assign misc_i = misc_s.v && !misc_s.fpd;           // into the B1 queue (live or dead)
   assign div_w  = dv_q && dv_live_q && (dv_e.retired || !tid_hit(flush, flush_tid, dv_e.tid));
 
-  // The data and index of the F0 stream are selected by the registered slot owners alone (at
+  // The data, bank and index of P4's stream are selected by the registered slot owners alone (at
   // most one is valid: the slots are reserved), so the late flush and retirement inputs reach
-  // only the write enable, not the bypass path into the units.
+  // only the write enable, not the bypass path into the units or the register file's selects.
   always_comb begin
-    if (fma_s.v)                     begin f0_wa = fma_s.idx;  f0_wd = fma_resp.result;  end
-    else if (misc_s.v && misc_s.fpd) begin f0_wa = misc_s.idx; f0_wd = misc_resp.result; end
-    else                             begin f0_wa = dv_e.idx;   f0_wd = dv_res_q;         end
-    if (init_we)                     begin f0_wa = init_idx;   f0_wd = '0;               end
+    if (fma_s.v)                     begin p4_wb = fma_s.bank;  p4_wa = fma_s.idx;  p4_wd = fma_resp.result;  end
+    else if (misc_s.v && misc_s.fpd) begin p4_wb = misc_s.bank; p4_wa = misc_s.idx; p4_wd = misc_resp.result; end
+    else                             begin p4_wb = dv_e.bank;   p4_wa = dv_e.idx;   p4_wd = dv_res_q;         end
+    if (init_we)                     begin                      p4_wa = init_idx;   p4_wd = '0;               end
   end
+  assign p4_sel = (fma_s.v && fma_s.live) || (misc_s.v && misc_s.fpd && misc_s.live) || (dv_q && dv_live_q);
   always_comb begin
-    f0_we = 1'b0;
+    p4_we = 1'b0;
     cmp_valid = 1'b0; cmp_tid = '0; cmp_rob = '0; cmp_wid = '0; cmp_fflags = '0;
     er_valid = 1'b0; er_tid = '0; er_fflags = '0;
     llt_done = '0;
     if (fma_w) begin
-      f0_we = 1'b1;
+      p4_we = 1'b1;
       cmp_valid = 1'b1; cmp_tid = fma_t.tid; cmp_rob = fma_t.rob; cmp_wid = fma_t.wid;
       cmp_fflags = fma_resp.fflags;
     end else if (misc_w) begin
-      f0_we = 1'b1;
+      p4_we = 1'b1;
       cmp_valid = 1'b1; cmp_tid = misc_t.tid; cmp_rob = misc_t.rob; cmp_wid = misc_t.wid;
       cmp_fflags = misc_resp.fflags;
     end else if (div_w) begin
-      f0_we = 1'b1;
+      p4_we = 1'b1;
       llt_done[dv_e.llt] = 1'b1;
       if (dv_ret) begin
         er_valid = 1'b1; er_tid = dv_e.tid; er_fflags = dv_fl_q;
@@ -430,8 +453,9 @@ module tg_fp_exec
       end
     end
   end
-  assign f0_we_o   = f0_we;
-  assign f0_widx_o = f0_wa;
+  // The ready tables see each bank's writes but not the reset's zeros (P4's side, F0)
+  assign fp_we_o   = {bank_we[1], bank_we[0] && !init_we};
+  assign fp_widx_o = bank_wa;
   assign fdiv_done = dv_q;
 
   // ------------------------------------------------------------------------------------------
@@ -501,7 +525,7 @@ module tg_fp_exec
   // ------------------------------------------------------------------------------------------
   always_ff @(posedge clk) begin
     // Bypass copies
-    f0_wb_q <= f0_wd;
+    p4_wd_q <= p4_wd;
     // Claimed divide result
     dv_i_q   <= fdv_resp.tag[DQW-1:0];
     dv_res_q <= fdv_resp.result;
@@ -520,10 +544,12 @@ module tg_fp_exec
       iq_rd_q       <= '0;
       iq_dead_q     <= '0;
       fmisc_block_q <= 1'b0;
+      fpb_q         <= '0;
     end else begin
+      fpb_q     <= {fpb_q[4:0], fp_block};
       ex_v_q    <= iss_valid;
       ex_live_q <= iss_valid && rf_live;
-      fmisc_block_q <= ex_v_q && ex_unit == FU_FMA;
+      fmisc_block_q <= (ex_v_q && ex_unit == FU_FMA) || fpb_q[1];
 
       // Shadow pipelines: shift, then clear live for the flushed thread
       for (int k = ML - 1; k > 0; k--) fsh_q[k] <= fsh_q[k-1];
@@ -532,12 +558,14 @@ module tg_fp_exec
       fsh_q[0].live <= ex_live;
       fsh_q[0].fpd  <= 1'b1;
       fsh_q[0].tid  <= ex_pl_q.tid;
+      fsh_q[0].bank <= fpreg_bank(ex_pl_q.dst);
       fsh_q[0].idx  <= fpreg_idx(ex_pl_q.dst);
       fsh_q[0].wid  <= ex_pl_q.wid[FXW-1:0];
       msh_q[0].v    <= ex_v_q && ex_unit == FU_MISC;
       msh_q[0].live <= ex_live;
       msh_q[0].fpd  <= !ex_pl_q.fp_int;
       msh_q[0].tid  <= ex_pl_q.tid;
+      msh_q[0].bank <= fpreg_bank(ex_pl_q.dst);
       msh_q[0].idx  <= fpreg_idx(ex_pl_q.dst);
       msh_q[0].wid  <= ex_pl_q.wid[FXW-1:0];
       if (flush) begin
@@ -551,6 +579,7 @@ module tg_fp_exec
         dt_q[dt_free_i].tid      <= iss_pl.tid;
         dt_q[dt_free_i].rob      <= iss_pl.rob;
         dt_q[dt_free_i].llt      <= iss_pl.llt;
+        dt_q[dt_free_i].bank     <= fpreg_bank(iss_pl.dst);
         dt_q[dt_free_i].idx      <= fpreg_idx(iss_pl.dst);
         dt_q[dt_free_i].retired  <= fdiv_ret_valid && fdiv_ret_tid == iss_pl.tid &&
                                     fdiv_ret_llt == iss_pl.llt;
@@ -612,7 +641,10 @@ module tg_fp_exec
           else $error("tg_fp_exec: an integer result from a unit other than FMISC");
       end
       assert (!dq_in_v || dq_in_rdy) else $error("tg_fp_exec: divide queue overflow");
-      assert (!init_we || (!init_bank && !iss_valid && !f0_we))
+      // tg_lsu's free slot (fp_block at s): nothing selected at s, and no P4 write announced for s+7
+      assert (!(fpb_q[0] && iss_valid)) else $error("tg_fp_exec: an operation selected under fp_block");
+      assert (!(fpb_q[5] && nx_we)) else $error("tg_fp_exec: a P4 write in the slot a blocked select freed");
+      assert (!init_we || (!init_bank && !iss_valid && !p4_we && !p4_sel))
         else $error("tg_fp_exec: an init write outside F0, or beside an operation");
       // A flush is registered from the commit before it, so nothing it kills retires with it
       assert (!(fdiv_ret_valid && flush && fdiv_ret_tid == flush_tid))

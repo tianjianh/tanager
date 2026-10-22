@@ -3,9 +3,10 @@
 # every switch's branches compile: the fallback (TIMING_CUTS=0), the default, and #2, #8 and the commit
 # trace off each on top of the default (ROB_STORE_REPORT_LATE=1, DE_STAGE=1, COMMIT_TRACE=0; lint only;
 # DR-140, DR-146); the 4-miss L1D (DC_MSHRS=4, DR-149), G8's queue decode bits (QUEUE_DECODE=1) and M6's
-# speculative load wakeup (SPEC_WAKE=1) each on top of the default; DR-169's two levers off (STA_BASE=0,
-# STEER_LA=0), DR-171's store prefetch off (STORE_PF=0) and its prefetches in flight the package does not default
-# to (STORE_PF_MAX=2 or 3), and DR-174's UltraRAM register file on (URF=1, in both views: URF=1 and URF=1
+# speculative load wakeup (SPEC_WAKE=1) each on top of the default; its filter off and with D$ misses left out
+# (SPEC_WAKE_FILT=0 and 2), DR-169's two levers off (STA_BASE=0, STEER_LA=0), DR-171's store prefetch off (STORE_PF=0) and its prefetches in flight
+# the package does not default to (STORE_PF_MAX=2 or 3), and DR-174's UltraRAM register file on (URF=1, in both
+# views: URF=1 and URF=1
 # SYNTH=1), each on top of the default; the PMP entries the
 # package does not default to (PMP_ENTRIES=8 or 16, DR-167); and the default's
 # synthesis view (SYNTH=1: +define+SYNTHESIS, where a signal that
@@ -43,6 +44,7 @@ if mentioned TG_COMMIT_TRACE; then profiles+=("COMMIT_TRACE=0"); else echo "lint
 if mentioned TG_DC_MSHRS; then profiles+=("DC_MSHRS=4"); else echo "lint-all: no RTL mentions TG_DC_MSHRS; skipping DC_MSHRS=4"; fi
 if mentioned TG_QUEUE_DECODE; then profiles+=("QUEUE_DECODE=1"); else echo "lint-all: no RTL mentions TG_QUEUE_DECODE; skipping QUEUE_DECODE=1"; fi
 if mentioned TG_SPEC_WAKE; then profiles+=("SPEC_WAKE=1"); else echo "lint-all: no RTL mentions TG_SPEC_WAKE; skipping SPEC_WAKE=1"; fi
+if mentioned TG_SPEC_WAKE_FILT; then profiles+=("SPEC_WAKE_FILT=0" "SPEC_WAKE_FILT=2"); else echo "lint-all: no RTL mentions TG_SPEC_WAKE_FILT; skipping SPEC_WAKE_FILT=0 and 2"; fi
 if mentioned TG_STA_BASE; then profiles+=("STA_BASE=0"); else echo "lint-all: no RTL mentions TG_STA_BASE; skipping STA_BASE=0"; fi
 if mentioned TG_STEER_LA; then profiles+=("STEER_LA=0"); else echo "lint-all: no RTL mentions TG_STEER_LA; skipping STEER_LA=0"; fi
 if mentioned TG_PMP_ENTRIES; then  # the count other than the package's default (its line, as sim/profile.mk reads it)
@@ -61,6 +63,11 @@ profiles+=("SYNTH=1")
 # DR-177's release builds, without the two latency injectors (tanager_soc LAT_INJ, a parameter), in both views
 if grep -qsw LAT_INJ "$ROOT/rtl/soc/tanager_soc.sv"; then profiles+=("LAT_INJ=0" "LAT_INJ=0 SYNTH=1")
 else echo "lint-all: tanager_soc has no LAT_INJ; skipping LAT_INJ=0"; fi
+# DR-180's release builds (tanager_soc RELEASE, a parameter, with the host DMA port), as the board's product: no
+# injectors and no trace either, in both views
+if grep -qsw RELEASE "$ROOT/rtl/soc/tanager_soc.sv"; then
+  profiles+=("RELEASE=1 LAT_INJ=0 COMMIT_TRACE=0" "RELEASE=1 LAT_INJ=0 COMMIT_TRACE=0 SYNTH=1")
+else echo "lint-all: tanager_soc has no RELEASE; skipping RELEASE=1"; fi
 # M7's test mode (SOLO_TID=1, DR-175) exists only in the SMT2 configurations (TID_W = 1)
 solo=""; if mentioned TG_SOLO_TID; then solo=1; else echo "lint-all: no RTL mentions TG_SOLO_TID; skipping SOLO_TID=1"; fi
 # ... and its split mode (SPLIT=1), alone and with SOLO_TID=1

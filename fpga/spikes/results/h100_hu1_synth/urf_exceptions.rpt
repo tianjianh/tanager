@@ -1,0 +1,42 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+--------------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version      : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
+| Date              : Wed Oct 21 03:36:26 2026
+| Host              : w-arrowlake running 64-bit Ubuntu 24.04.5 LTS
+| Command           : report_exceptions -file urf_exceptions.rpt
+| Design            : kv260_top
+| Device            : xck26-sfvc784
+| Speed File        : -2LV  PRODUCTION 1.30 05-15-2022
+| Design State      : Synthesized
+| Temperature Grade : C
+--------------------------------------------------------------------------------------------------------------------------------------------------
+
+Exceptions Report
+
+Position  From                                                                  Through                                                                           To                                                                     Setup            Hold             Status           
+--------  --------------------------------------------------------------------  --------------------------------------------------------------------------------  ---------------------------------------------------------------------  ---------------  ---------------  -----------------
+4         [get_clocks -of_objects [get_ports -scoped_to_current_instance clk]]  [get_pins -of_objects [get_cells -hierarchical -filter {PRIMITIVE_TYPE =~ BLOCKR  *                                                                      cycles=2(end)    -                
+                                                                                AM.URAM.*}] -filter {REF_PIN_NAME =~ ADDR_B*}]                                                                                                                                             
+5         [get_clocks -of_objects [get_ports -scoped_to_current_instance clk]]  [get_pins -of_objects [get_cells -hierarchical -filter {PRIMITIVE_TYPE =~ BLOCKR  *                                                                      -                cycles=1(end)    
+                                                                                AM.URAM.*}] -filter {REF_PIN_NAME =~ ADDR_B*}]                                                                                                                                             
+6         *                                                                     [get_ports -scoped_to_current_instance {{we[*]} {waddr[*]} {wdata[*]}}]           [get_cells -hierarchical -filter {PRIMITIVE_TYPE =~ BLOCKRAM.URAM.*}]  cycles=2(end)    -                
+7         *                                                                     [get_ports -scoped_to_current_instance {{we[*]} {waddr[*]} {wdata[*]}}]           [get_cells -hierarchical -filter {PRIMITIVE_TYPE =~ BLOCKRAM.URAM.*}]  -                cycles=1(end)    
+8         *                                                                     [get_pins -of_objects [get_cells -hierarchical -filter {PRIMITIVE_TYPE =~ BLOCKR  [get_clocks -of_objects [get_ports -scoped_to_current_instance clk]]   cycles=2(start)  -                
+                                                                                AM.URAM.*}] -filter {REF_PIN_NAME =~ DOUT_B*}]                                                                                                                                             
+9         *                                                                     [get_pins -of_objects [get_cells -hierarchical -filter {PRIMITIVE_TYPE =~ BLOCKR  [get_clocks -of_objects [get_ports -scoped_to_current_instance clk]]   -                cycles=1(start)  
+                                                                                AM.URAM.*}] -filter {REF_PIN_NAME =~ DOUT_B*}]                                                                                                                                             
+10        [get_clocks -of_objects [get_ports -scoped_to_current_instance clk]]  [get_pins -of_objects [get_cells -hierarchical -filter {PRIMITIVE_TYPE =~ BLOCKR  *                                                                      cycles=2(end)    -                
+                                                                                AM.URAM.*}] -filter {REF_PIN_NAME =~ ADDR_B*}]                                                                                                                                             
+11        [get_clocks -of_objects [get_ports -scoped_to_current_instance clk]]  [get_pins -of_objects [get_cells -hierarchical -filter {PRIMITIVE_TYPE =~ BLOCKR  *                                                                      -                cycles=1(end)    
+                                                                                AM.URAM.*}] -filter {REF_PIN_NAME =~ ADDR_B*}]                                                                                                                                             
+12        *                                                                     [get_ports -scoped_to_current_instance {{we[*]} {waddr[*]} {wdata[*]}}]           [get_cells -hierarchical -filter {PRIMITIVE_TYPE =~ BLOCKRAM.URAM.*}]  cycles=2(end)    -                
+13        *                                                                     [get_ports -scoped_to_current_instance {{we[*]} {waddr[*]} {wdata[*]}}]           [get_cells -hierarchical -filter {PRIMITIVE_TYPE =~ BLOCKRAM.URAM.*}]  -                cycles=1(end)    
+14        *                                                                     [get_pins -of_objects [get_cells -hierarchical -filter {PRIMITIVE_TYPE =~ BLOCKR  [get_clocks -of_objects [get_ports -scoped_to_current_instance clk]]   cycles=2(start)  -                
+                                                                                AM.URAM.*}] -filter {REF_PIN_NAME =~ DOUT_B*}]                                                                                                                                             
+15        *                                                                     [get_pins -of_objects [get_cells -hierarchical -filter {PRIMITIVE_TYPE =~ BLOCKR  [get_clocks -of_objects [get_ports -scoped_to_current_instance clk]]   -                cycles=1(start)  
+                                                                                AM.URAM.*}] -filter {REF_PIN_NAME =~ DOUT_B*}]                                                                                                                                             
+2         [get_clocks { c1 }]                                                                                                                                     [get_clocks { c0 }]                                                    clock_group      clock_group      
+2         [get_clocks { c0 }]                                                                                                                                     [get_clocks { c1 }]                                                    clock_group      clock_group      
+3         [get_clocks { c2x }]                                                                                                                                    [get_clocks { c1 }]                                                    clock_group      clock_group      Non-existent path
+3         [get_clocks { c1 }]                                                                                                                                     [get_clocks { c2x }]                                                   clock_group      clock_group      Non-existent path
+

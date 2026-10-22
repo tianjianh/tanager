@@ -3,8 +3,9 @@
 # tg_fpu, and tg_fcsr. Exits non-zero if any job fails.
 #   run_be_tests.sh short|long <tb_fpx> <tb_fcsr> [seed]
 #   short: random P4 streams (three stress settings: no flushes; flushes, early retirement and
-#          B1 back-pressure; heavy flushing with 4 wakeup tags), TestFloat level 1 for every
-#          function in RNE
+#          B1 back-pressure; heavy flushing with 4 wakeup tags), each also with renaming across both
+#          FP banks and the LSU's blocked selects (-cross 40 -fpblk 5, DR-179), TestFloat level 1 for
+#          every function in RNE
 #          (capped), fcsr streams
 #   long:  more and longer random streams, TestFloat level 1 for every function in all five
 #          modes (mulAdd capped), longer fcsr streams
@@ -44,6 +45,9 @@ if [ "$mode" = short ]; then
     for k in 0 1 2 3; do
       echo "randx_s${s}_$k $tbx rand -seed $((seed + 10 * s + k)) -n 30000 ${stress[$s]}" >> "$list"
     done
+    for k in 0 1; do
+      echo "randc_s${s}_$k $tbx rand -seed $((seed + 10 * s + k + 5)) -n 30000 ${stress[$s]} -cross 40 -fpblk 5" >> "$list"
+    done
   done
   for k in 0 1 2 3; do echo "fcsr_$k $tbc -seed $((seed + k)) -n 300000" >> "$list"; done
 elif [ "$mode" = long ]; then
@@ -55,6 +59,9 @@ elif [ "$mode" = long ]; then
   for s in 0 1 2; do
     for k in 0 1 2 3 4 5 6 7; do
       echo "randx_s${s}_$k $tbx rand -seed $((seed + 10 * s + k)) -n 300000 ${stress[$s]}" >> "$list"
+    done
+    for k in 0 1 2 3; do
+      echo "randc_s${s}_$k $tbx rand -seed $((seed + 10 * s + k + 5)) -n 300000 ${stress[$s]} -cross 40 -fpblk 5" >> "$list"
     done
   done
   for k in 0 1 2 3; do echo "fcsr_$k $tbc -seed $((seed + k)) -n 3000000" >> "$list"; done

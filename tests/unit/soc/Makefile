@@ -1,9 +1,12 @@
-# SoC simulation test (docs/spec/soc.md).  make -C tests/unit/soc short | sdirq | ipirace | run KIND=core|trafgen|tcore [COMMIT_TRACE=0] [VIRTIO=1] [HOST_DMA=1] [PS_WINDOW=1] [SDIRQ=1]
+# SoC simulation test (docs/spec/soc.md).  make -C tests/unit/soc short | sdirq | ipirace | run KIND=core|trafgen|tcore [COMMIT_TRACE=0] [VIRTIO=1] [HOST_DMA=1] [PS_WINDOW=1] [SDIRQ=1] [RELEASE=1]
 # COMMIT_TRACE=0 builds without the commit trace (+define+TG_COMMIT_TRACE=0, DR-146). VIRTIO=1: with the
 # forwarded virtio window, which the host serves (KIND=tcore; docs/spec/soc.md §8.1). HOST_DMA=1: with the
 # coherent host DMA port, which the host uses on the program's buffers (KIND=tcore). PS_WINDOW=1: with stage D's
 # PS window (+define+TG_PS_WINDOW=1, a map option), against a model of the PS (KIND=tcore; soc.md §8.2). LAT_INJ=0: a
-# release build, without the two latency injectors (DR-177): the L2's banks straight to the DDR models.
+# release build, without the two latency injectors (DR-177): the L2's banks straight to the DDR models. RELEASE=1:
+# a release build as the board's product (tanager_soc RELEASE, DR-180), so LAT_INJ=0 and COMMIT_TRACE=0 as well:
+# no host console (the bench reads the UART's own output), the PLIC's S contexts alone, no TTC1 source, the DMA
+# port without completions or line counters. ipirace RELEASE=1 runs the directed IPI test on such a build.
 TOP    := tb_soc
 KIND   ?= core
 COMMIT_TRACE ?= 1
@@ -14,13 +17,21 @@ PS_WINDOW ?= 0
 # the PS model's SD-like device
 SDIRQ  ?= 0
 LAT_INJ ?= 1
+RELEASE ?= 0
+ifeq ($(RELEASE),1)
+  ifneq ($(VIRTIO),0)
+    $(error RELEASE=1 builds no virtio window (DR-180): leave VIRTIO at 0)
+  endif
+  override LAT_INJ := 0
+  override COMMIT_TRACE := 0
+endif
 SDPROG ?= sd_irq            # sd_irq_smt2s: S-mode with ticks, the contender on hart 2 (KIND=core CFG=smt2)
-NAME   := soc_$(KIND)$(if $(filter 0,$(COMMIT_TRACE)),_notrace)$(if $(filter 1,$(VIRTIO)),_virtio)$(if $(filter 1,$(HOST_DMA)),_hdma)$(if $(filter 1,$(PS_WINDOW)),_pswin)$(if $(filter 1,$(SDIRQ)),_sdirq)$(if $(filter 0,$(LAT_INJ)),_rel)
+NAME   := soc_$(KIND)$(if $(filter 0,$(COMMIT_TRACE)),_notrace)$(if $(filter 1,$(VIRTIO)),_virtio)$(if $(filter 1,$(HOST_DMA)),_hdma)$(if $(filter 1,$(PS_WINDOW)),_pswin)$(if $(filter 1,$(SDIRQ)),_sdirq)$(if $(filter 0,$(LAT_INJ)),_rel)$(if $(filter 1,$(RELEASE)),ease)
 EXTRA_VFLAGS += $(if $(filter 0,$(COMMIT_TRACE)),+define+TG_COMMIT_TRACE=0) $(if $(filter 1,$(PS_WINDOW) $(SDIRQ)),+define+TG_PS_WINDOW=1)
 # TB_SOC_CORE: the real cores are in (KIND=core), so the bench may name their insides (tb_soc's +ipi_race)
 EXTRA_VFLAGS += $(if $(filter core,$(KIND)),+define+TB_SOC_CORE)
 TB     := $(CURDIR)/tb_soc.sv
-PARAMS := -GKIND='"$(KIND)"' -GVIRTIO=$(VIRTIO) -GHOST_DMA=$(HOST_DMA) -GSDIRQ=$(SDIRQ) -GLAT_INJ=$(LAT_INJ)
+PARAMS := -GKIND='"$(KIND)"' -GVIRTIO=$(VIRTIO) -GHOST_DMA=$(HOST_DMA) -GSDIRQ=$(SDIRQ) -GLAT_INJ=$(LAT_INJ) -GRELEASE=$(RELEASE)
 include ../common/unit.mk
 ifeq ($(KIND),tcore)
 # The verification track's test core stands in for tg_core (tcore_as_core.sv); rtl/core is left out.
@@ -49,6 +60,8 @@ short: prog
 	@$(MAKE) --no-print-directory run KIND=tcore PS_WINDOW=1 | grep -q "TEST PASSED" || { echo "FAIL tcore PS_WINDOW=1"; exit 1; }; echo "soc tcore with the PS window: PASS"
 	@$(MAKE) --no-print-directory run KIND=tcore SDIRQ=1 HOST_DMA=1 | grep -q "TEST PASSED" || { echo "FAIL tcore SDIRQ=1 HOST_DMA=1"; exit 1; }; echo "soc tcore SD1 interrupt stress with DMA: PASS"
 	@for k in trafgen tcore; do $(MAKE) --no-print-directory run KIND=$$k LAT_INJ=0 | grep -q "TEST PASSED" || { echo "FAIL $$k LAT_INJ=0"; exit 1; }; echo "soc $$k without the latency injectors (release): PASS"; done
+	@$(MAKE) --no-print-directory run KIND=trafgen RELEASE=1 | grep -q "TEST PASSED" || { echo "FAIL trafgen RELEASE=1"; exit 1; }; echo "soc trafgen, a release build (DR-180): PASS"
+	@$(MAKE) --no-print-directory run KIND=tcore RELEASE=1 HOST_DMA=1 PS_WINDOW=1 | grep -q "TEST PASSED" || { echo "FAIL tcore RELEASE=1 HOST_DMA=1 PS_WINDOW=1"; exit 1; }; echo "soc tcore, a release build with the DMA port and the PS window (DR-180): PASS"
 # ipirace: the directed test of SD1's lost interrupt (10-20): on the real smt2 cores, in S-mode as Linux, an IPI to
 # hart 0 (MSIP) made pending in the very cycle its LSU issues PLIC claim number IPIRACE (tb_soc +ipi_race). The ROB
 # could take an interrupt in the cycle the LSU issues the head's MMIO load, so the claim went out, the load was

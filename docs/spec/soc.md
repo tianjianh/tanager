@@ -108,23 +108,38 @@ Non-project Tcl, run only through `tools/vivado_run.sh` (conventions §9):
 - **Deleted after each run:** checkpoints, run directories and logs (conventions §9).
 - **Pblocks:** later (spike S6, plan §7.5).
 
-### 2.5 Release and development builds (DR-177)
+### 2.5 Release and development builds (DR-177, DR-180)
 
 | Build | What's in it | Used for |
 |---|---|---|
-| **Release** | No latency injectors (`TG_LAT_INJ=0`) and no commit trace (`TG_COMMIT_TRACE=0`). `summary.txt` says `lat_inj=0` and lists the define | the board's RISC-V-mode product builds (D4 and D5's packages; M7 and M8's four-hart build, `h1_build.sh`); spikes-2's release-form full chips (spikes §8.18) |
-| **Development** | Both injectors (`TG_LAT_INJ` unset or 1; `summary.txt`: `lat_inj=1`), and the trace when the build is for lockstep | stage C bitstreams that test injected latency (`tanager-host --inj-rd`); board lockstep (needs the trace); the latency sweeps at 0, 120 and 250 cycles, with M8's litmus runs on four harts (DR-177's exit) |
+| **Release** (DR-180) | `TG_RELEASE=1`: `RELEASE=1` with no latency injectors, no commit trace and no virtio window. The PLIC keeps its S-mode contexts alone, with 1-bit priorities and no TTC1 source. There is no host console. The DMA port has no line counters, and no completion queue without the trace. The host bridge's crossings carry only the fields built. `summary.txt` says `release=1` and `lat_inj=0` | the board's RISC-V-mode product builds (M7 and M8's four-hart build, `h1_build.sh`; RISC-V mode's tree `tanager-kv260-riscv-rel.dtb`); spikes-2's release-form full chips from DR-180 on |
+| **DR-177's release form** | No latency injectors (`TG_LAT_INJ=0`) and no commit trace (`TG_COMMIT_TRACE=0`), with everything else as development builds have it | before DR-180: d4r1's and d4r2's packages, spikes §8.18's hu0 and hu1 |
+| **Development** | Every block: both injectors (`summary.txt`: `lat_inj=1`, `release=0`), the virtio window and the host console where configured, and the trace when the build is for lockstep | stage C bitstreams (virtio, the host console, `tanager-host --inj-rd`); board lockstep (needs the trace); the latency sweeps at 0, 120 and 250 cycles, with M8's litmus runs on four harts (DR-177's exit) |
 
 - **The release form can't:**
   - inject latency. `CAPS[1]` = 0, and `tanager-host` refuses `--inj-rd`, `--inj-wr` or `--inj-bw` above 0 before it touches the board. `--inj-rd 0` only gets a note.
   - report native read latency: every `INJ_*` register reads 0 ([host.md](host.md)).
   - run board lockstep: with the trace off, `CAPS[3]` = 0.
-- **It changes cycles, not function.** An injector stores each read burst whole before it releases it. So without the injectors each DRAM fill reaches the L2 a few cycles sooner, and release builds run memory-bound work slightly faster than development builds. A comparison across the two kinds says so.
+  - serve virtio (stage C) or give a console through the host. `CAPS[2]` and `CAPS[9]` = 0: its console is the PMOD UART alone, `tanager-host --pty` stops, and its default stdio console becomes none.
+  - count the DMA port's lines (`CAPS[10]` = 0) or record its completions (`CAPS[11]` = 0; they serve lockstep, which needs the trace). `HDMA_WR_DROPS` still counts.
+  - take a machine-mode external interrupt, or use priorities above 1 ([uncore-periph.md](uncore-periph.md) §PLIC). Nothing in RISC-V mode does: OpenSBI takes no external interrupt, and Linux writes priority 1 alone. Its device trees list each M context as absent (−1, `sw/dts` `RELEASE=1`). A release tree boots a development build too, whose M contexts nothing uses.
+  - take TTC1's interrupt (PLIC source 24, D1's test; the A53 and RISC-V mode don't use TTC1).
+- **It changes cycles, not function.** An injector stores each read burst whole before it releases it. So without the injectors each DRAM fill reaches the L2 a few cycles sooner, and release builds run memory-bound work slightly faster than development builds. A comparison across the two kinds says so. DR-180's parts change no cycle: the crossings carry the same values, and the other parts are absent or unused.
 - **The saving:**
   - **The injectors themselves,** in d4r1's routed build: 1,371 LUTs (368 of them LUTRAM), 556 flip-flops and 4 RAMB36 (their read buffers).
   - **The whole chip, synthesized** (d4r1's configuration on bdf68a1a, `TG_LAT_INJ=1` against `0`): 114,534 → 113,288 LUTs, so 1,246 fewer (878 logic, 368 LUTRAM); 61,072 → 60,150 flip-flops (922, the host bridge's injector registers and their crossings included); 122 → 118 RAMB36.
   - DR-167 estimated 1,293 LUTs and 4 BRAM36. Placement figures come with spikes' release-form chips (§8.18).
-- **Simulation and the tests** keep the injectors by default. Release forms: `tests/unit/host_bridge` and `tests/unit/soc` (`LAT_INJ=0`, both in `short`), `tests/unit/boot` `LAT_INJ=0`, and `make lint LAT_INJ=0` (lint-all runs it in both views).
+  - **DR-180's parts,** synthesized on hu1's recipe (main 7196a0bc with DR-180, b9a7ce10: `TG_RELEASE` unset against `1`; synthesis only, `AreaOptimized_high`):
+    - **The whole chip:** 125,174 → 123,391 LUTs, so 1,783 fewer (1,695 logic, 88 LUTRAM); 67,179 → 64,009 flip-flops (3,170 fewer); 6 → 4 RAMB18. The measured list estimated about 1,550 LUTs, 2,700–3,200 flip-flops and 2 RAMB18.
+    - **The host bridge:** 1,416 → 528 LUTs, 5,267 → 2,420 flip-flops, 2 → 0 RAMB18. Of that, the virtio window is 274 LUTs and 574 flip-flops. The console FIFOs, the completion queue and the trimmed crossings are the other 614 LUTs, 2,273 flip-flops and both RAMB18.
+    - **The PLIC:** 719 → 119 LUTs, 432 → 211 flip-flops.
+    - **The device bus:** 902 → 623 LUTs (the virtio slots' device).
+    - **The DMA port:** 96 flip-flops (its cycle count and line counters) and 5 LUTs.
+    - **The rest:** within noise (the crossbar −102 LUTs, the cores −26, the top level −74).
+    - **Still over the device after synthesis** (123,391 LUTs, 105.4%). hu1 lost 5,119 LUTs in `opt_design` on 071de15c (spikes §8.18), so this release chip would come to about 118.3K after it, still about 1% over: an estimate, not a run. DR-180 covers part of hu1's gap, not all of it.
+- **Simulation and the tests** keep every block by default. Release forms:
+  - DR-177's: `tests/unit/host_bridge` and `tests/unit/soc` (`LAT_INJ=0`, both in `short`), `tests/unit/boot` `LAT_INJ=0`, and `make lint LAT_INJ=0` (lint-all runs it in both views).
+  - DR-180's: `tests/unit/periph` `REL=1`, `tests/unit/host_bridge` `REL=1 HDMA=1` and `tests/unit/hdma` `REL=1` (each in `short`); `tests/unit/soc` `RELEASE=1` (trafgen, and tcore with the DMA port and the PS window, in `short`; `ipirace RELEASE=1`); `tests/unit/boot` `linux RELEASE=1` (the serial console alone); `make lint RELEASE=1` (lint-all runs it with `LAT_INJ=0 COMMIT_TRACE=0` in both views); on QEMU, `RELEASE=1 sw/qemu/boot_test.sh 2 2` and `SMP=4 RELEASE=1 IRQS=1 sw/qemu/debian_test.sh`.
 
 ## 3. Boot flow and memory layout
 
@@ -877,6 +892,39 @@ Changes that save area but move cycles or remove function. Under D18 and DR-123 
 | **D register slice** (`tg_uncore` `D_SLICE`, b4b05de; a timing lever, DR-135; off by default, the user's decision). A skid buffer on each L2 bank's TileLink D (responses), before the crossbar | timing, not area. It cuts the D channel's handshake: a bank's D queue and output arbiter, the crossbar's per-initiator D arbiter (which weighs both banks), then the ready back into the bank's queue and credit. In the full chip with compact banks (G4-FP, before it) that loop is −3.5 to −4.2 ns at 12–13 levels, 77–81% wire. Out of context it takes the loop off the failing lists, but the worst slack is then other L2 paths, which move with the placement: −0.382 / −0.178 ns against −0.322 / +0.030 ns without it (default / `ExtraTimingOpt`). +160 LUTs and +620 FFs at `st` (budget flow) | one cycle on every L2 response, measured with `make cycle-identical` against b4b05de, on the 2-core Linux boot's first 20M cycles: +0.402% at `st`, +0.203% at `smt2` (main's core has no profile switches yet, so this is both of DR-140's profiles) | every L1 miss |
 | **W register slices** (`tg_uncore` `W_SLICE`, 61fb255; a timing lever, DR-135; off by default, the user's decision). Skid buffers on each L2 bank's AXI AW and W, before the latency injector, as the AR slice is on AR | timing, not area. They cut the write-back path from the banks to the memory path by the PS ports: G4-FP, with the banks at the URAM column, has the memory W slices at −2.3 / −2.4 ns and AW at −0.73 / +0.13 ns (before them). +182 LUTs and +652 FFs at `st` | one cycle on every write-back: +0.068% at `st`, +0.011% at `smt2` over the same 20M cycles, for both of DR-140's profiles (main's core has no profile switches yet). Out of context it buys nothing measurable: the memory path sits next to the banks there, and its far end is a port with no input delay | every dirty eviction |
 | **Core-side request slices** (`tg_uncore` `XBAR_IN_SLICE`, 4e639d3; a timing lever, DR-135; off by default, the user's decision). Skid buffers on the cores' request channels between the core ports and the crossbar: bit 0 the caches' A (l1d, l1i), bit 1 the MMIO A, bit 2 the l1d C, bit 3 the l1d E; the uncore's side of an interface register stage | timing, not area. With compact banks (G4-FP) the core-side crossbar paths still miss by about 3 ns, mostly wire: core → A slices −2.87 ns, core → C −3.05 ns, the LSU's store queue → a B slice's clock enable −4.99 ns (14 levels, which a slice on this side does not reach). Out of context these paths start at ports with no input delay, so only a full-chip fit measures them. Cache A and C (`4'b0101`): +307 LUTs and +1,148 FFs at `st`; every channel (`4'b1111`): +499 LUTs and +1,956 FFs | one cycle on every message of a sliced channel. `4'b0101`, the 2-core Linux boot's first 20M cycles: +0.430% at `st`, +0.206% at `smt2`. `4'b1111`: +0.436% and +0.207%; the MMIO A and E slices add almost no cycles (MMIO is rare, and a GrantAck holds nothing up) for their 192 LUTs. Main's core has no DR-140 profile switches yet, so these hold for both profiles | every L1 miss, eviction and coherence response |
+
+### Release-build candidates for RISC-V mode (10-21, measured; for the coordinator's M8 plan)
+
+**Adopted as DR-180** (10-21): the table's first six candidates are release builds' (`TG_RELEASE=1`, §2.5), and their saving on hu1's recipe is measured there. The seventh, the DMA port through a core's crossbar port, is held.
+
+Neither of spikes §8.18's product chips placed (hu0 104.1%, hu1 101.9% after `opt_design`). The product's windows measure +3,133 LUTs (hu0 − hp0, both post-synthesis). By module:
+
+| Block | LUTs | FFs | Needed in RISC-V mode? |
+|---|---|---|---|
+| DMA port (`tg_hdma`) | +796 (256 LUTRAM) | +371 | yes: SD1's ADMA and GEM3's DMA |
+| PLIC | +553 | — | partly: its virtio sources are stage C's |
+| Host bridge | +427 | — | partly: the virtio window 272 (574 FFs) is stage C's, the DMA completion recorder 126 (275 FFs) lockstep's |
+| Crossbar | +417 | — | yes: the DMA initiator |
+| Device bus | +125 | — | partly |
+| PS window | +100 | +205 | yes |
+| L2 | +87 | — | yes |
+| Top level | +110 | — | yes |
+| Cores | +534 | — | not a cost: identical RTL moved +468 in core 0 and +66 in core 1. The windows' only logic in a core is four prefix compares, the PS window's PMA region |
+
+The PLIC figures come from out-of-context syntheses of `tg_plic` with the build's live sources (the others tied to 0, as `tg_uncore` leaves them). Those run high by about 1.8× against the chip, which sees fewer free inputs, so the chip's figures here are scaled.
+
+| Candidate | Saves | Costs | Work |
+|---|---|---|---|
+| **The virtio window out of release builds** (`TG_VIRTIO_WINDOW=0`) | about 480 LUTs: `tg_vio_window` 272 and 574 FFs (its two async FIFOs), its four PLIC sources about 160, and part of the device bus's decode | stage C's virtio (disk, network, rng through `tanager-host`) needs a development build. RISC-V mode loses nothing: its tree has no virtio | none: an existing switch |
+| **The host console FIFOs out of release builds** | 369 LUTs, 666 FFs, 2 RAMB18 (the UART's TX and RX FIFOs toward the host) | the console through `tanager-host` (stage C, bare-metal board runs) needs a development build. RISC-V mode's console is the PMOD UART | a host bridge switch: the UART keeps its serial line alone |
+| **The DMA completion recorder out of builds without the trace** | 126 LUTs and 275 FFs (`g_hdma.u_cpl`), plus the DMA port's completion stamps | none: it serves lockstep with external writes, which needs the trace | gate it on `TRACE` |
+| **The PLIC: S-mode contexts alone, 1-bit priorities, no TTC1 source** | about 721 → 190 LUTs in the chip, 530 fewer, 160 of them the virtio sources above. Out of context at the product's sources (UART, mailbox, the PS's UART1, SD1, GEM3, USB0): 959 → 351 LUT cells, 422 → 211 FFs. Alone, S contexts −44%, 1-bit priorities −40%. Dropping the mailbox and USB0 as well adds only 17 LUTs | **M-mode external interrupts:** none; nothing takes them (OpenSBI doesn't, and the cores tie their machine-error lines to 0). OpenSBI and Linux boot on QEMU with every M context absent in the tree. **Priorities:** one level; Linux uses priority 1 alone, and priorities are WARL. Tests that write other priorities change | a context mask and `PRIO_W = 1` in `tg_plic` for release builds; the tree marks M contexts absent |
+| **The host bridge's crossings trimmed to the build's fields** (`u_cfg`, `u_status`: 3,096 FFs and 455 LUTs today) | an estimated 1,000–1,500 FFs and 100–200 LUTs: the trace's, the injectors' and the traffic generators' fields are constant in a release build, but `xpm_cdc_handshake` keeps their flops | none | build the crossing vectors from the fields present |
+| **The DMA port's line counters** (`HDMA_RD_LINES`, `HDMA_WR_LINES`; `HDMA_WR_DROPS` stays) | an estimated 60 LUTs and 64 FFs | no DMA traffic counts | small |
+| **The DMA port through a core's crossbar port** (a 2:1 merge in place of its own initiator) | an estimated 200–300 of the crossbar's +417 | DMA shares that core's port bandwidth | shared RTL (`tg_xbar`, the DMA port's source IDs) and its verification: the largest, last |
+
+- **Totals:** the first six come to about 1,550 LUTs, 2,700–3,200 FFs and 2 RAMB18; with the seventh, about 1,800 LUTs.
+- **What RISC-V mode keeps:** the PS window, the DMA port (less its recorder and counters), the crossbar's DMA initiator, the device bus's PS decode, the L2's DMA client and the top level's ports.
 
 ## History and lessons
 

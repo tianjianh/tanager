@@ -2,9 +2,13 @@
 // a 4-phase handshake loop copies consistent snapshots, so a multi-bit value never arrives torn.
 // The value seen in dst_clk lags the source by a few cycles of both clocks.
 // xpm_cdc_handshake under SYNTHESIS; an equivalent req/ack synchronizer pair in simulation.
+// LIVE marks the bits that cross; the others are constants at the source, and dst_out holds them at INIT. Only
+// the live bits reach the flip-flops and the handshake, which keeps one for every bit it is given, constant or
+// not (the host bridge's release builds, DR-180). All bits live (the default) is the plain mirror.
 module tg_cdc_mirror #(
   parameter int              W    = 32,
-  parameter logic [W-1:0]    INIT = '0
+  parameter logic [W-1:0]    INIT = '0,
+  parameter logic [W-1:0]    LIVE = '1
 ) (
   input  logic         src_clk,
   input  logic         src_rst,
@@ -13,19 +17,56 @@ module tg_cdc_mirror #(
   input  logic         dst_rst,
   output logic [W-1:0] dst_out
 );
-  logic [W-1:0] hold_q;
-  logic         send_q;
-  logic         rcv;
-  logic [W-1:0] dst_bus;
-  logic         dst_req;
+  // live bits below bit i: bit i's place in the live vector
+  function automatic int live_below(input int i);
+    int n;
+    n = 0;
+    for (int j = 0; j < i; j++) n += int'(LIVE[j]);
+    return n;
+  endfunction
+  // the run of bits from bit i that are all live, or all not
+  function automatic int run_len(input int i);
+    int n;
+    n = 0;
+    for (int j = i; j < W; j++) if (LIVE[j] == LIVE[i] && n == j - i) n++;
+    return n;
+  endfunction
+  localparam int WL = live_below(W);
+  if (WL < 1) begin : g_bad_live
+    $error("tg_cdc_mirror: LIVE needs a bit set");
+  end
+
+  // One assignment per run of live (or constant) bits, so all bits live is one vector, as a plain mirror is. A
+  // bit-by-bit generate (hundreds of one-bit assignments) made Verilator's tb_boot 12 times slower, and it shifted
+  // what the crossing samples, so a development build's boot wasn't cycle-identical to main's (10-21)
+  logic [WL-1:0] src_l, init_l, dst_q;
+  for (genvar i = 0; i < W; i++) begin : g_bit
+    if (i == 0 || LIVE[i] != LIVE[(i == 0) ? 0 : i - 1]) begin : g_run
+      localparam int K = live_below(i), L = run_len(i);
+      if (LIVE[i]) begin : g_live
+        assign src_l[K +: L]   = src_in[i +: L];
+        assign init_l[K +: L]  = INIT[i +: L];
+        assign dst_out[i +: L] = dst_q[K +: L];
+      end else begin : g_const
+        assign dst_out[i +: L] = INIT[i +: L];
+        wire unused_run = ^src_in[i +: L];
+      end
+    end
+  end
+
+  logic [WL-1:0] hold_q;
+  logic          send_q;
+  logic          rcv;
+  logic [WL-1:0] dst_bus;
+  logic          dst_req;
 
   // Source side: capture, send, wait for rcv, drop send, wait for rcv to drop, repeat.
   always_ff @(posedge src_clk) begin
     if (src_rst) begin
       send_q <= 1'b0;
-      hold_q <= INIT;
+      hold_q <= init_l;
     end else if (!send_q && !rcv) begin
-      hold_q <= src_in;
+      hold_q <= src_l;
       send_q <= 1'b1;
     end else if (send_q && rcv) begin
       send_q <= 1'b0;
@@ -39,7 +80,7 @@ module tg_cdc_mirror #(
     .INIT_SYNC_FF   (1),
     .SIM_ASSERT_CHK (0),
     .SRC_SYNC_FF    (3),
-    .WIDTH          (W)
+    .WIDTH          (WL)
   ) u_hs (
     .src_clk  (src_clk),
     .src_in   (hold_q),
@@ -53,7 +94,7 @@ module tg_cdc_mirror #(
 `else
   logic [2:0] req_sync_q, ack_sync_q;
   logic       req_seen_q;
-  logic [W-1:0] bus_q;
+  logic [WL-1:0] bus_q;
   always_ff @(posedge dst_clk) begin
     if (dst_rst) begin
       req_sync_q <= '0;
@@ -75,7 +116,7 @@ module tg_cdc_mirror #(
 
   // Destination register: updated once per completed transfer.
   always_ff @(posedge dst_clk) begin
-    if (dst_rst)      dst_out <= INIT;
-    else if (dst_req) dst_out <= dst_bus;
+    if (dst_rst)      dst_q <= init_l;
+    else if (dst_req) dst_q <= dst_bus;
   end
 endmodule

@@ -109,6 +109,16 @@ package tg_core_pkg;
 `else
   localparam bit SPEC_WAKE = 1'b1;
 `endif
+  // Speculative wakeup's filter (tg_issue): a load whose PC's loads keep failing to complete in M2
+  // does not wake its dependants speculatively (a 2-bit count per PC hash). 1 (the default): every
+  // failure counts; 2: a load that missed the D$ in M2 leaves its count alone (tg_lsu's ld_m2_miss),
+  // so a streaming loop's loads keep their wakeups; TG_SPEC_WAKE_FILT=0 lets every tracked load wake
+  // its dependants, cycle for cycle as before the filter
+`ifdef TG_SPEC_WAKE_FILT
+  localparam int SPEC_WAKE_FILT = `TG_SPEC_WAKE_FILT;
+`else
+  localparam int SPEC_WAKE_FILT = 1;
+`endif
   // The return-address stack (plan §4.2, M6; tg_ras, RAS_ENTRIES of the configuration): decode
   // predicts returns from it, and a flush restores it exactly from commit's copy. On by default;
   // TG_RAS=0 turns it off: the front end without it, cycle for cycle
@@ -229,7 +239,7 @@ package tg_core_pkg;
   // M7's step 5 (DR-175): hart 1, TG_HART1=1 (smt2 builds only; off until step 8's checks pass; with SOLO_TID hart 0
   // runs as tid 1 and hart 1 as tid 0, each with its own homes).
   // On: the window split (SPLIT below); each register bank's free list divided between the harts, with transfers
-  // (D3 revised); hart 1's homes reserved (D4: x1-x16 in bank 1, x17-x31 in bank 2, f0-f31 in F1); FP banks of 96
+  // (D3 revised); hart 1's homes reserved (D4: x1-x16 in bank 1, x17-x31 in bank 2, f0-f31 in F1); FP banks of 64
   // (tg_cfg_smt2); from step 5c hart 1 fetches from reset. Until then hart 0 runs alone in its half, taking hart 1's
   // free registers by transfers. Off: the core of steps 1-4, cycle for cycle.
 `ifdef TG_HART1

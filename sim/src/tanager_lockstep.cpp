@@ -22,6 +22,7 @@
 #include <cinttypes>
 #include <cstring>
 #include <deque>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -62,6 +63,8 @@ struct opts_t {
   uint64_t stale = 10000000;      // a deferred writeback pending this many cycles is a mismatch
   uint64_t reorder = 1024;        // records a hart may stay silent before it counts as idle (0: stream order)
   unsigned hart_window = 512;     // other harts' writes: records a hart may still read their old bytes (0: off)
+  uint64_t early = ATOMIC_EARLY;  // cycles before its record another hart may read an atomic's write (0: none)
+  bool mtgsmt = false;            // the cores have mtgsmt (0x7C0): built with hart 1
 };
 
 [[noreturn]] void usage() {
@@ -80,10 +83,15 @@ struct opts_t {
           "                    N more records have arrived (default 1024; 0: in arrival order)\n"
           "  --hart-window=N   several harts: a hart may read the bytes another hart's write replaced for N of\n"
           "                    its own records after it (store queue, early loads; default 512; 0: off)\n"
+          "  --mtgsmt=0|1      the cores have M7's mtgsmt CSR (0x7C0), one per core of two harts: a build with\n"
+          "                    hart 1 (HART1=1) has it; without, Spike traps on it as the core does (default 0)\n"
+          "  --atomic-early=N  several harts: a read may return what another hart's AMO or SC wrote up to N\n"
+          "                    cycles before the atomic's record (it performs before it retires; default %llu;\n"
+          "                    0: never)\n"
           "  --plant=N         self-test: flip bit 0 of the first value the checker compares at or after\n"
           "                    record N (from 0): a register write or a deferred writeback, not a value it\n"
           "                    adopts (an MMIO load, a nondet CSR read); the run must stop there\n",
-          TG_DEFAULT_ISA, TG_DEFAULT_PMP);
+          TG_DEFAULT_ISA, TG_DEFAULT_PMP, (unsigned long long)ATOMIC_EARLY);
   exit(EXIT_HARNESS);
 }
 
@@ -127,6 +135,8 @@ opts_t parse(int argc, char** argv) {
     else if (k == "plant") o.plant = int64_t(num(v, "--plant"));
     else if (k == "reorder") o.reorder = num(v, "--reorder");
     else if (k == "hart-window") o.hart_window = unsigned(num(v, "--hart-window"));
+    else if (k == "atomic-early") o.early = num(v, "--atomic-early");
+    else if (k == "mtgsmt") o.mtgsmt = num(v, "--mtgsmt") != 0;
     else { fprintf(stderr, "tanager-lockstep: unknown option --%s\n", k.c_str()); usage(); }
   }
   if (o.fw.empty()) usage();
@@ -254,6 +264,7 @@ int main(int argc, char** argv) {
   lc.pmp_regions = o.pmp;
   lc.history = o.history;
   lc.hart_window = o.hart_window;
+  lc.mtgsmt = o.mtgsmt;
   lc.dram_base = DRAM_BASE;
   lc.dram_size = o.mem_mb << 20;
   lc.rom_base = BOOTROM_BASE;
@@ -277,6 +288,7 @@ int main(int argc, char** argv) {
   wbs.reserve(1);
   cycle_clock_t clk;
   uint64_t n = 0, retired = 0, traps = 0, irqs = 0, nwb = 0, n_ext = 0, n_applied = 0, n_late = 0;
+  uint64_t n_early = 0, early_max = 0;  // reads that took an atomic queued with a later cycle; its largest lead
   bool planted = false;
   double t0 = now_s(), t_last = t0;
   uint64_t n_last = 0;
@@ -291,6 +303,10 @@ int main(int argc, char** argv) {
   // visibility (from 256 cycles before its AccessAck, §3.10), and a load the L2 served that early has a
   // cycle before the AccessAck's; the producer puts the record ahead of every trace record that could
   // have read the write (it holds the trace while the write is in flight).
+  // An AMO or SC performs before it retires, so another hart may read what it wrote a few cycles before its
+  // record (§3.7): a read that nothing else explains takes the first such atomic queued for another hart up to
+  // --atomic-early cycles later, which goes first with the records of its hart before it. While the read is
+  // unexplained, it waits until every hart that is not idle has sent a record past that horizon.
   struct pending_t {
     uint64_t idx, cyc;  // stream position; full cycle
     bool ext;
@@ -339,6 +355,40 @@ int main(int argc, char** argv) {
     }
     return true;
   };
+  // Applies the record at the head of hart b's queue: 1, or 0 to wait for more records, or -1 at a mismatch.
+  // Its read may need another hart's atomic queued with a later cycle (above): that one goes first, with the
+  // records of its hart before it, each the same way (its read may need a third hart's), from harts not
+  // already waiting for one (`busy`, a mask).
+  std::function<int(size_t, bool, unsigned)> head = [&](size_t b, bool flush, unsigned busy) -> int {
+    busy |= 1u << b;
+    if (o.harts > 1 && o.early) {
+      const pending_t& hd = q[b].front();
+      std::vector<const tr_rec_t*> later;
+      std::vector<std::pair<size_t, size_t>> at;  // hart, place in its queue
+      for (size_t h = 0; h < q.size(); h++)
+        for (size_t k = 0; !(busy >> h & 1) && k < q[h].size() && q[h][k].cyc <= hd.cyc + o.early; k++)
+          if (!q[h][k].d.wb && q[h][k].d.r.mem_st) {
+            later.push_back(&q[h][k].d.r);
+            at.push_back({h, k});
+          }
+      const int e = hd.d.wb ? ls.early_atomic(hd.d.w, later) : ls.early_atomic(hd.d.r, later);
+      if (e == -2 && !flush)
+        for (unsigned h = 0; h < o.harts; h++)
+          if (h != b && n - last_seen[h] < o.reorder && (q[h].empty() || q[h].back().cyc <= hd.cyc + o.early))
+            return 0;  // h may still send the atomic
+      if (e >= 0) {
+        const auto [h, k] = at[size_t(e)];
+        early_max = std::max(early_max, q[h][k].cyc - hd.cyc);
+        n_early++;
+        for (size_t j = 0; j <= k; j++)
+          if (int r = head(h, flush, busy); r <= 0) return r;
+      }
+    }
+    pending_t pr = std::move(q[b].front());
+    q[b].pop_front();
+    if (pr.cyc > applied_cyc) applied_cyc = pr.cyc;
+    return apply(pr) ? 1 : -1;
+  };
   // Applies every record that may go (all of them with `flush`); false at a mismatch
   auto drain = [&](bool flush) -> bool {
     for (;;) {
@@ -352,10 +402,7 @@ int main(int argc, char** argv) {
       if (!flush && o.harts > 1)
         for (unsigned h = 0; h < o.harts; h++)
           if (q[h].empty() && n - last_seen[h] < o.reorder) return true;  // h may still send an earlier one
-      pending_t pr = std::move(q[size_t(best)].front());
-      q[size_t(best)].pop_front();
-      if (pr.cyc > applied_cyc) applied_cyc = pr.cyc;
-      if (!apply(pr)) return false;
+      if (int r = head(size_t(best), flush, 0); r <= 0) return r == 0;
     }
   };
 
@@ -407,6 +454,7 @@ int main(int argc, char** argv) {
         pr.ext = false;
         pr.cyc = clk.full(d.cycle32);
         pr.d = d;
+        pr.d.r.cycle = pr.cyc;  // for the lookahead (lockstep_t::early_atomic)
         if (hart >= o.harts) {  // the checker reports a hart Spike lacks, after the records before it
           n++;
           if (!drain(true) || !apply(pr)) {
@@ -466,6 +514,12 @@ int main(int argc, char** argv) {
     fprintf(stderr, "tanager-lockstep: %llu loads read bytes another hart's recent write had replaced; %llu "
                     "atomics read past a store, which then followed them\n",
             (unsigned long long)ls.hart_loads_old(), (unsigned long long)ls.hart_reapplied());
+  if (ls.hart_late())
+    fprintf(stderr, "tanager-lockstep: %llu reads showed a plain store that reached memory after a later write of "
+                    "another hart to its bytes\n", (unsigned long long)ls.hart_late());
+  if (n_early)
+    fprintf(stderr, "tanager-lockstep: %llu reads returned what another hart's AMO or SC wrote before its record "
+                    "(up to %llu cycles before)\n", (unsigned long long)n_early, (unsigned long long)early_max);
   fprintf(stderr, "tanager-lockstep: %s after %llu records (%llu retired, %llu traps, %llu interrupts, %llu "
                   "writebacks) in %.1f s, %.0f records/s%s\n",
           status == EXIT_PASS ? "PASS" : status == EXIT_MISMATCH ? "MISMATCH" : "NOTHING CHECKED",

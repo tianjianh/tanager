@@ -14,10 +14,31 @@
 #   tg_fp_pblock <name> <cells> <ranges...>
 #                                   a pblock over the ranges with those cells; logs it, with the
 #                                   cells' LUTs against the pblock's, to floorplan.txt
+#   tg_fp_check ?warn? ?tight?      after the floorplan, before opt_design: floorplan.txt's estimate per
+#                                   pblock, its cells' LUT primitives (logic and LUTRAM, before
+#                                   opt_design trims; two may share a site) against its LUT sites.
+#                                   Prints FLOORPLAN_OK, FLOORPLAN_WARN (above warn %, default 105) or
+#                                   FLOORPLAN_TIGHT (above tight %, default 115) per pblock; returns the
+#                                   highest share. The estimate runs high: hp1f's L2 bank 1 read 101%
+#                                   here and its own LUTs filled 77% of its sites after placement
+#                                   (spikes §8.18, DR-181).
+#   tg_fp_check_placed ?warn? ?tight?
+#                                   after place_design: each pblock's own LUTs after opt_design
+#                                   (report_utilization -pblocks, CLB LUTs, Parent: its cells wherever
+#                                   they sit) against its LUT sites. FLOORPLAN_OK, FLOORPLAN_WARN (above
+#                                   warn %, default 85) or FLOORPLAN_TIGHT (above tight %, default 90:
+#                                   resize it) per pblock; returns the highest share. Also logs the
+#                                   share of its own LUT and LUTRAM cells placed outside it. hp1f, which
+#                                   came within 0.1 ns of 100 MHz: 73%, 77% (the L2 banks) and 45% (the
+#                                   crossbar), with 20%, 15% and 28% of their LUT cells outside.
+#   tg_fp_spill <pblock>            {own LUT and LUTRAM cells placed, of them outside the pblock's sites}
 #
 # Columns are not split across their width, so neighbouring pblocks never share a site. A pblock
 # only bounds its own cells: other cells may still use its free sites (Vivado's default), which a
-# floorplan of a nearly full device relies on.
+# floorplan of a nearly full device relies on. Vivado 2025.2 creates these pblocks soft (IS_SOFT 1
+# straight after tg_fp_pblock, before opt_design; nothing in this flow sets it): the placer keeps a
+# pblock's cells near it but may place some outside, as it did hp1f's (spikes §8.18, DR-181). hp1f's
+# result is with soft pblocks; hard ones are untested. The checks log IS_SOFT.
 
 proc tg_fp_rows {col lo hi {types {SLICE RAMB36 RAMB18 DSP48E2 URAM288}}} {
   set crs [get_clock_regions [list ${col}Y0 ${col}Y1 ${col}Y2 ${col}Y3]]
@@ -75,4 +96,68 @@ proc tg_fp_pblock {name cells args} {
     $luts [expr {8 * $slices}] [expr {$slices ? 100.0 * $luts / (8 * $slices) : 0}] $ranges]
   close $fh
   return $pb
+}
+
+# The floorplan's estimate, from floorplan.txt (tg_fp_pblock's lines), against two thresholds (header)
+proc tg_fp_check {{warn 105} {tight 115}} {
+  set hi 0.0
+  if {![file exists floorplan.txt]} { puts "FLOORPLAN_CHECK: no floorplan.txt"; return $hi }
+  set fh [open floorplan.txt r]
+  foreach ln [split [read $fh] "\n"] {
+    if {![regexp {^(\S+)\s+.*LUT cells\s+(\d+)\s*/\s*(\d+) LUT sites} $ln -> pb luts sites]} { continue }
+    set p [expr {$sites ? 100.0 * $luts / $sites : 0.0}]
+    if {$p > $hi} { set hi $p }
+    set k [expr {$p > $tight ? "FLOORPLAN_TIGHT" : $p > $warn ? "FLOORPLAN_WARN" : "FLOORPLAN_OK"}]
+    set soft [get_property -quiet IS_SOFT [get_pblocks -quiet $pb]]
+    puts [format "%s %s: %d LUT cells for %d LUT sites, %.0f%% before opt_design, IS_SOFT %s (warn above %s%%, tight above %s%%)" \
+      $k $pb $luts $sites $p $soft $warn $tight]
+  }
+  close $fh
+  return $hi
+}
+
+# A placed pblock's own LUT and LUTRAM cells (leaves, not LUTRAM macros) and how many of them sit outside its sites
+proc tg_fp_spill {pb} {
+  set ins [dict create]
+  foreach s [get_property NAME [get_sites -quiet -of_objects $pb -filter {NAME =~ SLICE_*}]] { dict set ins $s 1 }
+  set n 0; set out 0
+  foreach c [get_cells -quiet -of_objects $pb] {
+    current_instance -quiet
+    if {[get_property IS_PRIMITIVE $c]} {
+      set leaves $c
+    } else {
+      current_instance -quiet $c
+      set leaves [get_cells -quiet -hierarchical -filter {REF_NAME =~ LUT* || REF_NAME =~ RAMD* || REF_NAME =~ RAMS* || REF_NAME =~ SRL*}]
+    }
+    foreach loc [get_property LOC $leaves] {
+      if {$loc eq ""} { continue }
+      incr n
+      if {![dict exists $ins $loc]} { incr out }
+    }
+    current_instance -quiet
+  }
+  return [list $n $out]
+}
+
+# Each pblock's own LUTs after placement against its LUT sites (header); writes util_pblocks.rpt
+proc tg_fp_check_placed {{warn 85} {tight 90}} {
+  set hi 0.0
+  close [open util_pblocks.rpt w]
+  foreach pb [get_pblocks -quiet] {
+    set r [report_utilization -pblocks $pb -return_string]
+    set fh [open util_pblocks.rpt a]; puts $fh $r; close $fh
+    if {![regexp {\|\s*CLB LUTs\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|} \
+          $r -> parent child nonas used fixed prohib avail]} {
+      puts "FLOORPLAN_CHECK $pb: no CLB LUTs line in report_utilization -pblocks"
+      continue
+    }
+    set own [expr {$parent + $child}]
+    set p [expr {$avail ? 100.0 * $own / $avail : 0.0}]
+    if {$p > $hi} { set hi $p }
+    set k [expr {$p > $tight ? "FLOORPLAN_TIGHT" : $p > $warn ? "FLOORPLAN_WARN" : "FLOORPLAN_OK"}]
+    lassign [tg_fp_spill $pb] n out
+    puts [format "%s %s: its own %d LUTs for %d LUT sites, %.0f%% after placement, with %d of other cells' inside; %.0f%% of its %d LUT cells outside, IS_SOFT %s (warn above %s%%, tight above %s%%)" \
+      $k $pb $own $avail $p $nonas [expr {$n ? 100.0 * $out / $n : 0.0}] $n [get_property -quiet IS_SOFT $pb] $warn $tight]
+  }
+  return $hi
 }
