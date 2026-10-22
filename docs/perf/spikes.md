@@ -1792,6 +1792,33 @@ Results: `fpga/spikes/results/product_wt_ns_aslh/`.
 
 Results: `fpga/spikes/results/product_wt2_dr185_aslh/` (with `pin_classes_pay_core0.txt`, `pin_classes_pay_core1.txt` and `path_cells_tage_core0.txt`).
 
+#### The registered payload write with DR-183 (d07317a6): −2.44 ns, the payload clear (2026-10-22)
+
+`product_wt2_next_aslh`:
+- **What's in it:** main 854ec2ce, core-2's DR-185 with the payload's write registered (31a90443, `PAY_WREG` = 1), and DR-183 at d07317a6 (`TG_PMP_FILL=1`).
+- **Flow:** `AltSpreadLogic_high`.
+
+| | Combined preview (payload written directly) | **Registered payload write** |
+|---|---|---|
+| LUTs after `opt_design` / routed | 114,587 / 112,118 | 114,388 / 112,015 (95.6%) |
+| FFs routed | 56,054 | 57,561 (+1,507: the write register, about 750 a core) |
+| CLBs, control sets | 14,632, 2,893 | 14,626, 2,833 |
+| WNS after `phys_opt_design` (estimated, with 1.0 ns on) | −1.605 ns | −1.032 ns |
+| WNS / TNS on the core clock (ns) | −1.620 / −3,900 (8,533 failing) | **−2.440 / −3,544** (4,992 failing) |
+| Endpoints within 1 ns | 19,460 | 14,778 |
+
+- **The payload write left the near-critical set.**
+  - Nothing into `u_rn/u_pay` is within 1 ns (the direct write had 8,381 endpoints at −1.362).
+  - The new write register `pay_wd_q` takes decode's path at −0.426 ns (938 endpoints, 19 levels).
+- **DR-183 at d07317a6 still has its fetch request paths:** `g_pmpf.rq_pa_q` at −1.065 ns, 25 levels from `f3_s_q`, 28 families. soc-2's 87e74fb9 removes that clock-enable cone. The next build has it.
+- **This placement's WNS is in the LSU.**
+  - From the ROB's head into the walker's `ok_q` and `cause_q` and the LQ's state (−2.44 ns, 27–28 levels).
+  - From step 6/7's `md_l_q` into the replay pick and M2.
+  - Then core 1's TAGE (−2.15) and the L2's response into its I$ valid-bit RAM (−2.14, 27 levels).
+- **Fewer failing endpoints, a worse worst one.** Placement noise at this fill moves WNS by more than a lever is worth. TNS and the endpoint counts follow the levers better than WNS does.
+
+Results: `fpga/spikes/results/product_wt2_next_aslh/`.
+
 #### The combined preview: DR-185 + DR-183 routes at −1.62 ns (2026-10-22)
 
 **Asked** (the coordinator, through soc-2): whether DR-185 and DR-183 together route and close at 100 MHz.
