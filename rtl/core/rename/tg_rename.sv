@@ -212,9 +212,10 @@ module tg_rename
   // writes a group's payload as the group enters its thread's RN register; DS reads it as the group dispatches. A
   // thread has at most two groups between them (its RN register's and DS's); with three rows a thread ({thread, row})
   // one is always free, so decode writes its group every cycle into its thread's free row, chosen from registers
-  // alone (the write port waits for no fire). The write is registered and lands a cycle later (pay_wa_q, pay_wd_q):
-  // decode's paths end at flip-flops beside decode, not at the LUTRAM, and a group taken in cycle c is written at
-  // the end of c + 1, while DS reads it at c + 2 at the earliest. The RN and DS registers keep the fields rename reads
+  // alone (the write port waits for no fire). With PAY_WREG (the default) the write is registered and lands a cycle
+  // later (pay_wa_q, pay_wd_q): decode's paths end at flip-flops beside decode, not at the LUTRAM, and a group taken
+  // in cycle c is written at the end of c + 1, while DS reads it at c + 2 at the earliest. The RN and DS registers keep
+  // the fields rename reads
   // and the row (rn_s_q, ds_s_q). ds_full is DS's group whole.
   typedef struct packed {
     logic [63:0]     pc;
@@ -1179,9 +1180,14 @@ module tg_rename
   end
   logic [PAYA-1:0] pay_wa, pay_ra, pay_wa_q;
   logic [W*PAYW-1:0] pay_wd, pay_rd, pay_wd_q;
-  always_ff @(posedge clk) begin
-    pay_wa_q <= pay_wa;
-    pay_wd_q <= pay_wd;
+  if (PAY_WREG) begin : g_pay_wreg              // (tg_core_pkg: through a register, or direct)
+    always_ff @(posedge clk) begin
+      pay_wa_q <= pay_wa;
+      pay_wd_q <= pay_wd;
+    end
+  end else begin : g_pay_wdir
+    assign pay_wa_q = pay_wa;
+    assign pay_wd_q = pay_wd;
   end
   assign pay_wa = (NRN > 1) ? PAYA'({t_de[0], pay_s}) : PAYA'(pay_s);
   assign pay_ra = (NRN > 1) ? PAYA'({t_ds[0], ds_s_q}) : PAYA'(ds_s_q);
