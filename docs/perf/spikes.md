@@ -1632,6 +1632,45 @@ Results: `fpga/spikes/results/h100_hp1fs/` (with `near_families_hp1fs.txt`, `urf
 
 Results: `fpga/spikes/results/h100_hp1f/` (with `near_families_hp1f.txt`, `urf_chip.txt`, `floorplan.txt`, `congestion.rpt` and `worst_paths.txt`; `fp_checks.txt` from [`q_fp_checks.tcl`](../../fpga/spikes/tcl/query/q_fp_checks.tcl); `pb_spill.txt` and `pb_soft.txt`, the cells outside, from [`q_pb_spill.tcl`](../../fpga/spikes/tcl/query/q_pb_spill.tcl) and [`q_pb_soft.tcl`](../../fpga/spikes/tcl/query/q_pb_soft.tcl)); main's check in `h100_ex1_synth/fp_check_g4_uncore.txt`.
 
+#### The product closure baseline: places, doesn't route (2026-10-21)
+
+**Asked** (the coordinator, 21:40): the first measurement of where the product chip stands. It is a baseline, not a sign-off: step 6 (+~384 LUTs a core) and fpu-2's FPU levers (−290 a core, on main since 897bd3a3, not in this build) follow.
+- **Basis:** main c0030303 (DR-180, M7 step 5f) merged with soc-2's DR-181 branch c183e3ad. Its `build.tcl` is the one that landed as 5332b771.
+- **Flow:** the board's product flow, `build.tcl`: hart 1 real (`TG_DEFINES=TG_HART1=1`), `TG_RELEASE=1`, the URF on, the product windows (`TG_HOST_DMA=1`, `TG_PS_WINDOW=1`), the PMOD UART, the fan's PL regulator, smt2, two cores, 100 MHz.
+- **build.tcl's defaults:** the floorplan, `TG_PR_UNC` 1.0, `ExploreArea` and `AreaOptimized_high`.
+- **Measurement-only additions:** my snapshot added three read-only lines to `build.tcl`: utilization after `opt_design` and after placement, and a routed checkpoint, which the failed route never reached.
+
+| | Product (c0030303 + DR-181) | hp1f, for reference (7864d3bf, no windows, before DR-180) |
+|---|---|---|
+| LUTs after synthesis | 120,579 | 121,295 |
+| LUTs after `opt_design` | 116,190 (99.2%) | 116,223 |
+| LUTs placed | 113,792 (97.2%), 15,376 of them LUTRAM | 113,893 (97.2%) |
+| FFs placed | 63,912 | 62,016 |
+| CLBs used | 14,637 of 14,640 | 14,640 of 14,640 |
+| Control sets | 2,849 | 2,799 |
+| WNS / TNS after `phys_opt_design` (estimated, with `TG_PR_UNC`'s 1.0 ns still on) | −1.704 / −3,793 ns | — |
+| Routing | **failed:** 28,100 signals unrouted for congestion, 32,975 node overlaps, after 1 h 59 min | routed: −0.096 ns (hp1fs: −0.426) |
+| The router's starting congestion | short level 6 (64 × 64) in all four directions, over 29–34% of the tiles; global level 6 north | short level 5 north and south, 6 east and west |
+
+The floorplan checks all graded OK:
+
+| Pblock | Before `opt_design` | Own after placement | Own LUT cells outside |
+|---|---|---|---|
+| L2 bank 0 | 97% | 74% | 22% |
+| L2 bank 1 | 102% | 79% | 21% |
+| Crossbar | 70% | 55% | 37% |
+
+**Findings:**
+- **At hp1's LUT fill the product chip doesn't route.** It has the same LUTs as hp1f but 1,896 more flip-flops and 50 more control sets. Since hp1's tree, step 5d's second rename register added 1,626 flip-flops a chip, DR-180 removed 3,170, and the windows, 5e, 5f and DR-179 account for the rest. Every CLB was already used in hp1f.
+- **Its congestion is a level worse.** Short-wire congestion is level 6 in every direction instead of two, and the router gave up timing (an intermediate WNS of −7.3 ns) trying to route.
+- **One run can't separate the flip-flops from placement noise.** hp1f and hp1fs spread 0.33 ns, but neither came near failing to route.
+- **The chip is CLB-bound, so the area it needs back is LUTs and flip-flops both.**
+  - Measured today: PMP checks at TLB fill (at most 3.4K LUTs a chip), and rename's payload beside rename (about 3.4K FFs and 1K LUT cells a chip). Both are designs for core-2.
+  - fpu-2's −580 LUTs a chip are on main; step 6 adds about +770.
+- **Flow levers cost no LUTs:** a congestion-directed placement (`place_design -directive AltSpreadLogic_high`), which `build.tcl` doesn't offer yet, is untested here.
+
+Results: `fpga/spikes/results/product_c0030303/` (the utilization after synthesis, `opt_design` and placement; the floorplan's reports; `run_excerpt.txt`, the build's FLOORPLAN, timing and congestion lines).
+
 #### The area exploration: the LSU, rename and the PMP bound (2026-10-21)
 
 **Asked** (the coordinator): three synthesis-only measurements on main e6691d53 (DR-179's FP banks of 64), with hu1's settings: smt2, TG_HART1=1, the release form's `LAT_INJ=0`, the product windows, the URF on. Measurement only; nothing goes to main.
