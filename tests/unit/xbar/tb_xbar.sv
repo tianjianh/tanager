@@ -5,6 +5,8 @@
 module tb_xbar;
   import tg_pkg::*, tg_tl_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*;
 
+  parameter bit SLICE_TB = 1'b0;     // the crossbar's slices: off as tg_uncore builds them (DR-186), or on (SLICE=1)
+
   localparam int NC = 2;
   localparam int NB = N_BANKS;
 
@@ -29,7 +31,7 @@ module tb_xbar;
   tl_a_t rom_a, dev_a; logic rom_av, rom_ar, dev_av, dev_ar;
   tl_d_t rom_d, dev_d; logic rom_dv, rom_dr, dev_dv, dev_dr;
 
-  tg_xbar #(.N_CORES (NC), .HOST_DMA (1'b1), .SLICE (1'b1)) dut (
+  tg_xbar #(.N_CORES (NC), .HOST_DMA (1'b1), .SLICE (SLICE_TB)) dut (
     .clk, .rst,
     .l1i_a_i (l1i_a), .l1i_a_valid_i (l1i_av), .l1i_a_ready_o (l1i_ar),
     .l1i_d_o (l1i_d), .l1i_d_valid_o (l1i_dv), .l1i_d_ready_i (l1i_dr),
