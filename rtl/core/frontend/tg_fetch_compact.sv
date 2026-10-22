@@ -71,12 +71,18 @@ module tg_fetch_compact
   localparam int TW = MT ? 1 : 0;                    // the tid's bit in the banks' address
   // The threads: the block's, the reader's, the redirected; their queues (0 without MT)
   tid_t wt;
-  logic wq, rq;
+  logic wq, rq, rqd;
   logic rt_q;                                        // the thread decode reads (MT)
+  // Kept copies of rt_q, all loaded alike (timing: rt_q drove about 1,700 loads, 1.25 ns of wire before the banks'
+  // read addresses): each bank's read address takes its own, decode's side (out_tid, the slots' rotation and valid
+  // bits) one, and the queues' update reads rt_q. Kept, so that synthesis does not merge them into rt_q
+  (* keep = "true" *) logic [WR-1:0] rt_b_q;
+  (* keep = "true" *) logic          rt_d_q;
   assign wt  = MT ? blk_tid : RUN_TID;
   assign wq  = MT && blk_tid[0];
   assign rq  = MT && rt_q;
-  assign out_tid = MT ? tid_t'(rt_q) : RUN_TID;
+  assign rqd = MT && rt_d_q;
+  assign out_tid = MT ? tid_t'(rt_d_q) : RUN_TID;
   dec_state_t wdst;                                  // the writing hart's decode state
   assign wdst = dst[wt];
   // ---- Instruction candidates: position p (0..NP-1) and the held straddler (index NP) ----
@@ -117,13 +123,15 @@ module tg_fetch_compact
   // ---- Queue state: per thread; done_q is the block's ----
   logic [NQ-1:0][QW:0]   occ_t_q;
   logic [NQ-1:0][QW-1:0] head_t_q, tail_t_q;
-  logic [QW:0]   occ_q, rocc;                // the block's thread's count; the reader's
-  logic [QW-1:0] head_q, tail_q;             // the reader's head; the block's thread's tail
+  logic [QW:0]   occ_q, rocc, rocc_d;        // the block's thread's count; the reader's (the update's, decode's side's)
+  logic [QW-1:0] tail_q;                     // the block's thread's tail
+  logic [BW-1:0] head_d;                     // the reader's head's bank (decode's side: the slots' rotation)
   assign occ_q  = occ_t_q[wq];
   always_comb for (int q = 0; q < NUM_THREADS; q++) occ_o[q] = (q < NQ) ? occ_t_q[q < NQ ? q : 0] : '0;
   assign tail_q = tail_t_q[wq];
   assign rocc   = occ_t_q[rq];
-  assign head_q = head_t_q[rq];
+  assign rocc_d = occ_t_q[rqd];
+  assign head_d = head_t_q[rqd][BW-1:0];
   logic [CW-1:0] done_q;                 // instructions of this block already written
   logic [CW-1:0] left, nwr;
   assign left = count - done_q;
@@ -208,9 +216,12 @@ module tg_fetch_compact
   logic [WR-1:0][RW+TW-1:0] braddr;
   logic [WR-1:0][IB_W-1:0] brdata;
   for (genvar b = 0; b < WR; b++) begin : g_bank
-    logic [QW-1:0] idx;
-    assign idx = head_q + QW'(BW'(BW'(b) - head_q[BW-1:0]));
-    assign braddr[b] = (RW + TW)'({rq, idx[QW-1:BW]});
+    logic          rqb;                // the reader, from this bank's copy
+    logic [QW-1:0] hb, idx;
+    assign rqb = MT && rt_b_q[b];
+    assign hb  = head_t_q[rqb];
+    assign idx = hb + QW'(BW'(BW'(b) - hb[BW-1:0]));
+    assign braddr[b] = (RW + TW)'({rqb, idx[QW-1:BW]});
     logic unused;
     assign unused = ^idx[BW-1:0];   // equals b
     logic [0:0][RW+TW-1:0] ra;
@@ -224,9 +235,9 @@ module tg_fetch_compact
   // ---- Reads: slot j takes entry head + j ----
   for (genvar j = 0; j < RD; j++) begin : g_rd
     logic [BW-1:0] b;
-    assign b = BW'(head_q[BW-1:0] + BW'(j));
+    assign b = BW'(head_d + BW'(j));
     assign out_insn[j]  = brdata[b];
-    assign out_valid[j] = rocc > (QW + 1)'(j) && !(MT && drop_t[rq]);
+    assign out_valid[j] = rocc_d > (QW + 1)'(j) && !(MT && drop_t[rqd]);
   end
 
   // ---- State update ----
@@ -241,6 +252,18 @@ module tg_fetch_compact
     for (int q = 0; q < NQ; q++)
       occ_n[q] = fq[q] ? '0
                : occ_t_q[q] + ((wq == 1'(q)) ? w : '0) - ((rq == 1'(q)) ? (QW + 1)'(take) : '0);
+  // decode's next thread (MT): the other one after a take from this one, or when this one's queue is empty, if the
+  // other's holds instructions; only one whose RN register takes a group next cycle (step 5d), so the other one also
+  // when this one's register will not. "This one's queue is empty" is read before decode's take: with a take the
+  // other one is due anyway, and without one the next count is the count with this cycle's writes (or 0 when the
+  // queue empties). So decode's take, which waits for rename's decision, reaches rt_q through an OR of its bits, not
+  // through the count's subtraction (timing: the product chip's worst paths ended at rt_q, -1.108 ns from the LQ's
+  // head and -1.025 ns from DS, both through rename's de_take, then 2.7 ns of the queue's count)
+  logic [QW:0] occ_w;                                // the reader's count with this cycle's writes, before the take
+  logic        rt_n;
+  assign occ_w = occ_t_q[rq] + ((wq == rq) ? w : '0);
+  assign rt_n  = (MT && occ_n[ro] != '0 && acc_t[ro] && (take != '0 || fq[rq] || occ_w == '0 || !acc_t[rq])) ? ro
+                                                                                                             : rt_q;
   always_ff @(posedge clk) begin
     for (int q = 0; q < NQ; q++) begin
       if (rst || fq[q]) begin
@@ -268,17 +291,24 @@ module tg_fetch_compact
       hp_q[wq] <= parcel[NP-1];
       hm_q[wq] <= marks[NP-1];
     end
-    // decode's next thread (MT): the other one after a take from this one, or when this one's queue is empty, if
-    // the other's holds instructions; only one whose RN register takes a group next cycle (step 5d), so the other
-    // one also when this one's register will not
-    if (rst) rt_q <= MT && RUN_TID[0];
-    else if (MT && occ_n[ro] != '0 && acc_t[ro] && (take != '0 || occ_n[rq] == '0 || !acc_t[rq])) rt_q <= ro;
+    rt_q   <= rst ? (MT && RUN_TID[0]) : rt_n;
+    rt_b_q <= rst ? {WR{MT && RUN_TID[0]}} : {WR{rt_n}};
+    rt_d_q <= rst ? (MT && RUN_TID[0]) : rt_n;
   end
-
 `ifndef SYNTHESIS
+  logic rt_rs;                                       // (the copies are checked from the first reset on)
+  initial rt_rs = 1'b0;
+  always @(posedge clk) if (rst) rt_rs <= 1'b1;
   always_ff @(posedge clk) begin
     if (!rst && !fq[rq]) assert (int'(take) <= RD && (QW + 1)'(take) <= rocc)
       else $error("tg_fetch_compact: take beyond the valid entries");
+    // the switch as it was written before, from the next count; and the copies
+    if (rt_rs && !rst) begin
+      assert (rt_n == ((MT && occ_n[ro] != '0 && acc_t[ro] && (take != '0 || occ_n[rq] == '0 || !acc_t[rq])) ? ro
+                                                                                                           : rt_q))
+        else $error("tg_fetch_compact: the read thread's switch differs from the next count's");
+      assert (rt_b_q == {WR{rt_q}} && rt_d_q == rt_q) else $error("tg_fetch_compact: a copy of rt_q differs from it");
+    end
   end
   // (MT) decode slots left empty while the other thread's queue held instructions (the one-thread-a-group rule), and of
   // them those in cycles the read thread had under a group; on stderr at the end with hart 1
