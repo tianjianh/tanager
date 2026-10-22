@@ -328,8 +328,10 @@ module tg_fetch
     //   - else word checks: a page with a region boundary inside (translated, or the entry's), or M-mode with a
     //     locked entry. One word at a time from the block's first, stopping at the first denied word: the block ends
     //     before it, or is a fault block at its first instruction, as F2 takes f1_pmpd.
-    // Each request goes out from flip-flops, held until its response comes back, tagged; any change of F1's block
-    // (f1_new) ends the work and a response still on its way is dropped.
+    // Each request goes out from flip-flops, held until its response comes back, tagged. The work carries the epoch of
+    // F1's block it started in (rq_ep_q); the epoch turns over as the block changes (f1_ep_q, from f1_new), and work of
+    // an earlier block is dropped, a response still on its way with it (cur: timing, f1_new comes late, from F3's
+    // redirects and the I$ refills, and had held every request register's enable and the last-page fill).
     typedef enum logic [1:0] { C_IDLE, C_PAGE, C_WORD } cst_e;
     cst_e                     cs_q;
     logic [NUM_THREADS-1:0]   lp_v_q, lp_nh_q, lp_x_q;
@@ -340,7 +342,8 @@ module tg_fetch
     logic                     rq_v_q, rq_page_q, rq_tag_q, rq_m_q;
     tid_t                     rq_tid_q;
     logic [PA_W-1:0]          rq_pa_q;
-    logic f1_m, f1_bare, lp_hit, c_page, c_word, rsp, w_last;
+    logic                     f1_ep_q, rq_ep_q;  // F1's block's epoch; the work's
+    logic f1_m, f1_bare, lp_hit, c_page, c_word, rsp, w_last, cur, start;
     assign f1_m    = priv == PRIV_M;
     assign f1_bare = !xl_i && !f1_m;
     assign lp_hit  = lp_v_q[f1_tid] && lp_pg_q[f1_tid] == fpc_q[PA_W-1:12];
@@ -348,30 +351,42 @@ module tg_fetch
     assign c_word  = (xl_i && it_hit[0] && !it_pte[0].ph) || (f1_bare && lp_hit && lp_nh_q[f1_tid]) ||
                      (f1_m && pmp_lk_h[f1_tid]);
     assign f1_pwait = 1'b0;
-    assign f1_cwait = c_page || (c_word && !cr_v_q);
+    assign cur      = rq_ep_q == f1_ep_q;
+    assign f1_cwait = c_page || (c_word && !(cr_v_q && cur));
     assign f1_pmpd  = (xl_i && it_pte[0].ph)                    ? {NW{!it_pte[0].px}} :
                       (f1_m && !pmp_lk_h[f1_tid])               ? '0 :
                       (f1_bare && lp_hit && !lp_nh_q[f1_tid])   ? {NW{!lp_x_q[f1_tid]}} : cr_den_q;
-    assign rsp     = pfc_rsp_v && pfc_rsp_tag == rq_tag_q && rq_v_q;
+    assign rsp     = pfc_rsp_v && pfc_rsp_tag == rq_tag_q && rq_v_q && cur;
     assign w_last  = cw_q == 2'd3;
+    assign start   = (cs_q == C_IDLE || !cur) && f1_base && !pmp_busy && (c_page || (c_word && !(cr_v_q && cur)));
     always_ff @(posedge clk) begin
-      if (rst || f1_new) begin
-        cs_q   <= C_IDLE;
-        rq_v_q <= 1'b0;
-        cr_v_q <= 1'b0;
+      if (rst) begin
+        cs_q    <= C_IDLE;
+        rq_v_q  <= 1'b0;
+        cr_v_q  <= 1'b0;
+        f1_ep_q <= 1'b0;
+        rq_ep_q <= 1'b0;
       end else begin
-        unique case (cs_q)
-          C_IDLE: if (f1_base && !pmp_busy && (c_page || (c_word && !cr_v_q))) begin
-            rq_v_q    <= 1'b1;
-            rq_tag_q  <= !rq_tag_q;
-            rq_tid_q  <= f1_tid;
-            rq_page_q <= c_page;
-            rq_m_q    <= f1_m;
-            rq_pa_q   <= c_page ? {f1_pa[PA_W-1:12], 12'b0} : {f1_pa[PA_W-1:4], fpc_q[3:2], 2'b00};
-            cw_q      <= fpc_q[3:2];
-            cr_den_q  <= '0;
-            cs_q      <= c_page ? C_PAGE : C_WORD;
-          end
+        f1_ep_q <= f1_ep_q ^ f1_new;
+        if (start) begin
+          rq_v_q    <= 1'b1;
+          rq_ep_q   <= f1_ep_q;
+          rq_tag_q  <= !rq_tag_q;
+          rq_tid_q  <= f1_tid;
+          rq_page_q <= c_page;
+          rq_m_q    <= f1_m;
+          rq_pa_q   <= c_page ? {f1_pa[PA_W-1:12], 12'b0} : {f1_pa[PA_W-1:4], fpc_q[3:2], 2'b00};
+          cw_q      <= fpc_q[3:2];
+          cr_v_q    <= 1'b0;
+          cr_den_q  <= '0;
+          cs_q      <= c_page ? C_PAGE : C_WORD;
+        end else if (!cur) begin
+          // an earlier block's work, and its result: dropped (all of it, so the 1-bit epoch can't bring it back)
+          rq_v_q <= 1'b0;
+          cr_v_q <= 1'b0;
+          cs_q   <= C_IDLE;
+        end else unique case (cs_q)
+          C_IDLE: ;
           C_PAGE: if (rsp) begin
             rq_v_q <= 1'b0;
             cs_q   <= C_IDLE;
@@ -391,11 +406,11 @@ module tg_fetch
           default: cs_q <= C_IDLE;
         endcase
       end
-      // The last-page entries: a page response fills its hart's (not after F1's block changed: f1_new); a TLB flush of
-      // the hart (PMP writes, satp writes, SFENCE.VMA) empties it, after the fill in the same cycle
+      // The last-page entries: a page response fills its hart's (not once F1's block has changed: rsp takes cur); a TLB
+      // flush of the hart (PMP writes, satp writes, SFENCE.VMA) empties it, after the fill in the same cycle
       if (rst) lp_v_q <= '0;
       else begin
-        if (cs_q == C_PAGE && rsp && !f1_new) begin
+        if (cs_q == C_PAGE && rsp) begin
           lp_v_q[rq_tid_q]  <= 1'b1;
           lp_pg_q[rq_tid_q] <= rq_pa_q[PA_W-1:12];
           lp_nh_q[rq_tid_q] <= pfc_rsp_nh;
