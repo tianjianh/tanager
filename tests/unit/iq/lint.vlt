@@ -1,0 +1,4 @@
+`verilator_config
+// Waivers for `make -C tests/unit/iq lint`, on top of rtl/lint.vlt: tg_pkg is linted with the whole
+// core by `make lint`; most of its constants are not used by tg_iq alone.
+lint_off -rule UNUSEDPARAM  -file "*rtl/common/tg_pkg.sv"
