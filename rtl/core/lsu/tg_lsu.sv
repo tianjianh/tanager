@@ -958,7 +958,6 @@ module tg_lsu
   // asks again, with its thread's descriptors and privilege, while the MMIO port, and so its exception report, is
   // free (the DR-176 gate in mm_go stays as it is)
   assign mm_hold = mm_hold_p || (PMP_FILL && lq_pck_q[hl]);
-  assign mh_req  = PMP_FILL && mm_cand && lq_pck_q[hl] && xs_q == X_IDLE && !xr_v_q && am_st_q == AM_IDLE;
 
   // Drain: the SQ head once committed. The head ports (the drain, an MMIO store, an atomic) read one thread's head,
   // t_dr_q's (D8): the threads take turns a cycle at a time when both want it (a committed store, or an atomic as their
@@ -1076,6 +1075,8 @@ module tg_lsu
   // probe would (plan §6.2 rule 4).
   typedef enum logic [1:0] { AM_IDLE, AM_REQ, AM_RES, AM_DONE } amstate_e;
   amstate_e          am_st_q;
+  // (DR-183, PMP_FILL: the head's MMIO check, mh_req, above with mm_hold; here, after the atomics' state it reads)
+  assign mh_req  = PMP_FILL && mm_cand && lq_pck_q[hl] && xs_q == X_IDLE && !xr_v_q && am_st_q == AM_IDLE;
   tid_t              am_t_q;                // the FSM's atomic's thread
   robid_t            [NT-1:0] am_rob_q;
   sqid_t             [NT-1:0] am_sq_q;
