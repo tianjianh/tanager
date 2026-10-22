@@ -241,6 +241,20 @@ module tg_fetch_compact
     for (int q = 0; q < NQ; q++)
       occ_n[q] = fq[q] ? '0
                : occ_t_q[q] + ((wq == 1'(q)) ? w : '0) - ((rq == 1'(q)) ? (QW + 1)'(take) : '0);
+  // decode's next thread (MT): the other one after a take from this one, or when this one's queue is empty, if the
+  // other's holds instructions; only one whose RN register takes a group next cycle (step 5d), so the other one also
+  // when this one's register will not. Both counts are read without decode's take, which waits for rename's
+  // decision: the other queue's next count is its count with this cycle's writes (decode takes only from this one),
+  // and "this one empties" needs no take either: with a take the other one is due anyway, and without one the next
+  // count is the count with the writes (or 0 when the queue empties). So the take reaches rt_q through an OR of its
+  // bits, not through the counts' arithmetic (timing: the product chip's worst paths ended at rt_q, -1.108 ns from the
+  // LQ's head and -1.025 ns from DS, both through rename's de_take, then 2.7 ns of the counts)
+  logic [QW:0] occ_wr, occ_wo;                       // the reader's and the other's counts with this cycle's writes
+  logic        rt_n;
+  assign occ_wr = occ_t_q[rq] + ((wq == rq) ? w : '0);
+  assign occ_wo = occ_t_q[ro] + ((wq == ro) ? w : '0);
+  assign rt_n   = (MT && !fq[ro] && occ_wo != '0 && acc_t[ro] && (take != '0 || fq[rq] || occ_wr == '0 || !acc_t[rq]))
+                  ? ro : rt_q;
   always_ff @(posedge clk) begin
     for (int q = 0; q < NQ; q++) begin
       if (rst || fq[q]) begin
@@ -268,17 +282,17 @@ module tg_fetch_compact
       hp_q[wq] <= parcel[NP-1];
       hm_q[wq] <= marks[NP-1];
     end
-    // decode's next thread (MT): the other one after a take from this one, or when this one's queue is empty, if
-    // the other's holds instructions; only one whose RN register takes a group next cycle (step 5d), so the other
-    // one also when this one's register will not
-    if (rst) rt_q <= MT && RUN_TID[0];
-    else if (MT && occ_n[ro] != '0 && acc_t[ro] && (take != '0 || occ_n[rq] == '0 || !acc_t[rq])) rt_q <= ro;
+    rt_q <= rst ? (MT && RUN_TID[0]) : rt_n;
   end
 
 `ifndef SYNTHESIS
   always_ff @(posedge clk) begin
     if (!rst && !fq[rq]) assert (int'(take) <= RD && (QW + 1)'(take) <= rocc)
       else $error("tg_fetch_compact: take beyond the valid entries");
+    // the switch as it was written before, from the next counts
+    if (!rst) assert (rt_n == ((MT && occ_n[ro] != '0 && acc_t[ro] && (take != '0 || occ_n[rq] == '0 || !acc_t[rq])) ? ro
+                                                                                                                 : rt_q))
+      else $error("tg_fetch_compact: the read thread's switch differs from the next counts'");
   end
   // (MT) decode slots left empty while the other thread's queue held instructions (the one-thread-a-group rule), and of
   // them those in cycles the read thread had under a group; on stderr at the end with hart 1
