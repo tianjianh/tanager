@@ -534,6 +534,10 @@ module tg_rename
   // M7 step 7's caps (DR-175; smt2_report §13.15): R1, a thread holds at most IQ_CAP_PCT of each queue's rows; R2, it
   // takes no row that would leave it holding all of a bank's rows while its sibling's waiting group (the sibling's RN
   // register) needs a row in that bank (IQ_BANK_RULE 1; 2: whether or not the sibling needs it; 0: no such rule).
+  // The sibling's group counts only while it waits for rows alone: everything else it needs is there, its own caps
+  // included (rwo_q: rdy's terms but the rows, a cycle late). A group that waits for its window to drain (a serial
+  // uop, an idle hart's WFI), for ROB, LQ or SQ room, or at its own cap would otherwise hold the running thread back
+  // for a row it could not take: with that, Linux on four harts reached /init 11.5% later
   // tg_issue's flags count the rows after the last dispatch, so a thread's group at DS counts here too: cap_ok[t][q][c],
   // thread t may take c + 1 more rows of queue q beyond its DS group's; bank_ok[t][q][k], one more row of bank k. All
   // from registers. The flags are all ones while the caps are off (hart 1 off, or the halves merged: step 6), and so
@@ -541,6 +545,8 @@ module tg_rename
   // passes them when one does
   logic [NT-1:0][N_IQ-1:0][W-1:0] sib_need, bank_ok;
   logic [NT-1:0][N_IQ-1:0][W:0]   cap_ok;
+  logic [NT-1:0]                  rwo, rwo_q;     // a thread's group waits for rows alone (below, with rdy)
+  always_ff @(posedge clk) rwo_q <= rst ? '0 : rwo;
   always_comb begin
     sib_need = '0;
     if (CMT && IQ_BANK_RULE != 0)
@@ -548,7 +554,7 @@ module tg_rename
         for (int k = 0; k < W; k++) begin
           if (IQ_BANK_RULE == 2)
             for (int q = 0; q < N_IQ; q++) sib_need[t][q][k] = 1'b1;
-          else if (rn_v_q[CMT ? (t + 1) % NT : 0][k] && !block_q[(t + 1) % NT])
+          else if (rn_v_q[CMT ? (t + 1) % NT : 0][k] && !block_q[(t + 1) % NT] && rwo_q[(t + 1) % NT])
             unique case (rn_u_q[CMT ? (t + 1) % NT : 0][k].d.cls)
               C_BR:                sib_need[t][0][k] = 1'b1;
               C_MUL, C_DIV, C_CSR: sib_need[t][1][k] = 1'b1;
@@ -801,7 +807,7 @@ module tg_rename
     if (CMT) begin : g_on
       localparam int CW1 = idx_w(W + 1);
       logic [CW1-1:0] nr, nl, ns, nd, nf, ni;
-      logic           iq, cq, ser, wemp, r;
+      logic           iq, cq, ser, wemp, rw, r;
       logic [N_IQ-1:0][CW1-1:0] cn;
       always_comb begin
         int q;
@@ -858,12 +864,15 @@ module tg_rename
           end
         ser  = rn_v_q[t][0] && (rn_u_q[t][0].d.serial || rn_u_q[t][0].d.exc);
         wemp = rtail_q[t] == rob_head[t] && !(|ds_valid_q && t_ds == tid_t'(t));
-        r    = |rn_v_q[t] && !block_q[t] && rob_room_t[t][nr] && lq_room_t[t][nl] && sq_room_t[t][ns] &&
-               div_room[nd] && fdiv_room[nf] && fpi_room[ni] && iq && cq && (!ser || wemp);
+        rw   = |rn_v_q[t] && !block_q[t] && rob_room_t[t][nr] && lq_room_t[t][nl] && sq_room_t[t][ns] &&
+               div_room[nd] && fdiv_room[nf] && fpi_room[ni] && (!ser || wemp);
+        r    = rw && iq && cq;
       end
       assign rdy[t] = r;
+      assign rwo[t] = rw && cq;
     end else begin : g_off
       assign rdy[t] = 1'b0;
+      assign rwo[t] = 1'b0;
     end
   end
 
