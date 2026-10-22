@@ -2638,6 +2638,247 @@ Together they come to ≈5.3K a chip, at no IPC cost. The next ones are the queu
 - **Gone:** R10 (no checkpoints left to share).
 - **Rejected and not revived:** DR-133's URAM ports (timing, above). PMP compares in DSPs (T6) were considered too: they need a register in front of each checker, so the PA from the TLB would arrive a cycle late. That is not cycle-identical, so it is not in the table.
 
+### 7.9 The user's area ideas, the IPC side: asymmetric ALU ports and partial-address LQ/SQ search (model, 2026-10-21)
+
+*The user wants four area ideas explored. The coordinator asked smt2-study for the IPC side of two of them; spikes-2 measures the LUTs, and the coordinator will put them beside these numbers.*
+- *Model only: `scripts/area_ipc.py`; presets unchanged; new switches off by default.*
+- *Every other setting is identical: 19 of 19 runs against the earlier `tgsim`, the old third-ALU path and R13 among them.*
+- *All runs were on home-wsl, in a fixed run folder.*
+
+*Which core.*
+- **Today's chip has two ALU ports** (`st`, `smt2`): P0 with the branch unit, P1 with multiply, divide and CSR. Each writes its own register bank, and loads write a third.
+- **Three ALU ports exist only in the w3 builds** (`st_w3`, `smt2_w3`): DR-056's 3-ALU core, v2's 3-wide reserve. There, decode slot k's ALU op prefers port k mod 3.
+- **What was run:** the variants as asked, on that 3-wide core; and, beside them, one simple port on today's 2-wide core.
+
+**1. Asymmetric ALU ports**
+
+*The model (`alu_full`, a mask of the ports with the full ALU).*
+- **A simple port runs** add/sub, logic, compares and LUI/AUIPC: R13's set less the Zba shift-adds.
+- **Only full ports take:**
+  - shifts and rotates;
+  - Zba, Zbb, Zbs and Zicond;
+  - the unary ops: sext, zext, orc.b, rev8, bext.
+- **Unchanged:** clz, ctz and cpop stay on P1's second-cycle unit, as built.
+- **Steering is `tg_rename`'s for any `N_ALU`.** Slot k's op tries port k mod N, then the next in turn. It takes the first port that:
+  - can run it;
+  - had a free row in its slot-k bank the cycle before;
+  - has a register in its bank.
+- **With both ports full on the 2-wide core, this reproduces the model's own steering to the cycle**, on every suite program on both ISAs.
+- **The 3-wide core** (`decode_width` 3, `alu3`) is `st_w3`: ALU2 has a 10-row queue and its own bank, and every size is `st`'s.
+  - Split three ways by decode slot, its queues leave few rows a slot: IQ-STA 2/1/1, IQ-LD 2/2/2.
+  - So it is also run with every queue ×1.5. That has no RTL counterpart; it shows the results don't hang on the split.
+
+*Workloads.*
+- **The suite** (33 programs), alone at 30 cycles, on rv64gc and on rv64gcb (Zba, Zbb, Zbs, Zicond).
+- **The 42 pairs** at 30 / 120 / 250 cycles: step 7 as decided, with 5f.
+  - WS is against each program alone on the all-full core of the same width, over the pairs every configuration completes.
+- **No early-Linux-boot window:** the model runs the correct path only and does not boot Linux. The boot numbers in §6.11 are RTL measurements.
+
+*The suite's score* (single thread, 30 cycles; change against all ports full):
+
+| Core | ISA | 2 full + 1 simple (P2) | 1 full + 2 simple, P0 full | 1 full + 2 simple, P1 full |
+|---|---|---|---|---|
+| 3-wide, `st_w3`'s queues | rv64gc | −1.60% | −6.84% | −4.17% |
+| | rv64gcb | −0.52% | −3.59% | −3.06% |
+| 3-wide, queues ×1.5 | rv64gc | **−0.80%** | −5.07% | −5.00% |
+| | rv64gcb | **−0.96%** | −3.43% | −3.39% |
+| **Today's 2-wide** (one simple port: P1, or P0) | rv64gc | | **−1.69%** (P0 full) | −1.52% (P1 full) |
+| | rv64gcb | | **−1.54%** (P0 full) | −1.61% (P1 full) |
+
+*The 42 pairs* (WS change against all full at 30 / 120 / 250 cycles, over the pairs every configuration completes):
+
+| Core (pairs compared) | 2 full + 1 simple (P2) | 1 full + 2 simple, P0 full | 1 full + 2 simple, P1 full |
+|---|---|---|---|
+| 3-wide, `st_w3`'s queues (35 / 34 / 33) | −1.1% / −1.0% / −0.8% | −7.1% / −3.8% / −3.6% | −1.3% / −1.2% / −0.9% |
+| 3-wide, queues ×1.5 (40 / 39 / 39) | **−0.5% / −0.5% / −0.7%** | −5.9% / −5.2% / −5.2% | −1.3% / −1.1% / −1.4% |
+| **Today's 2-wide** (all 42) | | **−0.3% / +0.3% / +0.2%** (P0 full) | −1.7% / −2.0% / −2.5% (P1 full) |
+
+*Per program* (the shift- and bit-manipulation-heavy ones; 3-wide with queues ×1.5, rv64gc / rv64gcb; the share of instructions that need a full port first):
+
+| Program | Full-only | 2 full + 1 simple | 1 full + 2 simple, P0 full | 1 full + 2 simple, P1 full |
+|---|---|---|---|---|
+| nettle-sha256 | 33% / 27% | −5.0% / −2.9% | −25.4% / −17.4% | −23.4% / −15.8% |
+| nettle-aes | 29% / 33% | −1.2% / −5.2% | −15.5% / −19.7% | −14.0% / −17.5% |
+| aha-mont64 | 38% | −2.8% | −22.7% | −5.5% |
+| cubic | 27% | −1.3% | −9.2% | −6.3% |
+| CoreMark A | 19% / 15% | −1.6% / −1.7% | −7.6% / −4.8% | −10.8% / −8.4% |
+| picojpeg | 17% / 13% | −3.5% / −2.1% | −8.8% / −5.3% | −6.6% / −7.1% |
+| huffbench | 9% / 11% | −1.0% / −0.8% | −3.5% / −2.8% | +0.5% / +0.7% |
+| ms_gather | 25% / 27% | **−17.3%** / −5.2% | −43.7% / −9.9% | −41.7% / −19.0% |
+| crc32 | 21% / 22% | +7.1% / −7.4% | −4.6% / +4.2% | +8.1% / +4.2% |
+
+- **Programs with no full-only ops don't move.** Those with under 5% move with the timing, not the ALUs:
+  - by up to ±3% with the queues ×1.5 (Dhrystone +3.0%);
+  - by up to ±10% on `st_w3`'s queues (Dhrystone −9.6%, ud +6.1% with P0 full).
+- **crc32's swings aren't the ALUs either.** Its stores forward to its loads, and how often a load finds its store's data not yet ready changes with the timing (358K forwarding waits on the 3-wide core against 3.5K on the 2-wide). Read it as noise of ±8%.
+
+*Where it costs.*
+- **Throughput.** Above about a quarter of instructions needing the full port, one full port of three is the bottleneck: sha256 and aes lose 14–25% with one full port, and aha-mont64 23% when it's P0 (5.5% with P1, which also runs its multiplies).
+  - With two full ports of three, they lose 1–5%.
+- **The queue's room for waiting ops.** An op that needs a full port and waits on a cache miss holds a full port's row.
+  - ms_gather's index shifts wait on their index loads. With P2 simple only two queues can hold them, fewer loads get in flight, and it loses 17%.
+  - With Zba (rv64gcb) the shift becomes sh3add, still full-only, and the loss is 5%.
+- **P0 against P1 as the full port.** P0 also takes every branch.
+  - With P0 the only full port on the 3-wide core, the memory pairs lose 13% (1.240 → 1.077).
+  - With P1 it's 1%.
+
+*The register banks' pressure.*
+- **Single thread:** no variant stalls dispatch for a register (64 a bank).
+- **Steering moves ops off their slot's port** for want of the unit. On the 3-wide core that is 51–69 per 1,000 ALU ops with P2 simple, and 100–165 with one full port; on the 2-wide core, 87–125. The full ports' banks take more of the results:
+  - 3-wide ALU ops by port (the pairs, queues ×1.5): 34/38/28% all full; 39/38/23% with P2 simple; 44/35/22% with P0 full.
+- **With two harts** (each hart has half of each bank):
+  - the 3-wide core stays at ≈0 register stalls;
+  - today's 2-wide core stalls dispatch for a register 0.24 times per 1,000 instructions all full, 0.13 with P0 full, and **1.17 with P1 full**. P1's bank then takes every shift besides MUL, DIV and CSR. That is why P1 full costs today's core 1.7–2.5% in pairs, against ≈0 for P0 full.
+
+*Recommendation (the IPC side; LUTs from spikes-2).*
+- **On the 3-wide core, make P2 the simple port.** 2 full + 1 simple costs 0.5–1.6% single thread and 0.5–1.1% in pairs.
+  - 1 full + 2 simple costs 3–7% single thread. If it is taken anyway, keep P1 full: pairs then lose 0.9–1.4% instead of 3.6–7.1%.
+- **On today's 2-wide core, keep P0 full and make P1 simple.** That costs 1.5–1.7% single thread (sha256 7%, aes 2–7%, aha-mont64 16%) and ≈0 in pairs.
+  - P1 full costs about the same single thread (aha-mont64 only 1%), but 1.7–2.5% in pairs.
+- **Who decides (DR-154):** below 1% and 1,200 LUTs a chip, the coordinator; otherwise the user.
+  - 3-wide, 2 full + 1 simple: under 1% with the queues ×1.5 (0.8–1.0%), 1.6% on `st_w3`'s queues.
+  - Every 2-wide and 1-full variant is above 1% single thread, so all of them go to the user.
+
+*Side finding for v2.* The 3-wide SMT2 core under M7's policies hangs pairs in the model even with every port full: 4–8 of the 42 on `st_w3`'s queues, 0–3 with them ×1.5.
+- The hung pairs: chase8 with copy or with itself, huffbench + minver, minver + CoreMark, and gather with huffbench or CoreMark.
+- A thread's head load or store never gets a row in its one- or two-row slot bank.
+- v2 needs its own queue sizes and a deadlock pass before its pair runs.
+
+**2. Partial-address search in the LQ and SQ**
+
+*The model (`lsq_pa_bits` N, `lsq_pa_wait`).*
+- **Loads search older stores, and stores' addresses search younger loads, on the low N address bits.**
+- **A load's match is confirmed with the full physical address before it forwards.** When the confirmation fails, one of two designs:
+  - (a) the load replays once, its second search confirming every match;
+  - (b) the load waits until that store leaves the SQ.
+- **A store's low-bit match on a younger, executed load flushes the load,** as a true ordering violation does. The match is a superset, so no true one is missed.
+- **Runs:** N = 20, 16 and 12, on today's core alone on its merged window (LQ 24, SQ 20), at 30 and 120 cycles.
+- **Workloads:** the suite, the working-set kernels, and `bench/build_area.sh`'s page copies and clears.
+  - Those use page-aligned buffers, with the destination 0 or 64 bytes past its page boundary.
+  - They are written word by word, or with newlib's memcpy.
+
+*Results* (IPC change against full addresses at 30 cycles, 120 in brackets where it differs; false matches per 1,000 loads):
+
+| Program | False matches | N = 20, replay | N = 16, replay | N = 12, replay | N = 12, wait |
+|---|---|---|---|---|---|
+| Page copy, page-aligned (`pa_copy0`, `pa_memcpy0`); page clear (`pa_clear`) | 0 at every N | 0 | 0 | 0 | 0 |
+| Page copy, destination 64 bytes off (`pa_copy64`) | 1,000 at N = 12 | 0 | 0 | −22.2% (−9.2%) | −55.3% (−53.9%) |
+| The same with newlib's memcpy (`pa_memcpy64`) | 984 at N = 12 | 0 | 0 | −1.4% (−1.3%) | −57.2% (−52.2%) |
+| Working-set copy, 256–512 KiB halves (`ws_copy_512`, `_1024`) | ≈975 at N ≤ 16 | 0 | −10.4 to −11.0% (−7.7 to −11.5%) | the same | −56.7 to −57.3% (−51.9 to −54.2%) |
+| Working-set copy, 1–2 MiB halves (`ws_copy_2048`, `_4096`); memsuite's copy (4 MiB) | ≈973 at **every N** | **−11.0% (−11.6%)** | −11.0% | −11.0% | −57.3% (−54.2%) |
+| Random access and compute (hash kernels, gather, spmv, CoreMark, Dhrystone, crc32, huffbench) | ≤ 0.3 | 0 | 0 | ≤ −0.01% | ≤ −0.10% |
+| **The suite's score** | | **−0.35%** (−0.37%) | −0.35% | −0.35% | −2.55% (−2.34%) |
+
+- **No store's search raised a false ordering flush anywhere.** A store's address issues on its base early (DR-169's STA_BASE), before the younger loads it might meet.
+- **What a false match costs:**
+  - a replay costs up to 1.2 cycles a false match (newlib's memcpy hides it almost entirely);
+  - a wait costs 6 cycles at 30 cycles of memory latency and 14–15 at 120, while the store drains to a missing line.
+
+*Why N alone doesn't decide it.*
+- **When a forward copy's load meets an older store:** the load at src + j meets the older store at dst + i on the low bits when j − i ≡ (dst − src) mod 2^N.
+- **How far apart those can be:** j − i is at most the store queue's span, here ≈160 bytes.
+- **So it breaks exactly when (dst − src) mod 2^N is a small positive number.**
+- **Page copies and clears never break.** dst − src ≡ 0 mod 4 KiB, so a load meets only its own iteration's store, which is younger. That is the case expected most likely to break N = 12, and it is the one that never does.
+- **A copy whose destination is a few lines behind its source modulo 2^N breaks on nearly every load.**
+- **Larger N doesn't protect heap buffers.** Buffers allocated back to back, a power of two of at least 2^N in size plus malloc's header apart, alias at that N: memsuite's 4 MiB copy breaks at N = 20.
+
+*Recommendation (the IPC side).*
+- **If built, the confirmation must replay at most once.** Waiting for the store costs aliasing copies half their throughput, and the suite 2.3–2.5%, all of it memsuite's copy.
+- **With one replay** the suite costs 0.35–0.37% at any N, also all memsuite's copy. The aliasing copies lose 1–22% depending on the code: newlib's memcpy 1.4%, the working-set copies 8–12%, the word copy 22%.
+- **N matters less than the confirmation's cost.** 12 bits break on more copies than 20, and 20 still breaks on large power-of-two buffers.
+- **Below DR-154's 1% on the suite with a replay,** so the coordinator decides once spikes-2's LUTs are in.
+- **The aliasing copies' 11–22% are the risk to weigh.** Under Linux, copy_page and clear_page are immune; how often user and kernel copies meet small offsets modulo 2^N isn't measured here.
+
+**Model beside measured.**
+- **The product's one simple ALU, measured.** fpu-2 measured the only product variant on the RTL: one of `smt2`'s two ALUs simple. CoreMark lost 2.6–6.1% (the coordinator, 10-21).
+  - The model on the same 2-wide core: CoreMark A and B lose 2.5–3.4% with ALU1 simple and 3.8–6.5% with ALU0 simple (rv64gc); 2.0–3.6% and 5.2–5.9% on rv64gcb.
+  - The same range. (The 3-ALU layout above is `smt2_w3`, not the product.)
+- **The baselines.** Today's core is §6.19's `rtl_m2` revision 10, against the RTL's own runs: mean error 4.5% at 30 cycles and 5.6% at 120, on 18 programs.
+- **No variant has an RTL counterpart yet.** The 3-wide core has no RTL run in the model's calibration, so its absolute IPC is the model's alone. Its changes between variants are what this section offers.
+
+**Decisions:** none here. The LUTs come from spikes-2, and the coordinator brings both to the user.
+
+**Learned:**
+- An ALU port's capability limits more than its throughput: ops that wait on misses need a capable port's rows, so a memory kernel with index shifts (gather) loses 17% with one simple port in three.
+- Partial-address aliasing depends on the buffers' distance modulo 2^N, not on N. Page-aligned copies are immune, and large power-of-two buffers alias even at 20 bits.
+
+### 7.10 Partial-address LQ/SQ search, deeper: the band, the store-side search and the product's pairs (model, 2026-10-21)
+
+*The coordinator's correction:*
+- *The product (`smt2`) has two ALUs, and fpu-2 has measured its one-simple-ALU variant on the RTL (§7.9).*
+- *So the time goes to the partial-address search, as asked: N = 12, 16 and 20, the false-match rates, the replays and the IPC, with the copies and streaming workloads first.*
+
+*This adds, on §7.9's model (`area_ipc.py --pa2`; `bench/build_area.sh`'s `pa2.jsonl`):*
+- **64 KiB copies a set distance apart in one buffer** (`copydist.c`), word by word or with newlib's memcpy.
+  - 17 pages plus 0–4,032 bytes: only the low 12 bits come close.
+  - 16 pages plus 64: the low 12 and 16 bits.
+  - 256 pages plus 64: all three widths.
+- **Counter updates scattered over 4 KiB, 256 KiB and 4 MiB tables** (`scatter.c`). Each store's address comes from a load, so it resolves late, and younger loads can meet it on the low bits. That is the store-side search, whose false matches are flushes.
+- **The 42 pairs on the product:** step 7 as decided, with 5f, at 30 / 120 / 250 cycles. Each hart searches its own half of the LQ and SQ.
+
+**1. The band where 12 bits break** (a word copy, the destination 17 pages + o bytes past its source; today's core alone, 30 cycles; IPC change against full addresses; false matches per 1,000 loads):
+
+| o (bytes) | False matches | N = 12, one replay | N = 12, wait for the store |
+|---|---|---|---|
+| 0 | 0 | 0 | 0 |
+| 8 | 120 | −8.5% | −12.2% |
+| 32 | 499 | −17.5% | −46.8% |
+| 64 | 1,000 | **−24.4%** | **−56.7%** |
+| 128 | 874 | −24.4% | −39.0% |
+| 160 | 746 | −0.0% | −11.6% |
+| 192, 256, 512, 2,048, 4,032 | 0 | 0 | 0 |
+
+- **The band is 8–160 bytes:** the store queue's 20 entries of 8 bytes.
+  - A load meets an older store only while that store is still in the queue, j − i ≤ ≈160 bytes behind it.
+  - A smaller queue narrows the band, and a larger one widens it.
+- **The width moves the band, not its size.** At N = 16 it is the same 8–160 bytes modulo 64 KiB; at N = 20, modulo 1 MiB:
+
+| Copy (64 bytes off) | N = 20, replay | N = 16, replay | N = 12, replay | N = 12, wait |
+|---|---|---|---|---|
+| Word copy, 17 pages apart | 0 | 0 | −24.4% | −56.7% |
+| Word copy, 16 pages (64 KiB) apart | 0 | −24.4% | −24.4% | −56.7% |
+| Word copy, 256 pages (1 MiB) apart | −24.4% | −24.4% | −24.4% | −56.7% |
+| newlib's memcpy, 16 pages apart | 0 | −0.07% | −0.07% | −55.6% |
+| newlib's memcpy, 256 pages apart | −0.07% | −0.07% | −0.07% | −55.6% |
+
+- **How likely a copy is to land in the band:**
+  - For buffers placed at random, the chance is about 160 / 2^N: 3.9% at N = 12, 0.24% at 16, 0.015% at 20.
+  - Allocators don't place at random. Equal power-of-two blocks and page-aligned buffers with small headers put copies in or next to the band far more often. The heap copies of §7.9 hit it at every N.
+- **What one replay costs depends on the code.**
+  - newlib's memcpy keeps enough independent loads behind the replayed one to hide it: −0.07%.
+  - The eight-loads-then-eight-stores word copy doesn't: −24.4%.
+  - Waiting for the store costs either one about 56%.
+
+**2. The store-side search.**
+- **The scattered updates raise few false flushes:** 0.2–0.4 per 1,000 loads at N = 12, and none at 16 or 20. Their IPC moves by under ±0.3% (within run noise).
+- **The false matches on known stores are rare too:** 1–3 per 1,000 loads at N = 12.
+- **True ordering flushes were 0 with full addresses.** The keys rarely repeat within the window.
+- **Even when a store's address comes from a load,** it resolves before most of the younger loads it could meet have run.
+
+**3. The product's 42 pairs** (WS change against full addresses at 30 / 120 / 250 cycles; false matches and false flushes per 1,000 loads over both harts):
+
+| N, one replay | WS change | False matches | False flushes | Hung |
+|---|---|---|---|---|
+| 20 | −0.61% / −0.03% / +0.02% | 27 / 27 / 27 | 0.74 / 0.40 / 0.33 | 0 |
+| 16 | −0.61% / −0.04% / 0.00% | 27 / 27 / 27 | 0.74 / 0.40 / 0.33 | 0 |
+| 12 | −0.72% / −0.01% / +0.05% | 27 / 27 / 27 | 0.75 / 0.34 / 0.33 | 0 |
+
+- **The false matches are memsuite's copy's,** in the pairs it is in. Its 4 MiB buffers alias at every N (§7.9), so the rate doesn't fall with N.
+- **The cost is at 30 cycles,** where the copy is fastest: −0.6 to −0.7%. At 120 and 250 the misses hide the replays.
+
+*The partial-address search, in sum (the IPC side; LUTs from spikes-2):*
+- **The replay form costs ≈0.4% of the suite and ≈0–0.7% of the product's pairs, at any N.**
+- **The risk is copies that land in the band:**
+  - a word copy loses up to 24% there (newlib's memcpy 0.07%);
+  - the wait form loses 56% there.
+- **N = 20 shrinks the band's chance for randomly placed buffers 256-fold against N = 12,** but not for buffers a power of two of 1 MiB or more apart.
+
+**Decisions:** none here. The coordinator decides with spikes-2's LUTs (DR-154: under 1% of the suite with the replay form).
+
+**Learned:**
+- The band where partial matching breaks is set by the store queue's span: 8–160 bytes here, behind the load, modulo 2^N.
+- The search's width only moves that band, and the replay's cost depends on whether the code has independent loads to hide it behind.
+
 ---
 
 ## 8. Ledger entries and proposed plan text
