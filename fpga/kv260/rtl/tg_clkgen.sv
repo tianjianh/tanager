@@ -31,7 +31,7 @@ module tg_clkgen #(
   localparam int  C2X_DIV  = CLK2X && VCO > 0 ? VCO / (2 * CORE_MHZ) : 1;
 
   if (VCO == 0) begin : g_bad_mhz
-    $error("tg_clkgen: no VCO of 800-1600 MHz in steps of 100 that CORE_MHZ divides in eighths");
+    $error("tg_clkgen: no VCO of 800-1600 MHz in steps of 100 that CORE_MHZ divides in eighths (and with CLK2X, that 2 * CORE_MHZ divides)");
   end
   if (CLK2X && VCO % (2 * CORE_MHZ) != 0) begin : g_bad_2x
     $error("tg_clkgen: CLK2X needs a VCO that 2 * CORE_MHZ divides (CLKOUT2's divide is an integer)");
