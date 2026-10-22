@@ -1,8 +1,8 @@
 # PMP checks at TLB fill: correctness (design note)
 
-**Status:** approved as DR-183 (the user, 10-21 22:45), with DR-182's per-page check first. core-2, the MMU's owner, builds both:
-- DR-182 as its own MR after M7's step 6;
-- DR-183 behind a switch after step 7, on by default once its measured boot cost is under 1%.
+**Status:** approved as DR-183 (the user, 10-21 22:45), with DR-182's per-page check first:
+- DR-182, core-2's, is on main (6bed4f90);
+- DR-183 is built behind the switch `PMP_FILL` (§7), off by default, and on by default once its measured boot cost is under 1%. soc-2 builds it (the coordinator, 10-22, with the area pass on the critical path) in core-2's files, with core-2's agreement on them and its review of the plan; it merges after step 7.
 
 The note is soc-2's (10-21), corrected and extended by core-2's review as the MMU's owner (`reports/pmp-at-fill-review.md` in core-2's build folder).
 
@@ -155,7 +155,44 @@ Today ([core-mmu.md](core-mmu.md) §PMP) the walker already caches the result (`
   - the M-mode entries under Debian on the board's four harts (RISC-V mode), where systemd's services add their own fences.
 - **On the board:** memgap again, with `wr1k`, `rdtime`, `clock` and `ev1` at least at d4r2's figures with the page-sized reset syscon ([soc-d4-modes.md](soc-d4-modes.md), `fpga/kv260/board/d4r2`), and a RISC-V-mode Debian boot.
 
-## Order of work (core-2)
+## 7. As built (DR-183, soc-2, 10-22)
 
-1. **DR-182's per-page check** first, on its own (+26 LUTs a core), under today's three checkers. It is cycle-identical on our layouts and closes the `pmp_al` gap.
-2. **DR-183's shared checker** after step 7, behind its switch, replacing the three. The fill logic is in place by then.
+- **The switch:** `PMP_FILL` = 1 (`sim/profile.mk`, `+define+TG_PMP_FILL=1`, `tg_core_pkg::PMP_FILL`; `TG_DEFINES="TG_PMP_FILL=1"` for the Vivado scripts). Off, the core is main's, cycle for cycle (below).
+- **Which check decides:**
+
+  | Access | Check |
+  |---|---|
+  | Translated S/U (fetch, loads, stores, AMOs) on a page with `ph` = 1 | the TLB's cached `px`, `pr`, `pw` alone |
+  | M-mode, and MPRV with MPP = M, while the hart has no active locked entry | none: only locked entries bind M, and with no match M is allowed |
+  | Bare S/U fetch | the hart's last-page entry (§5's lever), filled through the shared checker |
+  | Any other fetch: a split page, M-mode with a locked entry | word checks on the shared checker |
+  | Any other load, store or AMO: bare S/U, a split page, M-mode with a locked entry | the shared checker, at the access's check |
+  | PTE reads, and the leaf's page check at the fill | the shared checker, as before (DR-139) |
+
+- **No locked entry:** `tg_csr` gives each hart a registered OR of L over its entries that aren't OFF (`pmp_lk_h`). It settles the cycle after a PMP write's last descriptor changes. Fetch waits that out (`pchg_q`), and the write's flush has emptied the window.
+- **One checker a core:** the store-address port's (`u_pmp_st`), which the walker already shares. Fetch's and the load port's checkers go, with their thread selects. The order:
+  1. a store address at its decision;
+  2. the walker's checks (`chk_gnt`);
+  3. a translated store's S2 check, as before;
+  4. the ROB head's parked MMIO load whose check is pending (`mh_req`);
+  5. a load, new or replaying;
+  6. fetch, which goes ahead of loads once it has waited `PFC_WAIT` (3) cycles, so load replays can't starve it.
+- **Loads:** a load not granted in its check cycle doesn't complete. It replays with its check pending (`lq_pck_q`) and asks again. A parked MMIO load keeps the bit; the head then holds its issue (`mm_hold`) and asks with its thread's descriptors and privilege. A denial is its exception, on port 2.
+- **DR-182's per-page test** moves beside the checker (`g_pg` in `tg_lsu`; `tg_ptw` keeps its own with the switch off). The walker's leaf in `W_PMP` (by `chk_lvl`) and fetch's 4 KiB page requests share it.
+- **Fetch** has no checker. Its requests leave from flip-flops and stay up until the tagged response, the cycle after the grant. The work carries the epoch of F1's block it started in (`rq_ep_q`). The epoch turns over when the block changes (`f1_ep_q`, the one register `f1_new` reaches), and the cycle after, an earlier block's work is dropped whole, with any response on its way and its last-page fill. `f1_new` comes late, from F3's redirects and the I$ refills; in spikes-2's combined preview it held every request register's enable (−1.07 ns).
+  - **Last-page entry,** one per hart: the S/U execute result of the page F1 last fetched from in bare mode, and whether a region boundary lies inside it. A page request fills it; the hart's TLB flush empties it (PMP and satp writes, SFENCE.VMA). A split page goes to word checks.
+  - **Word checks:** one 4-byte word at a time from the block's first, stopping at the first denied word. The block then ends before it, or is a fault block at its first instruction, as F2 takes `f1_pmpd` today.
+- **Shadow checks** (simulation only) cover the new paths too: the last-page entry's result on every word, M-mode's skip (a full check under M's rules must allow), and the word checks up to the first denied word. A load or store that skips under M must pass a full check under M's rules.
+- **Area** (out of context, the product's core: smt2 with hart 1, the URF, no trace, `flatten_hierarchy none`, at 5a885ab9): 56,976 → 55,640 LUTs, −1,336 a core and about −2,670 a chip, for +102 flip-flops a core.
+  - fetch 8,562 → 7,994;
+  - the LSU 14,891 → 14,208;
+  - the walker 520 → 272;
+  - `tg_csr` 2,093 → 2,015.
+- **Switch off:** cycle-identical with main (a6ff993d), st and smt2, the suites and the boot's first 20M cycles.
+- **Switch on:** the directed tests, 22 of 22 on st and smt2, with three new ones: `pmp_tlb` (§6's tests 5, 7 and 8: pages and a code stub cached, then denied with and without the fence; page tables S may not read; the default deny by access type), `pmp_mprv` (test 4) and `pmp_mlock` (M-mode's side of test 3: M passes unlocked entries and no match, and bare S is denied; once an entry is locked, M's fetch, loads and stores take the check, and a locked entry binds them). Regress on st, and on smt2 with hart 1.
+- **To come:** ACT4's PMP set, the boots under lockstep (st, board, smp4) and the boot's cost.
+
+## Order of work
+
+1. **DR-182's per-page check** first, on its own (+26 LUTs a core), under today's three checkers. It is cycle-identical on our layouts and closes the `pmp_al` gap. On main (core-2).
+2. **DR-183's shared checker** after step 7, behind its switch, replacing the three (§7, soc-2).
