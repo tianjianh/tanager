@@ -122,16 +122,19 @@ def main():
             return seed, "PASS", "", ""
         else:
             # Every hart of the SoC writes records, those that only park too (tb_boot's directory names its cores
-            # and configuration: boot..._c2_t1_smt2 is 2 cores of 2 harts), not just the harts listed
-            m = re.search(r"_c(\d+)_t\d+_(\w+)$", os.path.basename(os.path.dirname(os.path.abspath(a.tb))))
+            # and configuration: boot..._c2_t1_smt2 is 2 cores of 2 harts), not just the harts listed; with hart 1
+            # (-h1 in the name), the cores have mtgsmt (0x7C0)
+            tbdir = os.path.basename(os.path.dirname(os.path.abspath(a.tb)))
+            mtgsmt = ["--mtgsmt=1"] if re.search(r"-h1(?=[-_])", tbdir) else []
+            m = re.search(r"_c(\d+)_t\d+_(\w+)$", tbdir)
             if m:
                 nharts = int(m[1]) * (2 if m[2].startswith("smt2") else 1)
             else:
                 nharts = max(int(h) for h in a.harts.split(",")) + 1
                 nharts = 2 if nharts <= 2 else 4
             pmp = [f"--pmp={a.pmp}"] if a.pmp is not None else []
-            rc, lout = run([a.lockstep, f"--fw={base}.bin", f"--harts={nharts}", *pmp, "--stats=0", base + ".trace"],
-                           a.timeout)
+            rc, lout = run([a.lockstep, f"--fw={base}.bin", f"--harts={nharts}", *pmp, *mtgsmt, "--stats=0",
+                            base + ".trace"], a.timeout)
             with open(base + ".log", "a") as f:
                 f.write("\n---- tanager-lockstep ----\n" + lout)
             if rc == 0 and " PASS after " in lout:

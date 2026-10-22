@@ -16,7 +16,7 @@ module tg_tb_top
     input string cfg_name, input int commit_width, input int num_threads, input int core_id,
     input int hart_w, input int wb_tag_w, input int trace_wb_ports, input int pa_w,
     input int l1i_mshrs, input int l1d_mshrs, input int llt_entries, input int trace_stall_headroom,
-    input int pmp_entries);
+    input int pmp_entries, input int hart1_on);
 
   // TL-UL responder (l1i = port 0, mmio = port 2): what the core presented this cycle, and the
   // responder's outputs for the next cycle.
@@ -92,7 +92,8 @@ module tg_tb_top
     if (!COMMIT_TRACE)
       $fatal(1, "tg_tb_top: this model was built with TG_COMMIT_TRACE=0 (DR-146): it has no commit trace, so lockstep cannot run; build it with the trace on");
     tg_dpi_config(CFG_NAME, COMMIT_WIDTH, NUM_THREADS, CORE_ID, HART_W, WB_TAG_W,
-                  TRACE_WB_PORTS, PA_W, L1I_MSHRS, L1D_MSHRS, LLT_ENTRIES, TRACE_STALL_HEADROOM, PMP_ENTRIES_TB);
+                  TRACE_WB_PORTS, PA_W, L1I_MSHRS, L1D_MSHRS, LLT_ENTRIES, TRACE_STALL_HEADROOM, PMP_ENTRIES_TB,
+                  int'(tg_core_pkg::HART1_ON));
     boot_addr = paddr_t'(tg_dpi_boot_addr());
   end
 

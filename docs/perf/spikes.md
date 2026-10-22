@@ -1516,6 +1516,95 @@ Results: `fpga/spikes/results/h100_hu0/`, `h100_hu1/` (their `errors.txt` and su
 
 Results: `fpga/spikes/results/h100_hz0_synth/` and `h100_hu_util/` (`util_hz0.rpt`, `groups_hz0.tsv`, `groups_hn0.tsv`, `diff_hz0_hn0.txt`, `diff_cells_hz0_hn0.txt`).
 
+#### hp1: the edge, placed (2026-10-21)
+
+**Asked** (the coordinator): one placed point near the device's edge, to find where this design actually closes. The 96% figure is §8.17's chip, built with filler; M8's target could lie anywhere from "just fit" to 96%.
+
+**Build:**
+- **hp1** is hu1 without the three product windows: hp0 with the URF on, on main 7864d3bf.
+- **Comparable with hu1:** the RTL since 071de15c only makes the speculative-wakeup filter switchable, with the default unchanged.
+- **Settings as hu1's otherwise:** d4r2's synthesis, no floorplan, 1.0 ns on the core clock and on `clk2x`, `LAT_INJ=0`, `TG_HART1=1`. 24 GB declared per step; the routed checkpoint is `fp/h100_hp1_routed.dcp`.
+
+| | LUTs | Of 117,120 |
+|---|---|---|
+| After synthesis | 121,295 | — |
+| After `opt_design` | 116,223 | 99.2% |
+| Placed | **113,636** (16,270 LUTRAM), 62,028 FFs, 121 BRAM tiles, 50 UltraRAMs | **97.0%** |
+
+**Result: it places and routes, but misses 100 MHz by 2.1 ns.**
+- **Run time:** placement 14 minutes, routing 2.5 hours (no routing errors).
+- **Core clock `c0`:** WNS **−2.098 ns** (about 83 MHz), TNS −8,566 ns, WHS +0.001 ns. 14,020 of 299,396 endpoints fail: core 0 8,912, core 1 3,859, the uncore 1,249.
+- **`clk2x` and the URF are not the limit:** +0.721 into `clk2x`, +1.329 within it, +0.604 back to the core clock.
+- **Congestion:** the placer ends at level 5 (32 × 32 windows) in every direction over both cores and the uncore. The router starts at level 6 (64 × 64, short wires east and west) over core 0, whose windows have 97–99% of their LUTs used.
+- **The worst paths are everywhere, and mostly wire.** 654 families fall below 1.0 ns, with 64–79% wire on the worst paths:
+  - the LSU 205 families, rename 171, the CSR file 101, fetch 94, the two RAS 30, the L2 28, the ROB 12;
+  - the worst: core 0's DTLB (−2.10, 16 levels, 9.5 ns of wire), rename's FP free-list counts (−2.09), the LSU's replay address (−2.09), F2's cone into the RAS (−2.07).
+
+**Findings:**
+- **"Just fit" does not close.** At 97.0% placed with the board's flow, wire dominates everywhere, not one path.
+- **Between §8.17's 96.0% (+0.022 ns) and hp1's 97.0% (−2.098 ns) lies a cliff of 2.1 ns for 1.2K more placed LUTs.** Fill and flow both changed: §8.17's chips had the `g4_uncore` pblocks and `-flatten_hierarchy none`. One more placement of hp1's own synthesis with §8.17's floorplan would separate the two, at no new synthesis.
+- **Until then, M8's target is the 96% end or lower:** about 7K LUTs a chip back from hu1, not 2K.
+
+Results: `fpga/spikes/results/h100_hp1/` (with `near_families_hp1.txt`, `urf_chip.txt`, `congestion.rpt` and `worst_paths.txt`, from [`q_congestion.tcl`](../../fpga/spikes/tcl/query/q_congestion.tcl)) and `h100_hp1_synth/`.
+
+#### hp1f: the same netlist with §8.17's floorplan (2026-10-21)
+
+**Asked** (the coordinator): place hp1's own synthesis once more with §8.17's `g4_uncore` pblocks (the two L2 banks and the crossbar), with nothing else changed, to separate the fill from the flow.
+
+**Build:**
+- **No new synthesis:** the floorplan names only three uncore cells, and they exist under the same names in hp1's flatten-rebuilt netlist.
+- **One pblock is overfull before placement:** the floorplan check shows bank 1's pblock at 101% (6,467 LUT cells for 6,400 sites, against §8.17's 95%); flatten rebuilt moved about 360 cells into bank 1. It placed anyway.
+- **A first run was lost** to the afternoon's disk cleanup (my list had included its live run folder) and was rerun unchanged.
+
+| | hp1 (no floorplan) | hp1f (§8.17's pblocks) |
+|---|---|---|
+| Placed LUTs | 113,636 (97.0%) | 113,893 (97.2%) |
+| WNS on the core clock (ns) | −2.098 | **−0.096** |
+| TNS (ns) | −8,566 | −1.131 |
+| Failing endpoints | 14,020 (core 0 8,912, core 1 3,859, uncore 1,249) | **31** (core 0 14, core 1 17, uncore 0) |
+| WNS on `clk2x` (into / within / back, ns) | +0.72 / +1.33 / +0.60 | +1.08 / +1.87 / +1.02 |
+| WHS (ns) | +0.001 | +0.006 |
+| Endpoints within 1 ns | 25,037, in 654 families | 7,215, in 369 families |
+| Routing time | 2.5 h | 1.45 h |
+
+**Findings:**
+- **The cliff was the flow, not the fill.** The same netlist at 97.2% placed comes within 0.1 ns of 100 MHz once the L2 banks and the crossbar sit in their pblocks. The board flow (`build.tcl`, d4r2's recipe) has no floorplan, and at this fill that costs about 2.0 ns.
+- **The families shrink, they don't move.** They are the same units as hp1's, about 2 ns better:
+  - the LSU keeps the most (205 → 160 families below 1 ns), then rename (171 → 119);
+  - fetch's F2 cone (94 → 52) now holds the worst endpoints: the I$ valid-bit RAM (26 levels, −0.096), TAGE's history count and the RAS target register;
+  - the CSR file's paths, congestion detours in hp1, mostly drop out (101 → 20).
+- **So with the floorplan, M8's target is "fit plus a little",** not 96%: hu1's product chip needs to come down to about hp1f's 113.9K placed. That is the windows' +3.1K less DR-180's −1.8K, plus a little margin, roughly 2K LUTs a chip rather than 7K. A second sample (1.05 ns of over-constraint) measures the placement noise around −0.1 ns.
+- **Congestion has the same levels, spread more evenly.**
+  - The placer ends at level 5 in every direction, as in hp1, with no global window (hp1 had one, west).
+  - The router starts at level 5 north and south and level 6 east and west, as in hp1.
+  - hp1's level-6 west window was 77% core 0. hp1f's level-6 windows each hold core 1 36–44%, core 0 28–32% and the uncore 26–29%, at 97–98% of their LUTs used (hp1: 97–99%).
+  - So the floorplan didn't lower the congestion; it evened it out across the cores and the uncore.
+- **The 31 failing endpoints are all in the cores,** none in the uncore:
+  - fetch's I$ valid-bit RAM (26 levels) and its I$-data cones into TAGE and the RAS;
+  - the D$'s `lose_line_q` enables;
+  - the LSU's M1 → M2 and age paths.
+- **The pblocks are soft.**
+  - Vivado 2025.2 creates them with IS_SOFT 1, before `opt_design`; nothing in this flow sets it.
+  - The placer kept each pblock's cells near it, but put 20% (bank 0), 15% (bank 1) and 28% (the crossbar) of their LUT cells just outside: the banks' own-level logic, register slice and LUTRAM buffers, and the crossbar's register slices and arbiters.
+  - So `report_utilization -pblocks` counts a pblock's own cells wherever they sit: bank 0's own cells fill 968 slices against its 800.
+  - hp1f's result is with soft pblocks. Hard ones are untested: bank 1's pblock, at 101% before `opt_design`, might not place hard.
+
+**DR-181: the floorplan in the board's flow.** The coordinator adopted `g4_uncore` for the board's product builds; soc-2 wires it into `build.tcl` and spikes-2 keeps it tuned. [`fp_lib.tcl`](../../fpga/spikes/tcl/fp_lib.tcl) adds two checks for every product build:
+- `tg_fp_check`, after the floorplan and before `opt_design`: each pblock's LUT cells against its LUT sites. It warns above 105% and calls the pblock tight above 115%.
+- `tg_fp_check_placed`, after `place_design`: each pblock's own LUTs against its sites. It warns above 85% and calls the pblock tight above 90%, which means resize it. It also logs IS_SOFT and the share of the pblock's own LUT cells placed outside it.
+
+| Pblock | LUT sites | hp1f before `opt_design` | hp1f own after placement | hp1f outside | Main e6691d53 with the product windows, before `opt_design` |
+|---|---|---|---|---|---|
+| `l2b0` (L2 bank 0) | 6,400 | 95% | 73% | 20% | 94% |
+| `l2b1` (L2 bank 1) | 6,400 | 101% | 77% | 15% | 102% |
+| `xbar` (the crossbar) | 4,032 | 52% | 45% | 28% | 72% |
+
+- **The two thresholds agree.** After `opt_design` and LUT packing, a pblock's own LUTs came to 76–87% of its estimate, so 105% before `opt_design` is about 80–90% own after placement.
+- **The product windows** grow the crossbar's pblock from 52% to 72%; the banks barely change.
+- **Resizing:** a bank's pblock grows by two SLICE rows (160 LUT sites a row in the X2 column). The crossbar has room in X1.
+
+Results: `fpga/spikes/results/h100_hp1f/` (with `near_families_hp1f.txt`, `urf_chip.txt`, `floorplan.txt`, `congestion.rpt` and `worst_paths.txt`; `fp_checks.txt` from [`q_fp_checks.tcl`](../../fpga/spikes/tcl/query/q_fp_checks.tcl); `pb_spill.txt` and `pb_soft.txt`, the cells outside, from [`q_pb_spill.tcl`](../../fpga/spikes/tcl/query/q_pb_spill.tcl) and [`q_pb_soft.tcl`](../../fpga/spikes/tcl/query/q_pb_soft.tcl)); main's check in `h100_ex1_synth/fp_check_g4_uncore.txt`.
+
 ## 9. S1: PL → PS DDR latency and bandwidth
 
 **Status: done on the board (2026-10-14).** The bitstream meets 200 MHz (WNS +0.809 ns with the fan rule of DR-129; +0.513 before it; 4,081 LUTs, 5,133 flip-flops, one block-RAM tile), and the board session ran it at 200 MHz. The design, the A53 program and the step-by-step instructions (SD image, boot firmware, network, files, commands) are in [`fpga/spikes/s1/README.md`](../../fpga/spikes/s1/README.md).

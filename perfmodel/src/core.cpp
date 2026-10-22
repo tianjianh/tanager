@@ -55,6 +55,18 @@ bool alu_simple(Op op) {
   }
 }
 
+// alu_full: what an ALU port without the shifter/rotator, the bit-manipulation and the unary ops runs: add/sub,
+// logic, compares and LUI/AUIPC (R13's set less the Zba shift-adds)
+bool alu_basic(Op op) {
+  switch (op) {
+    case Op::SH1ADD: case Op::SH2ADD: case Op::SH3ADD: case Op::ADD_UW: case Op::SH1ADD_UW: case Op::SH2ADD_UW:
+    case Op::SH3ADD_UW:
+      return false;
+    default:
+      return alu_simple(op);
+  }
+}
+
 // Integer register operands a uop reads at issue (FP sources read the FP banks; -2 is the SFB temp).
 int int_srcs(const Uop& u) {
   int n = 0;
@@ -427,6 +439,37 @@ void Core::steer(Uop& u) const {
   const size_t k = std::min<size_t>(u.dslot, 1), pref = k % 2;
   const size_t p = steer_flags_[pref][k] ? pref : steer_flags_[1 - pref][k] ? 1 - pref : pref;
   u.steer_q = p == 0 ? (uint8_t)Q_A0 : (uint8_t)Q_A1;
+}
+
+// alu_full: rename's steering over N ports, as tg_rename builds it for any N_ALU: decode slot k's op tries port k mod
+// N, then the next ones in turn, and takes the first that can run it (alu_full names the ports with the shifter/
+// rotator, the bit-manipulation and the unary ops), whose rows for slot k had a free one the cycle before and whose
+// bank has a free register on the thread's list; else the first that can run it, where the group waits for its row.
+// The group's earlier slots have taken their registers by now, since dispatch goes in order.
+void Core::steer_n(Uop& u) {
+  Thread& T = th(u);
+  static constexpr uint8_t QS[3] = {Q_A0, Q_A1, Q_A2};
+  static constexpr int BANK[3] = {0, 1, 5};
+  const int n = c_.alu3 ? 3 : 2, k = std::min<int>(u.dslot, 2), pref = k % n;
+  const bool full = u.di && !alu_basic(u.di->d->op);
+  const bool reg = c_.prf_banked && u.dst_arch >= 0 && u.dst_arch < 32;
+  auto can = [&](int p) { return !full || ((c_.alu_full >> p) & 1); };
+  int pick = -1, first = -1;
+  for (int j = 0; j < n && pick < 0; j++) {
+    const int p = (pref + j) % n;
+    if (!can(p)) continue;
+    if (first < 0) first = p;
+    if (steer_flags_[(size_t)p][(size_t)k] && !(reg && free_regs(BANK[p], T.tid) <= 0)) pick = p;
+  }
+  if (pick < 0) pick = first >= 0 ? first : pref;
+  if (full) T.st.alu_full_ops++;
+  if (pick != pref) {   // why it left its slot's port
+    if (!can(pref)) T.st.alu_cap_moves++;
+    else if (!steer_flags_[(size_t)pref][(size_t)k]) T.st.alu_row_moves++;
+    else T.st.alu_reg_moves++;
+  }
+  (pick == 0 ? T.st.alu_p0 : pick == 1 ? T.st.alu_p1 : T.st.alu_p2)++;
+  u.steer_q = QS[pick];
 }
 
 // MX names a 1-cycle ALU-queue producer by its row while the row holds it: until 2 cycles after issue.
@@ -983,7 +1026,10 @@ Uop& Core::new_uop(Thread& T, const FetchRec& r) {
   else {
     switch (d.cls) {
       case Cls::ALU: u.q = Q_ALU_ANY; break;
-      case Cls::ALUX: case Cls::MUL: case Cls::DIV: u.q = Q_A1; break;
+      case Cls::ALUX:   // alu_full: orc.b and rev8 are tg_alu's unary ops; clz/ctz/cpop take P1's second cycle
+        u.q = c_.alu_full && (d.op == Op::ORC_B || d.op == Op::REV8) ? (uint8_t)Q_ALU_ANY : (uint8_t)Q_A1;
+        break;
+      case Cls::MUL: case Cls::DIV: u.q = Q_A1; break;
       case Cls::BR: case Cls::JAL: case Cls::JALR: u.q = Q_A0; break;
       case Cls::LD: case Cls::FLD: u.q = Q_LD; break;
       case Cls::ST: case Cls::FST: u.q = Q_STA; break;
@@ -1035,9 +1081,19 @@ void Core::decode() {
     Thread &T = *th_[(size_t)dec_tid_], &O = *th_[(size_t)(1 - dec_tid_)];
     const int took = decode_thread(T, (int)c_.decode_width);
     T.st.decode_slots += (uint64_t)took;
+    if (took < c_.decode_width && !O.fetchq.empty() && O.fetchq.front().avail <= t_)   // TG-STALL2's decode count
+      T.st.dec_lost_other += (uint64_t)(c_.decode_width - took);
     const uint64_t buf = (uint64_t)(c_.decode_width * (c_.dec_to_disp + 1));
     auto holds = [&](const Thread& U) { return !U.fetchq.empty() && U.fetchq.front().avail <= t_ + 1; };
-    auto takes = [&](const Thread& U) { return U.next_id - U.disp_next < buf; };
+    // rename's acc_o: room for a group, or (2, 5e's) the register rename has chosen for the next cycle, its group
+    // able or not, or (3, 5f's) that register while its group looks able. A thread held at the runner's barrier
+    // (smt_align) is left out: on the RTL it spins there, its groups renaming
+    auto takes = [&](Thread& U) {
+      if (U.next_id - U.disp_next < buf) return true;
+      const bool barrier = c_.smt_align && !U.region_seen && U.align_id && U.disp_next > U.align_id;
+      return c_.smt_dec_rr >= 2 && c_.smt_rn_sel && rn_sel_ == U.tid && !barrier &&
+             (c_.smt_dec_rr == 2 || rn_able(U));
+    };
     if (holds(O) && takes(O) && (took > 0 || !holds(T) || !takes(T))) dec_tid_ = O.tid;
     return;
   }
@@ -1293,9 +1349,10 @@ void Core::dispatch() {
   // iq_steer_rn: rename steers with the flags of the cycle before (1: as they stood before that cycle's dispatch,
   // the RTL; 2: after it, a rename that counts the group the dispatch stage writes); this cycle's are for the next
   auto steer_snap = [&] {
-    for (int k = 0; k < 2; k++) {
+    for (int k = 0; k < 3; k++) {
       bf_prev_[0][k] = slot_free(Q_A0, k) > 0;
       bf_prev_[1][k] = slot_free(Q_A1, k) > 0;
+      bf_prev_[2][k] = slot_free(Q_A2, k) > 0;
     }
   };
   if (c_.iq_steer_rn) {
@@ -1512,7 +1569,10 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
       if (banked) f = std::min(f, ibank >= 0 ? bank_free(qq, ibank) : std::max(bank_free(qq, 0), bank_free(qq, 1)));
       return f;
     };
-    if (q == Q_ALU_ANY && c_.iq_steer_rn && c_.iq_slot_bank && !c_.alu3) {
+    if (q == Q_ALU_ANY && c_.alu_full) {   // alu_full: the RTL's steering over N ports, by what each can run
+      if (u.steer_q == 0xff) steer_n(u);
+      q = u.steer_q;
+    } else if (q == Q_ALU_ANY && c_.iq_steer_rn && c_.iq_slot_bank && !c_.alu3) {
       if (u.steer_q == 0xff) steer(u);
       q = u.steer_q;
       // prf_steer (D3): away from an ALU whose bank has no free register on the thread's list
@@ -1552,32 +1612,42 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
         break;
       }
       // iq_slot_bank: the RTL's dispatch stage moves a decode group as one, so this slot's bank needs a row, and
-      // a slot-0 uop also waits for its partner's (slot 1 of the same group) when that one is here too
+      // a slot-0 uop also waits for its partner's (slot 1 of the same group) when that one is here too; with
+      // alu_full, for every later slot of the group (two partners in a 3-wide group)
       if (c_.iq_slot_bank && !c_.iq_unified) {
         if (slot_free(q, u.dslot) <= 0 || bank_capped(q, u.dslot, T.tid)) {
           T.st.disp_stall_slot++;
           T.disp_why = DW_IQ; T.disp_why_q = q; T.disp_why_k = u.dslot; T.disp_why_alu = u.q == Q_ALU_ANY;
           break;
         }
-        Uop* v = u.dslot == 0 ? find(u.id + 1) : nullptr;
-        if (v && v->tid == u.tid && v->dgrp == u.dgrp && v->dslot == 1 && v->state == 0 && v->t_disp_ok <= t_) {
+        const int last = c_.alu_full ? (int)c_.decode_width - 1 : 1;
+        bool group_ok = true;
+        for (int s = 1; s <= last && u.dslot == 0 && group_ok; s++) {
+          Uop* v = find(u.id + (uint64_t)s);
+          if (!(v && v->tid == u.tid && v->dgrp == u.dgrp && v->dslot == s && v->state == 0 && v->t_disp_ok <= t_))
+            break;
           bool ok = true;
-          if (v->q == Q_ALU_ANY && c_.iq_steer_rn && !c_.alu3) {  // renamed with its partner: the same flags
+          if (v->q == Q_ALU_ANY && c_.alu_full) {
+            if (v->steer_q == 0xff) steer_n(*v);
+            ok = slot_free(v->steer_q, s) > 0 && !bank_capped(v->steer_q, s, T.tid);
+          } else if (v->q == Q_ALU_ANY && c_.iq_steer_rn && !c_.alu3) {  // renamed with its partner: the same flags
             if (v->steer_q == 0xff) steer(*v);
-            ok = slot_free(v->steer_q, 1) > 0 && !bank_capped(v->steer_q, 1, T.tid);
+            ok = slot_free(v->steer_q, s) > 0 && !bank_capped(v->steer_q, s, T.tid);
           } else if (v->q == Q_ALU_ANY) {
-            ok = (slot_free(Q_A0, 1) > 0 && !bank_capped(Q_A0, 1, T.tid)) ||
-                 (slot_free(Q_A1, 1) > 0 && !bank_capped(Q_A1, 1, T.tid));
+            ok = (slot_free(Q_A0, s) > 0 && !bank_capped(Q_A0, s, T.tid)) ||
+                 (slot_free(Q_A1, s) > 0 && !bank_capped(Q_A1, s, T.tid));
           } else if (v->q != Q_SERIAL) {
-            ok = slot_free(v->q, 1) > 0 && !bank_capped(v->q, 1, T.tid);
+            ok = slot_free(v->q, s) > 0 && !bank_capped(v->q, s, T.tid);
           }
           if (!ok) {
             T.st.disp_stall_slot++;
-            T.disp_why = DW_IQ; T.disp_why_q = v->q == Q_ALU_ANY ? (uint8_t)Q_A0 : v->q; T.disp_why_k = 1;
+            T.disp_why = DW_IQ; T.disp_why_k = s;
+            T.disp_why_q = v->q == Q_ALU_ANY ? (c_.alu_full ? v->steer_q : (uint8_t)Q_A0) : v->q;
             T.disp_why_alu = v->q == Q_ALU_ANY;
-            break;
+            group_ok = false;
           }
         }
+        if (!group_ok) break;
       }
     }
     if (banked && ibank < 0) {  // either bank: the one with more free rows, else the uop's own half
@@ -1749,7 +1819,7 @@ void Core::exec_load(Uop& u) {
   const uint64_t t = t_, t_ag = t + 2;
   const uint64_t d = (uint64_t)c_.abl_ld_use, dn = (uint64_t)c_.abl_done;
   T.st.loads++;
-  bool violated = false, drain_clash = false;
+  bool violated = false, drain_clash = false, pa_violated = false;
   // spec_filter (the RTL's filter C, tg_issue): an integer load whose PC's loads keep failing to complete in M2 wakes
   // its dependants with its result, not speculatively, and cancels nothing; trained once per issue, at M2
   const int ph = c_.spec_filter && u.cls != Cls::FLD && u.dst_arch >= 0 ? swf_hash(u.di->pc) : -1;
@@ -1772,10 +1842,28 @@ void Core::exec_load(Uop& u) {
     T.st.shadow_cancels++;
     T.st.stq_cancels++;
   };
+  // lsq_pa_bits: the searches compare the low N address bits; a match there the full address doesn't confirm is false
+  const uint64_t pam = c_.lsq_pa_bits > 0 ? (1ull << c_.lsq_pa_bits) - 1 : 0;
   for (auto it = T.sq.rbegin(); it != T.sq.rend(); ++it) {
     SqEntry& s = *it;
     if (s.id > u.id || s.mmio) continue;
-    if (!(s.addr < u.addr + u.size && u.addr < s.addr + s.size)) continue;
+    if (!(s.addr < u.addr + u.size && u.addr < s.addr + s.size)) {
+      const uint64_t a = s.addr & pam, b = u.addr & pam;
+      if (!pam || !(a < b + u.size && b < a + s.size)) continue;
+      if (s.t_addr > t_ag) {   // the store's own search will meet this load on the low bits: an ordering flush
+        T.st.pa_viol_false++;
+        violated = pa_violated = true;
+        break;
+      }
+      if (u.pa_ok) continue;   // replayed: its search confirms each match with the full address
+      if (!u.pa_hit) { u.pa_hit = true; T.st.pa_ld_false++; }
+      T.st.pa_ld_retries++;   // the confirm fails: the load replays once (lsq_pa_wait 0) or waits for the store
+      wait_cancel();
+      u.state = 1; u.t_eligible = t + (c_.lsq_pa_wait ? 8 : 4); u.t_issue = NEVER;
+      u.pa_ok = !c_.lsq_pa_wait;
+      iq_reinsert(u);
+      return;
+    }
     // dc_row_clash: the RTL searches the SQ at M1 (t + 3) and reads the D$ at AG (t + 2). A committed store at the
     // SQ's head or next drains at t + 1 or t + 2: gone from the SQ by M1, and its D$ write meets the AG read, so the
     // load retries instead of forwarding.
@@ -1823,7 +1911,7 @@ void Core::exec_load(Uop& u) {
     iq_reinsert(u);
     return;
   }
-  if (violated) { u.violated = true; T.st.violations++; }
+  if (violated) { u.violated = true; if (!pa_violated) T.st.violations++; }
   u.t_ag = t_ag;
   const bool hit = res == MemSys::Res::HIT;
   uint8_t& hp = hitpred_.at(u.di->pc ^ T.salt);
@@ -2891,6 +2979,7 @@ std::string Core::region_json(const Thread& T) const {
     TG_LEVER_STATS(TG_RJ)
   }
   if (c_.prf_split || c_.flush_walk || c_.smt_rn_one) { TG_M7_STATS(TG_RJ) }
+  if (c_.alu_full || c_.lsq_pa_bits) { TG_AREA_STATS(TG_RJ) }
 #undef TG_RJ
 #define TG_MJ(n) o << ",\"" #n "\":" << (T.ms_end.n - (T.region_seen ? T.ms_start.n : 0));
   TG_MEMSTATS(TG_MJ)

@@ -37,13 +37,9 @@ package tg_cfg_pkg;
 
   // Registers: one integer bank per writer (N_ALU ALU banks + the load bank), two FP banks
   localparam int INT_PREGS_PER_BANK = 64;
-  // M7 (DR-175, D3 revised): FP banks of 96 with hart 1 (TG_HART1=1), so each holds both harts' 32 and their spares;
-  // 64 otherwise (hart 1 off: the same cycles and area)
-`ifdef TG_HART1
-  localparam int FP_PREGS_PER_BANK  = (`TG_HART1) ? 96 : 64;
-`else
+  // FP banks of 64 with hart 1 too (DR-179, replacing DR-175's 96): an FP op whose own bank has no register left for
+  // its hart renames into the other bank
   localparam int FP_PREGS_PER_BANK  = 64;
-`endif
 
   // Front end
   localparam int UBTB_ENTRIES = 64;  // 2-way LUTRAM

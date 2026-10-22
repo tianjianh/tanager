@@ -96,6 +96,7 @@ struct Uop {
   uint8_t dslot = 0;
   uint8_t steer_q = 0xff;             // iq_steer_rn: the ALU queue rename picked (0xff: not yet)
   bool is_load = false, is_store = false, violated = false, has_llt = false, in_lq = false;
+  bool pa_hit = false, pa_ok = false;   // lsq_pa_bits: a load met a false low-bit match; its search now confirms
   bool retired_early = false;
   int row = -1;
   uint8_t iq_bank = 0;                // iq_bank: the bank of its queue's rows that holds it
@@ -154,7 +155,13 @@ struct SqEntry {
 #define TG_M7_STATS(X) X(prf_xfers) X(flush_walks) X(disp_stall_walk) X(prf_xbanks) X(prf_starved) \
   X(rn_held) X(rn_blocked) X(rn_room_skips) X(rn_held_rob) X(rn_held_lq) X(rn_held_sq) X(rn_held_reg) X(rn_held_iq) \
   X(rn_held_other) X(fetch_hold) X(fetch_hold_other) X(cm_none) X(cm_none_ready) X(fld_held) X(fld_held_cycles) \
-  X(fld_replays) X(fh_ld_lost) X(fh_fp_lost) X(fld_waits) X(fetch_parks)
+  X(fld_replays) X(fh_ld_lost) X(fh_fp_lost) X(fld_waits) X(fetch_parks) X(dec_lost_other)
+// The area ideas (reported with alu_full or lsq_pa_bits): ALU ops steered to each port; ops that need a full port;
+// ALU ops steered off their slot's port because it can't run them, for want of a free row, or for want of a register
+// in its bank; loads whose low-bit match on an older store the full address doesn't confirm, the re-issues those cost,
+// and the ordering flushes a store's low-bit match raises.
+#define TG_AREA_STATS(X) X(alu_p0) X(alu_p1) X(alu_p2) X(alu_full_ops) X(alu_cap_moves) X(alu_row_moves) \
+  X(alu_reg_moves) X(pa_ld_false) X(pa_ld_retries) X(pa_viol_false)
 
 struct Stats {
 #define TG_SDECL(n) uint64_t n = 0;
@@ -162,6 +169,7 @@ struct Stats {
   TG_SMT_STATS(TG_SDECL)
   TG_LEVER_STATS(TG_SDECL)
   TG_M7_STATS(TG_SDECL)
+  TG_AREA_STATS(TG_SDECL)
 #undef TG_SDECL
 };
 
@@ -349,8 +357,10 @@ class Core {
   int dec_n_ = 0;                     // uops decoded so far this cycle (the next one's slot)
   // iq_steer_rn: the ALU queues' bank flags (a row free, by slot) rename read for this cycle's dispatch, and this
   // cycle's, which the next cycle's rename reads
-  std::array<std::array<bool, 2>, 2> steer_flags_{{{true, true}, {true, true}}}, bf_prev_{{{true, true}, {true, true}}};
+  std::array<std::array<bool, 3>, 3> steer_flags_{{{true, true, true}, {true, true, true}, {true, true, true}}},
+      bf_prev_{{{true, true, true}, {true, true, true}, {true, true, true}}};   // [ALU queue][decode slot]
   void steer(Uop& u) const;
+  void steer_n(Uop& u);   // alu_full: rename's steering over N ports, by what each can run
   // dc_row_clash: loads at their AG cycle (the D$ row they read), checked against the store drain's row writes
   struct AgRec { uint64_t ag, issue, id, blk; bool spec; bool done = false; int ph = -1; };  // ph: spec_filter's
   std::vector<AgRec> ag_recs_;

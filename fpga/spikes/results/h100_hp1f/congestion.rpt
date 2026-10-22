@@ -1,0 +1,90 @@
+######## report_design_analysis -congestion -return_string
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+---------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
+| Date         : Wed Oct 21 19:35:29 2026
+| Host         : w-arrowlake running 64-bit Ubuntu 24.04.5 LTS
+| Command      : report_design_analysis -congestion -return_string
+| Design       : kv260_top
+| Device       : xck26
+| Design State : Routed
+---------------------------------------------------------------------------------------------------------------------------------------------
+
+Report Design Analysis
+
+Table of Contents
+-----------------
+1. Placer Final Level Congestion Reporting
+2. Router Initial Congestion
+
+1. Placer Final Level Congestion Reporting
+------------------------------------------
+
++-----------+-------+-------+------------------------------+---------------+----------------+-----+--------+------+------+------+------+-----+-------+-----+---------------------------------------------------------------------------------------------------------------------+
+| Direction |  Type | Level |            Window            | Combined LUTs | Avg LUT Inputs | LUT | LUTRAM | Flop | MUXF | RAMB | URAM | DSP | CARRY | SRL |                                                      Cell Names                                                     |
++-----------+-------+-------+------------------------------+---------------+----------------+-----+--------+------+------+------+------+-----+-------+-----+---------------------------------------------------------------------------------------------------------------------+
+| North     | Short |     5 | (CLEM_X9Y87,CLEL_R_X23Y118)  |            4% |          4.771 | 86% | 22%    |  28% |   0% | 50%  | NA   | 15% |   16% |  0% | u_soc/g_core[1].g_tgc.u_core/u_lsu(54%),u_soc/u_uncore(17%),u_soc/g_core[1].g_tgc.u_core/u_fetch(10%)               |
+| South     | Short |     5 | (CLEM_X9Y76,CLEL_R_X23Y107)  |            5% |          4.354 | 80% | 32%    |  24% |   1% | 83%  | NA   | 2%  |   21% |  0% | u_soc/g_core[1].g_tgc.u_core/u_lsu(56%),u_soc/g_core[1].g_tgc.u_core(14%),u_soc/g_core[1].g_tgc.u_core/u_fetch(10%) |
+| East      | Short |     5 | (CLEM_X9Y126,CLEL_R_X23Y157) |            4% |          4.261 | 79% | 35%    |  24% |   1% | 66%  | NA   | 0%  |   15% |  0% | u_soc/g_core[0].g_tgc.u_core/u_lsu(55%),u_soc/u_uncore(15%),u_soc/g_core[0].g_tgc.u_core(6%)                        |
+| West      | Short |     5 | (CLEL_R_X2Y127,DSP_X17Y155)  |            3% |          4.391 | 82% | 28%    |  25% |   1% | NA   | NA   | 0%  |   22% |  0% | u_soc/g_core[0].g_tgc.u_core/u_lsu(34%),u_soc/g_core[0].g_tgc.u_core/u_csr(31%),u_soc/u_uncore(16%)                 |
++-----------+-------+-------+------------------------------+---------------+----------------+-----+--------+------+------+------+------+-----+-------+-----+---------------------------------------------------------------------------------------------------------------------+
+
+
+2. Router Initial Congestion
+----------------------------
+
++-----------+-------+-------+-------------------------------+---------------+----------------+-----+--------+------+------+------+------+-----+-------+-----+---------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| Direction |  Type | Level |             Window            | Combined LUTs | Avg LUT Inputs | LUT | LUTRAM | Flop | MUXF | RAMB | URAM | DSP | CARRY | SRL |                                                         Cell Names                                                        |                                                                                                                                                                                      Sub Windows                                                                                                                                                                                     |
++-----------+-------+-------+-------------------------------+---------------+----------------+-----+--------+------+------+------+------+-----+-------+-----+---------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| North     | Short |     5 | (CLEM_X6Y72,CLEM_X29Y119)     |            4% |          4.524 | 98% |    28% |  28% |   1% |  66% |   NA | 10% |   23% |  0% | u_soc/g_core[1].g_tgc.u_core/u_lsu(41%),u_soc/u_uncore(14%),u_soc/g_core[1].g_tgc.u_core/u_fetch(12%)                     | (CLEM_X6Y112,CLEL_R_X13Y119), (CLEM_X6Y104,CLEL_R_X13Y111), (CLEM_X6Y96,CLEL_R_X13Y103), (CLEM_X14Y112,CLEL_R_X21Y119), (CLEM_X14Y104,CLEL_R_X21Y111), (CLEM_X14Y96,CLEL_R_X21Y103), (CLEM_X14Y88,CLEL_R_X21Y95), (CLEM_X14Y80,CLEL_R_X21Y87), (CLEM_X14Y72,CLEL_R_X21Y79), (CLEM_X22Y88,CLEL_R_X29Y95), (CLEM_X22Y80,CLEL_R_X29Y87), (CLEM_X22Y72,CLEL_R_X29Y79)                    |
+| South     | Short |     5 | (CLEL_R_X0Y68,CLEL_R_X31Y115) |            3% |          4.389 | 98% |    32% |  26% |   1% | 100% | 100% |  7% |   23% |  0% | u_soc/g_core[1].g_tgc.u_core/u_lsu(36%),u_soc/g_core[1].g_tgc.u_core/u_csr(25%),u_soc/g_core[1].g_tgc.u_core/u_fetch(14%) | (CLEL_R_X0Y100,CLEM_X7Y107), (CLEL_R_X0Y92,CLEM_X7Y99), (CLEL_R_X8Y108,CLEL_R_X15Y115), (CLEL_R_X8Y100,CLEL_R_X15Y107), (CLEL_R_X8Y92,CLEL_R_X15Y99), (CLEL_R_X8Y84,CLEL_R_X15Y91), (CLEL_R_X8Y76,CLEL_R_X15Y83), (CLEL_R_X16Y84,CLEL_R_X23Y91), (CLEL_R_X16Y76,CLEL_R_X23Y83), (CLEL_R_X16Y68,CLEL_R_X23Y75), (CLEM_X24Y84,CLEL_R_X31Y91)                                           |
+| East      | Short |     6 | (CLEM_X2Y72,CLEL_R_X33Y167)   |            5% |          4.546 | 98% |    26% |  29% |   1% |  78% | 100% |  5% |   21% |  0% | u_soc/g_core[1].g_tgc.u_core(36%),u_soc/g_core[0].g_tgc.u_core(32%),u_soc/u_uncore(29%)                                   | (CLEM_X2Y136,CLEL_R_X33Y167), (CLEM_X2Y104,CLEL_R_X33Y135), (CLEM_X2Y72,CLEL_R_X33Y103)                                                                                                                                                                                                                                                                                              |
+| East      | Short |     6 | (CLEM_X2Y56,CLEL_R_X33Y167)   |            4% |          4.475 | 97% |    28% |  28% |   1% | 100% | 100% |  4% |   24% |  0% | u_soc/g_core[1].g_tgc.u_core(44%),u_soc/g_core[0].g_tgc.u_core(28%),u_soc/u_uncore(26%)                                   | (CLEM_X2Y136,CLEM_X17Y151), (CLEM_X2Y120,CLEM_X17Y135), (CLEM_X2Y104,CLEM_X17Y119), (CLEM_X2Y88,CLEM_X17Y103), (CLEM_X18Y152,CLEL_R_X33Y167), (CLEM_X18Y136,CLEL_R_X33Y151), (CLEM_X18Y88,CLEL_R_X33Y103), (CLEM_X18Y72,CLEL_R_X33Y87), (CLEM_X18Y56,CLEL_R_X33Y71)                                                                                                                  |
+| West      | Short |     6 | (CLEM_X2Y55,CLEL_R_X33Y166)   |            4% |          4.529 | 98% |    26% |  28% |   1% |  78% | 100% |  6% |   20% |  0% | u_soc/g_core[1].g_tgc.u_core(41%),u_soc/g_core[0].g_tgc.u_core(29%),u_soc/u_uncore(27%)                                   | (CLEM_X2Y151,CLEM_X17Y166), (CLEM_X2Y135,CLEM_X17Y150), (CLEM_X2Y119,CLEM_X17Y134), (CLEM_X2Y103,CLEM_X17Y118), (CLEM_X2Y87,CLEM_X17Y102), (CLEM_X2Y71,CLEM_X17Y86), (CLEM_X2Y55,CLEM_X17Y70), (CLEM_X18Y151,CLEL_R_X33Y166), (CLEM_X18Y135,CLEL_R_X33Y150), (CLEM_X18Y119,CLEL_R_X33Y134), (CLEM_X18Y103,CLEL_R_X33Y118), (CLEM_X18Y87,CLEL_R_X33Y102), (CLEM_X18Y71,CLEL_R_X33Y86) |
+| West      | Short |     6 | (CLEM_X2Y71,CLEL_R_X33Y166)   |            5% |          4.550 | 98% |    26% |  29% |   1% |  78% | 100% |  5% |   21% |  0% | u_soc/g_core[1].g_tgc.u_core(37%),u_soc/g_core[0].g_tgc.u_core(32%),u_soc/u_uncore(29%)                                   | (CLEM_X2Y135,CLEL_R_X33Y166), (CLEM_X2Y103,CLEL_R_X33Y134), (CLEM_X2Y71,CLEL_R_X33Y102)                                                                                                                                                                                                                                                                                              |
++-----------+-------+-------+-------------------------------+---------------+----------------+-----+--------+------+------+------+------+-----+-------+-----+---------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+
+
+
+######## report_design_analysis -complexity -return_string
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+---------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
+| Date         : Wed Oct 21 19:35:38 2026
+| Host         : w-arrowlake running 64-bit Ubuntu 24.04.5 LTS
+| Command      : report_design_analysis -complexity -return_string
+| Design       : kv260_top
+| Device       : xck26
+| Design State : Routed
+---------------------------------------------------------------------------------------------------------------------------------------------
+
+Report Design Analysis
+
+Table of Contents
+-----------------
+1. Complexity Characteristics (Cells)
+
+1. Complexity Characteristics (Cells)
+-------------------------------------
+
++--------+------+----------------+-----------------+-----------+------+------+------+------+------+------+------------+-----+------+------+------+-------------------+
+| Module | Rent | Average Fanout | Total Instances | Registers | LUT1 | LUT2 | LUT3 | LUT4 | LUT5 | LUT6 | Memory LUT | DSP | RAMB | MUXF | URAM | Hierarchical Name |
++--------+------+----------------+-----------------+-----------+------+------+------+------+------+------+------------+-----+------+------+------+-------------------+
+* No complexity report generated as cells satisfying given conditions are not present in the design.
+
+
+
+######## report_route_status -return_string
+Design Route Status
+                                               :      # nets :
+   ------------------------------------------- : ----------- :
+   # of logical nets.......................... :      363415 :
+       # of nets not needing routing.......... :      168496 :
+           # of internally routed nets........ :      144077 :
+           # of nets with no loads............ :       24419 :
+       # of routable nets..................... :      194919 :
+           # of fully routed nets............. :      194919 :
+       # of nets with routing errors.......... :           0 :
+   ------------------------------------------- : ----------- :
+
+

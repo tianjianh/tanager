@@ -1,0 +1,25 @@
+﻿The laptop's power events, Windows System log, 10-21 (UTC; the log's local times are PDT, UTC-7)
+
+2026-10-21 10:37:41   524  Kernel-Power  Critical Battery Trigger Met
+2026-10-21 10:37:41   566  Kernel-Power  The system session has transitioned from 3 to 4.
+2026-10-21 10:37:43    42  Kernel-Power  The system is entering sleep.
+2026-10-21 10:37:45   107  Kernel-Power  The system has resumed from sleep.
+2026-10-21 11:08:32     1  Kernel-General  The system time has changed to ‎2026‎-‎10‎-‎21T11:08:32.500000000Z from ‎2026‎-‎10‎-‎21T10:37:45.219690700Z.
+2026-10-21 11:08:33   105  Kernel-Power  Power source change.
+2026-10-21 11:08:34   566  Kernel-Power  The system session has transitioned from 4 to 5.
+2026-10-21 11:08:34   506  Kernel-Power  The system is entering Modern Standby
+2026-10-21 11:08:34   507  Kernel-Power  The system is exiting Modern Standby
+2026-10-21 11:08:34   566  Kernel-Power  The system session has transitioned from 5 to 7.
+2026-10-21 11:08:37     1  Power-Troubleshooter  The system has returned from a low power state.
+2026-10-21 11:57:10   524  Kernel-Power  Critical Battery Trigger Met
+2026-10-21 11:57:10   566  Kernel-Power  The system session has transitioned from 7 to 8.
+2026-10-21 11:57:12    42  Kernel-Power  The system is entering sleep.
+2026-10-21 11:57:14   107  Kernel-Power  The system has resumed from sleep.
+2026-10-21 17:02:00     1  Kernel-General  The system time has changed to ‎2026‎-‎10‎-‎21T17:02:00.500000000Z from ‎2026‎-‎10‎-‎21T11:57:14.291845500Z.
+2026-10-21 17:02:02   566  Kernel-Power  The system session has transitioned from 8 to 9.
+2026-10-21 17:02:02   506  Kernel-Power  The system is entering Modern Standby
+2026-10-21 17:02:03   507  Kernel-Power  The system is exiting Modern Standby
+2026-10-21 17:02:03   566  Kernel-Power  The system session has transitioned from 9 to 11.
+2026-10-21 17:02:04     1  Power-Troubleshooter  The system has returned from a low power state.
+
+At 17:48:05 UTC: PowerOnline=True, charge 100%

@@ -12,9 +12,12 @@
 // HDMA_CTRL says so, read in order through HDMA_CPL0/1 while a producer pushes them with gaps, a full
 // queue holding the producer, the line counters, the uncore reset emptying the queue. BOARD_CTRL (D4's modes,
 // docs/spec/soc-d4-modes.md): its bits to the core side, the PS window's reset-write status back, kept through
-// an uncore reset.
+// an uncore reset. REL = 1 (make ... REL=1: with COMMIT_TRACE=0 and LAT_INJ=0) is a release build's bridge (DR-180):
+// no console FIFOs (the UART's stream never waits, nothing comes back, the console registers read 0), no DMA line
+// counters or completion queue, and the crossings trimmed to the fields built (the traffic generators', the
+// trace's and the injectors' stay at their reset values on the far side); CAPS says so.
 module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0, parameter bit HDMA = 1'b0,
-                        parameter bit LAT_INJ = 1'b1);
+                        parameter bit LAT_INJ = 1'b1, parameter bit REL = 1'b0);
   import tg_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*;
 
   logic clk = 1'b0, clk_host = 1'b0, rst = 1'b1, rst_host = 1'b1;
@@ -74,7 +77,9 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0,
   logic [1:0]  board_ctrl, board_hook = 2'b00;            // BOARD_CTRL out; the reset write's status back
 
   tg_host_bridge #(.CLK_HZ (100_000_000), .CFG_CODE (8'd1), .N_CORES_SOC (2), .CORE_RST_INIT (1'b1),
-                   .UNCORE_RST_INIT (1'b1), .TRACE (TRACE), .VIRTIO (VIRTIO), .HDMA (HDMA), .LAT_INJ (LAT_INJ)) dut (
+                   .UNCORE_RST_INIT (1'b1), .TRACE (TRACE), .VIRTIO (VIRTIO), .HDMA (HDMA), .LAT_INJ (LAT_INJ),
+                   .HOST_CONSOLE (!REL), .HDMA_STATS (!REL), .HDMA_CPL (!REL || TRACE), .TRAFGEN (!REL),
+                   .CDC_TRIM (REL)) dut (
     .clk_host, .rst_host,
     .s_awaddr (l_awaddr), .s_awvalid (l_awvalid), .s_awready (l_awready),
     .s_wdata (l_wdata), .s_wstrb (l_wstrb), .s_wvalid (l_wvalid), .s_wready (l_wready),
@@ -450,6 +455,57 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0,
     $display("host DMA completions: ok");
   endtask
 
+  // ---- a release build's DMA port registers: no completion queue (no trace), no line counters ----
+  task automatic test_hdma_rel();
+    expect_h(16'h1400, 32'h0A5C_3E01, "FAN (the board's status word, through the status crossing)");
+    expect_h(16'h1318, 32'd31, "HDMA_WR_DROPS (kept in a release build)");
+    expect_h(16'h1308, 32'd0, "HDMA_RD_LINES in a release build");
+    expect_h(16'h130C, 32'd0, "HDMA_WR_LINES in a release build");
+    hw(16'h1300, 32'h1);
+    expect_h(16'h1300, 32'h0, "HDMA_CTRL in a release build");
+    repeat (60) @(posedge clk);
+    if (cpl_en) fail("completions recorded in a release build");
+    for (int i = 0; i < 20; i++) begin                       // offered completions: taken at once, dropped
+      @(negedge clk); cpl = 58'(i + 1); cpl_v = 1;
+      @(posedge clk);
+      if (!cpl_r) fail("the completion port waited in a release build");
+    end
+    @(negedge clk) cpl_v = 0;
+    repeat (60) @(posedge clk);
+    expect_h(16'h1304, 32'd0, "HDMA_STATUS in a release build");
+    expect_h(16'h1310, 32'd0, "HDMA_CPL0 in a release build");
+    expect_h(16'h1314, 32'd0, "HDMA_CPL1 in a release build");
+    $display("host DMA registers, release form: ok");
+  endtask
+
+  // ---- a release build's console: none through the host ----
+  task automatic test_no_console();
+    logic [31:0] v;
+    hw(16'h080, 32'h0); hw(16'h084, 32'h1);           // only the console interrupt
+    hw(16'h010, 32'h4);                               // lossless: still never waits
+    repeat (40) @(posedge clk);
+    for (int i = 0; i < 2500; i++) begin
+      @(negedge clk);
+      ctx_b = 8'(i);
+      ctx_v = 1;
+      @(posedge clk);
+      if (!ctx_r) fail("a release build's console stalled the UART");
+    end
+    @(negedge clk) ctx_v = 0;
+    repeat (40) @(posedge clk);
+    hr(16'h080, v); if (v[0]) fail("IRQ_STATUS[0] (console bytes) in a release build");
+    if (host_irq) fail("host_irq for the console in a release build");
+    expect_h(16'h100, 32'h0, "UART_TX in a release build");
+    expect_h(16'h104, 32'h0, "UART_TX_LEVEL in a release build");
+    expect_h(16'h10C, 32'h0, "UART_RX_SPACE in a release build");
+    for (int i = 0; i < 8; i++) hw(16'h108, 32'(8'(i * 5)));
+    repeat (200) @(posedge clk);
+    if (rx_got.size() != 0) fail($sformatf("console input: %0d bytes reached the UART in a release build", rx_got.size()));
+    if (crx_v) fail("console input valid in a release build");
+    hw(16'h010, 32'h0);
+    $display("console: none through the host (release form)");
+  endtask
+
   // ---- console endpoints ----
   logic [7:0] tx_sent[$], rx_got[$];
   bit         tx_push;
@@ -475,7 +531,8 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0,
     hr(16'h004, v);
     if (v[7:0] != 8'd1 || v[15:12] != 4'd2) fail($sformatf("VERSION %h", v));
     expect_h(16'h008, 32'd100_000_000, "CLK_HZ");
-    expect_h(16'h00C, {23'd0, HDMA, 4'(N_BANKS), TRACE, VIRTIO, LAT_INJ, 1'b1}, "CAPS");
+    expect_h(16'h00C, {20'd0, HDMA && (!REL || TRACE), HDMA && !REL, !REL, HDMA, 4'(N_BANKS), TRACE, VIRTIO, LAT_INJ,
+                       1'b1}, "CAPS");
     expect_h(16'h010, 32'h3, "CTRL");
     expect_h(16'h030, 32'h8000_0000, "BOOT_ENTRY lo");
     expect_h(16'h038, 32'h8220_0000, "DTB_ADDR lo");
@@ -522,9 +579,18 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0,
       expect_h(16'h054, 32'd0, "INJ_RD_LATSUM without the injector");
       expect_h(16'h058, 32'd0, "INJ_RD_LATMAX without the injector");
     end
-    if (!tg_en || tg_base != 28'h200_0040 || tg_lines != 24'd2048) fail("traffic-generator configuration crossing");
-    expect_h(16'h0D0, 32'd42, "TG_OPS");
-    expect_h(16'h0DC, 32'd3, "TG_PASS");
+    if (!REL) begin
+      if (!tg_en || tg_base != 28'h200_0040 || tg_lines != 24'd2048) fail("traffic-generator configuration crossing");
+      expect_h(16'h0D0, 32'd42, "TG_OPS");
+      expect_h(16'h0DC, 32'd3, "TG_PASS");
+    end else begin
+      // a release build's real cores: the traffic generators' fields don't cross, either way
+      if (tg_en || tg_base != 28'(DRAM_BASE >> 6) || tg_lines != 24'd16384)
+        fail("traffic-generator configuration crossed in a release build");
+      expect_h(16'h0C0, 32'h1, "TG_CTRL (the host's register) in a release build");
+      expect_h(16'h0D0, 32'd0, "TG_OPS in a release build");
+      expect_h(16'h0DC, 32'd0, "TG_PASS in a release build");
+    end
 
     // ---- trace-stream registers (docs/spec/uncore-trace.md): 64-bit commits, both crossings ----
     hw(16'h1020, 32'h4100_0000); hw(16'h1024, 32'h8);       // TRS_BASE
@@ -550,10 +616,10 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0,
       expect_h(16'h1000, 32'h0, "TRS_CTRL without the trace");
       expect_h(16'h1034, 32'h0, "TRS_RP high without the trace");
     end
-    expect_h(16'h1038, 32'h2345_6789, "TRS_WP low");
-    expect_h(16'h103C, 32'h1, "TRS_WP high");
-    expect_h(16'h1040, {16'd17, 11'd0, 5'b01011}, "TRS_STATUS");
-    expect_h(16'h1044, 32'd999, "TRS_STALLS");
+    expect_h(16'h1038, REL ? 32'h0 : 32'h2345_6789, "TRS_WP low");
+    expect_h(16'h103C, REL ? 32'h0 : 32'h1, "TRS_WP high");
+    expect_h(16'h1040, REL ? 32'h0 : {16'd17, 11'd0, 5'b01011}, "TRS_STATUS");
+    expect_h(16'h1044, REL ? 32'h0 : 32'd999, "TRS_STALLS");
     expect_h(16'h1048, 32'h0000_0240, "TRS_INFO");
     hw(16'h1000, 32'h0);
 
@@ -573,7 +639,9 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0,
     if (tfreeze) fail("CTRL.TFREEZE set at reset");
     hw(16'h010, 32'h8);
     repeat (40) @(posedge clk);
-    if (!tfreeze || core_rst || uncore_rst) fail("CTRL.TFREEZE did not reach the core side alone");
+    if (REL) begin                                   // a release build: no trace, so TFREEZE doesn't cross
+      if (tfreeze || core_rst || uncore_rst) fail("CTRL.TFREEZE crossed in a release build");
+    end else if (!tfreeze || core_rst || uncore_rst) fail("CTRL.TFREEZE did not reach the core side alone");
     expect_h(16'h010, 32'h8, "CTRL with TFREEZE");
     hw(16'h010, 32'h0);
     repeat (40) @(posedge clk);
@@ -611,6 +679,8 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0,
     repeat (60) @(posedge clk);
     cacc(12'h030, 0, '0, '0, q); if (q != 64'h3333_4444_1111_2222) fail("FROMHOST");
 
+    if (REL) test_no_console();
+    else begin
     // ---- console RISC-V -> host, lossless: a producer and the host drain run together ----
     hw(16'h080, 32'h0); hw(16'h084, 32'h1);           // only the console interrupt
     hw(16'h010, 32'h4);                               // lossless
@@ -676,10 +746,13 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0,
     repeat (200) @(posedge clk);
     if (rx_got.size() != 700) fail($sformatf("console input: %0d of 700 bytes", rx_got.size()));
     foreach (rx_got[i]) if (rx_got[i] != 8'(i * 5)) begin fail($sformatf("console input byte %0d", i)); break; end
+    end
     $display("host_bridge: port signatures %016h (host) %016h (core)", hsig, csig);
     // after the signatures, which stay comparable with builds before the window and BOARD_CTRL
     test_board();
-    if (HDMA) begin
+    if (HDMA && REL) begin
+      test_hdma_rel();
+    end else if (HDMA) begin
       test_hdma();
     end else begin
       hw(16'h1300, 32'h1);                                   // no port: HDMA_CTRL ignores writes

@@ -1,0 +1,29 @@
+== l2b0: 800 slices (6400 LUT sites), ranges SLICE_X41Y68:SLICE_X60Y107 URAM288_X0Y15:URAM288_X0Y31 DSP48E2_X12Y28:DSP48E2_X12Y43 RAMB36_X1Y14:RAMB36_X2Y17 RAMB18_X1Y28:RAMB18_X2Y35
+  kind      own_in  own_out other_in   all_in
+  lut         3950      652     2602     6552
+  lutram       901      578      363     1264
+  ff          2450      661     1099     3549
+  carry         51       11       53      104
+  muxf          87        7       51      138
+  bram           5        2        3        8
+  uram          16        0        1       17
+  own cells' slices: 681 inside, 287 outside, outside within SLICE_X26Y64:SLICE_X60Y126; 29 own cells unplaced
+== l2b1: 800 slices (6400 LUT sites), ranges SLICE_X41Y132:SLICE_X60Y171 URAM288_X0Y32:URAM288_X0Y49 DSP48E2_X12Y52:DSP48E2_X12Y69 RAMB36_X1Y27:RAMB36_X2Y30 RAMB18_X1Y54:RAMB18_X2Y61
+  kind      own_in  own_out other_in   all_in
+  lut         4299      679     2209     6508
+  lutram      1190      289      434     1624
+  ff          2734      377     1040     3774
+  carry         53        9       34       87
+  muxf         102        0      100      202
+  bram           3        4        5        8
+  uram          16        0        2       18
+  own cells' slices: 720 inside, 331 outside, outside within SLICE_X15Y77:SLICE_X60Y179; 29 own cells unplaced
+== xbar: 504 slices (4032 LUT sites), ranges SLICE_X23Y102:SLICE_X40Y129 DSP48E2_X6Y40:DSP48E2_X11Y51 RAMB36_X0Y21:RAMB36_X0Y25 RAMB18_X0Y40:RAMB18_X0Y51
+  kind      own_in  own_out other_in   all_in
+  lut         1468      583     3215     4683
+  lutram         0        0      328      328
+  ff          1850      823      971     2821
+  carry          0        0       75       75
+  muxf          17        2       40       57
+  dsp          117        0      -13      104
+  own cells' slices: 385 inside, 300 outside, outside within SLICE_X9Y72:SLICE_X60Y149; 64 own cells unplaced
