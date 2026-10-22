@@ -9592,5 +9592,1105 @@
     }
    }
   }
+ },
+ "pa2": {
+  "single": {
+   "full addresses": {
+    "pd_copy17p0": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p8": {
+     "instr": 155732,
+     "cycles": 205898,
+     "loads": 68071,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p32": {
+     "instr": 155732,
+     "cycles": 196256,
+     "loads": 65621,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p64": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p128": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p160": {
+     "instr": 155732,
+     "cycles": 196256,
+     "loads": 65621,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p192": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p256": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p512": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p2048": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p4032": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy16p64": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_memcpy16p64": {
+     "instr": 180276,
+     "cycles": 195182,
+     "loads": 65533,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy256p64": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_memcpy256p64": {
+     "instr": 180276,
+     "cycles": 195182,
+     "loads": 65533,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_scatter10": {
+     "instr": 1048596,
+     "cycles": 893197,
+     "loads": 262164,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_scatter16": {
+     "instr": 1048596,
+     "cycles": 1571945,
+     "loads": 424559,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_scatter20": {
+     "instr": 1048596,
+     "cycles": 1792006,
+     "loads": 446434,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    }
+   },
+   "20 bits, a false match replays once": {
+    "pd_copy17p0": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p8": {
+     "instr": 155732,
+     "cycles": 205898,
+     "loads": 68071,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p32": {
+     "instr": 155732,
+     "cycles": 196256,
+     "loads": 65621,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p64": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p128": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p160": {
+     "instr": 155732,
+     "cycles": 196256,
+     "loads": 65621,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p192": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p256": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p512": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p2048": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p4032": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy16p64": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_memcpy16p64": {
+     "instr": 180276,
+     "cycles": 195182,
+     "loads": 65533,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy256p64": {
+     "instr": 155732,
+     "cycles": 258259,
+     "loads": 130993,
+     "pa_ld_false": 65464,
+     "pa_ld_retries": 65464,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_memcpy256p64": {
+     "instr": 180276,
+     "cycles": 195324,
+     "loads": 131042,
+     "pa_ld_false": 65456,
+     "pa_ld_retries": 65456,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_scatter10": {
+     "instr": 1048596,
+     "cycles": 893197,
+     "loads": 262164,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_scatter16": {
+     "instr": 1048596,
+     "cycles": 1571945,
+     "loads": 424559,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_scatter20": {
+     "instr": 1048596,
+     "cycles": 1792006,
+     "loads": 446436,
+     "pa_ld_false": 4,
+     "pa_ld_retries": 4,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    }
+   },
+   "16 bits, a false match replays once": {
+    "pd_copy17p0": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p8": {
+     "instr": 155732,
+     "cycles": 205898,
+     "loads": 68071,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p32": {
+     "instr": 155732,
+     "cycles": 196256,
+     "loads": 65621,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p64": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p128": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p160": {
+     "instr": 155732,
+     "cycles": 196256,
+     "loads": 65621,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p192": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p256": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p512": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p2048": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p4032": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy16p64": {
+     "instr": 155732,
+     "cycles": 258283,
+     "loads": 131041,
+     "pa_ld_false": 65512,
+     "pa_ld_retries": 65512,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_memcpy16p64": {
+     "instr": 180276,
+     "cycles": 195324,
+     "loads": 131042,
+     "pa_ld_false": 65456,
+     "pa_ld_retries": 65456,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy256p64": {
+     "instr": 155732,
+     "cycles": 258283,
+     "loads": 131041,
+     "pa_ld_false": 65512,
+     "pa_ld_retries": 65512,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_memcpy256p64": {
+     "instr": 180276,
+     "cycles": 195324,
+     "loads": 131042,
+     "pa_ld_false": 65456,
+     "pa_ld_retries": 65456,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_scatter10": {
+     "instr": 1048596,
+     "cycles": 893389,
+     "loads": 262220,
+     "pa_ld_false": 12,
+     "pa_ld_retries": 12,
+     "pa_viol_false": 12,
+     "violations": 0,
+     "violation_flushes": 12
+    },
+    "pd_scatter16": {
+     "instr": 1048596,
+     "cycles": 1572009,
+     "loads": 424654,
+     "pa_ld_false": 89,
+     "pa_ld_retries": 89,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_scatter20": {
+     "instr": 1048596,
+     "cycles": 1791309,
+     "loads": 447115,
+     "pa_ld_false": 79,
+     "pa_ld_retries": 79,
+     "pa_viol_false": 8,
+     "violations": 0,
+     "violation_flushes": 8
+    }
+   },
+   "12 bits, a false match replays once": {
+    "pd_copy17p0": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p8": {
+     "instr": 155732,
+     "cycles": 225085,
+     "loads": 88681,
+     "pa_ld_false": 8188,
+     "pa_ld_retries": 8188,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p32": {
+     "instr": 155732,
+     "cycles": 237858,
+     "loads": 98337,
+     "pa_ld_false": 32764,
+     "pa_ld_retries": 32764,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p64": {
+     "instr": 155732,
+     "cycles": 258283,
+     "loads": 131041,
+     "pa_ld_false": 65512,
+     "pa_ld_retries": 65512,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p128": {
+     "instr": 155732,
+     "cycles": 258249,
+     "loads": 122785,
+     "pa_ld_false": 57256,
+     "pa_ld_retries": 57256,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p160": {
+     "instr": 155732,
+     "cycles": 196276,
+     "loads": 114545,
+     "pa_ld_false": 48948,
+     "pa_ld_retries": 48948,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p192": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p256": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p512": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p2048": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p4032": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy16p64": {
+     "instr": 155732,
+     "cycles": 258283,
+     "loads": 131041,
+     "pa_ld_false": 65512,
+     "pa_ld_retries": 65512,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_memcpy16p64": {
+     "instr": 180276,
+     "cycles": 195324,
+     "loads": 131042,
+     "pa_ld_false": 65456,
+     "pa_ld_retries": 65456,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy256p64": {
+     "instr": 155732,
+     "cycles": 258283,
+     "loads": 131041,
+     "pa_ld_false": 65512,
+     "pa_ld_retries": 65512,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_memcpy256p64": {
+     "instr": 180276,
+     "cycles": 195324,
+     "loads": 131042,
+     "pa_ld_false": 65456,
+     "pa_ld_retries": 65456,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_scatter10": {
+     "instr": 1048596,
+     "cycles": 895705,
+     "loads": 262840,
+     "pa_ld_false": 236,
+     "pa_ld_retries": 236,
+     "pa_viol_false": 116,
+     "violations": 0,
+     "violation_flushes": 116
+    },
+    "pd_scatter16": {
+     "instr": 1048596,
+     "cycles": 1571656,
+     "loads": 427446,
+     "pa_ld_false": 1412,
+     "pa_ld_retries": 1412,
+     "pa_viol_false": 64,
+     "violations": 0,
+     "violation_flushes": 60
+    },
+    "pd_scatter20": {
+     "instr": 1048596,
+     "cycles": 1790279,
+     "loads": 450022,
+     "pa_ld_false": 1283,
+     "pa_ld_retries": 1283,
+     "pa_viol_false": 88,
+     "violations": 0,
+     "violation_flushes": 64
+    }
+   },
+   "12 bits, a false match waits for the store": {
+    "pd_copy17p0": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p8": {
+     "instr": 155732,
+     "cycles": 234619,
+     "loads": 136366,
+     "pa_ld_false": 8184,
+     "pa_ld_retries": 69535,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p32": {
+     "instr": 155732,
+     "cycles": 368895,
+     "loads": 261918,
+     "pa_ld_false": 32732,
+     "pa_ld_retries": 196389,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p64": {
+     "instr": 155732,
+     "cycles": 450769,
+     "loads": 290519,
+     "pa_ld_false": 44998,
+     "pa_ld_retries": 224990,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p128": {
+     "instr": 155732,
+     "cycles": 319809,
+     "loads": 200492,
+     "pa_ld_false": 30003,
+     "pa_ld_retries": 134963,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p160": {
+     "instr": 155732,
+     "cycles": 222015,
+     "loads": 136406,
+     "pa_ld_false": 23564,
+     "pa_ld_retries": 70869,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p192": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p256": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p512": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p2048": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy17p4032": {
+     "instr": 155732,
+     "cycles": 195237,
+     "loads": 65529,
+     "pa_ld_false": 0,
+     "pa_ld_retries": 0,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy16p64": {
+     "instr": 155732,
+     "cycles": 450769,
+     "loads": 290519,
+     "pa_ld_false": 44998,
+     "pa_ld_retries": 224990,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_memcpy16p64": {
+     "instr": 180276,
+     "cycles": 439505,
+     "loads": 293051,
+     "pa_ld_false": 51648,
+     "pa_ld_retries": 227518,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_copy256p64": {
+     "instr": 155732,
+     "cycles": 450769,
+     "loads": 290519,
+     "pa_ld_false": 44998,
+     "pa_ld_retries": 224990,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_memcpy256p64": {
+     "instr": 180276,
+     "cycles": 439505,
+     "loads": 293051,
+     "pa_ld_false": 51648,
+     "pa_ld_retries": 227518,
+     "pa_viol_false": 0,
+     "violations": 0,
+     "violation_flushes": 0
+    },
+    "pd_scatter10": {
+     "instr": 1048596,
+     "cycles": 895853,
+     "loads": 262856,
+     "pa_ld_false": 236,
+     "pa_ld_retries": 252,
+     "pa_viol_false": 116,
+     "violations": 0,
+     "violation_flushes": 116
+    },
+    "pd_scatter16": {
+     "instr": 1048596,
+     "cycles": 1574124,
+     "loads": 428806,
+     "pa_ld_false": 1416,
+     "pa_ld_retries": 6871,
+     "pa_viol_false": 68,
+     "violations": 0,
+     "violation_flushes": 64
+    },
+    "pd_scatter20": {
+     "instr": 1048596,
+     "cycles": 1786388,
+     "loads": 452587,
+     "pa_ld_false": 1297,
+     "pa_ld_retries": 6335,
+     "pa_viol_false": 83,
+     "violations": 0,
+     "violation_flushes": 63
+    }
+   }
+  },
+  "pairs": {
+   "full addresses": {
+    "ws": [
+     1.2597532549539963,
+     1.2676070106081532,
+     1.260273521154859
+    ],
+    "groups": [
+     {
+      "mem+mem": 1.2209392721044603,
+      "compute+compute": 1.1755210666529428,
+      "mixed": 1.3929386458072626
+     },
+     {
+      "mem+mem": 1.1924806450252674,
+      "compute+compute": 1.178489814733661,
+      "mixed": 1.4493615142459566
+     },
+     {
+      "mem+mem": 1.1823406940729932,
+      "compute+compute": 1.182827138037731,
+      "mixed": 1.4312994926273384
+     }
+    ],
+    "hung": [
+     0,
+     0,
+     0
+    ],
+    "counts": [
+     [
+      27349090,
+      0,
+      0
+     ],
+     [
+      27988197,
+      0,
+      0
+     ],
+     [
+      28155365,
+      0,
+      0
+     ]
+    ]
+   },
+   "20 bits, a false match replays once": {
+    "ws": [
+     1.2520461804697134,
+     1.2671816549880117,
+     1.2605775128122405
+    ],
+    "groups": [
+     {
+      "mem+mem": 1.2134780723084284,
+      "compute+compute": 1.1755210666529428,
+      "mixed": 1.3759374567886
+     },
+     {
+      "mem+mem": 1.1956422648168015,
+      "compute+compute": 1.178489814733661,
+      "mixed": 1.4440743002354526
+     },
+     {
+      "mem+mem": 1.1847479413313953,
+      "compute+compute": 1.182827138037731,
+      "mixed": 1.4294251658356738
+     }
+    ],
+    "hung": [
+     0,
+     0,
+     0
+    ],
+    "counts": [
+     [
+      28105105,
+      765759,
+      20841
+     ],
+     [
+      28802069,
+      770838,
+      11382
+     ],
+     [
+      28950938,
+      769185,
+      9411
+     ]
+    ]
+   },
+   "16 bits, a false match replays once": {
+    "ws": [
+     1.2520628505233704,
+     1.2670711628301237,
+     1.2602822096315833
+    ],
+    "groups": [
+     {
+      "mem+mem": 1.2134917854894858,
+      "compute+compute": 1.1755496891544948,
+      "mixed": 1.3759433641642198
+     },
+     {
+      "mem+mem": 1.195356435874156,
+      "compute+compute": 1.178489814733661,
+      "mixed": 1.4440417951948552
+     },
+     {
+      "mem+mem": 1.1838974275012921,
+      "compute+compute": 1.182831704498918,
+      "mixed": 1.4294414900246653
+     }
+    ],
+    "hung": [
+     0,
+     0,
+     0
+    ],
+    "counts": [
+     [
+      28106200,
+      765804,
+      20841
+     ],
+     [
+      28814555,
+      770887,
+      11382
+     ],
+     [
+      28930205,
+      769233,
+      9411
+     ]
+    ]
+   },
+   "12 bits, a false match replays once": {
+    "ws": [
+     1.2507018672729326,
+     1.2674622048880535,
+     1.2608694419890907
+    ],
+    "groups": [
+     {
+      "mem+mem": 1.2127308635633318,
+      "compute+compute": 1.1754149842955737,
+      "mixed": 1.372479105560542
+     },
+     {
+      "mem+mem": 1.1964352724521283,
+      "compute+compute": 1.1784689227044935,
+      "mixed": 1.444101472621405
+     },
+     {
+      "mem+mem": 1.1847143523543273,
+      "compute+compute": 1.1829176356129603,
+      "mixed": 1.4303496102127795
+     }
+    ],
+    "hung": [
+     0,
+     0,
+     0
+    ],
+    "counts": [
+     [
+      28135746,
+      768302,
+      21084
+     ],
+     [
+      28841748,
+      766299,
+      9700
+     ],
+     [
+      28983460,
+      771805,
+      9610
+     ]
+    ]
+   }
+  }
  }
 }

@@ -2790,6 +2790,9 @@ Together they come to ≈5.3K a chip, at no IPC cost. The next ones are the queu
 - **The aliasing copies' 11–22% are the risk to weigh.** Under Linux, copy_page and clear_page are immune; how often user and kernel copies meet small offsets modulo 2^N isn't measured here.
 
 **Model beside measured.**
+- **The product's one simple ALU, measured.** fpu-2 measured the only product variant on the RTL: one of `smt2`'s two ALUs simple. CoreMark lost 2.6–6.1% (the coordinator, 10-21).
+  - The model on the same 2-wide core: CoreMark A and B lose 2.5–3.4% with ALU1 simple and 3.8–6.5% with ALU0 simple (rv64gc); 2.0–3.6% and 5.2–5.9% on rv64gcb.
+  - The same range. (The 3-ALU layout above is `smt2_w3`, not the product.)
 - **The baselines.** Today's core is §6.19's `rtl_m2` revision 10, against the RTL's own runs: mean error 4.5% at 30 cycles and 5.6% at 120, on 18 programs.
 - **No variant has an RTL counterpart yet.** The 3-wide core has no RTL run in the model's calibration, so its absolute IPC is the model's alone. Its changes between variants are what this section offers.
 
@@ -2798,6 +2801,83 @@ Together they come to ≈5.3K a chip, at no IPC cost. The next ones are the queu
 **Learned:**
 - An ALU port's capability limits more than its throughput: ops that wait on misses need a capable port's rows, so a memory kernel with index shifts (gather) loses 17% with one simple port in three.
 - Partial-address aliasing depends on the buffers' distance modulo 2^N, not on N. Page-aligned copies are immune, and large power-of-two buffers alias even at 20 bits.
+
+### 7.10 Partial-address LQ/SQ search, deeper: the band, the store-side search and the product's pairs (model, 2026-10-21)
+
+*The coordinator's correction:*
+- *The product (`smt2`) has two ALUs, and fpu-2 has measured its one-simple-ALU variant on the RTL (§7.9).*
+- *So the time goes to the partial-address search, as asked: N = 12, 16 and 20, the false-match rates, the replays and the IPC, with the copies and streaming workloads first.*
+
+*This adds, on §7.9's model (`area_ipc.py --pa2`; `bench/build_area.sh`'s `pa2.jsonl`):*
+- **64 KiB copies a set distance apart in one buffer** (`copydist.c`), word by word or with newlib's memcpy.
+  - 17 pages plus 0–4,032 bytes: only the low 12 bits come close.
+  - 16 pages plus 64: the low 12 and 16 bits.
+  - 256 pages plus 64: all three widths.
+- **Counter updates scattered over 4 KiB, 256 KiB and 4 MiB tables** (`scatter.c`). Each store's address comes from a load, so it resolves late, and younger loads can meet it on the low bits. That is the store-side search, whose false matches are flushes.
+- **The 42 pairs on the product:** step 7 as decided, with 5f, at 30 / 120 / 250 cycles. Each hart searches its own half of the LQ and SQ.
+
+**1. The band where 12 bits break** (a word copy, the destination 17 pages + o bytes past its source; today's core alone, 30 cycles; IPC change against full addresses; false matches per 1,000 loads):
+
+| o (bytes) | False matches | N = 12, one replay | N = 12, wait for the store |
+|---|---|---|---|
+| 0 | 0 | 0 | 0 |
+| 8 | 120 | −8.5% | −12.2% |
+| 32 | 499 | −17.5% | −46.8% |
+| 64 | 1,000 | **−24.4%** | **−56.7%** |
+| 128 | 874 | −24.4% | −39.0% |
+| 160 | 746 | −0.0% | −11.6% |
+| 192, 256, 512, 2,048, 4,032 | 0 | 0 | 0 |
+
+- **The band is 8–160 bytes:** the store queue's 20 entries of 8 bytes.
+  - A load meets an older store only while that store is still in the queue, j − i ≤ ≈160 bytes behind it.
+  - A smaller queue narrows the band, and a larger one widens it.
+- **The width moves the band, not its size.** At N = 16 it is the same 8–160 bytes modulo 64 KiB; at N = 20, modulo 1 MiB:
+
+| Copy (64 bytes off) | N = 20, replay | N = 16, replay | N = 12, replay | N = 12, wait |
+|---|---|---|---|---|
+| Word copy, 17 pages apart | 0 | 0 | −24.4% | −56.7% |
+| Word copy, 16 pages (64 KiB) apart | 0 | −24.4% | −24.4% | −56.7% |
+| Word copy, 256 pages (1 MiB) apart | −24.4% | −24.4% | −24.4% | −56.7% |
+| newlib's memcpy, 16 pages apart | 0 | −0.07% | −0.07% | −55.6% |
+| newlib's memcpy, 256 pages apart | −0.07% | −0.07% | −0.07% | −55.6% |
+
+- **How likely a copy is to land in the band:**
+  - For buffers placed at random, the chance is about 160 / 2^N: 3.9% at N = 12, 0.24% at 16, 0.015% at 20.
+  - Allocators don't place at random. Equal power-of-two blocks and page-aligned buffers with small headers put copies in or next to the band far more often. The heap copies of §7.9 hit it at every N.
+- **What one replay costs depends on the code.**
+  - newlib's memcpy keeps enough independent loads behind the replayed one to hide it: −0.07%.
+  - The eight-loads-then-eight-stores word copy doesn't: −24.4%.
+  - Waiting for the store costs either one about 56%.
+
+**2. The store-side search.**
+- **The scattered updates raise few false flushes:** 0.2–0.4 per 1,000 loads at N = 12, and none at 16 or 20. Their IPC moves by under ±0.3% (within run noise).
+- **The false matches on known stores are rare too:** 1–3 per 1,000 loads at N = 12.
+- **True ordering flushes were 0 with full addresses.** The keys rarely repeat within the window.
+- **Even when a store's address comes from a load,** it resolves before most of the younger loads it could meet have run.
+
+**3. The product's 42 pairs** (WS change against full addresses at 30 / 120 / 250 cycles; false matches and false flushes per 1,000 loads over both harts):
+
+| N, one replay | WS change | False matches | False flushes | Hung |
+|---|---|---|---|---|
+| 20 | −0.61% / −0.03% / +0.02% | 27 / 27 / 27 | 0.74 / 0.40 / 0.33 | 0 |
+| 16 | −0.61% / −0.04% / 0.00% | 27 / 27 / 27 | 0.74 / 0.40 / 0.33 | 0 |
+| 12 | −0.72% / −0.01% / +0.05% | 27 / 27 / 27 | 0.75 / 0.34 / 0.33 | 0 |
+
+- **The false matches are memsuite's copy's,** in the pairs it is in. Its 4 MiB buffers alias at every N (§7.9), so the rate doesn't fall with N.
+- **The cost is at 30 cycles,** where the copy is fastest: −0.6 to −0.7%. At 120 and 250 the misses hide the replays.
+
+*The partial-address search, in sum (the IPC side; LUTs from spikes-2):*
+- **The replay form costs ≈0.4% of the suite and ≈0–0.7% of the product's pairs, at any N.**
+- **The risk is copies that land in the band:**
+  - a word copy loses up to 24% there (newlib's memcpy 0.07%);
+  - the wait form loses 56% there.
+- **N = 20 shrinks the band's chance for randomly placed buffers 256-fold against N = 12,** but not for buffers a power of two of 1 MiB or more apart.
+
+**Decisions:** none here. The coordinator decides with spikes-2's LUTs (DR-154: under 1% of the suite with the replay form).
+
+**Learned:**
+- The band where partial matching breaks is set by the store queue's span: 8–160 bytes here, behind the load, modulo 2^N.
+- The search's width only moves that band, and the replay's cost depends on whether the code has independent loads to hide it behind.
 
 ---
 

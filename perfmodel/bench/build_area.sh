@@ -26,4 +26,22 @@ for isa in $ISAS; do
   tg_link "$isa" "$OUT/pa_clear.elf" $F -DKIND=1 -- "$R/bench/area/pagecopy.c"
   add pa_clear
   echo "$isa: $(wc -l < "$M") partial-address workloads"
+  # pa2.jsonl (§7.10): 64 KiB copies a set distance apart, and counter updates scattered over a table
+  M="$OUT/pa2.jsonl"
+  : > "$M"
+  for o in 0 8 32 64 128 160 192 256 512 2048 4032; do   # 17 pages + o: the low 12 bits o apart, the low 16 not
+    tg_link "$isa" "$OUT/pd_copy17p$o.elf" $F -DKIND=0 -DDIST="((17u<<12)+${o}u)" -- "$R/bench/area/copydist.c"
+    add "pd_copy17p$o"
+  done
+  for d in 16 256; do   # 16 pages (64 KiB) and 256 pages (1 MiB) + 64: the low 16 bits, or the low 20, 64 apart
+    tg_link "$isa" "$OUT/pd_copy${d}p64.elf" $F -DKIND=0 -DDIST="((${d}u<<12)+64u)" -- "$R/bench/area/copydist.c"
+    add "pd_copy${d}p64"
+    tg_link "$isa" "$OUT/pd_memcpy${d}p64.elf" $F -DKIND=2 -DDIST="((${d}u<<12)+64u)" -- "$R/bench/area/copydist.c"
+    add "pd_memcpy${d}p64"
+  done
+  for t in 10 16 20; do   # 4 KiB (one page), 256 KiB and 4 MiB of counters
+    tg_link "$isa" "$OUT/pd_scatter$t.elf" $F -DTABLE_LOG=$t -- "$R/bench/area/scatter.c"
+    add "pd_scatter$t"
+  done
+  echo "$isa: $(wc -l < "$M") partial-address workloads in pa2"
 done

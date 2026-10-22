@@ -251,14 +251,90 @@ def pa(workers):
     return out
 
 
+PA2 = {"full addresses": {},
+       **{f"{n} bits, a false match replays once": {"lsq_pa_bits": n} for n in (20, 16, 12)},
+       "12 bits, a false match waits for the store": {"lsq_pa_bits": 12, "lsq_pa_wait": 1}}
+
+
+def pa2(workers):
+    """§7.10: the copies a set distance apart and the scattered counter updates (pa2.jsonl), alone at 30 cycles; then
+    the 42 pairs on the product (step 7 as decided, with 5f) at 30, 120 and 250 cycles."""
+    out = {}
+    rs = suite({n: {**BASE2, **c, "dram_lat": 30} for n, c in PA2.items()}, "rv64gc", "pa2", workers)
+    ref = next(iter(PA2))
+    cfgs = list(PA2)[1:]
+    print("\n**Copies a set distance apart, and scattered counter updates** (today's core alone, 30 cycles; IPC "
+          "against full addresses; per 1,000 loads, the loads with a false match on a known store's address and the "
+          "ordering flushes a false match on an unresolved store raises; true ordering flushes per 1,000 loads with "
+          "full addresses)\n")
+    heads = " | ".join(c.replace(", a false match ", ": ") for c in cfgs)
+    print(f"| Program | True flushes | Full addresses, IPC | {heads} |\n|---|---|---|" + "---|" * len(cfgs))
+    for p in sorted(rs[ref], key=lambda p: (p.rstrip("0123456789"), int("".join(ch for ch in p if ch.isdigit()) or 0))):
+        b = rs[ref][p]
+        lk = max(1, b.get("loads", 0)) / 1000
+        cells = [f"{ipc(rs[n][p]) / ipc(b) - 1:+.2%} ({rs[n][p].get('pa_ld_false', 0) / lk:.0f}, "
+                 f"{rs[n][p].get('pa_viol_false', 0) / lk:.1f})" for n in cfgs]
+        print(f"| {p} | {b.get('violations', 0) / lk:.1f} | {ipc(b):.3f} | " + " | ".join(cells) + " |")
+    out["single"] = {n: {p: {k: g.get(k, 0) for k in ("instr", "cycles", "loads", "pa_ld_false", "pa_ld_retries",
+                                                     "pa_viol_false", "violations", "violation_flushes")}
+                         for p, g in r.items()} for n, r in rs.items()}
+    # the product: two harts, the LQ and SQ in static halves; each load and store searches its own hart's entries
+    names = m.pair_workloads(m.FINALDIR)
+    pcfg = {n: c for n, c in PA2.items() if "waits" not in n}
+    alone = {**m.ALONE, **m.REV8}
+    jobs = [(m.PRESET, {**m.RUNNER, **S7, **c, "dram_lat": lat}, f"{a}.s0", f"{b}.s1")
+            for c in pcfg.values() for lat in m.LATS for _, a, b in smt.PAIRS]
+    jobs += [(m.PRESET, {**alone, "dram_lat": lat}, w, None) for lat in m.LATS for w in names]
+    m.run_all(jobs, workers)
+    al = {lat: {w: m.ipc1(m.run7(m.PRESET, {**alone, "dram_lat": lat}, w, None)) for w in names} for lat in m.LATS}
+    print(f"\n**The 42 pairs on the product** ({m.FINALDIR.name}; step 7 as decided with 5f; WS against each program "
+          "alone on its merged window, over the pairs every configuration completes; false matches per 1,000 loads "
+          "over both threads; 30 / 120 / 250 cycles)\n")
+    print("| Configuration | WS | Against full addresses | memory + memory | compute + compute | mixed | "
+          "False matches, false flushes | Hung |\n|---|---|---|---|---|---|---|---|")
+    per = {n: {lat: {} for lat in m.LATS} for n in pcfg}
+    cnt = {n: [[0, 0, 0] for _ in m.LATS] for n in pcfg}   # loads, false matches, false flushes
+    for n, c in pcfg.items():
+        for i, lat in enumerate(m.LATS):
+            for g, a, b in smt.PAIRS:
+                r = m.run7(m.PRESET, {**m.RUNNER, **S7, **c, "dram_lat": lat}, f"{a}.s0", f"{b}.s1")
+                ip = m.ipc2(r)
+                if ip is None:
+                    continue
+                per[n][lat][(a, b)] = (g, ip[0] / al[lat][f"{a}.s0"] + ip[1] / al[lat][f"{b}.s1"])
+                for t in r["threads"]:
+                    cnt[n][i][0] += t["region"].get("loads", 0)
+                    cnt[n][i][1] += t["region"].get("pa_ld_false", 0)
+                    cnt[n][i][2] += t["region"].get("pa_viol_false", 0)
+    both = {lat: set.intersection(*(set(per[n][lat]) for n in pcfg)) for lat in m.LATS}
+    first = None
+    out["pairs"] = {}
+    for n in pcfg:
+        ws, gss = [], []
+        for lat in m.LATS:
+            gs = {g: gm(w for ab, (gg, w) in per[n][lat].items() if gg == g and ab in both[lat]) for g in m.GROUPS}
+            ws.append(gm(gs.values()))
+            gss.append(gs)
+        first = first or ws
+        hung = [42 - len(per[n][lat]) for lat in m.LATS]
+        out["pairs"][n] = {"ws": ws, "groups": gss, "hung": hung, "counts": cnt[n]}
+        f3 = lambda xs: " / ".join(f"{x:.3f}" for x in xs)
+        fm = " / ".join(f"{c[1] * 1000 / max(1, c[0]):.2f}, {c[2] * 1000 / max(1, c[0]):.3f}" for c in cnt[n])
+        print(f"| {n} | **{f3(ws)}** | " + " / ".join(f"{x / y - 1:+.2%}" for x, y in zip(ws, first)) + " | " +
+              " | ".join(f3(gs[g] for gs in gss) for g in m.GROUPS) + f" | {fm} | " +
+              " / ".join(map(str, hung)) + " |")
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--alu", action="store_true", help="asymmetric ALU ports")
     ap.add_argument("--pa", action="store_true", help="partial-address LQ/SQ search")
+    ap.add_argument("--pa2", action="store_true", help="the same: copies a set distance apart, scatters, the pairs")
     ap.add_argument("--workers", type=int, default=14)
     a = ap.parse_args()
     res = json.loads(OUT.read_text()) if OUT.exists() else {}
-    for name, fn in (("alu", alu), ("pa", pa)):
+    for name, fn in (("alu", alu), ("pa", pa), ("pa2", pa2)):
         if getattr(a, name):
             res[name] = fn(a.workers)
             OUT.write_text(json.dumps(res, indent=1) + "\n")
