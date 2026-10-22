@@ -267,8 +267,9 @@ module tb_soc;
   always @(posedge clk) sd_irq <= SDIRQ && |(sd_st & sd_sig);
   // SDIRQ on the real cores with +ipi_race=N: an IPI to hart 0 (its MSIP in the ACLINT, OpenSBI's IPI) made
   // pending in the very cycle hart 0's LSU issues its Nth PLIC claim of context 1 (S-mode, sd_irq_smt2s/v), as
-  // an IPI can land while Linux's plic_handle_irq claims. MSIP to the hart's interrupt selection is
-  // combinational, so set mid-cycle it is taken that cycle; hart 0's M-mode handler clears it.
+  // an IPI can land while Linux's plic_handle_irq claims. The ACLINT's output register (msi_q) to the hart's
+  // interrupt selection is combinational, so set mid-cycle with msip_q behind it, it is taken that cycle;
+  // hart 0's M-mode handler clears it.
   // Under TB_SOC_CORE only (the Makefile's, with KIND=core): Verilator resolves these names even in a generate
   // branch that is off, and the test cores and the traffic generators have no LSU
   int ipi_race_at = 0, claims_seen = 0, ipi_injected = 0;
@@ -281,6 +282,7 @@ module tb_soc;
         claims_seen++;
         if (claims_seen == ipi_race_at) begin
           dut.u_uncore.u_aclint.msip_q[0] = 1'b1;
+          dut.u_uncore.u_aclint.msi_q[0]  = 1'b1;
           ipi_injected++;
           $display("[%0t] ipi_race: an IPI to hart 0 in the cycle its claim number %0d issues", $time, claims_seen);
         end
