@@ -62,6 +62,8 @@ Builds for injected latency, the virtio window and the host console (stage C), o
 
 **opt_design's directive:** `TG_OPT_DIRECTIVE` (default `ExploreArea`, DR-166; `Default` gives the plain `opt_design`) is checked before synthesis and recorded in `summary.txt` as `opt=`. On spikes-2's full chip of the M6 set, `ExploreArea` left 1,275 fewer LUTs after `opt_design` than the default (116,511 against 117,786, flip-flops unchanged). That netlist then routed at 100 MHz with +0.725 ns (`h100_m6fa`), where the default's didn't place.
 
+**place_design's directive:** `TG_PLACE_DIRECTIVE` (default `Default`, the plain `place_design`; DR-187) is checked before synthesis and recorded in `summary.txt` as `place=`. `AltSpreadLogic_high` made the product chip, with hart 1, route where the default placement left it congested (spikes §8.18, −1.547 ns at 100 MHz).
+
 **Synthesis directive:** `TG_SYNTH_DIRECTIVE` (default `AreaOptimized_high` since 10-16, DR-150; `Default` gives the earlier builds' flow). The two-core `smt2` build with the commit trace no longer fit under `Default` (118.3K LUTs after synthesis, 101%); spikes' full-chip fits and the area numbers already use `AreaOptimized_high`. `summary.txt` records it (`synth=`).
 
 **Synthesis check:** the build fails when synthesis reports an implicit, undriven or forward-referenced net in our own RTL (Synth 8-11241, 8-605, 8-8895, 8-6901, 8-3848); `vivado.log` then names them. Messages about Xilinx's generated IP pass.

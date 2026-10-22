@@ -6,7 +6,8 @@
 // (DR-145). A multiple of 100 MHz keeps clk_host's divide an integer.
 // CLK2X (DR-174's URF, the core's double-pumped UltraRAM register file): clk2x = VCO / (VCO / (2 * CORE_MHZ))
 // on CLKOUT2, twice clk_core and rising with it (one VCO, both at phase 0), on a BUFG of its own: 200 MHz at
-// 100 (1200 / 6). CLKOUT2's divide is an integer, so the VCO must be a multiple of 2 * CORE_MHZ. Without
+// 100 (1200 / 6). CLKOUT2's divide is an integer, so the VCO must be a multiple of 2 * CORE_MHZ, and the choice
+// above takes the first VCO that is (800 MHz at 80, DR-187: 1200 / 160 is no integer). Without
 // CLK2X, CLKOUT2 keeps its default divide and drives nothing, and clk2x is 0: the MMCM of every earlier build.
 module tg_clkgen #(
   parameter int CORE_MHZ = 100,
@@ -19,13 +20,13 @@ module tg_clkgen #(
   output logic clk_host,
   output logic locked
 );
-  function automatic int pick_vco(input int mhz);
+  function automatic int pick_vco(input int mhz, input bit c2x);
     if (mhz <= 0) return 0;
-    if (1200 % mhz == 0) return 1200;
-    for (int v = 800; v <= 1600; v += 100) if ((8 * v) % mhz == 0) return v;
+    if (1200 % mhz == 0 && (!c2x || 1200 % (2 * mhz) == 0)) return 1200;
+    for (int v = 800; v <= 1600; v += 100) if ((8 * v) % mhz == 0 && (!c2x || v % (2 * mhz) == 0)) return v;
     return 0;
   endfunction
-  localparam int  VCO      = pick_vco(CORE_MHZ);
+  localparam int  VCO      = pick_vco(CORE_MHZ, CLK2X);
   localparam real CORE_DIV = real'(VCO) / real'(CORE_MHZ);
   localparam int  C2X_DIV  = CLK2X && VCO > 0 ? VCO / (2 * CORE_MHZ) : 1;
 
