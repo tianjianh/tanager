@@ -98,7 +98,7 @@ Non-project Tcl, run only through `tools/vivado_run.sh` (conventions §9):
 
 | Script | Does |
 |---|---|
-| `fpga/kv260/tcl/build.tcl <cfg> <kind> <mhz> <outdir>` | in-memory project; board part; `ps_bd.tcl`; read RTL through `tools/tcl/tg_files.tcl` (config package, `rtl/rtl.f`, `fpga/kv260/kv260.f`); XDC; `synth_design`; `opt_design`; `place_design`; `phys_opt_design`; `route_design`; reports; bitstream |
+| `fpga/kv260/tcl/build.tcl <cfg> <kind> <mhz> <outdir>` | in-memory project; board part; `ps_bd.tcl`; read RTL through `tools/tcl/tg_files.tcl` (config package, `rtl/rtl.f`, `fpga/kv260/kv260.f`); XDC; `synth_design`; the floorplan (product builds, DR-181); `opt_design`; `place_design`; `phys_opt_design`; `route_design`; reports; bitstream |
 | `fpga/kv260/xdc/kv260.xdc` | pin and I/O standard of the fan; clocks come from the PS and MMCM (derived automatically) |
 | `fpga/kv260/xdc/timing.xdc` | asynchronous clock groups between `clk_core` and `clk_host` (the host bridge's crossings are XPM macros with their own constraints) |
 | `fpga/kv260/xdc/timing_urf.xdc` | URF only (DR-174): `clk2x` stays synchronous with `clk_core`, so every path between them is timed at the real spacing of their edges, 5 ns; it is asynchronous to `clk_host`; `CLOCK_DELAY_GROUP` balances the two BUFGs' trees. The register file's own exceptions (the paths its slot plan gives a full cycle) are the core's: `rtl/core/regfile/tg_urf.xdc`, which `build.tcl` reads with `-ref tg_urf` |
@@ -106,7 +106,12 @@ Non-project Tcl, run only through `tools/vivado_run.sh` (conventions §9):
 - **Outputs kept:** `timing_summary.rpt`, `utilization.rpt` (hierarchical), `clock_utilization.rpt`, `cdc.rpt`, `drc.rpt`, the primitive-count check (`primitives.rpt`), and `tanager.bit.bin` (bootgen) for the FPGA manager (`xmutil`).
 - **Loading under Linux:** a bitstream loaded at run time does not reconfigure the PS. `fpga/kv260/dtbo/tanager.dtso` is the device-tree overlay that sets `pl_clk0`, the fabric-interface widths (`xlnx,afi-fpga`) and a UIO node for the host window. `fpga/kv260/README.md` is the build and bring-up runbook.
 - **Deleted after each run:** checkpoints, run directories and logs (conventions §9).
-- **Pblocks:** later (spike S6, plan §7.5).
+- **Pblocks (DR-181, 10-21):** product builds (kind core, two cores; `TG_FLOORPLAN`) place spikes §8.17's g4_uncore floorplan between synthesis and `opt_design`.
+  - **The pblocks:** the two L2 banks in the URAM column, and the crossbar beside them. They are spikes-2's files (`fpga/spikes/tcl/fp/g4_uncore.tcl`, with `fp_lib.tcl`'s helpers and checks), sourced where they are kept.
+  - **The result:** hp1f, at 97.2% placed, reached WNS −0.096 ns with them, against −2.098 ns without (spikes §8.18).
+  - **Soft:** the pblocks are soft, Vivado 2025.2's default, so the placer may put some of their cells just outside.
+  - **A missing cell** the floorplan names stops the build.
+  - **The checks** log `FLOORPLAN_OK`, `_WARN` or `_TIGHT` per pblock, before `opt_design` (above 105% or 115% of its LUT sites) and after placement (its own LUTs above 85% or 90%). `summary.txt`'s `floorplan=` line gives both shares and the worst grade. `TIGHT` means spikes-2 resizes that pblock before the next product build.
 
 ### 2.5 Release and development builds (DR-177, DR-180)
 

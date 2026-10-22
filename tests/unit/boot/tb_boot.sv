@@ -342,12 +342,21 @@ module tb_boot;
     $display("tb_boot: loaded %s at %h (%0d bytes)", path, rv_addr, a);
   endtask
 
-  string console = "", expect_s = "";
+  string console = "", expect_s = "", cline = "";
   int    shown = 0;                       // a release build: the serial line's characters echoed so far
+  // The console is echoed a whole line at a time, so the progress lines never land inside one, and a line that a script
+  // matches (TANAGER-BOOT-OK and its hart count) stays whole in the log; the last, partial line goes out at the end
+  function automatic void echo_char(input logic [7:0] c);
+    cline = {cline, string'(c)};
+    if (c == 8'h0A) begin
+      $write("%s", cline);
+      cline = "";
+    end
+  endfunction
   task automatic drain_console();
     logic [31:0] v;
     if (RELEASE_TB) begin                 // no console through the host: the serial line is the console
-      for (; shown < sconsole.len(); shown++) $write("%c", sconsole[shown]);
+      for (; shown < sconsole.len(); shown++) echo_char(sconsole[shown]);
       console = sconsole;
       $fflush();
       return;
@@ -356,7 +365,7 @@ module tb_boot;
       hr(16'h100, v);
       if (v[8]) begin
         console = {console, $sformatf("%c", v[7:0])};
-        $write("%c", v[7:0]);
+        echo_char(v[7:0]);
       end
     end while (v[8]);
     $fflush();
@@ -365,6 +374,15 @@ module tb_boot;
     if (s.len() == 0) return 1'b0;
     for (int i = 0; i + s.len() <= console.len(); i++)
       if (console.substr(i, i + s.len() - 1) == s) return 1'b1;
+    return 1'b0;
+  endfunction
+  // the console holds s and the end of the line it is on
+  function automatic bit line_after(input string s);
+    for (int i = 0; i + s.len() <= console.len(); i++)
+      if (console.substr(i, i + s.len() - 1) == s) begin
+        for (int j = i + s.len(); j < console.len(); j++) if (console[j] == "\n") return 1'b1;
+        return 1'b0;
+      end
     return 1'b0;
   endfunction
 
@@ -514,7 +532,20 @@ module tb_boot;
         break;
       end
     end
+    // the rest of the expected string's line too, as scripts match it whole (the boot marker's harts=N): on a serial
+    // console it comes a character every 8,680 cycles. 2M cycles at most
+    if (console_has(expect_s))
+      for (int k = 0; k < 1000 && !line_after(expect_s); k++) begin
+        repeat (2000) @(posedge clk);
+        cyc += 2000;
+        drain_console();
+        trace_poll();
+      end
     drain_console();
+    if (cline.len() > 0) begin            // the last line, unfinished
+      $write("%s\n", cline);
+      cline = "";
+    end
     if (trace_fd != 0) begin                    // stop taking records; the lanes drain into the ring
       hw(16'h1000, 32'h0);
       repeat (4000) @(posedge clk);
