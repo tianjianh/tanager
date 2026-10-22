@@ -24,20 +24,33 @@ module tg_cdc_mirror #(
     for (int j = 0; j < i; j++) n += int'(LIVE[j]);
     return n;
   endfunction
+  // the run of bits from bit i that are all live, or all not
+  function automatic int run_len(input int i);
+    int n;
+    n = 0;
+    for (int j = i; j < W; j++) if (LIVE[j] == LIVE[i] && n == j - i) n++;
+    return n;
+  endfunction
   localparam int WL = live_below(W);
   if (WL < 1) begin : g_bad_live
     $error("tg_cdc_mirror: LIVE needs a bit set");
   end
 
+  // One assignment per run of live (or constant) bits, so all bits live is one vector, as a plain mirror is. A
+  // bit-by-bit generate (hundreds of one-bit assignments) made Verilator's tb_boot 12 times slower, and it shifted
+  // what the crossing samples, so a development build's boot wasn't cycle-identical to main's (10-21)
   logic [WL-1:0] src_l, init_l, dst_q;
   for (genvar i = 0; i < W; i++) begin : g_bit
-    if (LIVE[i]) begin : g_live
-      assign src_l[live_below(i)]  = src_in[i];
-      assign init_l[live_below(i)] = INIT[i];
-      assign dst_out[i]            = dst_q[live_below(i)];
-    end else begin : g_const
-      assign dst_out[i] = INIT[i];
-      wire unused_bit = src_in[i];
+    if (i == 0 || LIVE[i] != LIVE[(i == 0) ? 0 : i - 1]) begin : g_run
+      localparam int K = live_below(i), L = run_len(i);
+      if (LIVE[i]) begin : g_live
+        assign src_l[K +: L]   = src_in[i +: L];
+        assign init_l[K +: L]  = INIT[i +: L];
+        assign dst_out[i +: L] = dst_q[K +: L];
+      end else begin : g_const
+        assign dst_out[i +: L] = INIT[i +: L];
+        wire unused_run = ^src_in[i +: L];
+      end
     end
   end
 
