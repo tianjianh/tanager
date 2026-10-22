@@ -27,7 +27,8 @@ is a failure. Such a pair is left out of the means, and its latency's line reads
 cover. With --off-alone, the alone figures of a build with hart 1 off (an earlier --only alone run on the same
 images), each program's IPC alone here is divided by its IPC there: a ratio under 1 (--loss-tol) is a loss, since
 one thread alone must lose no speed against the hart-1-off core. The JSON has the basis, each run's region figures
-per slot (ipc, cycles, instret and runs, the restarts; alone runs also total, the whole run's cycles), each pair's
+per slot (ipc, cycles, instret and runs, the restarts; alone runs also total, the whole run's cycles, and with hart 1
+step 6's TG-SMT counters for the whole run, smt: merges, splits, wakes and cycles draining for a split), each pair's
 WS, the pairs left out (and the hangs among them), the group and overall figures per latency, the ratios against
 hart 1 off (no_loss) and exit 2's failures (exit2)."""
 import argparse
@@ -47,6 +48,7 @@ import host_policy  # noqa: E402  (the runners' share of a hybrid host)
 
 GROUPS = ("mem+mem", "compute+compute", "mixed")   # make_pairs' groups
 CAP_MIN = 5_000_000
+SMT_KEYS = ("merges", "splits", "splits_empty", "merged", "split_wait", "wakes")   # tg_rename's TG-SMT line, in order
 BASES = {"half": "each program alone on its half of the split window (hart 1 on, before step 6's merge)",
          "merged": "each program alone on the whole window (step 6's merge, or a build with hart 1 off)"}
 
@@ -208,7 +210,10 @@ def main():
                        else "neither slot finished its first region")
             else:
                 why = next((l.strip() for l in reversed(out.splitlines()) if l.strip()), "no output")[:200]
-        return job, res, int(total[1]) if total else 0, why, hang, " ".join(cmd), time.time() - t0
+        smt = re.search(r"TG-SMT \S+: (\d+) merges, (\d+) splits \((\d+) with the window empty\), (\d+) cycles merged, "
+                        r"(\d+) cycles draining for a split, (\d+) wakes", out)   # step 6's counters, the whole run
+        smt = dict(zip(SMT_KEYS, map(int, smt.groups()))) if smt else None
+        return job, res, int(total[1]) if total else 0, why, hang, " ".join(cmd), time.time() - t0, smt
 
     def run_all(jobs):
         with cf.ThreadPoolExecutor(max_workers=max(1, a.jobs)) as ex:
@@ -221,13 +226,14 @@ def main():
     results, alone_failed = [], []
     if a.only in ("alone", "all"):
         results += run_all([("alone", p, s, lat, 0) for p in progs for s in (0, 1) for lat in lats])
-        for (kind, what, slot, lat, _), res, total, why, hang, cmd, dt in results:
+        for (kind, what, slot, lat, _), res, total, why, hang, cmd, dt, smt in results:
             if why:
                 fails.append(f"  FAIL {label(kind, what, slot, lat)}: {why}\n       repro: {cmd}")
                 alone_failed.append(label(kind, what, slot, lat) + (" (cycle limit)" if hang else ""))
                 continue
             c, i, r = res[slot]
-            alone[(what, slot, lat)] = {"ipc": i / c, "cycles": c, "instret": i, "runs": r, "total": total}
+            alone[(what, slot, lat)] = {"ipc": i / c, "cycles": c, "instret": i, "runs": r, "total": total,
+                                        **({"smt": smt} if smt else {})}
     if a.only in ("pairs", "all"):
         def cap(x, y, lat):
             if not a.sim or a.max_cycles:
@@ -237,7 +243,7 @@ def main():
         pres = [] if a.pairs_from else \
             run_all([("pair", (g, x, y), None, lat, cap(x, y, lat)) for g, x, y in pairs for lat in lats])
         results += pres
-        for (kind, what, slot, lat, _), res, total, why, hang, cmd, dt in pres:
+        for (kind, what, slot, lat, _), res, total, why, hang, cmd, dt, smt in pres:
             if why:
                 (hangs if hang else fails).append(f"  {'HANG' if hang else 'FAIL'} {label(kind, what, slot, lat)}: {why}"
                                                   f"\n       repro: {cmd}")
@@ -274,7 +280,7 @@ def main():
                     r = ratios[(p, s, lat)] = h["ipc"] / o["ipc"]
                     if r < 1 - a.loss_tol:
                         losses.append({"prog": p, "slot": s, "lat": lat, "ratio": r, "cycles": h["cycles"],
-                                       "off_cycles": o["cycles"]})
+                                       "off_cycles": o["cycles"], **({"smt": h["smt"]} if "smt" in h else {})})
                     cell.append(f"{r:6.4f}")
                 row += f"  {'/'.join(cell):13s}      "
             print(f"{p:24s}{row}")
@@ -283,7 +289,9 @@ def main():
         print(f"no loss alone: {len(ratios) - len(losses)} of {len(ratios)} runs at least as fast as with hart 1 off" +
               (f", the slowest {ratios[worst]:.4f} ({worst[0]} slot {worst[1]} lat {worst[2]})" if worst else "") +
               "".join(f"\n  LOSS {e['prog']} slot {e['slot']} lat {e['lat']}: {e['ratio']:.4f} ({e['cycles']:,} cycles "
-                      f"against {e['off_cycles']:,})" for e in losses[:10]) +
+                      f"against {e['off_cycles']:,}" + (f"; the whole run: {e['smt']['wakes']} wakes, "
+                      f"{e['smt']['split_wait']:,} cycles draining for a split" if "smt" in e else "") + ")"
+                      for e in losses[:10]) +
               (f"\n  ... and {len(losses) - 10} more (the table)" if len(losses) > 10 else "") +
               "".join(f"\n  NOT COMPARED {u}" for u in unchecked))
         report["no_loss"] = {"off_alone": a.off_alone, "off_sim": off_sim, "tol": a.loss_tol,
