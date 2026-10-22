@@ -73,11 +73,13 @@
 // Kill: flush_valid with flush_tid kills that thread's rows younger than flush_rob (index
 // plus wrap bit), or all its rows with flush_all.
 //
-// CC (the area pass's lever 2): readiness and select as carry chains, the same functions. A row's
-// readiness ANDs one stage of its own terms, its ID dependencies three columns a stage and its matrix
-// dependencies three rows a stage; its grant ANDs the other rows' older-and-ready terms three a stage,
-// with its readiness as the carry in. Each stage is one LUT6 in front of a CARRY8 stage (tg_iq_cand),
-// so the wide ANDs take no LUT trees. Needs PRE_RDY = 0 and STALE 0 or 2.
+// CC (the area pass's lever 2): wide ANDs on carry chains, the same functions. CC[0], the readiness: a
+// row's readiness ANDs one stage of its own terms, its ID dependencies three columns a stage and its
+// matrix dependencies three rows a stage. CC[1], the select: a row's grant ANDs the other rows'
+// older-and-ready terms three a stage, with its readiness as the carry in. Each stage is one LUT6 in
+// front of a CARRY8 stage (tg_iq_cand), so the AND takes no LUT tree. The core takes CC[0] only
+// (tg_issue): the readiness's chains save about 6 LUTs a row; the select's save nothing measurable and
+// cost the select loop routing. CC[0] needs PRE_RDY = 0 and STALE 0 or 2.
 module tg_iq
   import tg_pkg::*;
 #(
