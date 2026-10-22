@@ -21,7 +21,9 @@
 # core's configuration (tests/arch); the checker self-test and RANDFD random F/D programs (tg_replay);
 # for CORE=core, PGN random programs with a probe at every GrantAck (forward progress: each store and
 # atomic must use its line before giving it up) and COHN coherence programs on the two-core SoC
-# (tests/coherence: atomics and LR/SC loops on one line from the same cycle, lockstep for every hart).
+# (tests/coherence: atomics and LR/SC loops on one line from the same cycle, lockstep for every hart). With
+# HART1=1, once the RTL has +xwake, the directed tests and RANDN random programs again with random wakes (+xwake=20:
+# the window merges and splits at random points; M7's step 6).
 # Prints a summary and exits non-zero on any failure. TIMING_CUTS=both runs the default and the
 # fallback side by side (make regress-profiles; below).
 set -u
@@ -162,6 +164,20 @@ if [ "${RESULTS[0]}" = PASS ]; then
   if [ "$RANDN" != 0 ]; then
     step "random programs ($RANDN seeds, $MARCH, memory stress), lockstep" "$LOGS/random.log" \
       make -C "$ROOT/tests/random" CFG="$CFG" CORE="$CORE" ${TIMING_CUTS:+TIMING_CUTS="$TIMING_CUTS"} N="$RANDN" SEED=1 ISA="$MARCH" JOBS="$JOBS" SIMARGS="$SIMARGS"
+  fi
+  # M7's step 6 (core-pipeline.md §8.5): with hart 1, a sleeping sibling's window merges into the runner's and splits
+  # when it wakes. tg_rob's +xwake=20 (simulation only) wakes a sleeping thread at random, 2% a cycle, so the programs
+  # run across merges and splits at random points (verification.md §6.2); hart 1 sits parked in WFI in all of them.
+  if [ "$HART1" = 1 ] && grep -q '"xwake=' "$ROOT/rtl/core/rob/tg_rob.sv" 2>/dev/null; then
+    step "directed tests with random wakes (+xwake=20: merges and splits), lockstep, lat=$LAT" "$LOGS/directed-xwake.log" \
+      make -C "$ROOT/tests/isa" directed CFG="$CFG" CORE="$CORE" ${TIMING_CUTS:+TIMING_CUTS="$TIMING_CUTS"} LAT="$LAT" JOBS="$JOBS" \
+        SIMARGS="+xwake=20 $SIMARGS"
+    if [ "$RANDN" != 0 ]; then
+      step "random programs with random wakes ($RANDN seeds, $MARCH, timer interrupts, +xwake=20), lockstep" \
+        "$LOGS/random-xwake.log" make -C "$ROOT/tests/random" CFG="$CFG" CORE="$CORE" ${TIMING_CUTS:+TIMING_CUTS="$TIMING_CUTS"} \
+          N="$RANDN" SEED=1 ISA="$MARCH" IRQ=200 JOBS="$JOBS" WORK="$BUILD/random/$CFG-$CORE$TCS-xwake" \
+          SIMARGS="+xwake=20 $SIMARGS"
+    fi
   fi
   if [ "$PGN" != 0 ] && [ "$CORE" = core ]; then
     step "random programs with a probe at every GrantAck ($PGN seeds, --probe-grant=100), lockstep" "$LOGS/probe-grant.log" \
