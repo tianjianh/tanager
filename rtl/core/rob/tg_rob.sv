@@ -133,6 +133,7 @@ module tg_rob
   input  logic [5:0]                   irq_code,
   input  logic                         wfi_wake,
   input  logic [NUM_THREADS-1:0]       wfi_wake_h,   // each hart's (with hart 1: a parked WFI's turns)
+  input  logic [NUM_THREADS-1:0]       wfi_arm_h,    // each hart has an interrupt enabled (a sleeper's time-out)
   input  logic                         csr_hold,     // with hart 1: a trap's cold-CSR writes run (tg_csr), no commit
   // Flush and redirect (registered)
   output logic                         flush,
@@ -562,10 +563,12 @@ module tg_rob
   localparam int WFI_MAX = 4096;
   // Step 6 (D2), with hart 1: a WFI that has waited SLP_WAIT cycles while the sibling is awake retires and its thread
   // sleeps (slp_q): its flush keeps it blocked at rename, and its half can go to the sibling (tg_rename merges them).
-  // It wakes on a locally enabled interrupt (its next instruction takes it), after SLP_MAX cycles asleep (WFI may
-  // complete at any time), or, while merged, once the halves split. mtgsmt.HART1_OFF keeps hart 1 asleep.
+  // It wakes on a locally enabled interrupt (its next instruction takes it), or after SLP_MAX cycles asleep while it
+  // has one enabled (WFI may complete at any time; the time-out only guards a wake that never comes). With none
+  // enabled it sleeps until reset: a parked hart then costs its sibling nothing (DR-184). mtgsmt.HART1_OFF keeps
+  // hart 1 asleep.
   localparam int SLP_WAIT = 64;
-  localparam int SLP_MAX  = HART1_ON ? 65536 : WFI_MAX;
+  localparam int SLP_MAX  = HART1_ON ? (1 << 24) : WFI_MAX;
   logic [NT-1:0][idx_w(SLP_MAX + 1)-1:0] wfi_cnt_q;   // a WFI's wait at the head, then a sleeping thread's
   logic [NT-1:0] slp_q, slp_rdy;
   logic          slp_now, sl_ret;
@@ -611,10 +614,24 @@ module tg_rob
       for (int t = 0; t < NT; t++) if (wk_i[t]) slp_q[t] <= 1'b0;
     end
   end
-  // a sleeping thread asks to wake: a locally enabled interrupt, or SLP_MAX cycles; hart 1 not while it is held off
+  // a sleeping thread asks to wake: a locally enabled interrupt, or SLP_MAX cycles with one enabled; hart 1 not while
+  // it is held off.
+  // (Simulation only, +xwake=N) it also asks with probability N per mille a cycle (WFI may complete at any time), so
+  // step 6's merges and splits come at random points; without it no random number is drawn, so other random streams
+  // stay as they are
+  logic [NT-1:0] xw_q;
+`ifndef SYNTHESIS
+  int unsigned xw_pm;
+  initial if (!$value$plusargs("xwake=%d", xw_pm)) xw_pm = 0;
+  always_ff @(posedge clk)
+    if (xw_pm != 0) for (int t = 0; t < NT; t++) xw_q[t] <= !rst && ($urandom % 1000) < xw_pm;
+    else xw_q <= '0;
+`else
+  assign xw_q = '0;
+`endif
   always_comb
     for (int t = 0; t < NT; t++)
-      wkr_o[t] = HART1_ON && slp_q[t] && (wkh_q[t] || int'(wfi_cnt_q[t]) == SLP_MAX) &&
+      wkr_o[t] = HART1_ON && slp_q[t] && (wkh_q[t] || (wfi_arm_h[t] && int'(wfi_cnt_q[t]) == SLP_MAX) || xw_q[t]) &&
                  !(h1off_i && tid_t'(t) == ~RUN_TID);
   assign slp_o = slp_q;
   // One adder on the head's PC: a serial instruction's next PC (+2 or +4), or a fetch fault's
