@@ -260,6 +260,21 @@ class lockstep_impl_t {
   uint64_t hart_loads_old() const { return hart_loads_old_; }
   uint64_t hart_reapplied() const { return hart_reapplied_; }
   uint64_t hart_late() const { return hart_late_; }
+  lockstep_t::hart_mode_t hart_mode(uint32_t hart) const {
+    lockstep_t::hart_mode_t m;
+    auto it = by_id_.find(hart);
+    if (it == by_id_.end()) return m;
+    processor_t* p = harts_[it->second].p;
+    state_t* s = p->get_state();
+    m.priv = unsigned(s->prv);
+    const reg_t ms = s->mstatus->read();
+    m.mprv = ms & MSTATUS_MPRV;
+    m.mpp = unsigned(get_field(ms, MSTATUS_MPP));
+    m.satp_on = p->extension_enabled('S') && (p->get_csr(CSR_SATP) >> 60) != 0;
+    m.a6 = s->XPR[16];
+    m.a7 = s->XPR[17];
+    return m;
+  }
   std::string disasm(uint32_t insn) const { return dis_->disassemble(insn_t(insn)); }
 
   void report(FILE* f) const;
@@ -1671,6 +1686,7 @@ uint64_t lockstep_t::ext_loads_new() const { return impl_->ext_loads_new(); }
 uint64_t lockstep_t::hart_loads_old() const { return impl_->hart_loads_old(); }
 uint64_t lockstep_t::hart_reapplied() const { return impl_->hart_reapplied(); }
 uint64_t lockstep_t::hart_late() const { return impl_->hart_late(); }
+lockstep_t::hart_mode_t lockstep_t::hart_mode(uint32_t hart) const { return impl_->hart_mode(hart); }
 int lockstep_t::early_atomic(const tr_rec_t& r, const std::vector<const tr_rec_t*>& later) {
   return impl_->early_atomic(r, later);
 }

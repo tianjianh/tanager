@@ -30,6 +30,7 @@
 #include "lockstep.h"
 #include "mem.h"
 #include "tanager_bootrom.h"  // generated from rtl/uncore/bootrom/tg_bootrom_img_pkg.sv (sim/Makefile)
+#include "profile_modes.h"     // scratch: --profile
 
 #ifndef TG_DEFAULT_ISA
 #define TG_DEFAULT_ISA "rv64imafdc_zicsr_zicntr_zihpm_zifencei_zba_zbb_zbs_zicond_sstc_svinval_za64rs"
@@ -65,6 +66,7 @@ struct opts_t {
   unsigned hart_window = 512;     // other harts' writes: records a hart may still read their old bytes (0: off)
   uint64_t early = ATOMIC_EARLY;  // cycles before its record another hart may read an atomic's write (0: none)
   bool mtgsmt = false;            // the cores have mtgsmt (0x7C0): built with hart 1
+  std::string profile;            // scratch: where the boot runs untranslated, written here every 20M records
 };
 
 [[noreturn]] void usage() {
@@ -137,6 +139,7 @@ opts_t parse(int argc, char** argv) {
     else if (k == "hart-window") o.hart_window = unsigned(num(v, "--hart-window"));
     else if (k == "atomic-early") o.early = num(v, "--atomic-early");
     else if (k == "mtgsmt") o.mtgsmt = num(v, "--mtgsmt") != 0;
+    else if (k == "profile") o.profile = v;
     else { fprintf(stderr, "tanager-lockstep: unknown option --%s\n", k.c_str()); usage(); }
   }
   if (o.fw.empty()) usage();
@@ -317,6 +320,13 @@ int main(int argc, char** argv) {
   std::vector<uint64_t> last_seen(o.harts, 0);        // stream position + 1 of each hart's last record
   uint64_t applied_cyc = 0;
 
+  mode_profile_t prof;
+  auto dump_profile = [&]() {
+    if (FILE* pf = fopen(o.profile.c_str(), "w")) {
+      prof.dump(pf);
+      fclose(pf);
+    }
+  };
   auto apply = [&](pending_t& pr) -> bool {
     if (pr.ext) {
       uint64_t pa;
@@ -347,7 +357,14 @@ int main(int argc, char** argv) {
       else if (d.r.kind == TR_TRAP) traps++;
       else irqs++;
     }
-    if (!ls.cycle(recs, wbs) || ((++n_applied & 4095) == 0 && !ls.check_stale(pr.cyc, o.stale))) {
+    lockstep_t::hart_mode_t before;
+    if (!o.profile.empty() && !d.wb) before = ls.hart_mode(d.r.hart);
+    const bool okc = ls.cycle(recs, wbs);
+    if (okc && !o.profile.empty() && !d.wb) {
+      prof.record(d.r, before, ls.hart_mode(d.r.hart));
+      if (prof.records % 20000000 == 0) dump_profile();
+    }
+    if (!okc || ((++n_applied & 4095) == 0 && !ls.check_stale(pr.cyc, o.stale))) {
       fprintf(stderr, "tanager-lockstep: MISMATCH at record %llu (cycle %llu): %s\n  raw record: %s\n",
               (unsigned long long)pr.idx, (unsigned long long)pr.cyc, ls.error().c_str(), hex_record(pr.raw).c_str());
       ls.report(stderr);
@@ -503,6 +520,7 @@ int main(int argc, char** argv) {
                     "without the commit trace (DR-146, TG_COMMIT_TRACE=0) streams none; lockstep needs it on.\n");
     status = EXIT_HARNESS;
   }
+  if (!o.profile.empty()) dump_profile();
   double t = now_s() - t0;
   if (n_ext)
     fprintf(stderr, "tanager-lockstep: %llu external writes; %llu loads returned their new bytes\n",

@@ -73,6 +73,13 @@ class lockstep_t {
   uint64_t hart_reapplied() const;
   // Reads that showed another hart's plain store reached memory after later writes to its bytes (§3.7)
   uint64_t hart_late() const;
+  // Scratch (profile_modes.h): a hart's privilege, translation and a6/a7 in Spike now
+  struct hart_mode_t {
+    unsigned priv = 3, mpp = 0;
+    bool satp_on = false, mprv = false;
+    uint64_t a6 = 0, a7 = 0;
+  };
+  hart_mode_t hart_mode(uint32_t hart) const;
   // Several harts (§3.7): whether the read in record r, the next one of its hart, returned bytes only an AMO or
   // SC of another hart in `later` (records queued with later cycles) wrote. Returns that record's index; -1 when
   // r reads nothing the checker compares or Spike's memory and the windows explain its value; -2 when nothing
