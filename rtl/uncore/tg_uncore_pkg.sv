@@ -177,6 +177,6 @@ package tg_uncore_pkg;
   localparam bit          D_SLICE_DEF       = 1'b0;
   localparam bit          W_SLICE_DEF       = 1'b0;
   localparam logic [3:0]  XBAR_IN_SLICE_DEF = 4'b0000;
-  localparam bit          XBAR_SLICE_DEF    = 1'b1;
-  localparam bit          MEM_SLICE_DEF     = 1'b1;
+  localparam bit          XBAR_SLICE_DEF    = 1'b0;
+  localparam bit          MEM_SLICE_DEF     = 1'b0;
 endpackage
