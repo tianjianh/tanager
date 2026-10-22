@@ -587,29 +587,35 @@ module tg_issue
 `ifndef SYNTHESIS
   // The caps' return (simulation only, +capstat; M7 step 7): each time the caps come back at a split (the sleeper
   // wakes), whether the running thread held more than its cap of every queue before the woken thread's first
-  // dispatch, and how long that took. The woken thread is the one without rows (a sleeper's window is empty); a
-  // split with neither thread holding rows is counted but not followed. On stderr at the end (TG-CAPS)
+  // dispatch (and above its share of any queue), and how long that took. The woken thread is the one without rows
+  // (a sleeper's window is empty); a split with neither thread holding rows is counted but not followed. On stderr
+  // at the end (TG-CAPS)
   bit   cs_on;
   initial cs_on = $test$plusargs("capstat");
   logic cap_on_q;
-  int   cs_ret, cs_rows, cs_over, cs_max, cs_sum;
+  int   cs_ret, cs_rows, cs_over, cs_any, cs_max, cs_sum;
   int   cs_w, cs_wait;                // the woken thread (-1: none), the cycles since the return
   tid_t cs_r;                         // ... the running thread
   logic cs_seen;                      // ... the running thread above its share of every queue meanwhile
-  int   cs_qmax [N_IQ];               // ... its most rows of each queue in the last window
+  logic cs_seen1;                     // ... of some queue
+  int   cs_qmax [N_IQ];               // ... its most rows of each queue while followed, over every split
   /* verilator lint_off BLKSEQ */       // simulation-only counters: blocking assignments in order
   always @(posedge clk) begin
-    logic [NUM_THREADS-1:0] over_all, none;
+    logic [NUM_THREADS-1:0] over_all, over_any, none;
     logic got;
-    cap_on_q <= rst ? 1'b0 : cap_on;
+    cap_on_q <= cap_on;               // (through reset too: the caps are on from reset with hart 1, not a return)
     if (rst) begin
-      cs_ret = 0; cs_rows = 0; cs_over = 0; cs_max = 0; cs_sum = 0; cs_w = -1; cs_r = '0; cs_wait = 0; cs_seen = 1'b0;
+      cs_ret = 0; cs_rows = 0; cs_over = 0; cs_any = 0; cs_max = 0; cs_sum = 0; cs_w = -1; cs_r = '0; cs_wait = 0;
+      cs_seen = 1'b0; cs_seen1 = 1'b0;
+      for (int q = 0; q < N_IQ; q++) cs_qmax[q] = 0;
     end else if (cs_on) begin
       for (int t = 0; t < NUM_THREADS; t++) begin
         over_all[t] = 1'b1;
+        over_any[t] = 1'b0;
         none[t] = 1'b1;
         for (int q = 0; q < N_IQ; q++) begin
           if (!q_over[q][t]) over_all[t] = 1'b0;
+          if (q_over[q][t]) over_any[t] = 1'b1;
           if (qocc[q][t] != '0) none[t] = 1'b0;
         end
       end
@@ -620,10 +626,11 @@ module tg_issue
           for (int t = 0; t < NUM_THREADS; t++) if (none[t]) cs_w = t; else cs_r = tid_t'(t);
         cs_wait = 0;
         cs_seen = 1'b0;
-        for (int q = 0; q < N_IQ; q++) cs_qmax[q] = 0;
+        cs_seen1 = 1'b0;
       end
       if (cs_w >= 0) begin
         if (over_all[cs_r]) cs_seen = 1'b1;
+        if (over_any[cs_r]) cs_seen1 = 1'b1;
         for (int q = 0; q < N_IQ; q++) if (int'(qocc[q][cs_r]) > cs_qmax[q]) cs_qmax[q] = int'(qocc[q][cs_r]);
         got = 1'b0;
         for (int q = 0; q < N_IQ; q++)
@@ -631,6 +638,7 @@ module tg_issue
         cs_wait++;
         if (got) begin
           cs_rows++;
+          if (cs_seen1) cs_any++;
           if (cs_seen) begin
             cs_over++;
             cs_sum += cs_wait;
@@ -646,8 +654,8 @@ module tg_issue
     string qs;
     qs = "";
     for (int q = 0; q < N_IQ; q++) qs = {qs, $sformatf(" %0d/%0d", cs_qmax[q], (rows_of(q) * IQ_CAP_PCT) / 100)};
-    $fwrite(32'h8000_0002, "TG-CAPS %m: the caps came back %0d times at a split; the woken thread's first row followed %0d times, %0d of them with the running thread above its share of every queue meanwhile (after %0d cycles at most, %0d in all); the last window's most rows of each queue against its cap:%s\n",
-            cs_ret, cs_rows, cs_over, cs_max, cs_sum, qs);
+    $fwrite(32'h8000_0002, "TG-CAPS %m: the caps came back %0d times at a split; the woken thread's first row followed %0d times, %0d of them with the running thread above its share of every queue meanwhile (after %0d cycles at most, %0d in all) and %0d above its share of some queue; the running thread's most rows of each queue while followed, against its cap:%s\n",
+            cs_ret, cs_rows, cs_over, cs_max, cs_sum, cs_any, qs);
   end
 `endif
 endmodule
