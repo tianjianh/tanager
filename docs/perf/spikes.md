@@ -1720,6 +1720,16 @@ The same snapshot as the baseline, with `place_design -directive AltSpreadLogic_
 
 Results: `fpga/spikes/results/product_asl_high/` (summary, timing, utilization after `opt_design`, placement and routing, the floorplan's reports, `fail_families.txt` from [`q_fail_families.tcl`](../../fpga/spikes/tcl/query/q_fail_families.tcl)).
 
+#### AltSpreadLogic_medium: spreads too little at this fill (2026-10-22)
+
+The slices-on product build on the new snapshot (`snap/product_wt2`, main e2570c7c) with `place_design -directive AltSpreadLogic_medium` (`product_wt2_aslm`).
+- **Placement looked best of all the runs:** the estimate after `phys_opt_design` was −0.172 ns with the 1.0 ns of uncertainty on, and the router's first timing pass −0.010 ns.
+- **Routing undid it.** The router's congestion then rose to level 6 (64 × 64), it reported that congestion kept it from routing every net, and it gave up timing.
+- **Result:** 114,385 routed LUTs, 64,213 FFs, WNS **−3.028 ns**, TNS −19,275 ns, 18,969 failing endpoints; `clk2x` +0.946 ns.
+- **So AltSpreadLogic_high is the spreading for this chip:** it routed the harder, older netlist at −1.547 ns. The next combinations use it.
+
+Results: `fpga/spikes/results/product_wt2_aslm/`.
+
 #### No crossbar or memory-port slices: routes, but congested (2026-10-22)
 
 **Asked** (the coordinator): the product build with `TG_XBAR_SLICE=0` and `TG_MEM_SLICE=0`, keeping `TG_AR_SLICE=1` (the user's decision), with everything else as the baseline: default placement.
