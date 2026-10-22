@@ -25,10 +25,15 @@ while the other runs; tg_vsim's own HANG is no commit on any hart).
 Exit 2's conditions (DR-184) come last: every hang (a cycle-limit hit), failed run and pair without alone figures
 is a failure. Such a pair is left out of the means, and its latency's line reads FAIL with how many pairs the means
 cover. With --off-alone, the alone figures of a build with hart 1 off (an earlier --only alone run on the same
-images), each program's IPC alone here is divided by its IPC there: a ratio under 1 (--loss-tol) is a loss, since
-one thread alone must lose no speed against the hart-1-off core. The JSON has the basis, each run's region figures
-per slot (ipc, cycles, instret and runs, the restarts; alone runs also total, the whole run's cycles, and with hart 1
-step 6's TG-SMT counters for the whole run, smt: merges, splits, wakes and cycles draining for a split), each pair's
+images and band), DR-184's check that one thread alone loses no speed against the hart-1-off core, on this build
+with hart 1 parked: every alone run must show 1 merge, 0 splits, 0 wakes and no cycle draining for a split in the
+TG-SMT counters; and for each program and exit latency L, the region cycles here over there at L-10, L-5, L, L+5
+and L+10 (--band 5,10; the alone runs take the band's latencies too, both slots), whose mean fails over +0.5%
+(--loss-prog), and whose geometric mean over the programs fails over +0.1% (--loss-all). The single latencies'
+ratios print for information: a memory kernel's limit cycle at one latency swings either way. The JSON has the
+basis, each run's region figures
+(per slot: ipc, cycles, instret and runs, the restarts; alone runs also total, the whole run's cycles, and with
+hart 1 step 6's TG-SMT counters for the whole run, smt: merges, splits, wakes and cycles draining for a split), each pair's
 WS, the pairs left out (and the hangs among them), the group and overall figures per latency, the ratios against
 hart 1 off (no_loss) and exit 2's failures (exit2)."""
 import argparse
@@ -83,6 +88,10 @@ def geomean(xs):
     return math.exp(sum(math.log(x) for x in xs) / len(xs)) if xs else float("nan")
 
 
+def some(xs, n=6):
+    return ", ".join(xs[:n]) + (f" and {len(xs) - n} more" if len(xs) > n else "")
+
+
 def brief(why):
     """A left-out pair's reason, short: a hang with its limit and the slot that never finished its first region."""
     m = re.match(r"hang: no end within ([\d,]+) cycles: (?:slot \d finished its first region, slot (\d) did not|(.*))", why)
@@ -106,8 +115,13 @@ def main():
     ap.add_argument("--off-alone", default="", help="the single-thread no-loss check (DR-184): the alone figures of a "
                     "build with hart 1 off, from an earlier --only alone JSON on the same images; each program's IPC "
                     "alone here is compared with them")
-    ap.add_argument("--loss-tol", type=float, default=0.0, help="with --off-alone: a ratio under 1 - this is a loss "
-                    "(default 0: any)")
+    ap.add_argument("--band", default=None, help="offsets d, comma-separated: each program also runs alone at L-d and "
+                    "L+d for each exit latency L (DR-184: 5,10, the default with --off-alone); give the hart-1-off "
+                    "build's --only alone run the same")
+    ap.add_argument("--loss-prog", type=float, default=0.5, help="with --off-alone: a program's band mean of region "
+                    "cycles here over there fails above +this percent (DR-184: 0.5)")
+    ap.add_argument("--loss-all", type=float, default=0.1, help="with --off-alone: the programs' geometric mean fails "
+                    "above +this percent (DR-184: 0.1)")
     ap.add_argument("--cap", type=float, default=3.0, help="a pair's cycle limit: this many times its two programs' "
                     f"whole alone runs (at least {CAP_MIN:,}; tg_vsim's 50M default without alone figures)")
     ap.add_argument("--max-cycles", type=int, default=0, help="a fixed cycle limit for every pair run instead")
@@ -181,6 +195,16 @@ def main():
         lats = sorted({e["lat"] for e in pj["pairs"] + pj.get("excluded", [])})
         print(f"run_pair: the pairs of {a.pairs_from}, at {', '.join(map(str, lats))} cycles", flush=True)
 
+    # DR-184's band: every program also alone at L-d and L+d for each exit latency L (the pairs stay at L)
+    band = [int(d) for d in (a.band if a.band is not None else "5,10" if a.off_alone else "").split(",") if d] \
+        if not a.replay else []
+
+    def band_of(lat):
+        return sorted({lat} | {lat + sg * d for d in band for sg in (-1, 1)})
+    alats = sorted({l for lat in lats for l in band_of(lat)})
+    if band and min(alats) < 1:
+        ap.error(f"--band {a.band}: latency {min(alats)} under 1")
+
     def one(job):
         kind, what, slot, lat, cap = job
         img = os.path.join(a.images, "img", f"alone-{what}-s{slot}.elf" if kind == "alone" else f"pair-{what[1]}+{what[2]}.elf")
@@ -225,7 +249,7 @@ def main():
     t0 = time.time()
     results, alone_failed = [], []
     if a.only in ("alone", "all"):
-        results += run_all([("alone", p, s, lat, 0) for p in progs for s in (0, 1) for lat in lats])
+        results += run_all([("alone", p, s, lat, 0) for p in progs for s in (0, 1) for lat in alats])
         for (kind, what, slot, lat, _), res, total, why, hang, cmd, dt, smt in results:
             if why:
                 fails.append(f"  FAIL {label(kind, what, slot, lat)}: {why}\n       repro: {cmd}")
@@ -261,42 +285,74 @@ def main():
         for p in progs:
             row = "".join(f"  {ipc(alone.get((p, 0, lat))):6.3f}/{ipc(alone.get((p, 1, lat))):6.3f}       " for lat in lats)
             print(f"{p:24s}{row}")
-    losses, unchecked = [], []
+    nl_fail = []   # the no-loss check's failures (DR-184)
     if off:   # DR-184: one thread alone loses no speed against the hart-1-off core
-        print(f"single thread against hart 1 off: IPC alone here / on {off_sim} (a loss under {1 - a.loss_tol:.4f})")
-        print(f"{'program':24s}" + "".join(f"  ratio s0/s1 lat {lat:<3d}" for lat in lats))
-        ratios = {}
+        print(f"single thread against hart 1 off (DR-184): this build, hart 1 parked, against {off_sim}")
+        # The mechanism: every alone run here shows 1 merge, 0 splits, 0 wakes and no cycle draining for a split
+        cnt, cbad = 0, []
+        for (p, sl, lat), v in sorted(alone.items()):
+            if p not in progs or lat not in alats:
+                continue
+            cnt += 1
+            c = v.get("smt")
+            if not c:
+                cbad.append(f"{p} slot {sl} lat {lat}: no TG-SMT counters (a build without hart 1?)")
+            elif (c["merges"], c["splits"], c["wakes"], c["split_wait"]) != (1, 0, 0, 0):
+                cbad.append(f"{p} slot {sl} lat {lat}: {c['merges']} merges, {c['splits']} splits, {c['wakes']} wakes, "
+                            f"{c['split_wait']} cycles draining for a split")
+        print(f"  counters: {cnt - len(cbad)} of {cnt} alone runs show 1 merge, 0 splits, 0 wakes and no cycle draining "
+              "for a split" + "".join(f"\n  COUNTERS {b}" for b in cbad[:10]) +
+              (f"\n  ... and {len(cbad) - 10} more" if len(cbad) > 10 else ""))
+        if cbad:
+            nl_fail.append(f"{len(cbad)} alone runs whose counters are not 1 merge, 0 splits, 0 wakes: " + some(cbad))
+        # The cycles over the band: region cycles here over there, at each of the band's latencies and both slots
+        bands, gms, unchecked, slow = {}, {}, [], []
+        print(f"  region cycles here over there, in percent: the band's mean (each latency's, both slots); a program "
+              f"fails over +{a.loss_prog:.2f}%, the geometric mean over +{a.loss_all:.2f}%")
+        width = 9 + 7 * len(band_of(lats[0]))
+        print(f"{'program':24s}" + "".join(f"  {'lat ' + '/'.join(map(str, band_of(lat))):{width}s}" for lat in lats))
         for p in progs:
             row = ""
             for lat in lats:
-                cell = []
-                for s in (0, 1):
-                    h, o = alone.get((p, s, lat)), off.get((p, s, lat))
-                    if not h or not o or h["instret"] != o["instret"]:   # a region's instructions: the same images
-                        unchecked.append(f"{p} slot {s} lat {lat}" + (": region instructions differ, other images?"
-                                                                      if h and o else ""))
-                        cell.append("   -  ")
-                        continue
-                    r = ratios[(p, s, lat)] = h["ipc"] / o["ipc"]
-                    if r < 1 - a.loss_tol:
-                        losses.append({"prog": p, "slot": s, "lat": lat, "ratio": r, "cycles": h["cycles"],
-                                       "off_cycles": o["cycles"], **({"smt": h["smt"]} if "smt" in h else {})})
-                    cell.append(f"{r:6.4f}")
-                row += f"  {'/'.join(cell):13s}      "
+                vals, per = [], {}
+                for l in band_of(lat):
+                    rl = []
+                    for sl in (0, 1):
+                        h, o = alone.get((p, sl, l)), off.get((p, sl, l))
+                        if not h or not o or h["instret"] != o["instret"]:   # a region's instructions: the same images
+                            unchecked.append(f"{p} slot {sl} lat {l}" + (": region instructions differ, other images?"
+                                                                         if h and o else ""))
+                            continue
+                        rl.append(h["cycles"] / o["cycles"])
+                    if rl:
+                        per[l] = sum(rl) / len(rl)
+                        vals += rl
+                bm = sum(vals) / len(vals) if len(vals) == 2 * len(band_of(lat)) else None
+                bands[(p, lat)] = {"band_mean": bm, "per_lat": per}
+                if bm is not None and bm > 1 + a.loss_prog / 100:
+                    slow.append(f"{p} at {lat} {(bm - 1) * 100:+.2f}%")
+                cell = (f"{(bm - 1) * 100:+6.2f}%" if bm is not None else "     - ") + \
+                    " (" + " ".join(f"{(per[l] - 1) * 100:+.2f}" if l in per else "  -  " for l in band_of(lat)) + ")"
+                row += f"  {cell:{width}s}"
             print(f"{p:24s}{row}")
-        losses.sort(key=lambda e: e["ratio"])
-        worst = min(ratios, key=ratios.get) if ratios else None
-        print(f"no loss alone: {len(ratios) - len(losses)} of {len(ratios)} runs at least as fast as with hart 1 off" +
-              (f", the slowest {ratios[worst]:.4f} ({worst[0]} slot {worst[1]} lat {worst[2]})" if worst else "") +
-              "".join(f"\n  LOSS {e['prog']} slot {e['slot']} lat {e['lat']}: {e['ratio']:.4f} ({e['cycles']:,} cycles "
-                      f"against {e['off_cycles']:,}" + (f"; the whole run: {e['smt']['wakes']} wakes, "
-                      f"{e['smt']['split_wait']:,} cycles draining for a split" if "smt" in e else "") + ")"
-                      for e in losses[:10]) +
-              (f"\n  ... and {len(losses) - 10} more (the table)" if len(losses) > 10 else "") +
-              "".join(f"\n  NOT COMPARED {u}" for u in unchecked))
-        report["no_loss"] = {"off_alone": a.off_alone, "off_sim": off_sim, "tol": a.loss_tol,
-                             "ratios": {f"{p}@s{s}@{lat}": r for (p, s, lat), r in ratios.items()},
-                             "losses": losses, "unchecked": unchecked}
+        row = ""
+        for lat in lats:
+            ms = [bands[(p, lat)]["band_mean"] for p in progs]
+            gms[lat] = geomean(ms) if all(m is not None for m in ms) else float("nan")
+            row += f"  {(gms[lat] - 1) * 100:+6.2f}%".ljust(width + 2)
+            if gms[lat] > 1 + a.loss_all / 100:
+                nl_fail.append(f"the geometric mean at {lat} is {(gms[lat] - 1) * 100:+.2f}% (over +{a.loss_all:.2f}%)")
+        print(f"{'geometric mean':24s}{row}")
+        if slow:
+            nl_fail.append(f"{len(slow)} programs' band means over +{a.loss_prog:.2f}%: " + some(slow))
+        if unchecked:
+            nl_fail.append(f"{len(unchecked)} alone runs not compared with hart 1 off: " + some(unchecked))
+        print("no loss alone: " + ("FAIL: " + "; ".join(nl_fail) if nl_fail else
+                                   "PASS, the counters exact and every band within the limits"))
+        report["no_loss"] = {"off_alone": a.off_alone, "off_sim": off_sim, "band": band,
+                             "limits": {"program": a.loss_prog, "geomean": a.loss_all}, "runs_counted": cnt,
+                             "counters_bad": cbad, "programs": {f"{p}@{lat}": v for (p, lat), v in bands.items()},
+                             "geomean": gms, "unchecked": unchecked, "failures": nl_fail}
     if a.only in ("pairs", "all") and (pair or pair_why):
         print(f"{'pair':40s} {'group':16s}" + "".join(f"  WS lat {lat:<4d}" for lat in lats))
         groups = {}
@@ -333,8 +389,6 @@ def main():
         print(f"basis: {basis['name']}, {basis['label']}")
     # Exit 2's conditions (DR-184): no hang (a cycle-limit hit), failed run or pair without alone figures, and no loss
     # for one thread alone against hart 1 off. A failure is named, never a missing value in the means.
-    def some(xs, n=6):
-        return ", ".join(xs[:n]) + (f" and {len(xs) - n} more" if len(xs) > n else "")
     failures = []
     for kind, es in (("hangs (cycle limit)", report["hangs"]),
                      ("failed pair runs", [e for e in report["excluded"] if e["why"].startswith("failed: ")]),
@@ -343,11 +397,7 @@ def main():
             failures.append(f"{len(es)} {kind}: " + some([f"{e['a']}+{e['b']} at {e['lat']}" for e in es]))
     if alone_failed:
         failures.append(f"{len(alone_failed)} failed alone runs: " + some(alone_failed))
-    if losses:
-        failures.append(f"{len(losses)} alone runs slower than with hart 1 off: " +
-                        some([f"{e['prog']} slot {e['slot']} at {e['lat']} {e['ratio']:.4f}" for e in losses]))
-    if unchecked:
-        failures.append(f"{len(unchecked)} alone runs not compared with hart 1 off")
+    failures += [f"no loss alone: {f}" for f in nl_fail]
     report["exit2"] = {"failures": failures, "no_loss_checked": bool(off)}
     print("exit 2's conditions (DR-184): " + ("FAIL: " + "; ".join(failures) if failures else
           "no hang, cycle-limit hit or failed run" + ("; no loss alone against hart 1 off" if off else

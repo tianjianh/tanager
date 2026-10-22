@@ -1311,8 +1311,11 @@ module tg_rename
         end
     sp_go = HART1_ON && sp_q && (fit[md_q.run] || emp[md_q.run]);
     for (int t = 0; t < NT; t++) begin
-      mg_pend[t] = HART1_ON && NT > 1 && md_q.split && !sp_q && slp_i[NT - 1 - t] && !wkr_i[NT - 1 - t] &&
-                   emp[NT - 1 - t];
+      // (a merge decided for runner t holds its tails until md_q merges, even if the sleeper asks to wake meanwhile:
+      // a tail that wrapped in its half then would leave the sleeper's half inside the merged window)
+      mg_pend[t] = HART1_ON && NT > 1 && md_q.split &&
+                   ((!sp_q && slp_i[NT - 1 - t] && !wkr_i[NT - 1 - t] && emp[NT - 1 - t]) ||
+                    (!mdn_q.split && mdn_q.run == tid_t'(t)));
       nwr_hold[t] = mg_pend[t] && (int'(rtail_q[t][ROBW-2:0]) + W >= rob_end(t) ||
                                    int'(ltail_q[t][LQW-2:0]) + W >= lq_end(t) ||
                                    int'(stail_q[t][SQW-2:0]) + W >= sq_end(t));
@@ -1339,6 +1342,15 @@ module tg_rename
     end
   assign sp_hold = HART1_ON && (sp_q || (mdn_q.split && !md_q.split));
 `ifndef SYNTHESIS
+  // (step 6) a merge finds the runner's windows unwrapped in its half (mg_pend held its tails while it was in flight)
+  logic mg_rs, md_sq;
+  initial mg_rs = 1'b0;
+  always @(posedge clk) if (rst) mg_rs <= 1'b1;
+  always_ff @(posedge clk) begin
+    md_sq <= md_q.split;
+    if (mg_rs && !rst && HART1_ON && NT > 1 && md_sq && !md_q.split)
+      assert (nwr[md_q.run]) else $error("tg_rename: a merge found thread %0d's window wrapped in its half", md_q.run);
+  end
   // (step 6) the merges and splits, the cycles merged and the splits' drains, the wakes; on stderr at the end
   longint unsigned n_mg, n_sp, n_spr, n_mgc, n_spc, n_wk;
   always_ff @(posedge clk)
