@@ -21,6 +21,7 @@
 //   TG_INITRD (0|1)                             1 names tanager-host's initrd window in /chosen (D4)
 //   TG_BOARD_RESET (0|1)                        1 points reboot and poweroff at the board's reset, CRL_APB
 //                                               RESET_CTRL through the PS window (D4's RISC-V mode)
+//   TG_RELEASE (0|1)                            1: a release build's PLIC (DR-180), with no M-mode contexts
 // Values written to the power register (same as the sifive,test0 finisher): 0x5555 off, 0x7777 reboot.
 
 #define TG_HARTS (TG_NUM_CORES * TG_NUM_THREADS)
@@ -28,6 +29,16 @@
 #define TG_RUN_THREADS TG_NUM_THREADS
 #endif
 #define TG_T0ONLY (TG_NUM_THREADS == 2 && TG_RUN_THREADS == 1)
+#ifndef TG_RELEASE
+#define TG_RELEASE 0
+#endif
+// A hart's M-mode PLIC context: machine external (11), or absent (-1) in a release build, whose PLIC builds none
+// (DR-180): OpenSBI and Linux skip it, and the hart's S context keeps its place, 2h+1
+#if TG_RELEASE
+#define TG_MEXT 0xffffffff
+#else
+#define TG_MEXT 11
+#endif
 #ifndef TG_UART1
 #define TG_UART1 0
 #endif
@@ -159,7 +170,8 @@
 		};
 
 		// PLIC: contexts 2h (machine) and 2h+1 (supervisor) for hart h; 11 = machine external,
-		// 9 = supervisor external. Sources: 1-4 virtio slots, 10 UART, 11 host mailbox.
+		// 9 = supervisor external (a release build: no machine contexts, TG_MEXT). Sources: 1-4 virtio
+		// slots, 10 UART, 11 host mailbox.
 		plic: interrupt-controller@c000000 {
 			compatible = "riscv,plic0";
 			reg = <0x0 0x0c000000 0x0 0x4000000>;
@@ -167,22 +179,22 @@
 			#interrupt-cells = <1>;
 			interrupt-controller;
 			riscv,ndev = <31>;
-			interrupts-extended = <&cpu0_intc 11 &cpu0_intc 9
+			interrupts-extended = <&cpu0_intc TG_MEXT &cpu0_intc 9
 #if TG_T0ONLY
 					       // an idle thread's contexts stay in the list, unused (-1), so the
 					       // hardware's context 2h, 2h+1 for hart h keeps its place
 					       &cpu0_intc 0xffffffff &cpu0_intc 0xffffffff
 #if TG_NUM_CORES > 1
-					       &cpu2_intc 11 &cpu2_intc 9
+					       &cpu2_intc TG_MEXT &cpu2_intc 9
 					       &cpu2_intc 0xffffffff &cpu2_intc 0xffffffff
 #endif
 #else
 #if TG_HARTS > 1
-					       &cpu1_intc 11 &cpu1_intc 9
+					       &cpu1_intc TG_MEXT &cpu1_intc 9
 #endif
 #if TG_HARTS > 2
-					       &cpu2_intc 11 &cpu2_intc 9
-					       &cpu3_intc 11 &cpu3_intc 9
+					       &cpu2_intc TG_MEXT &cpu2_intc 9
+					       &cpu3_intc TG_MEXT &cpu3_intc 9
 #endif
 #endif
 					      >;

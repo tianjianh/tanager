@@ -80,9 +80,13 @@ Device-bus port; `src_i[N_SRC-1:1]`; `irq_o[N_CTX]` with `N_CTX = 2 × NUM_HARTS
   - It returns 0 when there is none.
 - **Complete:** a write of source ID `s` ends `s`'s service if `s` is enabled for that context; otherwise it is ignored (PLIC spec). A level source still high becomes pending again.
 - **Outputs:** `irq_o[c]` = some pending, enabled source with priority above the threshold, registered.
+- **Release builds** (`tg_uncore` `RELEASE`, DR-180) take `S_ONLY` and `PRIO_W` = 1, and `tg_uncore` ties TTC1's source (24, D1's test) to 0:
+  - **The M-mode contexts hold nothing.** Their enables and threshold read 0 and ignore writes, a claim there reads 0, a complete there is ignored, and `irq_mei` stays 0. Nothing takes a machine external interrupt: OpenSBI doesn't, and the cores tie their machine-error lines to 0. The release device trees (`sw/dts` `RELEASE=1`) list each M context as absent (−1) in its place, so OpenSBI and Linux skip it, and context `2h+1` stays hart `h`'s S context.
+  - **Priorities and thresholds are one bit.** A write keeps bit 0 (they are WARL). Linux writes priority 1 to unmask and 0 to mask, threshold 0 to take interrupts and 7 to refuse them (it reads as 1).
+  - **The saving:** about 721 → 190 LUTs in the product chip, from out-of-context runs scaled to the chip ([soc.md](soc.md) §Reserve levers).
 
 ### Parameters
-`N_SRC` = 32 (`riscv,ndev` = 31), `PRIO_W` = 3, `N_CTX` = 2 × `NUM_HARTS`, `EDGE_SRC`.
+`N_SRC` = 32 (`riscv,ndev` = 31), `PRIO_W` = 3 (1 in release builds), `N_CTX` = 2 × `NUM_HARTS`, `EDGE_SRC`, `S_ONLY` (release builds).
 
 ### Timing and area
 - Per context: a 31-way maximum over priorities (5 levels of compare and select).
@@ -90,7 +94,7 @@ Device-bus port; `src_i[N_SRC-1:1]`; `irq_o[N_CTX]` with `N_CTX = 2 × NUM_HARTS
 - About 1.5K LUTs at 8 contexts.
 
 ### Verification
-`tests/unit/plic`: random source activity, priorities, thresholds and enables against a reference model of the PLIC spec, checking every claim value, the `irq_o` levels, completion and re-pending of level sources, and edge capture.
+`tests/unit/periph`: random source activity, priorities, thresholds and enables against a reference model of the PLIC spec, checking every claim value, the `irq_o` levels, completion and re-pending of level sources, and edge capture. `REL=1` builds the release form: the model keeps the M contexts empty and one bit of each priority and threshold, and directed checks find an M context's enables, threshold and claim reading 0 and a complete there ignored. `tests/unit/soc` `RELEASE=1` claims the UART's and UART1's interrupts on hart 0's S context and finds TTC1's line no source.
 
 ### Provenance
 RISC-V Platform-Level Interrupt Controller Specification v1.0.0 (register map, gateways, claim and complete). Implemented as written.

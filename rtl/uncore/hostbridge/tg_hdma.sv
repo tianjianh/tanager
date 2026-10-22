@@ -22,10 +22,14 @@
 //     count of clk cycles since the uncore reset, the clock of the trace stream's capture stamps, for
 //     lockstep's external writes (docs/spec/verification.md §3.10). While cpl_en_i is set, the
 //     AccessAck waits for room in the completion queue (cpl_ready_i).
+//   - Release builds (DR-180) leave out the line counters (STATS = 0: rd_lines_o and wr_lines_o read 0) and,
+//     without the trace, the completions (CPL = 0: cpl_valid_o stays 0 and cpl_en_i is ignored).
 module tg_hdma
   import tg_pkg::*, tg_tl_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*;
 #(
-  parameter int ID_W = 16
+  parameter int ID_W  = 16,
+  parameter bit CPL   = 1'b1,                   // the completions (lockstep's external writes)
+  parameter bit STATS = 1'b1                    // the line counters rd_lines_o and wr_lines_o
 ) (
   input  logic            clk,
   input  logic            rst,
@@ -93,8 +97,8 @@ module tg_hdma
 
   logic [31:0] cycle_q;                         // the trace stream's count: clk cycles since the uncore reset
   always_ff @(posedge clk) begin
-    if (rst) cycle_q <= '0;
-    else     cycle_q <= cycle_q + 32'd1;
+    if (rst || !CPL) cycle_q <= '0;
+    else             cycle_q <= cycle_q + 32'd1;
   end
 
   // =============================================================================================
@@ -213,7 +217,7 @@ module tg_hdma
   wire        w_send = !wbad_q && in_window(wline_q, ram_size_i) && w_any;
   wire        w_full = &{msk_q[0], msk_q[1], msk_q[2], msk_q[3]};
   logic       w_a_go;                           // a Put beat is taken
-  wire        w_d_ready = ws_q == W_ACK && (!cpl_en_i || cpl_ready_i);
+  wire        w_d_ready = ws_q == W_ACK && (!(CPL && cpl_en_i) || cpl_ready_i);
 
   assign s_awready = ws_q == W_IDLE;
   assign s_wready  = ws_q == W_DATA;
@@ -284,7 +288,7 @@ module tg_hdma
     end
   end
 
-  assign cpl_valid_o = ws_q == W_ACK && w_d && cpl_en_i;
+  assign cpl_valid_o = CPL && ws_q == W_ACK && w_d && cpl_en_i;
   assign cpl_line_o  = wline_q;
   assign cpl_cycle_o = cycle_q;
 
@@ -330,8 +334,8 @@ module tg_hdma
   end
 
   assign d_ready_o  = d_i.source[0] ? w_d_ready : r_d_ready;
-  assign rd_lines_o = rlines_q;
-  assign wr_lines_o = wlines_q;
+  assign rd_lines_o = STATS ? rlines_q : '0;
+  assign wr_lines_o = STATS ? wlines_q : '0;
   assign wr_drops_o = wdrops_q;
 
 `ifndef SYNTHESIS

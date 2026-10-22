@@ -12,6 +12,8 @@
 // the same signature retired the same instructions in the same cycles (the cycle-identity check of
 // docs/perf/fpga_friendly.md for uncore rewrites). Each progress line carries the running signature,
 // so two runs compare at every million cycles, however far each got.
+// RELEASE_TB = 1 (make ... RELEASE=1: a release build, DR-180, with LAT_INJ = 0, no trace and the serial console):
+// no console through the host, so the decoded serial line is the console; no trace, so no signature either.
 module tb_boot;
   import tg_pkg::*, tg_tl_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*;
 
@@ -28,6 +30,10 @@ module tb_boot;
   parameter bit DEBUG_CNT_TB  = 1'b0;    // the board debug counters; +dbg_dump prints them at the end
   parameter bit HOST_DMA_TB   = 1'b0;    // the host DMA port, for +hdma_lines (external-write lockstep, below)
   parameter bit LAT_INJ_TB    = 1'b1;    // the two latency injectors; 0: a release build's memory path (DR-177)
+  parameter bit RELEASE_TB    = 1'b0;    // a release build (tanager_soc RELEASE, DR-180): needs UART_SERIAL_TB
+  if (RELEASE_TB && !UART_SERIAL_TB) begin : g_bad_rel
+    $error("tb_boot: a release build's console is the serial line alone: RELEASE_TB needs UART_SERIAL_TB");
+  end
 
   localparam logic [39:0] CO_BASE = 40'h8_4000_0000;    // carve-out in "PS" address space
   localparam logic [39:0] CO_SIZE = 40'h1000_0000;      // 256 MiB (the device tree says 128 MiB)
@@ -79,7 +85,7 @@ module tb_boot;
 
   tanager_soc #(
     .N_CORES (N_CORES), .CLK_HZ (100_000_000), .L2_SETS (L2_SETS_TB), .L2_MSHR (24), .DEBUG_CNT (DEBUG_CNT_TB),
-    .HOST_DMA (HOST_DMA_TB), .LAT_INJ (LAT_INJ_TB),
+    .HOST_DMA (HOST_DMA_TB), .LAT_INJ (LAT_INJ_TB), .RELEASE (RELEASE_TB),
     .CORE_RST_INIT (1'b1), .UNCORE_RST_INIT (1'b1), .CORE_KIND ("core"), .UART_SERIAL (UART_SERIAL_TB)
   ) dut (
     .uart_txd_o (uart_txd), .uart_rxd_i (1'b1),
@@ -337,8 +343,15 @@ module tb_boot;
   endtask
 
   string console = "", expect_s = "";
+  int    shown = 0;                       // a release build: the serial line's characters echoed so far
   task automatic drain_console();
     logic [31:0] v;
+    if (RELEASE_TB) begin                 // no console through the host: the serial line is the console
+      for (; shown < sconsole.len(); shown++) $write("%c", sconsole[shown]);
+      console = sconsole;
+      $fflush();
+      return;
+    end
     do begin
       hr(16'h100, v);
       if (v[8]) begin
@@ -460,6 +473,8 @@ module tb_boot;
     if ($value$plusargs("initrd=%s", path)) load(path, 64'h8400_0000);
     hw64(16'h030, 64'h8000_0000);               // BOOT_ENTRY
     hw64(16'h038, 64'h8220_0000);               // DTB_ADDR
+    if (RELEASE_TB && ($test$plusargs("trace_out=") || $test$plusargs("hdma_lines=")))
+      $fatal(1, "tb_boot: +trace_out and +hdma_lines need the trace, which a release build has not");
     if ($value$plusargs("trace_out=%s", path)) begin
       trace_fd = $fopen(path, "wb");
       if (trace_fd == 0) $fatal(1, "tb_boot: cannot open %s", path);
@@ -536,7 +551,10 @@ module tb_boot;
     end
     $display("\n[tb_boot] %0d cycles, %0d instructions retired", cyc, instret);
     $display("[tb_boot] trace signature %016h", tsig);
-    if (UART_SERIAL_TB) begin
+    if (RELEASE_TB) begin
+      if (sconsole.len() == 0) $display("tb_boot: ERROR: nothing on the serial line");
+      else $display("tb_boot: serial line: %0d characters (a release build: no host copy)", sconsole.len());
+    end else if (UART_SERIAL_TB) begin
       if (sconsole.len() == 0) $display("tb_boot: ERROR: nothing on the serial line");
       else if (console.substr(0, sconsole.len() - 1) != sconsole) $display("tb_boot: ERROR: the serial line and the host copy differ");
       else $display("tb_boot: serial line: %0d characters, the same as the host copy", sconsole.len());

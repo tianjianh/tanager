@@ -4,6 +4,7 @@
 #                                                   device tree without F/D: the kernel needs no FPU
 #   make -C tests/unit/boot linux [CORES=1|2] [CFG=smt2 RUN_THREADS=1]  the full lp64d boot to TANAGER-BOOT-OK (the init
 #                                                   script), with the FPU in the device tree
+#   make -C tests/unit/boot linux RELEASE=1 [...]   the same boot on a release build (DR-180): serial console alone
 #   make -C tests/unit/boot run CORES=2 ARGS="+fw=... +dtb=... +expect=... +max_mcycles=N"
 #   ARGS= adds plusargs to any of them, for example ARGS="+dump_pc=<hex> +dump_stop" (tb_boot.sv)
 #   TIMING_CUTS=0|1 builds the core in that DR-140 profile (unset: the package's default)
@@ -33,13 +34,23 @@ ifneq ($(TIMING_CUTS),)
 endif
 # LAT_INJ=0: a release build's memory path, without the two latency injectors (DR-177), in a directory of its own
 LAT_INJ ?= 1
-NAME   := boot$(TAG)$(TC_SUFFIX)$(if $(filter 1,$(SERIAL)),_ser)$(if $(filter 0,$(LAT_INJ)),_rel)_c$(CORES)_t$(VTHREADS)
+# RELEASE=1: a release build as the board's product (tanager_soc RELEASE, DR-180), so LAT_INJ=0, no trace
+# (+define+TG_COMMIT_TRACE=0) and SERIAL=1, the console on the serial line alone; the idle host DMA port in its
+# release form; the device trees with the PLIC's M contexts absent (sw/dts RELEASE=1)
+RELEASE ?= 0
+ifeq ($(RELEASE),1)
+  override LAT_INJ := 0
+  override SERIAL := 1
+endif
+NAME   := boot$(TAG)$(TC_SUFFIX)$(if $(filter 1,$(SERIAL)),_ser)$(if $(filter 0,$(LAT_INJ)),_rel)$(if $(filter 1,$(RELEASE)),ease)_c$(CORES)_t$(VTHREADS)
 TB     := $(CURDIR)/tb_boot.sv
 # MEM_PARAMS: the DDR models' timing (tb_boot MEM_*), for example the board's fixed latency:
 #   MEM_PARAMS="-GMEM_LAT_MIN=22 -GMEM_LAT_MAX=22 -GMEM_READY_PCT=100 -GMEM_OOO=0 -GMEM_R_PCT=100" TAG=_lat22
 MEM_PARAMS ?=
-PARAMS := -GN_CORES=$(CORES) -GUART_SERIAL_TB=$(SERIAL) $(MEM_PARAMS) $(if $(filter 0,$(LAT_INJ)),-GLAT_INJ_TB=0)
-EXTRA_VFLAGS := -CFLAGS -O2 $(if $(filter-out 1,$(VTHREADS)),--threads $(VTHREADS)) $(TC_DEF)
+PARAMS := -GN_CORES=$(CORES) -GUART_SERIAL_TB=$(SERIAL) $(MEM_PARAMS) $(if $(filter 0,$(LAT_INJ)),-GLAT_INJ_TB=0) \
+          $(if $(filter 1,$(RELEASE)),-GRELEASE_TB=1 -GHOST_DMA_TB=1)
+EXTRA_VFLAGS := -CFLAGS -O2 $(if $(filter-out 1,$(VTHREADS)),--threads $(VTHREADS)) $(TC_DEF) \
+                $(if $(filter 1,$(RELEASE)),+define+TG_COMMIT_TRACE=0)
 include ../common/unit.mk
 
 THREADS := $(if $(filter smt2%,$(CFG)),2,1)
@@ -63,10 +74,10 @@ $(OUTDIR)/$(TOP): $(wildcard $(CORE_DIR)/*.sv $(CORE_DIR)/*/*.sv $(CORE_DIR)/*.f
 # BOOTARGS: the kernel command line in the device trees (earlycon=sbi prints through OpenSBI)
 BOOTARGS ?= console=ttyS0,115200 earlycon
 $(DTB): $(REPO)/sw/dts/tanager-kv260.dts $(REPO)/sw/dts/tanager.dtsi Makefile
-	$(MAKE) --no-print-directory -B -C $(REPO)/sw/dts O=$(OUTDIR)/dts$(DTS_SFX) CORES=$(CORES) THREADS=$(THREADS) RUN_THREADS=$(RUN_THREADS) MEM=0x08000000 FPU=0 BOOTARGS="$(BOOTARGS)"
+	$(MAKE) --no-print-directory -B -C $(REPO)/sw/dts O=$(OUTDIR)/dts$(DTS_SFX) CORES=$(CORES) THREADS=$(THREADS) RUN_THREADS=$(RUN_THREADS) MEM=0x08000000 FPU=0 RELEASE=$(RELEASE) BOOTARGS="$(BOOTARGS)"
 DTB_FPU := $(OUTDIR)/dts-fpu$(DTS_SFX)/tanager-kv260.dtb
 $(DTB_FPU): $(REPO)/sw/dts/tanager-kv260.dts $(REPO)/sw/dts/tanager.dtsi Makefile
-	$(MAKE) --no-print-directory -B -C $(REPO)/sw/dts O=$(OUTDIR)/dts-fpu$(DTS_SFX) CORES=$(CORES) THREADS=$(THREADS) RUN_THREADS=$(RUN_THREADS) MEM=0x08000000 FPU=1 BOOTARGS="$(BOOTARGS)"
+	$(MAKE) --no-print-directory -B -C $(REPO)/sw/dts O=$(OUTDIR)/dts-fpu$(DTS_SFX) CORES=$(CORES) THREADS=$(THREADS) RUN_THREADS=$(RUN_THREADS) MEM=0x08000000 FPU=1 RELEASE=$(RELEASE) BOOTARGS="$(BOOTARGS)"
 
 KERNEL     ?= $(SOC_BUILD)/br-tanager_lp64d/images/Image
 LINUX_MCYC ?= 1500
