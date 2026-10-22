@@ -36,7 +36,8 @@
 //
 // Timing options (spike S2):
 //   DUP_SEL = 1: the select is computed twice; one copy drives only the wakeup broadcast,
-//                so the grant net on the protected loop has a small fanout.
+//                so the grant net on the protected loop has a small fanout. Only with WAKE_NOW:
+//                a queue that does not wake at select has no broadcast, so it builds one select.
 //   EARLY_W < PAYLOAD_W: only payload bits [EARLY_W-1:0] (the source tags the RF stage needs
 //                first) sit in flip-flops and leave through the grant's AND-OR mux; the rest
 //                is in one LUTRAM per bank, read in the next cycle with the registered grant.
@@ -302,9 +303,9 @@ module tg_iq
     end
   end
 
-  // The wakeup broadcast's own copy of the select
+  // The wakeup broadcast's own copy of the select (only where there is a broadcast)
   logic [ROWS-1:0] grant_w;
-  if (DUP_SEL) begin : g_dup
+  if (DUP_SEL && WAKE_NOW) begin : g_dup
     for (genvar r = 0; r < ROWS; r++) begin : g_r
       logic [ROWS-1:0] older_ready;
       for (genvar j = 0; j < ROWS; j++) begin : g_j
