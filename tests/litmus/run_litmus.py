@@ -162,7 +162,9 @@ def main():
         for m in re.finditer(r"^.*?LIT-BAD (\S+) (.*)$", out, re.M):
             if m[1] in res:
                 res[m[1]]["first"] = m[2].strip()
-        status = "" if "LIT-END" in out else "no LIT-END (" + (out.strip().splitlines() or ["?"])[-1][:120] + ")"
+        # The marker's own console line: tb_boot's banner and its verdict quote the +expect string as well
+        status = "" if re.search(r"^(?:\d{10} )?LIT-END", out, re.M) else \
+            "no LIT-END (" + (out.strip().splitlines() or ["?"])[-1][:120] + ")"
         return k, res, skipped, status, " ".join(cmd)
 
     t0 = time.time()
