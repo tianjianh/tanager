@@ -1792,6 +1792,39 @@ Results: `fpga/spikes/results/product_wt_ns_aslh/`.
 
 Results: `fpga/spikes/results/product_wt2_dr185_aslh/` (with `pin_classes_pay_core0.txt`, `pin_classes_pay_core1.txt` and `path_cells_tage_core0.txt`).
 
+#### The combined preview: DR-185 + DR-183 routes at −1.62 ns (2026-10-22)
+
+**Asked** (the coordinator, through soc-2): whether DR-185 and DR-183 together route and close at 100 MHz.
+- **What's in it:** the DR-185 preview (3ed73e6f, the payload written directly) plus soc-2's DR-183, PMP checks at TLB fill (5a885ab9 with `TG_PMP_FILL=1`). Merged into main a6ff993d with `AltSpreadLogic_high` (`product_wt_combo_aslh`).
+- **A first attempt stopped in `build.tcl`'s synthesis check:** Synth 8-6901, a forward reference in DR-183's `tg_lsu`. The measurement copy moved the line, as soc-2's d07317a6 then did.
+
+| | DR-185 preview | **DR-185 + DR-183** |
+|---|---|---|
+| LUTs after `opt_design` / routed | 116,663 / 114,067 | 114,587 / **112,118 (95.7%)** |
+| FFs routed | 55,850 | 56,054 |
+| CLBs | 14,639 | 14,632 |
+| WNS after `phys_opt_design` (estimated, with 1.0 ns on) | −0.755 ns | −1.605 ns |
+| Routing | 1.0 h; congestion 6, no trade | 1.2 h; congestion level 5, no trade |
+| WNS / TNS on the core clock (ns) | −1.108 / −595.5 (2,120 failing) | **−1.620 / −3,900** (8,533 failing) |
+| `clk2x`: within / into / back (ns) | +1.721 / +0.652 / +0.867 | +1.338 / +1.054 / +1.128 |
+
+- **DR-183 takes about 1.95K LUTs off the routed chip and adds 204 FFs.** It routes, but it doesn't close.
+- **This placement came out worse before routing** (−1.61 against −0.76), the same spread seen in builds 1–3. One run each can't rank them.
+- **DR-183's new paths are fetch's PMP request registers.**
+  - `g_pmpf.rq_pa_q` (32 endpoints), `rq_tid_q`, `rq_tag_q` and `cw_q` are reached from F3's `f3_s_q` through 27 levels (worst −1.067 ns).
+  - `lp_pg_q` and `rq_pa_q` are reached from the L2's refill pointer through 24 (−0.94).
+  - Nothing into M2's grant (`m2_ok`) is within 1 ns. No same-core fetch → LSU request path is near-critical.
+- **The unregistered payload write** is much worse in this placement: 8,381 endpoints in `u_rn/u_pay`, worst −1.362 ns. The registered form (31a90443) is building next.
+- **The worst paths:**
+  - the L2's response into the cores' I$ valid-bit RAMs (−1.62, 24–28 levels);
+  - the LSU's LQ state from the ROB and the LQ head (−1.62, 25);
+  - fetch's `u_cmp/rt_q` from rename (40–41 levels);
+  - TAGE (−1.58).
+  - By unit within 1 ns: the LSU 201 families, fetch 116, rename 115, the CSR files 85.
+- **New with the crossbar unsliced:** core 0's fetch `apf_q` reaches both cores' D$ miss entries (−0.249 ns, 14 levels, 81% wire).
+
+Results: `fpga/spikes/results/product_wt_combo_aslh/`.
+
 #### Build 2, with the banks' D slice (`TG_D_SLICE=1`): doesn't route (2026-10-22)
 
 Build 1 plus `TG_D_SLICE=1`, which puts a skid buffer on each L2 bank's D channel before the crossbar (`product_wt_nsd_aslh`). It is a measurement: the D slice is off by the user's choice.
