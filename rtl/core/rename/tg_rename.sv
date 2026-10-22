@@ -985,22 +985,52 @@ module tg_rename
     for (int b = 0; b < INT_BANKS; b++) if (int'(pops[b]) > int'(fl_count[b][t_rn])) want_any = 1'b1;
     for (int b = 0; b < 2; b++) if (EXT_FD && int'(fpops[b]) > int'(ffl_count[b][t_rn])) want_any = 1'b1;
   end
-  logic          sel_n;
-  logic [NT-1:0] vn, nw;            // each register holds a group next cycle; ... one decode hands it now
+  // Both are written as a choice by rn_fire between their values with rename firing (f = 1) and without (f = 0): the
+  // same function (timing: rn_fire, the end of rename's checks, reached decode's thread choice through de_take, the
+  // registers' next valid bits and sel_n; now through one select. The product chip's paths into fetch's rt_q)
+  logic                    sel_n;
+  logic [1:0]              sel_f, tk_f;    // sel_n, de_take given rn_fire = f
+  logic [1:0][NT-1:0]      vn, nw, acc_f;  // each register holds a group next cycle; ... one decode hands it now; acc_o
+  always_comb
+    for (int f = 0; f < 2; f++) begin
+      tk_f[f] = !flush && ready && (!(|rn_v_q[CMT ? t_de : 0]) || (sel_q == t_de[0] && f == 1) || block_q[t_de]);
+      for (int t = 0; t < NT; t++) begin
+        nw[f][t] = CMT && tk_f[f] && |de_valid && t_de == tid_t'(t) && !block_q[t];
+        vn[f][t] = nw[f][t] || (CMT && |rn_v_q[CMT ? t : 0] && !(sel_q == t[0] && f == 1) && !block_q[t] &&
+                                !(flush && t_fl == tid_t'(t)));
+      end
+      sel_f[f] = sel_q;
+      if (CMT) begin
+        if (vn[f][sel_q] && |rn_valid_q && want_any)                sel_f[f] = sel_q;   // its transfer needs it chosen
+        else if (vn[f][!sel_q] && (nw[f][!sel_q] || rdy[!sel_q])) sel_f[f] = !sel_q;
+        else if (!vn[f][sel_q])                                   sel_f[f] = !sel_q;
+      end
+      for (int t = 0; t < NT; t++) acc_f[f][t] = CMT && (!vn[f][t] || (sel_f[f] == t[0] && rdy[t]) || block_q[t]);
+    end
+  assign sel_n = rn_fire ? sel_f[1] : sel_f[0];
+  assign acc_o = rn_fire ? acc_f[1] : acc_f[0];
+`ifndef SYNTHESIS
+  // The choice as it was written before, from de_take, checked against the select every cycle
+  logic          sel_r;
+  logic [NT-1:0] vn_r, nw_r, acc_r;
   always_comb begin
     for (int t = 0; t < NT; t++) begin
-      nw[t] = CMT && de_take && |de_valid && t_de == tid_t'(t) && !block_q[t];
-      vn[t] = nw[t] || (CMT && |rn_v_q[CMT ? t : 0] && !(sel_q == t[0] && rn_fire) && !block_q[t] &&
-                        !(flush && t_fl == tid_t'(t)));
+      nw_r[t] = CMT && de_take && |de_valid && t_de == tid_t'(t) && !block_q[t];
+      vn_r[t] = nw_r[t] || (CMT && |rn_v_q[CMT ? t : 0] && !(sel_q == t[0] && rn_fire) && !block_q[t] &&
+                            !(flush && t_fl == tid_t'(t)));
     end
-    sel_n = sel_q;
+    sel_r = sel_q;
     if (CMT) begin
-      if (vn[sel_q] && |rn_valid_q && want_any)          sel_n = sel_q;   // its transfer needs it chosen
-      else if (vn[!sel_q] && (nw[!sel_q] || rdy[!sel_q])) sel_n = !sel_q;
-      else if (!vn[sel_q])                               sel_n = !sel_q;
+      if (vn_r[sel_q] && |rn_valid_q && want_any)            sel_r = sel_q;
+      else if (vn_r[!sel_q] && (nw_r[!sel_q] || rdy[!sel_q])) sel_r = !sel_q;
+      else if (!vn_r[sel_q])                                 sel_r = !sel_q;
     end
-    for (int t = 0; t < NT; t++) acc_o[t] = CMT && (!vn[t] || (sel_n == t[0] && rdy[t]) || block_q[t]);
+    for (int t = 0; t < NT; t++) acc_r[t] = CMT && (!vn_r[t] || (sel_r == t[0] && rdy[t]) || block_q[t]);
   end
+  always_ff @(posedge clk)
+    if (!rst && CMT) assert (sel_n == sel_r && acc_o == acc_r && de_take == tk_f[rn_fire])
+      else $error("tg_rename: the thread choice's select by rn_fire differs from the choice through de_take");
+`endif
 
   // The pops each free list takes when rename fires (the free list applies rn_fire last)
   assign ffl_pop_n[0] = fpops[0];
