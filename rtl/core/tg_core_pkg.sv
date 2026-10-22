@@ -266,6 +266,14 @@ package tg_core_pkg;
 `else
   localparam int IQ_BANK_RULE = 1;
 `endif
+  // M7 step 7, D7: ICOUNT fetch (TG_FETCH_ICOUNT; off by default). With hart 1, F1 takes the other stream's waiting
+  // block when its own moves on only if that thread has no more uops ahead of issue: its instruction queue's entries,
+  // its uops at RN and DS, and its issue-queue rows (all registered). Ties alternate, as round robin does
+`ifdef TG_FETCH_ICOUNT
+  localparam bit FETCH_ICOUNT = `TG_FETCH_ICOUNT;
+`else
+  localparam bit FETCH_ICOUNT = 1'b0;
+`endif
   // M7's step 6 (D2): with hart 1 the split is a mode set at run time (md_t, tg_rename's md_q). Split: the halves.
   // Merged: thread run owns every entry while its sibling sleeps with an empty window (threading.md). Without hart 1
   // the mode is the constant MD_C: merged with RUN_TID as before M7, or TG_SPLIT's test mode.

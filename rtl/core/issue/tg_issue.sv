@@ -40,6 +40,7 @@ module tg_issue
   // split (M7 step 6's mode), else all ones
   output logic [N_IQ-1:0][DW-1:0][1:0] bank_nfree,
   output logic [N_IQ-1:0][NUM_THREADS-1:0][2*DW-1:0] room_ge,
+  output logic [NUM_THREADS-1:0][7:0]  iq_occ_o,      // FETCH_ICOUNT: each thread's rows over all queues, registered
   output logic [N_IQ-1:0][NUM_THREADS-1:0][DW-1:0][1:0] bank_left,
   input  logic                         split_n,       // the halves are split next cycle (tg_rename's mdn, registered)
   // MX naming state: ALU-queue rows holding an op (and not freed this cycle), and the row each
@@ -263,7 +264,19 @@ module tg_issue
   // sleeps with an empty window. The flags are registered, so next cycle's mode decides them
   logic cap_on;
   assign cap_on = HART1_ON && split_n;
-  logic [N_IQ-1:0][NUM_THREADS-1:0][OCC_W-1:0] qocc;   // each queue's rows by thread (+capstat below)
+  logic [N_IQ-1:0][NUM_THREADS-1:0][OCC_W-1:0] qocc;   // each queue's rows by thread (+capstat below, ICOUNT)
+  // ICOUNT (FETCH_ICOUNT, D7): each thread's rows over all queues, for fetch's thread choice (registered)
+  if (FETCH_ICOUNT && HART1_ON) begin : g_icnt
+    logic [NUM_THREADS-1:0][7:0] occ_n;
+    always_comb
+      for (int t = 0; t < NUM_THREADS; t++) begin
+        occ_n[t] = '0;
+        for (int q = 0; q < N_IQ; q++) occ_n[t] = occ_n[t] + 8'(qocc[q][t]);
+      end
+    always_ff @(posedge clk) iq_occ_o <= rst ? '0 : occ_n;
+  end else begin : g_noicnt
+    assign iq_occ_o = '0;
+  end
 `ifndef SYNTHESIS
   logic [N_IQ-1:0][NUM_THREADS-1:0] q_over;            // ... above its cap
 `else

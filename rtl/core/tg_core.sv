@@ -275,6 +275,11 @@ module tg_core
   md_t                              md, mdn;
   logic                             mrs, sph, flush_slp, h1off;
   logic [NUM_THREADS-1:0]           slp, wkr, wk;
+  // ICOUNT (FETCH_ICOUNT, D7): each thread's uops ahead of issue past the instruction queue (rename's and the queues')
+  logic [NUM_THREADS-1:0][7:0] iq_occ;
+  logic [NUM_THREADS-1:0][3:0] rn_cnt;
+  logic [NUM_THREADS-1:0][8:0] ic_cnt;
+  always_comb for (int t = 0; t < NUM_THREADS; t++) ic_cnt[t] = 9'(iq_occ[t]) + 9'(rn_cnt[t]);
   tg_fetch u_fetch (
     .clk, .rst, .boot_pc(64'(boot_addr_i)), .ready(fe_ready),
     .flush, .flush_tid, .flush_pc, .fl_slp(flush_slp), .icinv, .dred, .dred_tid, .dred_pc, .dred_ftq, .dred_slot, .dred_rop, .dred_rlink,
@@ -286,7 +291,7 @@ module tg_core
     .ras_rv(fras_rv), .ras_rwr(fras_rwr), .ras_rtos(fras_rtos), .ras_rcnt(fras_rcnt), .ras_rtop(fras_rtop),
     .upd_valid, .upd_way, .upd_pc, .upd_slot, .upd_target, .upd_inval, .upd_tid,
     .iq_valid, .iq_insn, .iq_take,
-    .xl_h(xl_f_q), .dst(de_state_h), .priv_h(priv_f_q), .pmp_d_h, .pmp_busy, .rn_block(rn_blk), .rn_acc,
+    .xl_h(xl_f_q), .dst(de_state_h), .priv_h(priv_f_q), .pmp_d_h, .pmp_busy, .rn_block(rn_blk), .rn_acc, .ic_cnt,
     .tlb_flush, .tlb_flush_tid,
     .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte, .it_fill_tid,
     .iw_req, .iw_va, .iw_tid, .iw_ack, .iw_done, .iw_ok, .iw_cause,
@@ -439,7 +444,7 @@ module tg_core
   logic                             rn_ready;
   tg_rename u_rn (
     .clk, .rst, .ready(rn_ready), .start(init_done && fe_ready && lsu_ready), .flush, .flush_tid,
-    .de_valid, .de_uop, .de_take, .blk_o(rn_blk), .acc_o(rn_acc),
+    .de_valid, .de_uop, .de_take, .blk_o(rn_blk), .acc_o(rn_acc), .rn_cnt_o(rn_cnt),
     .rob_head(rob_head_t), .lq_head(lq_head_t), .sq_head(sq_head_t), .sq_cmt(sq_cmt_t), .iq_bank_free,
     .iq_bank_free2, .iq_room_ge, .iq_bank_left, .w_vec, .busy(iq_busy),
     .rf_we, .rf_widx, .llt_rel, .tag_free, .div_done, .div_done_tid,
@@ -469,7 +474,7 @@ module tg_core
   tg_issue u_is (
     .clk, .rst, .flush, .flush_tid, .disp_we(iq_we), .disp_dep(iq_dep),
     .disp_pl(iq_pl), .disp_mdep(iq_mdep), .bank_free(iq_bank_free), .bank_free2(iq_bank_free2), .mx_hold, .mx_alloc, .alloc(wid_alloc), .wake_reg, .ld_m2_will, .ld_m2_miss, .col_clr,
-    .bank_nfree(iq_bank_nfree), .room_ge(iq_room_ge), .bank_left(iq_bank_left), .split_n(mdn.split),
+    .bank_nfree(iq_bank_nfree), .room_ge(iq_room_ge), .iq_occ_o(iq_occ), .bank_left(iq_bank_left), .split_n(mdn.split),
     .w(w_vec), .busy(iq_busy), .a1_block, .ld_block, .fp_block, .fp_misc_block, .iss_valid, .iss_pl, .iss_src_n,
     .spec_cancel);
 

@@ -95,6 +95,7 @@ module tg_fetch
   input  pmp_d_t [NUM_THREADS-1:0][PMP_ENTRIES-1:0] pmp_d_h,
   input  logic        pmp_busy,       // PMP descriptors being recomputed: F1 waits
   input  logic [NUM_THREADS-1:0] rn_block,   // MT: a thread behind a serial uop at rename until its flush (tg_rename)
+  input  logic [NUM_THREADS-1:0][8:0] ic_cnt, // FETCH_ICOUNT: each thread's uops at RN, DS and in the issue queues
   input  logic [NUM_THREADS-1:0] rn_acc,     // MT (step 5d): a thread's RN register takes a group next cycle (tg_rename)
   input  logic        tlb_flush,
   input  tid_t        tlb_flush_tid,  // ... the hart whose entries it clears
@@ -1715,6 +1716,19 @@ module tg_fetch
   logic [NS-1:0] sv_n;
   logic [NS-1:0][63:0] spc_n;
   logic          f1_mv;                  // F1's block moves into F2
+  // ICOUNT (FETCH_ICOUNT, D7): each thread's uops ahead of issue (its instruction queue and ic_cnt). F1 takes the other
+  // stream's waiting block when its own moves on only if that thread has no more; ties alternate
+  logic [NS-1:0]      ic_ok;
+  if (FETCH_ICOUNT && MT) begin : g_icnt
+    logic [NS-1:0][9:0] icnt;
+    always_comb for (int t = 0; t < NS; t++) icnt[t] = 10'(q_occ[t]) + 10'(ic_cnt[t]);
+    assign ic_ok[0] = icnt[0] <= icnt[1];
+    assign ic_ok[1] = icnt[1] <= icnt[0];
+  end else begin : g_noicnt
+    assign ic_ok = '1;
+    logic unused_icnt;
+    assign unused_icnt = ^ic_cnt;
+  end
   assign f1_mv = !ka_q && f2_go && f1_live;
   always_comb begin
     logic o, f1r;
@@ -1738,7 +1752,7 @@ module tg_fetch
       end
     end else if (f1_mv) begin                         // F1's block moves on: the other stream's waiting block, or
       o = MT && !ft_q;                                // its own next
-      if (MT && sv_s_q[o] && !blk_s[o]) begin
+      if (MT && sv_s_q[o] && !blk_s[o] && ic_ok[o]) begin
         fpc_n = spc_s_q[o]; ft_n = o; sv_n[o] = 1'b0;
         sv_n[ft_q] = 1'b1; spc_n[ft_q] = pred_hit ? pred_tgt : seq_pc;
       end else begin

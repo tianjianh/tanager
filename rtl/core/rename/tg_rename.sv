@@ -70,6 +70,7 @@ module tg_rename
   output logic           de_take,
   output logic [NUM_THREADS-1:0] blk_o,  // with hart 1: each thread behind a serial uop until its flush (fetch drops
                                          // its later instructions; RN drops its group: the flush would)
+  output logic [NUM_THREADS-1:0][3:0] rn_cnt_o, // FETCH_ICOUNT: each thread's uops at RN and DS, registered
   output logic [NUM_THREADS-1:0] acc_o,  // with hart 1 (step 5d): each thread's RN register can take decode's group
                                          // next cycle (it will be empty, or renamed from): decode's thread choice
   // Window state, per thread
@@ -1571,4 +1572,19 @@ module tg_rename
     end
   end
 `endif
+  // ICOUNT (FETCH_ICOUNT, D7): each thread's uops in its RN register and at DS, for fetch's thread choice (registered)
+  if (FETCH_ICOUNT && CMT) begin : g_icnt
+    logic [NUM_THREADS-1:0][3:0] cnt_n;
+    always_comb
+      for (int t = 0; t < NUM_THREADS; t++) begin
+        cnt_n[t] = '0;
+        for (int k = 0; k < W; k++) begin
+          if (rn_v_q[t][k]) cnt_n[t] = cnt_n[t] + 4'd1;
+          if (ds_valid_q[k] && t_ds == tid_t'(t)) cnt_n[t] = cnt_n[t] + 4'd1;
+        end
+      end
+    always_ff @(posedge clk) rn_cnt_o <= rst ? '0 : cnt_n;
+  end else begin : g_noicnt
+    assign rn_cnt_o = '0;
+  end
 endmodule
