@@ -1749,6 +1749,24 @@ Results: `fpga/spikes/results/product_asl_high/` (summary, timing, utilization a
 
 Results: `fpga/spikes/results/product_wt_ns_aslh/`.
 
+#### Build 2, with the banks' D slice (`TG_D_SLICE=1`): doesn't route (2026-10-22)
+
+Build 1 plus `TG_D_SLICE=1`, which puts a skid buffer on each L2 bank's D channel before the crossbar (`product_wt_nsd_aslh`). It is a measurement: the D slice is off by the user's choice.
+
+| | Build 1 (no D slice) | Build 2 (D slice) |
+|---|---|---|
+| LUTs after `opt_design` / placed | 115,692 / 113,343 | 115,868 / 113,359 |
+| FFs placed | 60,133 | 60,729 (+596) |
+| CLBs, control sets | 14,629, 2,878 | 14,640, 2,857 |
+| WNS after `phys_opt_design` (estimated, with the 1.0 ns of uncertainty on) | −0.897 ns | −0.965 ns |
+| Routing | routed at −1.740 ns, congestion level 5 | **failed:** 25,101 signals unrouted for congestion (level 6), 29,681 node overlaps |
+
+- **Placed congestion:** every window is level 5. They center on core 1's LSU (39–58% of a window's cells) and its D$ (18–25%), beside the uncore (17–32%), in rows 83–139 next to the crossbar and L2 bank 0. One window over the uncore holds core 0's CSR file and LSU.
+- **Routability itself is noisy at this fill.** The same netlist with and without 596 flip-flops lands on either side of the line. One run each can't separate the D slice from placement noise.
+- **So the D slice's effect on the response path (−1.459 ns in build 1) is unmeasured here.** That path isn't the worst family anyway: decode into the rename registers (−1.69) and fetch (−1.74) are worse.
+
+Results: `fpga/spikes/results/product_wt_nsd_aslh/` (utilization after `opt_design` and placement, the floorplan's reports, `congestion_placed.rpt` from the placed checkpoint, `run_excerpt.txt`).
+
 #### AltSpreadLogic_medium: spreads too little at this fill (2026-10-22)
 
 The slices-on product build on the new snapshot (`snap/product_wt2`, main e2570c7c) with `place_design -directive AltSpreadLogic_medium` (`product_wt2_aslm`).
