@@ -31,6 +31,10 @@ Inside `tg_core` (packages: `tg_core_pkg`, `tg_tl_pkg`, `tg_map_pkg`):
 - **Split mode (`SPLIT`, D1):** thread t owns LQ entries [12t, 12t + 12) and SQ entries [10t, 10t + 10) in smt2, and its
   pointers, the drain's next head and the head's mask wrap there. A flush drops only the flushed thread's entries.
   Each search takes its thread's entries (below).
+- **From step 6 the split is a mode at run time** (core-pipeline.md §8.5).
+  - While the sibling sleeps, the running thread owns every entry; the sleeper owns none.
+  - A split whose runner's window is empty moves its LQ and SQ pointers to its half's start (`mrs_i`). If the runner
+    is the drain's thread, its head's mask and the drain head's entry (`sqh_q`) are reread.
 - **Translation and PMP per hart (M7's step 4):** each access translates and checks with its thread's privilege, data
   privilege, SUM, MXR, satp and PMP (each hart's copy, a cycle behind `tg_csr`'s): a new load's and a store address's
   thread is its queue entry's half (the running thread without the split mode), the head's check the ROB's commit
@@ -147,7 +151,8 @@ LR.W/D, SC.W/D and the AMOs (SWAP, ADD, XOR, AND, OR, MIN, MAX, MINU, MAXU) are 
       head store waiting (`st_wait`, per thread, written in the thread's drain cycles; `st_resv`). Otherwise an entry
       that frees while the store cannot take it (the release engine busy with its victim, or the drain presenting the
       other thread's store) goes to the sibling's next load miss, and a pointer chase beside a store stream starves the
-      drain (6 of the pair runner's 42 pairs hang in the model). In merged mode the allocation is the one before M7.
+      drain (6 of the pair runner's 42 pairs hang in the model). In merged mode the allocation is the one before M7,
+      with hart 1 too while the sibling sleeps (`split_i`, step 6).
     - Loads' and the walker's misses go through a request register. The next cycle each one merges with the entry holding its line, finds the line present, allocates, or gets no answer. The answer is registered and reaches the LSU two cycles after `lm_req`.
     - No allocation shares a cycle with an install (the state port's one write).
   - **Sources:** Acquires carry their entry's index (0-3) and the Release carries 4. Grants come back in any order, matched by source; a Grant's beats are contiguous, so port B writes one Grant at a time. One install per cycle, the lowest entry first, after a probe update.

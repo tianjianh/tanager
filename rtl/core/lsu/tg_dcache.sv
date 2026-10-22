@@ -103,7 +103,9 @@ module tg_dcache
   output tl_e_t             e_o,
   output logic              e_valid_o,
   input  logic              e_ready_i,
-  output logic [7:0]        dbg_o         // board debug: {ready, the miss side, ps_q} (tg_core's dbg_o)
+  output logic [7:0]        dbg_o,        // board debug: {ready, the miss side, ps_q} (tg_core's dbg_o)
+  input  logic              split_i       // M7's step 6: the window is split (else one thread runs: the store
+                                          // reservation below is off, as before M7)
 );
 
   // ---- Arrays ----
@@ -332,7 +334,7 @@ module tg_dcache
   // the threads, while the LSU records its thread's head store waiting (st_resv). Else an entry that frees while the
   // store cannot take it (the release engine busy with its victim, or the drain presenting the other thread's store)
   // goes to the sibling's next load miss, and a pointer chase beside a store stream starves the drain. In merged mode
-  // the allocation is the one before M7.
+  // (SPLIT off, or with hart 1 while the sibling sleeps: split_i, step 6) the allocation is the one before M7.
   logic al_base;                         // nothing else holds the allocation's state write
   logic alloc_st, alloc_ld, alloc_pf;
   logic sx_new;                          // the store port's request needs a new entry (its line in none)
@@ -341,8 +343,8 @@ module tg_dcache
   logic st_rsvq;                         // ... from registers alone (the store port's request hits)
   assign al_base  = ps_q == P_IDLE && !b_valid_i && !am_busy && !fu_st && ready;
   assign alloc_st = al_base && m_free_st && sx_req && !s_hit_t;
-  assign st_rsv   = SPLIT && (st_resv || (sx_req && !s_hit_t && !dn_hit && sx_new)) && !m_spare;
-  assign st_rsvq  = SPLIT && st_resv && !m_spare;
+  assign st_rsv   = SPLIT && split_i && (st_resv || (sx_req && !s_hit_t && !dn_hit && sx_new)) && !m_spare;
+  assign st_rsvq  = SPLIT && split_i && st_resv && !m_spare;
   assign alloc_ld = al_base && m_free_ld && c_req && !(|ch) && !am_req && !(st_req && !s_hit_t && m_free_st) &&
                     !st_rsv;
   assign st_wait  = sx_req && !s_hit_t && !dn_hit && sx_new && !alloc_st;
@@ -1362,7 +1364,7 @@ module tg_dcache
       r_alloc_ld = 1'b0;
       if (m_none && !probe_active && !(b_valid_i && ps_q == P_IDLE) && !pb_amr && !am_busy && !fu_st && ready) begin
         if (sx_req && !r_s_hit_t)  r_alloc_st = 1'b1;
-        else if (c_req && !(|ch) && !(SPLIT && st_resv)) r_alloc_ld = 1'b1;
+        else if (c_req && !(|ch) && !(SPLIT && split_i && st_resv)) r_alloc_ld = 1'b1;
       end
       r_sx_drop = sx_req && m_none && dn_hit && !r_s_hit_t
                   && !r_alloc_ld && !probe_active;
