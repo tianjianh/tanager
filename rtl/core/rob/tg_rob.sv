@@ -611,10 +611,23 @@ module tg_rob
       for (int t = 0; t < NT; t++) if (wk_i[t]) slp_q[t] <= 1'b0;
     end
   end
-  // a sleeping thread asks to wake: a locally enabled interrupt, or SLP_MAX cycles; hart 1 not while it is held off
+  // a sleeping thread asks to wake: a locally enabled interrupt, or SLP_MAX cycles; hart 1 not while it is held off.
+  // (Simulation only, +xwake=N) it also asks with probability N per mille a cycle (WFI may complete at any time), which
+  // drives step 6's merges and splits, and step 7's caps with them, to random points; $urandom is not called without
+  // it, so other random streams stay as they are
+  logic [NT-1:0] xw_q;
+`ifndef SYNTHESIS
+  int unsigned xw_pm;
+  initial if (!$value$plusargs("xwake=%d", xw_pm)) xw_pm = 0;
+  always_ff @(posedge clk)
+    if (xw_pm != 0) for (int t = 0; t < NT; t++) xw_q[t] <= !rst && ($urandom % 1000) < xw_pm;
+    else xw_q <= '0;
+`else
+  assign xw_q = '0;
+`endif
   always_comb
     for (int t = 0; t < NT; t++)
-      wkr_o[t] = HART1_ON && slp_q[t] && (wkh_q[t] || int'(wfi_cnt_q[t]) == SLP_MAX) &&
+      wkr_o[t] = HART1_ON && slp_q[t] && (wkh_q[t] || int'(wfi_cnt_q[t]) == SLP_MAX || xw_q[t]) &&
                  !(h1off_i && tid_t'(t) == ~RUN_TID);
   assign slp_o = slp_q;
   // One adder on the head's PC: a serial instruction's next PC (+2 or +4), or a fetch fault's
