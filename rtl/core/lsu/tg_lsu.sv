@@ -97,6 +97,7 @@ module tg_lsu
   // From the ROB / commit
   input  robid_t [NUM_THREADS-1:0]     rob_head,      // each thread's
   input  tid_t                         hd_tid,        // the thread whose head commits this cycle (the head checks)
+  input  tid_t                         hd_tid_n,      // ... next cycle's (the ROB's ct_n)
   input  tid_t                         cm_tid,        // the commit group's thread
   input  logic [idx_w(COMMIT_WIDTH + 1)-1:0] cm_nld,  // loads retiring this cycle
   input  logic [idx_w(COMMIT_WIDTH + 1)-1:0] cm_nst,  // stores retiring this cycle
@@ -1515,9 +1516,26 @@ module tg_lsu
       hd_vpn_q[t_hd] <= hd_va[38:12];
       hd_at_q[t_hd]  <= hd_at;
     end
-    assign dt_vpn[2] = hd_vpn_q[t_hd];
+    // The lookup's VPN and access, registered for next cycle's head thread (the ROB's ct_n): the values hd_vpn_q and
+    // hd_at_q hold for it next cycle (asserted), so the lookup starts at one register, not at the commit thread's
+    // select (timing: ct_q, fan-out 314, then 1.1 ns of wire into the DTLB headed the walker's family on the chip,
+    // -1.953 ns to chk_pa_q; spikes §8.18)
+    tid_t        t_hdn;
+    logic [26:0] hd_vpn2_q;
+    acc_e        hd_at2_q;
+    assign t_hdn = (NT > 1 && SPLIT) ? hd_tid_n : RUN_TID;
+    always_ff @(posedge clk) begin
+      hd_vpn2_q <= (t_hdn == t_hd) ? hd_va[38:12] : hd_vpn_q[t_hdn];
+      hd_at2_q  <= (t_hdn == t_hd) ? hd_at : hd_at_q[t_hdn];
+    end
+`ifndef SYNTHESIS
+    always_ff @(posedge clk)
+      if (md_rs && !rst) assert (hd_vpn2_q == hd_vpn_q[t_hd] && hd_at2_q == hd_at_q[t_hd])
+        else $error("tg_lsu: the head lookup's registered VPN differs from its thread's");
+`endif
+    assign dt_vpn[2] = hd_vpn2_q;
     assign hd_tok    = hd_need_q[t_hd] && !sta_ag_valid && dt_hit[2] &&
-                       pte_ok(dt_pte[2], hd_at_q[t_hd], priv_d[t_hd], sum[t_hd], mxr[t_hd]);
+                       pte_ok(dt_pte[2], hd_at2_q, priv_d[t_hd], sum[t_hd], mxr[t_hd]);
     assign hd_walk   = hd_need_q[t_hd];
   end else begin : g_hd_two
     // B2: both candidates are looked up, the LQ head's VA (port 2) and the committing store's
@@ -1525,6 +1543,8 @@ module tg_lsu
     // checks as a load)
     assign dt_vpn[2] = lqc_rd[2].va[38:12];
     assign dt_vpn[3] = sqva_rd[TRP][38:12];
+    logic unused_hdn;                             // (next cycle's head thread: the late form's)
+    assign unused_hdn = ^hd_tid_n;
     assign hd_tok    = !sta_ag_valid &&
                        (hd_ld ? dt_hit[2] && pte_ok(dt_pte[2], ACC_R, priv_d[t_hd], sum[t_hd], mxr[t_hd])
                               : dt_hit[3] && pte_ok(dt_pte[3], (sq_amo_q[hs] && am_op_q[t_hd] == AMO_LR) ? ACC_R : ACC_W,

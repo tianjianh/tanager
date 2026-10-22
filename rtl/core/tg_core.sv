@@ -365,7 +365,7 @@ module tg_core
   // Per thread (M7's step 3): the ROB's heads, the LSU's LQ and SQ pointers and rename's tails. The LSU's head checks
   // follow the ROB's commit thread (rob_hd_tid, step 4)
   robid_t [NUM_THREADS-1:0] rob_tail_t, rob_head_t;
-  tid_t                     rob_hd_tid;
+  tid_t                     rob_hd_tid, rob_hd_tid_n;   // the ROB's commit thread, this cycle's and next's
   lqid_t  [NUM_THREADS-1:0] lq_head_t;
   sqid_t  [NUM_THREADS-1:0] sq_head_t, sq_cmt_t;
   logic [N_IQ-1:0][DISPATCH_WIDTH-1:0] iq_bank_free, iq_bank_free2;
@@ -636,7 +636,7 @@ module tg_core
     .ds_src2_rdy, .rf_we, .rf_widx,
     .ld_cmp_valid(ld_cmp), .ld_cmp_rob, .ld_cmp_mmio, .st_cmp_valid(st_cmp), .st_cmp_rob,
     .exc_valid(lx_valid), .exc_rob(lx_rob), .exc_cause(lx_cause), .spx_valid, .spx_rob, .sth_v, .sth_rob,
-    .replay_valid, .replay_rob, .rob_head(rob_head_t), .hd_tid(rob_hd_tid), .cm_tid(cm_tid[0]), .cm_nld, .cm_nst,
+    .replay_valid, .replay_rob, .rob_head(rob_head_t), .hd_tid(rob_hd_tid), .hd_tid_n(rob_hd_tid_n), .cm_tid(cm_tid[0]), .cm_nld, .cm_nst,
     .tr_sq, .tr_st_wr, .tr_st_va,
     .tr_st_data,
     .tr_st_size, .tr_lq, .tr_ld_va, .tr_ld_size, .sq_drained, .mmio_busy, .irq_go(tr_irq), .rsv_clr, .st_dropped,
@@ -687,7 +687,7 @@ module tg_core
       assert (init_done && rn_ready) else $error("tg_core: the ROB commits before rename is ready");
 `endif
   tg_rob #(.CORE_ID(CORE_ID)) u_rob (
-    .clk, .rst, .ready(!trace_stall_q), .ds_fire, .ds_valid, .ds_uop, .ds_ren, .head_o(rob_head_t), .hd_tid_o(rob_hd_tid),
+    .clk, .rst, .ready(!trace_stall_q), .ds_fire, .ds_valid, .ds_uop, .ds_ren, .head_o(rob_head_t), .hd_tid_o(rob_hd_tid), .hd_tid_n_o(rob_hd_tid_n),
     .alu_cmp, .alu_rob, .oth_cmp, .oth_rob, .oth_exc, .oth_tval, .oth_fflags,
     .fp_cmp, .fp_cmp_rob, .fp_cmp_fflags, .cm_fflags, .cm_tid,
     .br_valid, .br_rob, .br_misp, .br_npc, .br_exc, .br_tval,
