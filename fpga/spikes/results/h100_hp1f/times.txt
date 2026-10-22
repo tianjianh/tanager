@@ -1,0 +1,16 @@
+open_checkpoint: Time (s): cpu = 00:00:22 ; elapsed = 00:00:24 . Memory (MB): peak = 3876.215 ; gain = 2440.672 ; free physical = 25409 ; free virtual = 53881
+opt_design: Time (s): cpu = 00:03:14 ; elapsed = 00:01:31 . Memory (MB): peak = 5440.207 ; gain = 1477.051 ; free physical = 27285 ; free virtual = 55488
+place_design: Time (s): cpu = 00:22:08 ; elapsed = 00:12:53 . Memory (MB): peak = 6206.625 ; gain = 766.418 ; free physical = 28851 ; free virtual = 54101
+phys_opt_design: Time (s): cpu = 00:00:32 ; elapsed = 00:00:12 . Memory (MB): peak = 6206.625 ; gain = 0.000 ; free physical = 28761 ; free virtual = 54012
+route_design: Time (s): cpu = 02:17:26 ; elapsed = 01:27:11 . Memory (MB): peak = 6206.625 ; gain = 0.000 ; free physical = 29923 ; free virtual = 54655
+write_checkpoint: Time (s): cpu = 00:00:12 ; elapsed = 00:00:14 . Memory (MB): peak = 6206.625 ; gain = 0.000 ; free physical = 29823 ; free virtual = 54639
+report_utilization: Time (s): cpu = 00:00:04 ; elapsed = 00:00:06 . Memory (MB): peak = 6206.625 ; gain = 0.000 ; free physical = 29791 ; free virtual = 54608
+report_utilization: Time (s): cpu = 00:00:04 ; elapsed = 00:00:08 . Memory (MB): peak = 6206.625 ; gain = 0.000 ; free physical = 29807 ; free virtual = 54625
+report_timing_summary: Time (s): cpu = 00:00:14 ; elapsed = 00:00:12 . Memory (MB): peak = 6206.625 ; gain = 0.000 ; free physical = 29782 ; free virtual = 54601
+report_design_analysis: Time (s): cpu = 00:00:15 ; elapsed = 00:00:10 . Memory (MB): peak = 6206.625 ; gain = 0.000 ; free physical = 29783 ; free virtual = 54602
+report_clock_utilization: Time (s): cpu = 00:00:03 ; elapsed = 00:00:06 . Memory (MB): peak = 6206.625 ; gain = 0.000 ; free physical = 29816 ; free virtual = 54636
+get_timing_paths: Time (s): cpu = 00:00:09 ; elapsed = 00:00:05 . Memory (MB): peak = 6206.625 ; gain = 0.000 ; free physical = 29802 ; free virtual = 54625
+get_timing_paths: Time (s): cpu = 00:00:10 ; elapsed = 00:00:06 . Memory (MB): peak = 6206.625 ; gain = 0.000 ; free physical = 29792 ; free virtual = 54615
+get_timing_paths: Time (s): cpu = 00:00:09 ; elapsed = 00:00:06 . Memory (MB): peak = 6206.625 ; gain = 0.000 ; free physical = 29806 ; free virtual = 54629
+get_timing_paths: Time (s): cpu = 00:00:10 ; elapsed = 00:00:05 . Memory (MB): peak = 6206.625 ; gain = 0.000 ; free physical = 29827 ; free virtual = 54652
+report_timing_summary: Time (s): cpu = 00:00:06 ; elapsed = 00:00:05 . Memory (MB): peak = 6206.625 ; gain = 0.000 ; free physical = 29808 ; free virtual = 54635
