@@ -260,7 +260,7 @@ package tg_core_pkg;
   // §13.12, §13.15). A thread holds at most IQ_CAP_PCT of each queue's rows (tg_cfg: 50%; TG_IQ_CAP_PCT=75 for the
   // A/B), and the bank rule TG_IQ_BANK_RULE: 1 (the default), a thread does not take a row that would leave it
   // holding all of a bank's rows while its sibling's waiting group needs a row in that bank; 2, it never does; 0,
-  // none. Neither applies while a thread waits in WFI (it holds no rows)
+  // none. Neither applies while the halves are merged (step 6: one thread runs, its sibling sleeps)
 `ifdef TG_IQ_BANK_RULE
   localparam int IQ_BANK_RULE = `TG_IQ_BANK_RULE;
 `else

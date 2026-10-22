@@ -462,16 +462,15 @@ module tg_core
     col_clr = '0;
     col_clr[IQ_TAGS-1:0] = tag_free;
   end
-  // M7 step 7's caps: tg_issue's flags (rename reads them) and the threads waiting in WFI (tg_rob)
+  // M7 step 7's caps: tg_issue's flags (rename reads them); they apply while the halves are split (step 6's mode)
   logic [N_IQ-1:0][DISPATCH_WIDTH-1:0][1:0] iq_bank_nfree;
   logic [N_IQ-1:0][NUM_THREADS-1:0][2*DISPATCH_WIDTH-1:0] iq_room_ge;
   logic [N_IQ-1:0][NUM_THREADS-1:0][DISPATCH_WIDTH-1:0][1:0] iq_bank_left;
-  logic [NUM_THREADS-1:0] thr_park;
   logic             ld_m2_will;                 // the integer load in M2 completes (tg_lsu; tg_issue's filter)
   tg_issue u_is (
     .clk, .rst, .flush, .flush_tid, .disp_we(iq_we), .disp_dep(iq_dep),
     .disp_pl(iq_pl), .disp_mdep(iq_mdep), .bank_free(iq_bank_free), .bank_free2(iq_bank_free2), .mx_hold, .mx_alloc, .alloc(wid_alloc), .wake_reg, .ld_m2_will, .ld_m2_miss, .col_clr,
-    .bank_nfree(iq_bank_nfree), .room_ge(iq_room_ge), .bank_left(iq_bank_left), .thr_park,
+    .bank_nfree(iq_bank_nfree), .room_ge(iq_room_ge), .bank_left(iq_bank_left), .split_n(mdn.split),
     .w(w_vec), .busy(iq_busy), .a1_block, .ld_block, .fp_block, .fp_misc_block, .iss_valid, .iss_pl, .iss_src_n,
     .spec_cancel);
 
@@ -712,7 +711,7 @@ module tg_core
     .trap_target, .irq_target, .xret_v, .xret_s, .xepc, .priv(priv_cm), .irq_take, .irq_code, .wfi_wake, .wfi_wake_h,
     .csr_hold(csr_cold_busy), .flush, .flush_tid, .flush_pc, .icinv, .trace_o, .trace_valid_o,
     .md_i(md), .mdn_i(mdn), .mrs_i(mrs), .wk_i(wk), .sph_i(sph), .h1off_i(h1off), .flush_slp, .slp_o(slp),
-    .wkr_o(wkr), .park_o(thr_park));
+    .wkr_o(wkr));
 
   // ---- Unused in M2 ----
   assign merr_o           = '0;
