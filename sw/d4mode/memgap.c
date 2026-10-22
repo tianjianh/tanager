@@ -2,7 +2,7 @@
    The measurements that tell a costlier clock read from a slower memory path or from time taken by something
    else, run the same way under Debian in stage C and in RISC-V mode on one bitstream. Our own code (DR-138).
    Build on the board's Debian:   gcc -O2 -pthread -o memgap memgap.c
-     memgap [-i SECONDS] [-t SECONDS]
+     memgap [-i SECONDS] [-t SECONDS] [-c A,B]
    First an idle window of -i seconds (default 10): what else runs, from /proc/stat and /proc/interrupts (MEMGAP-IDLE-*
    lines). Then each test for about -t seconds (default 1), one line each: MEMGAP <test> <value> <unit>.
    Tests, in the order they run:
@@ -15,10 +15,13 @@
      chase16k   dependent loads through a random cycle of 64-byte lines over 16 KiB: L1 latency
      chase256k  over 256 KiB: L2 latency
      chase64m   over 64 MiB: DDR latency, TLB misses included (the same kernel in both modes)
-     pingpong   two threads on CPUs 0 and 1 pass one cache line back and forth: a coherence round trip
+     pingpong   two threads on CPUs A and B pass one cache line back and forth: a coherence round trip
      ev1        sysbench memory's event in one thread: 3 clock reads, a 1 KiB block written, one shared atomic add
      ev2local   the same in two threads, each with its own block (the shared atomic add stays)
      ev2shared  two threads writing one shared block, sysbench memory's default (--memory-scope=global)
+   The two-thread tests pin their threads to CPUs A and B, -c A,B (default 0,1), whatever the process's own
+   affinity (taskset doesn't move them). On a four-hart tree (two smt2 cores) CPUs 0 and 1 are one core's two harts;
+   -c 0,2 puts them on two cores. MEMGAP-INFO names each CPU's thread siblings.
    For the idle window and again for the tests: each CPU's time by kind, interrupts and context switches per second,
    and every interrupt line that counted, per second (in the tests' window, another program's time shows as user or
    system time beyond this one's: they keep one or two CPUs busy, as said above).
@@ -146,8 +149,9 @@ static uint64_t t_chase(uint64_t n) {
   return (uint64_t)(uintptr_t)p;
 }
 
-/* Two threads pinned to CPUs 0 and 1. */
+/* Two threads pinned to CPUs A and B (-c). */
 static int pin_ok = 1;
+static int cpu_ab[2] = {0, 1};
 
 static void run2(void *(*fn)(void *), void *a0, void *a1) {
   pthread_t t[2];
@@ -157,7 +161,7 @@ static void run2(void *(*fn)(void *), void *a0, void *a1) {
     cpu_set_t set;
     pthread_attr_init(&at);
     CPU_ZERO(&set);
-    CPU_SET(c, &set);
+    CPU_SET(cpu_ab[c], &set);
     if (pthread_attr_setaffinity_np(&at, sizeof set, &set)) pin_ok = 0;
     if (pthread_create(&t[c], &at, fn, arg[c])) {
       fprintf(stderr, "memgap: pthread_create: %s\n", strerror(errno));
@@ -333,15 +337,32 @@ static void info(void) {
   uname(&u);
   printf("MEMGAP-INFO kernel=%s machine=%s cpus=%ld clocksource=%s idle=%.1f s, each test %.2f s\n", u.release,
          u.machine, sysconf(_SC_NPROCESSORS_ONLN), cs, idle_secs, secs);
+  // the two-thread tests' CPUs, and whether they share a core
+  char sib[2][64];
+  for (int c = 0; c < 2; c++) {
+    char path[96];
+    snprintf(path, sizeof path, "/sys/devices/system/cpu/cpu%d/topology/thread_siblings_list", cpu_ab[c]);
+    strcpy(sib[c], "?");
+    if ((f = fopen(path, "r"))) {
+      if (fgets(sib[c], sizeof sib[c], f)) sib[c][strcspn(sib[c], "\n")] = 0;
+      fclose(f);
+    }
+  }
+  printf("MEMGAP-INFO two-thread tests on CPUs %d and %d (thread siblings %s and %s)\n", cpu_ab[0], cpu_ab[1], sib[0],
+         sib[1]);
 }
 
 int main(int argc, char **argv) {
   int opt;
-  while ((opt = getopt(argc, argv, "i:t:")) != -1) {
+  while ((opt = getopt(argc, argv, "i:t:c:")) != -1) {
+    int a, b;
     if (opt == 't' && atof(optarg) > 0) secs = atof(optarg);
     else if (opt == 'i' && atof(optarg) >= 0) idle_secs = atof(optarg);
-    else {
-      fprintf(stderr, "usage: memgap [-i SECONDS] [-t SECONDS]\n");
+    else if (opt == 'c' && sscanf(optarg, "%d,%d", &a, &b) == 2 && a >= 0 && b >= 0 && a != b) {
+      cpu_ab[0] = a;
+      cpu_ab[1] = b;
+    } else {
+      fprintf(stderr, "usage: memgap [-i SECONDS] [-t SECONDS] [-c A,B]\n");
       return 2;
     }
   }
@@ -391,7 +412,7 @@ int main(int argc, char **argv) {
   double l = timed(t_ev2local, 100), sh = timed(t_ev2shared, 100);
   printf("MEMGAP ev2local %.1f ns/event (per thread; %.0f events/s in all)\n", l, 2e9 / l);
   printf("MEMGAP ev2shared %.1f ns/event (per thread; %.0f events/s in all)\n", sh, 2e9 / sh);
-  if (!pin_ok) printf("MEMGAP-NOTE the two-thread tests could not pin to CPUs 0 and 1\n");
+  if (!pin_ok) printf("MEMGAP-NOTE the two-thread tests could not pin to CPUs %d and %d\n", cpu_ab[0], cpu_ab[1]);
 
   double dt = now() - t0;
   snap_take(&s1);
