@@ -146,8 +146,7 @@ module tg_core
   logic   [NUM_THREADS-1:0]                  sum_h, mxr_h, sv39_h;
   logic   [NUM_THREADS-1:0][43:0]            satp_ppn_h;
   pmp_d_t [NUM_THREADS-1:0][PMP_ENTRIES-1:0] pmp_d_h;
-  logic   [NUM_THREADS-1:0][2:0]             pmp_al_h;
-  logic   [NUM_THREADS-1:0][PMP_ENTRIES-1:0] pmp_p2m_h;
+  logic   [NUM_THREADS-1:0][PMP_ENTRIES-1:0][2:0] pmp_pal_h;
   logic        satp_wr, pmp_wr, pmp_busy, sfence, tlb_flush;
   tid_t        tlb_flush_tid;                // the hart whose TLB entries the flush clears (M7's step 4)
   logic        iw_req, iw_ack, iw_done, iw_ok, it_fill;
@@ -642,7 +641,7 @@ module tg_core
     .tr_st_data,
     .tr_st_size, .tr_lq, .tr_ld_va, .tr_ld_size, .sq_drained, .mmio_busy, .irq_go(tr_irq), .rsv_clr, .st_dropped,
     .priv(priv_l_q), .priv_d(priv_dl_q), .sum(sum_l_q), .mxr(mxr_l_q), .satp_sv39(sv39_l_q),
-    .satp_ppn(satp_ppn_l_q), .pmp_d(pmp_d_h), .pmp_al(pmp_al_h), .pmp_p2m(pmp_p2m_h), .tlb_flush, .tlb_flush_tid,
+    .satp_ppn(satp_ppn_l_q), .pmp_d(pmp_d_h), .pmp_pal(pmp_pal_h), .tlb_flush, .tlb_flush_tid,
     .tlbm_valid, .tlbm_rob, .hd_tlb, .hd_retry, .hd_fault, .hd_cause, .hd_lva, .hd_sva,
     .iw_req, .iw_va, .iw_tid, .iw_ack, .iw_done, .iw_ok, .iw_cause,
     .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte, .it_fill_tid,
@@ -672,7 +671,7 @@ module tg_core
     .misa_c, .misa_a, .misa_f, .misa_d, .fs, .fc_fflags, .fc_frm, .fc_wvalid, .fc_waddr,
     .fc_wdata, .fs_dirty, .cm_pc(tr_epc), .priv, .tvm, .tw, .tsr, .satp_sv39,
     .satp_asid, .satp_wr, .pmp_d, .pmp_wr, .pmp_busy, .cold_busy(csr_cold_busy), .dst_h(dst_csr), .priv_h, .priv_d_h, .sum_h, .mxr_h, .sv39_h, .satp_ppn_h,
-    .pmp_d_h, .pmp_al_h, .pmp_p2m_h,
+    .pmp_d_h, .pmp_pal_h,
     .irq_mei(irq_mei_i), .irq_mti(irq_mti_i), .irq_msi(irq_msi_i), .irq_sei(irq_sei_i),
     .irq_ssi(irq_ssi_i), .mtime(mtime_i), .h1off_o(h1off));
 
