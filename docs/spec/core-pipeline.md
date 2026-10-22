@@ -390,7 +390,12 @@ With hart 1 a thread that waits in WFI while its sibling runs lends its half of 
   - The partition helpers (`x_add_t`, `x_cnt_t`, `x_start`, `x_tid`, `x_part`, `x_own`) take the mode.
 - **Wake:**
   - A sleeper wakes on a locally enabled interrupt (its next instruction takes it if globally enabled), or after
-    65,536 cycles asleep.
+    2^24 cycles asleep while it has one enabled (`mie` ≠ 0; the time-out only guards a wake that never comes). With
+    none enabled it sleeps until reset, as WFI may: a parked hart (`wfi; j park`) then costs its sibling nothing.
+    Until the fix after 124edb9f every sleeper also woke every 65,536 cycles, and each wake split the window: one
+    thread alone lost 0.06% to a parked hart 1 (verif-2: chase8 at 250 cycles, 178 wakes in 11.86M cycles), which
+    DR-184's exit forbids. Nothing relies on the periodic wake: park loops never leave, OpenSBI's and Linux's waits
+    enable their interrupts, and the random programs' WFIs come only with their timer interrupt (`--irq`).
   - While merged the wake waits for the split: the runner renames nothing until its window lies in its half without
     wrapping (`win_fits`), or is empty. An empty window's pointers then go back to its half's start (`mrs`, in rename,
     the ROB and the LSU, which also rereads the drain head's entry).

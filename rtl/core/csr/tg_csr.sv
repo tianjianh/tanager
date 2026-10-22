@@ -56,6 +56,8 @@ module tg_csr
   output logic [5:0]             irq_code,
   output logic                   wfi_wake,     // mip & mie != 0 (the head thread's)
   output logic [NUM_THREADS-1:0] wfi_wake_h,   // ... each hart's (the ROB's commit turns, with hart 1)
+  output logic [NUM_THREADS-1:0] wfi_arm_h,    // each hart has an interrupt locally enabled (mie != 0): a sleeping
+                                               // WFI may time out (tg_rob, step 6)
   output logic                   misa_m,
   output logic                   misa_b,       // Zba/Zbb/Zbs enabled (Spike lets software clear B)
   output logic                   misa_c,       // compressed instructions enabled
@@ -265,6 +267,7 @@ module tg_csr
   assign wfi_wake = |ipend[ht];
   for (genvar t = 0; t < NT; t++) begin : g_wake
     assign wfi_wake_h[t] = |ipend[t];
+    assign wfi_arm_h[t]  = |h_q[t].mie;
   end
 
   // ---- Each hart's decode state (M7's step 5b: decode reads its group's hart's) ----
