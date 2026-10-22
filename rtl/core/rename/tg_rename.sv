@@ -215,8 +215,7 @@ module tg_rename
   // alone (the write port waits for no fire). With PAY_WREG (the default) the write is registered and lands a cycle
   // later (pay_wa_q, pay_wd_q): decode's paths end at flip-flops beside decode, not at the LUTRAM, and a group taken
   // in cycle c is written at the end of c + 1, while DS reads it at c + 2 at the earliest. The RN and DS registers keep
-  // the fields rename reads
-  // and the row (rn_s_q, ds_s_q). ds_full is DS's group whole.
+  // the fields rename reads and the row (rn_s_q, ds_s_q). ds_full is DS's group whole.
   typedef struct packed {
     logic [63:0]     pc;
     logic [31:0]     insn;
