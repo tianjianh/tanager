@@ -1098,15 +1098,6 @@ module tg_lsu
     mh_rob_q <= lqc_rd[2].rob;
   end
   assign mh_req = mh_q && lq_pck_q[mh_lq_q] && xs_q == X_IDLE && !xr_v_q && am_st_q == AM_IDLE;
-`ifndef SYNTHESIS
-  // (core-2's check) The request is the head's of a cycle ago, re-derived every cycle (a flush ends it the cycle
-  // after): at its grant its entry is still that MMIO load, waiting for its check, as the request captured it
-  always_ff @(posedge clk)
-    if (!rst && mh_gnt)
-      assert (lq_v_q[mh_lq_q] && lq_st_q[mh_lq_q] == L_MMIO && lq_pa_q[mh_lq_q] == mh_pa_q &&
-              (lq_size_q[mh_lq_q] == 2'd3) == mh_dbl_q && lq_tid(int'(mh_lq_q), md) == mh_t_q)
-        else $error("tg_lsu: the head's MMIO check granted for LQ %0d, which is no longer the load it asked for", mh_lq_q);
-`endif
   tid_t              am_t_q;                // the FSM's atomic's thread
   robid_t            [NT-1:0] am_rob_q;
   sqid_t             [NT-1:0] am_sq_q;
@@ -1599,6 +1590,14 @@ module tg_lsu
   logic rs_q;                       // the core has been reset: the checks wait for it (tg_rob)
   initial rs_q = 1'b0;
   always @(posedge clk) if (rst) rs_q <= 1'b1;
+  // (DR-183, core-2's check) The head's MMIO check request is the head's of a cycle ago, re-derived every cycle (a
+  // flush ends it the cycle after): at its grant its entry is still that MMIO load, waiting for its check, as the
+  // request captured it
+  always_ff @(posedge clk)
+    if (rs_q && !rst && mh_gnt)
+      assert (lq_v_q[mh_lq_q] && lq_st_q[mh_lq_q] == L_MMIO && lq_pa_q[mh_lq_q] == mh_pa_q &&
+              (lq_size_q[mh_lq_q] == 2'd3) == mh_dbl_q && lq_tid(int'(mh_lq_q), md) == mh_t_q)
+        else $error("tg_lsu: the head's MMIO check granted for LQ %0d, which is no longer the load it asked for", mh_lq_q);
   always_ff @(posedge clk)
     if (rs_q && !rst && !flush && rp_v_c && ld_ag_valid)
       assert (ld_ag_pl.lq[LIW-1:0] != rp_ra_c) else $error("tg_lsu: an AG load writes a replayed load's LQ entry");
