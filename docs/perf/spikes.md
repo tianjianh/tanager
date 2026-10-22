@@ -1780,8 +1780,17 @@ Results: `fpga/spikes/results/product_wt_ns_aslh/`.
   - By unit within 1 ns: the LSU 146 families, rename 90, fetch 82, the CSR files 82.
 - **The L2 → crossbar → core response path:** 17 families and 565 endpoints, worst −1.021 ns into core 1's I$ valid-bit RAM (build 1: 1,169 endpoints at −1.459). The ACLINT stays clear.
 - **Not a pure A/B.** Step 7's changes ride along with DR-185, and placement noise at this fill is large. But this is the first routed product chip near −1 ns.
+- **Path queries** (the coordinator, for core-2 and fpu-2; [`q_pin_classes.tcl`](../../fpga/spikes/tcl/query/q_pin_classes.tcl), `q_path_cells.tcl`):
+  - **The payload LUTRAM fails on its write data, not its write address or enable.**
+    - Core 1: 522 write-data endpoints within 1 ns, 373 failing, worst −1.048 ns, from fetch's `u_cmp/rt_q` through decode (18 levels, 7.66 ns of wire). Its 736 write-enable endpoints are all met (worst +0.706).
+    - Core 0: 483 write-data endpoints, 56 failing, worst −0.373 ns. Its write enable is met at +0.172 ns.
+    - No write-address endpoint is within 1 ns.
+    - So the fix is a registered write-data port.
+  - **TAGE:** the families from the I$ data are core 0's `gp_n_s_q` (4 endpoints, −1.077 ns, 21 levels) and `gp_b_s_q` (2, −0.852), core 1's (−0.581, −0.450), and `fb_wd_q` (15 and 14, about −0.4).
+    - The worst path spends about 8 levels in fetch's F3 predecode (the parcel boundary marks), about 10 in `tg_tage` and 3 into `gp_n_s_q`.
+    - That is 4.26 ns of logic and 6.52 ns of wire.
 
-Results: `fpga/spikes/results/product_wt2_dr185_aslh/`.
+Results: `fpga/spikes/results/product_wt2_dr185_aslh/` (with `pin_classes_pay_core0.txt`, `pin_classes_pay_core1.txt` and `path_cells_tage_core0.txt`).
 
 #### Build 2, with the banks' D slice (`TG_D_SLICE=1`): doesn't route (2026-10-22)
 
