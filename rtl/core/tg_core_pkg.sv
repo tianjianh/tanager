@@ -203,7 +203,7 @@ package tg_core_pkg;
 `ifdef TG_ALU_SIMPLE
   localparam logic [2:0] ALU_SIMPLE = `TG_ALU_SIMPLE;
 `else
-  localparam logic [2:0] ALU_SIMPLE = 3'b000;
+  localparam logic [2:0] ALU_SIMPLE = 3'b001;   // variant (a): ALU0 simple
 `endif
 `ifdef TG_STEER_LA
   localparam bit STEER_LA = `TG_STEER_LA;
