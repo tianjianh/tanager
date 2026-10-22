@@ -485,11 +485,14 @@ module tg_fetch
   assign uok = hp;
   logic [1:0]         gh_n, gh_b;         // TAGE_ON: the history bits the block adds (count, values)
   logic [NP-1:0]      gh_cm, gh_pk;       // ... its conditional branches' slots and directions
-  logic [NP-1:0]      gh_mb, gh_lm;       // ... F2's raw terms for them, by parcel: the branches that count if within
-  logic [NP-1:0]      gh_xm, gh_wd;       // the block (gh_mb), the block's limit (lim), the exit (feh), the wide
-  logic               gh_c3, gh_sb, gh_sx; // parcels; the third branch's cut without the PMP check (c3_v && !f2_chk),
-                                          // the straddler's branch counted, the straddler the exit (registered in
-                                          // g_tage: spikes §8.18)
+  // ... F2's raw terms for them, registered in g_tage (spikes §8.18), by parcel unless noted:
+  logic [NP-1:0]      gh_mb;              // the branches that count if within the block
+  logic [NP-1:0]      gh_lm;              // the block's limit (lim)
+  logic [NP-1:0]      gh_xm;              // the exit (feh)
+  logic [NP-1:0]      gh_wd;              // the wide parcels
+  logic               gh_c3;              // the third branch's cut without the PMP check (c3_v && !f2_chk)
+  logic               gh_sb;              // the straddler's branch, counted
+  logic               gh_sx;              // the straddler is the exit
   logic [NP-1:0]      tdir;               // ... TAGE's direction per slot
   if (!TAGE_ON) begin : g_f2u
     // ---- The micro-BTB alone: the prediction stands or is dropped (the next block) ----
