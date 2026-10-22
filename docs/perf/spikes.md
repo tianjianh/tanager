@@ -1593,14 +1593,17 @@ Results: `fpga/spikes/results/h100_hp1/` (with `near_families_hp1.txt`, `urf_chi
 - `tg_fp_check`, after the floorplan and before `opt_design`: each pblock's LUT cells against its LUT sites. It warns above 105% and calls the pblock tight above 115%.
 - `tg_fp_check_placed`, after `place_design`: each pblock's own LUTs against its sites. It warns above 85% and calls the pblock tight above 90%, which means resize it. It also logs IS_SOFT and the share of the pblock's own LUT cells placed outside it.
 
-| Pblock | LUT sites | hp1f before `opt_design` | hp1f own after placement | hp1f outside | Main e6691d53 with the product windows, before `opt_design` |
-|---|---|---|---|---|---|
-| `l2b0` (L2 bank 0) | 6,400 | 95% | 73% | 20% | 94% |
-| `l2b1` (L2 bank 1) | 6,400 | 101% | 77% | 15% | 102% |
-| `xbar` (the crossbar) | 4,032 | 52% | 45% | 28% | 72% |
+| Pblock | LUT sites | hp1f before `opt_design` | hp1f own after placement | hp1f outside | Main e6691d53 with the product windows, before `opt_design` | soc-2's d4r2 check: before `opt_design` | own after placement | outside |
+|---|---|---|---|---|---|---|---|---|
+| `l2b0` (L2 bank 0) | 6,400 | 95% | 73% | 20% | 94% | 98% | 73% | 13% |
+| `l2b1` (L2 bank 1) | 6,400 | 101% | 77% | 15% | 102% | 102% | 76% | 16% |
+| `xbar` (the crossbar) | 4,032 | 52% | 45% | 28% | 72% | 65% | 51% | 31% |
 
 - **The two thresholds agree.** After `opt_design` and LUT packing, a pblock's own LUTs came to 76–87% of its estimate, so 105% before `opt_design` is about 80–90% own after placement.
 - **The product windows** grow the crossbar's pblock from 52% to 72%; the banks barely change.
+- **soc-2's DR-181 check** (10-21): `build.tcl` with d4r2's recipe and the floorplan, on main. That is hart 1 off, the URF off, the injectors in and the product windows on.
+  - It placed 107,657 LUTs (91.9%) and closed at WNS +0.876 ns and WHS +0.001 ns. d4r2 without the floorplan, on ef44e5b7, had closed at +0.367 ns.
+  - Every pblock graded OK. Its fill after placement is within a few points of hp1f's, so nothing needs resizing.
 - **Resizing:** a bank's pblock grows by two SLICE rows (160 LUT sites a row in the X2 column). The crossbar has room in X1.
 
 Results: `fpga/spikes/results/h100_hp1f/` (with `near_families_hp1f.txt`, `urf_chip.txt`, `floorplan.txt`, `congestion.rpt` and `worst_paths.txt`; `fp_checks.txt` from [`q_fp_checks.tcl`](../../fpga/spikes/tcl/query/q_fp_checks.tcl); `pb_spill.txt` and `pb_soft.txt`, the cells outside, from [`q_pb_spill.tcl`](../../fpga/spikes/tcl/query/q_pb_spill.tcl) and [`q_pb_soft.tcl`](../../fpga/spikes/tcl/query/q_pb_soft.tcl)); main's check in `h100_ex1_synth/fp_check_g4_uncore.txt`.
