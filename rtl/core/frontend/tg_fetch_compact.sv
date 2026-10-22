@@ -76,6 +76,11 @@ module tg_fetch_compact
   tid_t wt;
   logic wq, rq;
   logic rt_q;                                        // the thread decode reads (MT)
+  // Each bank's read address takes its own copy of rt_q, and picks its own head and row from it (timing: on the
+  // product chip, rt_q's fan-out of about 800, the head's pick and a bank's row index were 1.6 ns of wire before the
+  // LUTRAM, at the head of the paths into rename's payload write, pay_wd_q). Kept, so that synthesis does not merge
+  // the copies into rt_q
+  (* keep = "true" *) logic [WR-1:0] rt_b_q;
   assign wt  = MT ? blk_tid : RUN_TID;
   assign wq  = MT && blk_tid[0];
   assign rq  = MT && rt_q;
@@ -121,12 +126,13 @@ module tg_fetch_compact
   logic [NQ-1:0][QW:0]   occ_t_q;
   logic [NQ-1:0][QW-1:0] head_t_q, tail_t_q;
   logic [QW:0]   occ_q, rocc;                // the block's thread's count; the reader's
-  logic [QW-1:0] head_q, tail_q;             // the reader's head; the block's thread's tail
+  logic [QW-1:0] tail_q;                     // the block's thread's tail
+  logic [BW-1:0] head_q;                     // the reader's head's bank (the slots' rotation; each bank reads its own)
   assign occ_q  = occ_t_q[wq];
   always_comb for (int q = 0; q < NUM_THREADS; q++) occ_o[q] = (q < NQ) ? occ_t_q[q < NQ ? q : 0] : '0;
   assign tail_q = tail_t_q[wq];
   assign rocc   = occ_t_q[rq];
-  assign head_q = head_t_q[rq];
+  assign head_q = head_t_q[rq][BW-1:0];
   logic [CW-1:0] done_q;                 // instructions of this block already written
   logic [CW-1:0] left, nwr;
   assign left = count - done_q;
@@ -212,8 +218,12 @@ module tg_fetch_compact
   logic [WR-1:0][IB_W-1:0] brdata;
   for (genvar b = 0; b < WR; b++) begin : g_bank
     logic [QW-1:0] idx;
-    assign idx = head_q + QW'(BW'(BW'(b) - head_q[BW-1:0]));
-    assign braddr[b] = (RW + TW)'({rq, idx[QW-1:BW]});
+    logic          rqb;                // the reader, from this bank's copy
+    logic [QW-1:0] hb;
+    assign rqb = MT && rt_b_q[b];
+    assign hb  = head_t_q[rqb];
+    assign idx = hb + QW'(BW'(BW'(b) - hb[BW-1:0]));
+    assign braddr[b] = (RW + TW)'({rqb, idx[QW-1:BW]});
     logic unused;
     assign unused = ^idx[BW-1:0];   // equals b
     logic [0:0][RW+TW-1:0] ra;
@@ -297,10 +307,16 @@ module tg_fetch_compact
       hp_q[wq] <= parcel[NP-1];
       hm_q[wq] <= marks[NP-1];
     end
-    rt_q <= rst ? (MT && RUN_TID[0]) : rt_n;
+    rt_q   <= rst ? (MT && RUN_TID[0]) : rt_n;
+    rt_b_q <= rst ? {WR{MT && RUN_TID[0]}} : {WR{rt_n}};
   end
 
 `ifndef SYNTHESIS
+  logic rt_rs;                                       // (the copies are checked from the first reset on)
+  initial rt_rs = 1'b0;
+  always @(posedge clk) if (rst) rt_rs <= 1'b1;
+  always_ff @(posedge clk)
+    if (rt_rs && !rst) assert (rt_b_q == {WR{rt_q}}) else $error("tg_fetch_compact: a bank's copy of rt_q differs from it");
   always_ff @(posedge clk) begin
     if (!rst && !fq[rq]) assert (int'(take) <= RD && (QW + 1)'(take) <= rocc)
       else $error("tg_fetch_compact: take beyond the valid entries");
