@@ -1749,6 +1749,40 @@ Results: `fpga/spikes/results/product_asl_high/` (summary, timing, utilization a
 
 Results: `fpga/spikes/results/product_wt_ns_aslh/`.
 
+#### The DR-185 preview: rename's payload in a LUTRAM routes at −1.11 ns (2026-10-22)
+
+**Asked** (the coordinator, "the most important build of the day"): core-2's DR-185 preview, `claude/track-core-adb715-dr185` at 3ed73e6f.
+- **What DR-185 does:** rename's payload (imm, pc, pred_npc, br_target, insn) waits in a LUTRAM beside rename instead of riding through the per-thread rename registers and DS. It is built on M7 step 7's head 032caa15.
+- **Snapshot:** merged into main a6ff993d (DR-186's slices off, the ACLINT registers in), plus the measurement lines.
+- **Flow:** `AltSpreadLogic_high`, everything else `build.tcl`'s (`product_wt2_dr185_aslh`).
+
+| | Build 1 (main dde95639 + ACLINT, no slices, high spread) | **DR-185 preview** (+ step 7, + DR-185) |
+|---|---|---|
+| LUTs after `opt_design` / routed | 115,692 / 113,346 | 116,663 / 114,067 (97.4%) |
+| FFs routed | 60,146 | **55,850** (−4,296) |
+| CLBs, control sets, DSPs | 14,629, 2,878, 140 | 14,639, 2,795, 140 |
+| Routing | 2.5 h; congestion level 5 | **1.0 h**; congestion level 6, but the router never put routability ahead of timing |
+| WNS / TNS on the core clock (ns) | −1.740 / −5,766 (11,571 failing) | **−1.108 / −595.5** (2,120 failing) |
+| `clk2x`: within / into it / back (ns) | +1.118 / −0.298 / +0.269 | +1.721 / **+0.652** / +0.867 |
+| Endpoints within 1 ns | 24,794 in 619 families | **12,886** in 439 families |
+
+- **The flip-flops were the lever.** 4.3K fewer FFs, at about 1K more LUTs (step 7 and DR-185's +86 a core), halved the near-critical endpoints, cut TNS tenfold, routed in 1 hour instead of 2.5, and fixed the path into `clk2x`.
+- **The decode → payload paths left the rename registers.**
+  - No path into `rn_u_q`'s imm, br_target, pc, pred_npc or insn is within 1 ns (build 1: 512 + 504 endpoints at −1.69 ns).
+  - The remaining `rn_u_q` families are its control fields: 45 families, 492 endpoints, worst −0.903 ns.
+  - The payload's own LUTRAM (`u_rn/u_pay`) now takes the decode path's writes: one family of 1,258 endpoints at −1.048 ns from fetch's `u_cmp/rt_q`, 18 levels. That is 0.6 ns better than before, but still among the worst.
+- **The worst families now** (−1.11 to −1.04 ns):
+  - fetch's `u_cmp/rt_q` from the LSU's LQ head (31 levels) and from rename's DS (34);
+  - fetch's TAGE from the I$ data;
+  - the payload LUTRAM;
+  - the LSU's LQ state from step 6/7's `md_l_q`;
+  - core 1's walker from the ROB.
+  - By unit within 1 ns: the LSU 146 families, rename 90, fetch 82, the CSR files 82.
+- **The L2 → crossbar → core response path:** 17 families and 565 endpoints, worst −1.021 ns into core 1's I$ valid-bit RAM (build 1: 1,169 endpoints at −1.459). The ACLINT stays clear.
+- **Not a pure A/B.** Step 7's changes ride along with DR-185, and placement noise at this fill is large. But this is the first routed product chip near −1 ns.
+
+Results: `fpga/spikes/results/product_wt2_dr185_aslh/`.
+
 #### Build 2, with the banks' D slice (`TG_D_SLICE=1`): doesn't route (2026-10-22)
 
 Build 1 plus `TG_D_SLICE=1`, which puts a skid buffer on each L2 bank's D channel before the crossbar (`product_wt_nsd_aslh`). It is a measurement: the D slice is off by the user's choice.
