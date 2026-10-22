@@ -485,9 +485,11 @@ module tg_fetch
   assign uok = hp;
   logic [1:0]         gh_n, gh_b;         // TAGE_ON: the history bits the block adds (count, values)
   logic [NP-1:0]      gh_cm, gh_pk;       // ... its conditional branches' slots and directions
-  logic [NP-1:0]      gh_bm, gh_xm, gh_wd; // ... F2's raw terms for them, by parcel: the counted conditional branches
-  logic               gh_sb, gh_sx;       // (bcb), the exit (feh), the wide parcels; the straddler's branch counted,
-                                          // and the straddler is the exit (registered, g_tage: spikes §8.18)
+  logic [NP-1:0]      gh_mb, gh_lm;       // ... F2's raw terms for them, by parcel: the branches that count if within
+  logic [NP-1:0]      gh_xm, gh_wd;       // the block (gh_mb), the block's limit (lim), the exit (feh), the wide
+  logic               gh_c3, gh_sb, gh_sx; // parcels; the third branch's cut without the PMP check (c3_v && !f2_chk),
+                                          // the straddler's branch counted, the straddler the exit (registered in
+                                          // g_tage: spikes §8.18)
   logic [NP-1:0]      tdir;               // ... TAGE's direction per slot
   if (!TAGE_ON) begin : g_f2u
     // ---- The micro-BTB alone: the prediction stands or is dropped (the next block) ----
@@ -560,9 +562,11 @@ module tg_fetch
     assign gh_b    = '0;
     assign gh_cm   = '0;
     assign gh_pk   = '0;
-    assign gh_bm   = '0;
+    assign gh_mb   = '0;
+    assign gh_lm   = '0;
     assign gh_xm   = '0;
     assign gh_wd   = '0;
+    assign gh_c3   = 1'b0;
     assign gh_sb   = 1'b0;
     assign gh_sx   = 1'b0;
     assign fx_tgt  = f2_tgt_q;
@@ -822,11 +826,14 @@ module tg_fetch
         end
     end
     // The same, as raw terms registered at the delivery (g_tage forms the count, the bit and the slots from them a
-    // cycle later). No tk: a counted branch at the exit is the taken exit (counted means no fault and no PMP cut at or
-    // before it, which is all tk adds to fe_v there), and a counted straddler at the exit likewise
+    // cycle later): bcb[p] is gh_mb[p] && (gh_lm[p] || gh_c3), bs's terms for a branch (a branch starts its parcel).
+    // No tk: a counted branch at the exit is the taken exit (counted means no fault and no PMP cut at or before it,
+    // which is all tk adds to fe_v there), and a counted straddler at the exit likewise
     for (genvar p = 0; p < NP; p++) begin : g_ghr
-      assign gh_bm[p] = !isf && bs[p] && cbr[p];
+      assign gh_mb[p] = !isf && cbr[p] && !cutm[p];
     end
+    assign gh_lm = lim;
+    assign gh_c3 = c3_v && !f2_chk;
     assign gh_xm = feh;
     assign gh_wd = wide;
     assign gh_sb = !isf && sx_br;
@@ -1133,18 +1140,22 @@ module tg_fetch
     // directions (u_fbr's data) are formed from them in the next cycle, in front of gh_e's shift
     logic [NS-1:0][GH_W-1:0] gh_s_q, cgh_s_q, gh_e_s;
     logic [NS-1:0]           gw_s_q;                  // the stream's block was delivered last cycle: its bits pend
-    logic [NP-1:0]           hr_bm_q, hr_xm_q, hr_wd_q;   // F2's raw terms (gh_bm, gh_xm, gh_wd, gh_sb, gh_sx)
-    logic                    hr_sb_q, hr_sx_q;
+    logic [NP-1:0]           hr_mb_q, hr_lm_q, hr_xm_q, hr_wd_q;   // F2's raw terms (gh_*)
+    logic                    hr_c3_q, hr_sb_q, hr_sx_q;
+    logic [NP-1:0]           hr_bm;                   // the counted branches by parcel (F2's bcb)
     logic [NP-1:0]           hr_cm, hr_pk;            // the block's branch slots and directions (F2's gh_cm, gh_pk)
     logic [1:0]              hr_n;                    // the count (F2's gh_n): at most two, a third branch cuts
     logic                    hr_b;                    // the newest bit (gh_b[0]): the exit is a taken branch
     always_ff @(posedge clk) begin
-      hr_bm_q <= gh_bm;
+      hr_mb_q <= gh_mb;
+      hr_lm_q <= gh_lm;
       hr_xm_q <= gh_xm;
       hr_wd_q <= gh_wd;
+      hr_c3_q <= gh_c3;
       hr_sb_q <= gh_sb;
       hr_sx_q <= gh_sx;
     end
+    assign hr_bm = hr_mb_q & (hr_lm_q | {NP{hr_c3_q}});
     always_comb begin
       logic n1, n2;
       hr_cm    = '0;
@@ -1152,18 +1163,18 @@ module tg_fetch
       hr_cm[0] = hr_sb_q;
       hr_pk[0] = hr_sb_q && hr_sx_q;
       for (int p = 0; p < NP; p++)
-        if (hr_bm_q[p]) begin
+        if (hr_bm[p]) begin
           hr_cm[SLOT_W'(hr_wd_q[p] ? p + 1 : p)] = 1'b1;
           if (hr_xm_q[p]) hr_pk[SLOT_W'(hr_wd_q[p] ? p + 1 : p)] = 1'b1;
         end
       n1 = hr_sb_q;
       n2 = 1'b0;
       for (int p = 0; p < NP; p++) begin
-        n2 = n2 || (n1 && hr_bm_q[p]);
-        n1 = n1 || hr_bm_q[p];
+        n2 = n2 || (n1 && hr_bm[p]);
+        n1 = n1 || hr_bm[p];
       end
       hr_n = n2 ? 2'd2 : n1 ? 2'd1 : 2'd0;
-      hr_b = (hr_sb_q && hr_sx_q) || |(hr_bm_q & hr_xm_q);
+      hr_b = (hr_sb_q && hr_sx_q) || |(hr_bm & hr_xm_q);
     end
     always_comb
       for (int t = 0; t < NS; t++)
@@ -1413,7 +1424,7 @@ module tg_fetch
     assign ras_rtop = '0;
     logic unused_tage;
     assign unused_tage = ^{dred_ftq, dred_slot, dred_rop, dred_rlink, c_cbr, c_taken, c_pred, c_ftq, c_slot, c_hv, c_hftq, gh_n, gh_b,
-                           gh_cm, gh_pk, gh_bm, gh_xm, gh_wd, gh_sb, gh_sx, kp_q, kimm_q, ras_v, ras_top, ras_tos, ras_cnt, f2_rpush, f2_rpop,
+                           gh_cm, gh_pk, gh_mb, gh_lm, gh_xm, gh_wd, gh_c3, gh_sb, gh_sx, kp_q, kimm_q, ras_v, ras_top, ras_tos, ras_cnt, f2_rpush, f2_rpop,
                            f2_rlink, krt_q, ks_q};
   end
 
