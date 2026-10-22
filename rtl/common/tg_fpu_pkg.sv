@@ -3,7 +3,7 @@
 package tg_fpu_pkg;
   import tg_pkg::*;
 
-  localparam int FMA_LAT    = 5;   // fixed, fully pipelined (plan §4.12; 4 if synthesis allows)
+  localparam int FMA_LAT    = 4;   // fixed, fully pipelined (plan §4.12; 4 if synthesis allows) -- SCRATCH: measured at 4
   localparam int FMISC_LAT  = 2;   // fixed, fully pipelined
   // Divide/sqrt (docs/spec/fpu.md): the Goldschmidt unit, or the radix-4 area fallback when
   // FDIV_RADIX4 = 1. Latency is the minimum, from acceptance to fdiv_valid_o.
