@@ -1,0 +1,8 @@
+== tg_fp_check on /home/w/tanager-build/track-spikes-72f833/fp/h100_hp1_synth_post_synth.dcp: highest 101%
+== tg_fp_check_placed on /home/w/tanager-build/track-spikes-72f833/fp/h100_hp1f_routed.dcp: highest 77%
+FLOORPLAN_OK l2b0: 6092 LUT cells for 6400 LUT sites, 95% before opt_design, IS_SOFT 1 (warn above 105%, tight above 115%)
+FLOORPLAN_OK l2b1: 6467 LUT cells for 6400 LUT sites, 101% before opt_design, IS_SOFT 1 (warn above 105%, tight above 115%)
+FLOORPLAN_OK xbar: 2084 LUT cells for 4032 LUT sites, 52% before opt_design, IS_SOFT 1 (warn above 105%, tight above 115%)
+FLOORPLAN_OK l2b0: its own 4675 LUTs for 6400 LUT sites, 73% after placement, with 2517 of other cells' inside; 20% of its 5994 LUT cells outside, IS_SOFT 1 (warn above 85%, tight above 90%)
+FLOORPLAN_OK l2b1: its own 4949 LUTs for 6400 LUT sites, 77% after placement, with 2178 of other cells' inside; 15% of its 6370 LUT cells outside, IS_SOFT 1 (warn above 85%, tight above 90%)
+FLOORPLAN_OK xbar: its own 1816 LUTs for 4032 LUT sites, 45% after placement, with 2718 of other cells' inside; 28% of its 2051 LUT cells outside, IS_SOFT 1 (warn above 85%, tight above 90%)

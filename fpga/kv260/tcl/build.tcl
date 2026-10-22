@@ -129,6 +129,13 @@ foreach {v g lo hi} {TG_FAN_TTC tg_kv260_fan_ttc 0 3 TG_FAN_WAVE tg_kv260_fan_bi
 }
 set fan_wave $::tg_kv260_fan_bit; set fan_inv $::tg_kv260_fan_invert
 if {$n_cores eq ""} { set n_cores 1 }
+# TG_FLOORPLAN (DR-181, the coordinator, 10-21): spikes §8.17's g4_uncore floorplan, pblocks for the two L2 banks (in the
+# URAM column) and the crossbar (beside them): fpga/spikes/tcl/fp/g4_uncore.tcl with fpga/spikes/tcl/fp_lib.tcl's helpers
+# and checks, spikes-2's files, sourced where they are kept. hp1f at 97.2% placed reached WNS -0.096 ns with it and
+# -2.098 ns without (spikes §8.18). Unset puts it on the product's shape (kind core, two cores) and leaves it off
+# elsewhere; 1 on, 0 off. summary.txt says which, with each pblock's share.
+set fp_on [expr {[info exists ::env(TG_FLOORPLAN)] ? $::env(TG_FLOORPLAN) : (($kind eq "core" && $n_cores == 2) ? 1 : 0)}]
+if {$fp_on ni {0 1}} { puts "ERROR: TG_FLOORPLAN must be 0 or 1 (fpga/kv260/README.md)"; exit 1 }
 if {$stop eq ""} { set stop bit }
 set part xck26-sfvc784-2LV-c
 set rep [file normalize ./reports]
@@ -213,6 +220,20 @@ report_utilization -hierarchical -hierarchical_depth 4 -file $rep/synth_utilizat
 report_timing_summary -max_paths 10 -file $rep/synth_timing_summary.rpt
 source [file join $root tools tcl tg_prim_check.tcl]
 tg_prim_check -file $rep/prim_check_synth.txt -fail 0
+# DR-181's floorplan (TG_FLOORPLAN, above), after synthesis and before opt_design, as spikes-2's g4_fit applies it. The
+# pblocks are soft, Vivado 2025.2's default (nothing here sets IS_SOFT): the placer keeps their cells near them but may
+# place some outside, as it did hp1f's. A cell the floorplan names that the netlist lacks stops the build (tg_fp_cell):
+# a floorplan that silently didn't apply would be worse. tg_fp_check logs FLOORPLAN_OK, _WARN (above 105%) or _TIGHT
+# (above 115%) per pblock: its cells' LUTs against its LUT sites, an estimate that runs high. TIGHT means spikes-2
+# resizes that pblock before the next product build.
+if {$fp_on} {
+  stamp "floorplan (g4_uncore, DR-181)"
+  close [open floorplan.txt w]
+  source [file join $root fpga spikes tcl fp_lib.tcl]
+  source [file join $root fpga spikes tcl fp g4_uncore.tcl]
+  tg_fp_check
+  file copy -force floorplan.txt $rep/floorplan.txt
+}
 if {$stop eq "synth"} { stamp "done (synth)"; exit 0 }
 
 # ---- implementation ----
@@ -278,6 +299,12 @@ if {$pr_unc > 0} {
 }
 stamp "place_design"
 place_design
+if {$fp_on} {
+  # each pblock's own LUTs against its sites, and its cells placed outside: FLOORPLAN_OK, _WARN (above 85%) or _TIGHT
+  # (above 90%) in the log, the reports in reports/util_pblocks.rpt
+  tg_fp_check_placed
+  file copy -force util_pblocks.rpt $rep/util_pblocks.rpt
+}
 stamp "phys_opt_design"
 phys_opt_design
 stamp "route_design"
@@ -292,6 +319,37 @@ report_drc -file $rep/drc.rpt
 report_cdc -file $rep/cdc.rpt
 source [file join $root fpga kv260 tcl prim_check.tcl]
 tg_prim_check $rep/primitives.rpt
+
+# Each pblock's share for summary.txt, graded as spikes-2's checks grade them: before opt_design (floorplan.txt: its
+# cells' LUTs against its LUT sites; warn above 105%, tight above 115%) and after placement (its own LUTs, Parent and
+# Child of report_utilization -pblocks, against its sites; warn above 85%, tight above 90%), and the worst grade
+proc tg_kv_pblocks {} {
+  set pre [dict create]
+  set fh [open floorplan.txt r]
+  foreach ln [split [read $fh] "\n"] {
+    if {[regexp {^(\S+)\s+.*LUT cells\s+(\d+)\s*/\s*(\d+) LUT sites} $ln -> pb luts sites] && $sites} {
+      dict set pre $pb [expr {100.0 * $luts / $sites}]
+    }
+  }
+  close $fh
+  set worst OK
+  set parts {}
+  foreach pb [lsort [get_property NAME [get_pblocks -quiet]]] {
+    set post ""
+    set r [report_utilization -pblocks [get_pblocks $pb] -return_string]
+    if {[regexp {\|\s*CLB LUTs\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|} \
+          $r -> parent child - - - - avail] && $avail} {
+      set post [expr {100.0 * ($parent + $child) / $avail}]
+    }
+    set p0 [expr {[dict exists $pre $pb] ? [dict get $pre $pb] : ""}]
+    foreach {v w t} [list $p0 105 115 $post 85 90] {
+      if {$v eq ""} { continue }
+      if {$v > $t} { set worst TIGHT } elseif {$v > $w && $worst ne "TIGHT"} { set worst WARN }
+    }
+    lappend parts "$pb [expr {$p0 eq {} ? {-} : [format %.0f%% $p0]}]/[expr {$post eq {} ? {-} : [format %.0f%% $post]}]"
+  }
+  return "[join $parts {, }] (before opt_design / its own LUTs after placement; warn above 105 / 85%, tight above 115 / 90%): $worst"
+}
 
 set wns [get_property SLACK [get_timing_paths -max_paths 1 -nworst 1 -setup]]
 set whs [get_property SLACK [get_timing_paths -max_paths 1 -nworst 1 -hold]]
@@ -318,6 +376,11 @@ if {$release} {
 }
 puts $fh "pmod_uart=$pmod_uart txd=[get_property PACKAGE_PIN [get_ports pmod_uart_txd]] rxd=[get_property PACKAGE_PIN [get_ports pmod_uart_rxd]]"
 puts $fh "fan=ttc$::tg_kv260_fan_ttc.wave$fan_wave invert=$fan_inv pl=$fan_pl pin=[get_property PACKAGE_PIN [get_ports fan_en_b]]"
+if {$fp_on} {
+  puts $fh "floorplan=g4_uncore (DR-181: soft pblocks for the L2 banks and the crossbar) [tg_kv_pblocks]"
+} else {
+  puts $fh "floorplan=none (TG_FLOORPLAN=0, or not the product's shape)"
+}
 close $fh
 if {$stop eq "impl"} { stamp "done (impl)"; exit 0 }
 
