@@ -292,6 +292,22 @@ module tg_fetch
                          .m_mode(priv == PRIV_M), .d(pmp_d), .ok(pmp_okw), .hit(pmp_hit_u),
                          .rwx(pmp_rwx_u));
   assign f1_pmpd = (xl_i && it_pte[0].ph) ? {NW{!it_pte[0].px}} : ~pmp_okw;
+`ifndef SYNTHESIS
+  // (DR-182) Shadow PMP check, simulation only: a translated block that takes the ITLB's cached result (ph) is checked
+  // in full on its own physical address too, every word, and the two must agree
+  logic [NW-1:0] sh_okw;
+  logic          sh_hit;
+  logic [2:0]    sh_rwx;
+  tg_pmp #(.S(2)) u_pmp_sh (.pa({it_pte[0].ppn, fpc_q[11:4], 4'b0}), .dbl(1'b0), .acc(ACC_X), .m_mode(1'b0),
+                            .d(pmp_d), .ok(sh_okw), .hit(sh_hit), .rwx(sh_rwx));
+  logic unused_sh;
+  assign unused_sh = ^{sh_hit, sh_rwx};
+  always_ff @(posedge clk)
+    if (!rst && f1_live && xl_i && it_hit[0] && it_pte[0].ph)
+      assert (sh_okw == {NW{it_pte[0].px}})
+        else $error("tg_fetch: a block's cached PMP result (x %b) differs from the full check (%b) at PA %h",
+                    it_pte[0].px, sh_okw, {it_pte[0].ppn, fpc_q[11:4], 4'b0});
+`endif
 
   // ---- I$ arrays ----
   logic                rf_we;

@@ -205,8 +205,8 @@ def run_one(build, dtb, images, shape, timing, mcyc, seed, outdir, nice=False, p
     os.mkfifo(fifo)
     harts = 1 if SHAPES[shape][1] * SHAPES[shape][3] == 1 else 4   # the record's hart field: harts 0 and 2
     fw, kernel = images["fw"][0], images["kernel"][0]
-    # The host policy (verification.md §8): on a hybrid host the st shape's model and its checker at nice 10 or more,
-    # the board shape's four-thread model and its checker on the E-cores
+    # The host policy (verification.md §8): on a hybrid host every model and its checker at nice 10 or more, the
+    # board and smp4 shapes' four-thread models and their checkers on the E-cores
     pol = host_policy.preexec(SHAPES[shape][4])
 
     def pre():

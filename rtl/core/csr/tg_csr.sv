@@ -86,8 +86,7 @@ module tg_csr
   output logic   [NUM_THREADS-1:0]                  sv39_h,
   output logic   [NUM_THREADS-1:0][43:0]            satp_ppn_h,
   output pmp_d_t [NUM_THREADS-1:0][PMP_ENTRIES-1:0] pmp_d_h,     // PMP region descriptors (registered)
-  output logic   [NUM_THREADS-1:0][2:0]             pmp_al_h,    // every 1G / 2M / 4K page is PMP-homogeneous
-  output logic   [NUM_THREADS-1:0][PMP_ENTRIES-1:0] pmp_p2m_h,   // each entry's address is aligned to a 2M page
+  output logic   [NUM_THREADS-1:0][PMP_ENTRIES-1:0][2:0] pmp_pal_h, // each entry's address aligned to a 1G/2M/4K page
   // Interrupt inputs (one per hart of the core, by hart: thread t takes line t ^ SOLO_TID) and time
   input  logic [NUM_THREADS-1:0] irq_mei,
   input  logic [NUM_THREADS-1:0] irq_mti,
@@ -293,19 +292,16 @@ module tg_csr
   // ---- PMP region descriptors (core-mmu.md §PMP), per hart ----
   // pmpaddr lives in LUTRAM ({tid, entry}). A PMP write marks the entries it changes, and one
   // descriptor unit recomputes a marked entry per cycle (either hart's) into pmp_d_q (flip-flops:
-  // every checker reads all of them); pmp_al follows a cycle later. pmp_busy holds fetch meanwhile:
-  // the write's flush has emptied the window, so nothing else checks PMP until fetch resumes. After
-  // reset a sweep writes the reset values (entry 0: NAPOT over everything), then every entry is
-  // computed.
-  // pmp_al[j]: no active region boundary lies strictly inside a page of 2^k granules (k = 28, 19,
-  // 10: 1G, 2M, 4K), so every such page can cache one result; the walker takes it for 4K and 1G
-  // leaves. pmp_p2m[i]: entry i's address is aligned to a 2M page (or above every PA), for the
-  // walker's check of a 2M leaf (tg_ptw: is that page PMP-homogeneous?).
+  // every checker reads all of them), and its page alignment into pal_top_q; pmp_busy holds fetch
+  // meanwhile, and for one cycle after (pchg_q). The write's flush has emptied the window, so nothing
+  // else checks PMP until fetch resumes. After reset a sweep writes the reset values (entry 0: NAPOT
+  // over everything), then every entry is computed.
+  // pal_top_q[i]: entry i's address is aligned to a 1G / 2M / 4K page (or above every PA), for the
+  // walker's check of a leaf of that size (tg_ptw: is the leaf's page PMP-homogeneous? DR-182).
   pmp_d_t [NT-1:0][NPMP-1:0]    pmp_d_q;
   logic   [NT-1:0][NPMP-1:0][2:0] pal_top_q;   // entry's address aligned to 1G / 2M / 4K pages
-  logic   [NT-1:0][2:0]         pmp_al_n, pmp_al_q;
   logic   [NT-1:0][NPMP-1:0]    pdirty_q;
-  logic   [NT-1:0]              pchg_q;        // a descriptor changed last cycle: pmp_al follows
+  logic   [NT-1:0]              pchg_q;        // a descriptor changed last cycle: fetch waits one cycle more
   localparam int SWB = MT ? 5 : 4;             // the sweep's length: 16 rows a hart (cold CSRs; pmpaddr 8 or 16)
   logic   [SWB:0]               psw_q;         // reset sweep of the LUTRAM rows: the running thread's, or both
   tid_t                         swt;           // ... the hart it writes
@@ -357,23 +353,11 @@ module tg_csr
               pd_n.hi || (pd_n.a & AL4K) == '0};
   end
   assign pa_ra[1] = paddr_(pt, pj);
-  always_comb begin
-    for (int t = 0; t < NT; t++) begin
-      pmp_al_n[t] = '1;
-      for (int i = 0; i < NPMP; i++) begin
-        if (pmp_d_q[t][i].tor)
-          pmp_al_n[t] &= pal_top_q[t][i] & ((i == 0) ? 3'b111 : pal_top_q[t][(i + NPMP - 1) % NPMP]);
-        if (pmp_d_q[t][i].nap && !pmp_d_q[t][i].above)
-          pmp_al_n[t] &= ~{pmp_d_q[t][i].mask[27], pmp_d_q[t][i].mask[18], pmp_d_q[t][i].mask[9]};
-      end
-    end
-  end
   always_ff @(posedge clk) begin
     if (pcalc) begin
       pmp_d_q[pt][pj]   <= pd_n;
       pal_top_q[pt][pj] <= ptop_n;
     end
-    pmp_al_q <= pmp_al_n;
   end
   assign pmp_d    = pmp_d_q[RUN_TID];
   // (with hart 1 fetch waits while either hart's descriptors change: rare, and each hart's are its own)
@@ -387,8 +371,7 @@ module tg_csr
       sv39_h[t]     = h_q[t].satp_mode;
       satp_ppn_h[t] = h_q[t].satp_ppn;
       pmp_d_h[t]    = pmp_d_q[t];
-      pmp_al_h[t]   = pmp_al_q[t];
-      for (int i = 0; i < NPMP; i++) pmp_p2m_h[t][i] = pal_top_q[t][i][1];
+      pmp_pal_h[t]  = pal_top_q[t];
     end
   end
   // An xRET's xepc: with hart 1 on port 1, so that port 0 serves the other thread's CSR read (a legal xRET is

@@ -7,9 +7,8 @@
 // access permission and Svade's A/D (each a page fault). A success returns the leaf for the
 // requester's TLB, with the page's PMP result cached (plan §4.10): one more cycle checks the
 // page base, and the result holds for the whole page when no active PMP region boundary lies
-// strictly inside the page: for a 2M page checked here against every entry, for 4K and 1G pages
-// tg_csr's flag for every page of the size (pmp_al). A flush of its thread ends the walk; its PTE
-// read, if any, dies in the load pipe.
+// strictly inside the page, checked here against every entry for a leaf of any size (DR-182). A
+// flush of its thread ends the walk; its PTE read, if any, dies in the load pipe.
 // The PMP checks (the PTE address, the page base) use the STA port's checker in a cycle the
 // port leaves it free (chk_gnt); W_CHK and W_PMP wait for one, and say so (chk_req). The request
 // and its address come from flip-flops, set as the walk enters those states.
@@ -28,8 +27,8 @@ module tg_ptw
   input  logic [NUM_THREADS-1:0]                   sum,
   input  logic [NUM_THREADS-1:0]                   mxr,
   input  pmp_d_t [NUM_THREADS-1:0][PMP_ENTRIES-1:0] pmp_d,
-  input  logic [NUM_THREADS-1:0][2:0]              pmp_al,  // every 1G / 2M / 4K page is PMP-homogeneous
-  input  logic [NUM_THREADS-1:0][PMP_ENTRIES-1:0]  pmp_p2m, // each entry's address is aligned to a 2M page
+  input  logic [NUM_THREADS-1:0][PMP_ENTRIES-1:0][2:0] pmp_pal, // each entry's address aligned to
+                                                                 // a 1G / 2M / 4K page
   // PMP checks on a shared checker (S mode, ACC_R)
   output logic [PA_W-1:0]   chk_pa,
   output logic              chk_dbl,      // an 8-byte access (the PTE), else one granule
@@ -116,23 +115,41 @@ module tg_ptw
   assign chk_req = chk_req_q;
   assign pa_ok   = pte_pa[55:PA_W] == '0 && pma_of(pte_pa[PA_W-1:0]) == PMA_MEM && chk_ok;
   assign pt_req = st_q == W_REQ;
-  // A 2M leaf page is PMP-homogeneous when no active region boundary lies strictly inside it: no
-  // NAPOT region smaller than 2M within it, and no TOR bound (an entry's address that tops its TOR
-  // range or bottoms the next entry's) unaligned to 2M within it. A 4K or 1G leaf takes tg_csr's
-  // flag for every page of its size: OpenSBI's regions are 4K-aligned, and its firmware region
-  // splits the kernel's 2M pages, not its 4K ones
+  // A leaf page (4K, 2M or 1G) is PMP-homogeneous when no active region boundary lies strictly
+  // inside it: no NAPOT or NA4 region smaller than the page within it, and no TOR bound (an entry's
+  // address that tops its TOR range or bottoms the next entry's) unaligned to the page within it
+  // (DR-182). The test is per entry, so conservative: a boundary behind a lower-numbered region
+  // that covers the whole page still stops the caching
+  localparam logic [PMP_GW-1:0] AL4K = PMP_GW'((64'd1 << 10) - 1);
   localparam logic [PMP_GW-1:0] AL2M = PMP_GW'((64'd1 << 19) - 1);
+  localparam logic [PMP_GW-1:0] AL1G = PMP_GW'((64'd1 << 28) - 1);
   logic leaf_nh;
+`ifndef SYNTHESIS
+  // The fills by leaf size (4K, 2M, 1G) and how many of them cache their PMP result, on stderr at
+  // the end
+  longint unsigned n_fill [3], n_fpc [3];
+  always_ff @(posedge clk)
+    if (rst) for (int i = 0; i < 3; i++) begin n_fill[i] <= 0; n_fpc[i] <= 0; end
+    else if (st_q == W_PMP && chk_gnt) begin
+      n_fill[lvl_q] <= n_fill[lvl_q] + 1;
+      if (!leaf_nh && !leaf_q.big) n_fpc[lvl_q] <= n_fpc[lvl_q] + 1;
+    end
+  final $fwrite(32'h8000_0002, "TG-PMPH %m: fills 4K %0d (%0d cache PMP), 2M %0d (%0d), 1G %0d (%0d)\n",
+                n_fill[0], n_fpc[0], n_fill[1], n_fpc[1], n_fill[2], n_fpc[2]);
+`endif
   always_comb begin
-    logic [PMP_GW-1:0] pg;
-    logic              in_pg, sub_pg, bound;
-    pg = PMP_GW'({leaf_q.ppn, 10'b0});            // the page base in 4-byte granules
+    logic [PMP_GW-1:0] pg, alm;
+    logic              in_pg, sub_pg, bound, msk;
+    pg  = PMP_GW'({leaf_q.ppn, 10'b0});           // the page base in 4-byte granules
+    alm = (lvl_q == 2'd2) ? AL1G : (lvl_q == 2'd1) ? AL2M : AL4K;
     leaf_nh = 1'b0;
     for (int i = 0; i < PMP_ENTRIES; i++) begin
-      in_pg  = ((pmp_d[wt][i].a ^ pg) & ~AL2M) == '0;
-      sub_pg = pmp_d[wt][i].nap && !pmp_d[wt][i].above && pmp_d[wt][i].mask[18];
+      msk    = (lvl_q == 2'd2) ? pmp_d[wt][i].mask[27] :
+               (lvl_q == 2'd1) ? pmp_d[wt][i].mask[18] : pmp_d[wt][i].mask[9];
+      in_pg  = ((pmp_d[wt][i].a ^ pg) & ~alm) == '0;
+      sub_pg = pmp_d[wt][i].nap && !pmp_d[wt][i].above && msk;
       bound  = (pmp_d[wt][i].tor || (i < PMP_ENTRIES - 1 && pmp_d[wt][(i + 1) % PMP_ENTRIES].tor)) &&
-               !pmp_p2m[wt][i];
+               !pmp_pal[wt][i][lvl_q];
       if (in_pg && (sub_pg || bound)) leaf_nh = 1'b1;
     end
   end
@@ -222,7 +239,7 @@ module tg_ptw
         end
         W_MISS: if (mshr_idle) st_q <= W_REQ;
         W_PMP: if (chk_gnt) begin                  // the page's PMP result, for S and U
-          leaf_q.ph <= ((lvl_q == 2'd1) ? !leaf_nh : pmp_al[wt][lvl_q]) && !leaf_q.big;
+          leaf_q.ph <= !leaf_nh && !leaf_q.big;
           {leaf_q.pr, leaf_q.pw, leaf_q.px} <= chk_hit ? chk_rwx : 3'b000;
           st_q <= W_DONE;
         end

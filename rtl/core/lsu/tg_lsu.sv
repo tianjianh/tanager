@@ -120,8 +120,7 @@ module tg_lsu
   input  logic   [NUM_THREADS-1:0]                  satp_sv39,
   input  logic   [NUM_THREADS-1:0][43:0]            satp_ppn,
   input  pmp_d_t [NUM_THREADS-1:0][PMP_ENTRIES-1:0] pmp_d,
-  input  logic   [NUM_THREADS-1:0][2:0]             pmp_al,
-  input  logic   [NUM_THREADS-1:0][PMP_ENTRIES-1:0] pmp_p2m,
+  input  logic   [NUM_THREADS-1:0][PMP_ENTRIES-1:0][2:0] pmp_pal,
   input  logic                         tlb_flush,
   input  tid_t                         tlb_flush_tid,  // ... the hart whose entries it clears
   output logic [1:0]                   tlbm_valid,    // DTLB misses at AG (LD, STA)
@@ -1301,6 +1300,29 @@ module tg_lsu
   assign sa_exc  = sa_mis || sa_pf || (!sa_tm && sa_acc);
   assign sa_mmio = sa_pma == PMA_DEVICE && !sa_amo;
   assign sa_ok   = sn_v && !sa_exc && !sa_tm && !kill_t[t_sn];
+`ifndef SYNTHESIS
+  // (DR-182) Shadow PMP checks, simulation only: a translated load or store address that decides with its DTLB entry's
+  // cached PMP result (ph) is checked in full on its own physical address too, and the two must agree
+  logic       sh_ld_ok, sh_st_ok, sh_ld_hit, sh_st_hit;
+  logic [2:0] sh_ld_rwx, sh_st_rwx;
+  tg_pmp #(.S(1)) u_pmp_sh_ld (.pa(nl_pa), .dbl(ln_size == 2'd3), .acc(ACC_R), .m_mode(1'b0), .d(pmp_d[t_ln]),
+                               .ok(sh_ld_ok), .hit(sh_ld_hit), .rwx(sh_ld_rwx));
+  tg_pmp #(.S(1)) u_pmp_sh_st (.pa(sa_pa), .dbl(sn_size == 2'd3), .acc(sa_at), .m_mode(1'b0), .d(pmp_d[t_sn]),
+                               .ok(sh_st_ok), .hit(sh_st_hit), .rwx(sh_st_rwx));
+  logic unused_sh;
+  assign unused_sh = ^{sh_ld_hit, sh_ld_rwx, sh_st_hit, sh_st_rwx};
+  always_ff @(posedge clk)
+    if (!rst) begin
+      if (ln_v && nl_pmpc && dt_hit[0] && !nl_mis && !nl_pf && !nl_tm)
+        assert (sh_ld_ok == dt_pte[0].pr)
+          else $error("tg_lsu: a load's cached PMP result (r %b) differs from the full check (%b) at PA %h",
+                      dt_pte[0].pr, sh_ld_ok, nl_pa);
+      if (sn_v && sa_pmpc && dt_hit[1] && !sa_mis && !sa_pf && !sa_tm)
+        assert (sh_st_ok == (sa_lr ? dt_pte[1].pr : dt_pte[1].pw))
+          else $error("tg_lsu: a store's cached PMP result (r %b w %b) differs from the full check (%b) at PA %h",
+                      dt_pte[1].pr, dt_pte[1].pw, sh_st_ok, sa_pa);
+    end
+`endif
 
   // ---- S2: a translated store's PMP check after its decision ----
   // The timing: the checker leaves the path from the DTLB through the decision. The store has
@@ -1551,7 +1573,7 @@ module tg_lsu
   assign pw_tid[1]  = t_iw;
   assign pw_tid[2]  = dpf_tid_q;
   tg_ptw u_ptw (
-    .clk, .rst, .flush, .flush_tid(t_fl), .satp_ppn, .sum, .mxr, .pmp_d, .pmp_al, .pmp_p2m,
+    .clk, .rst, .flush, .flush_tid(t_fl), .satp_ppn, .sum, .mxr, .pmp_d, .pmp_pal,
     .chk_pa(pc_pa), .chk_dbl(pc_dbl), .chk_tid(pc_t), .chk_req(pw_chk), .chk_gnt(!sn_v), .chk_ok(sa_chk[0]),
     .chk_hit(pmp_hit_st), .chk_rwx(pmp_rwx_st),
     .req(pw_req), .req_va(pw_va), .req_acc(pw_at), .req_mode(pw_mode), .req_tid(pw_tid), .ack(pw_ack),
