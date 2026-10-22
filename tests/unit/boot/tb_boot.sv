@@ -1,6 +1,7 @@
 // Software boot on tanager_soc with the real core (docs/spec/soc.md §Verification): the host loads
 // images into the carve-out the way tanager-host does, releases the cores, and echoes the console.
-// The run passes when the console shows the +expect string.
+// The run passes when the console shows the +expect string (and, with SERIAL, the serial line matches the host's
+// copy). A failed run prints TEST FAILED and exits with status 1.
 //   +fw=<file>      at 0x8000_0000 (OpenSBI fw_jump)          +dtb=<file>    at DTB_ADDR (0x8220_0000)
 //   +kernel=<file>  at 0x8020_0000 (optional)                 +initrd=<file> at 0x8400_0000 (optional)
 //   +expect=<text>  pass when the console contains it         +max_mcycles=N  give up after N million cycles
@@ -290,6 +291,11 @@ module tb_boot;
   task automatic dump_last();
     for (int h = 0; h < NH_TB; h++) dump_hart(h);
   endtask
+  // A failed run exits with status 1, but after the final blocks, where the monitors the tools bind in (sim/tb's
+  // signature and tap) finish their files: $fatal would exit before them. The handler runs as the process exits.
+  task automatic exit_status_1();
+    $c("std::atexit([] { std::fflush(nullptr); std::_Exit(1); });");
+  endtask
 
   // ---- AXI4-Lite host master (clk_host) ----
   task automatic hw(input logic [15:0] a, input logic [31:0] d);
@@ -327,6 +333,7 @@ module tb_boot;
     fd = $fopen(path, "rb");
     if (fd == 0) begin
       $display("TEST FAILED: cannot open %s", path);
+      exit_status_1();
       $finish;
     end
     a = 0;
@@ -455,7 +462,7 @@ module tb_boot;
   endtask
 
   initial begin
-    string path;
+    string path, serial_err;
     longint unsigned max_cycles, cyc;
     int max_m;
     logic [31:0] v;
@@ -586,15 +593,19 @@ module tb_boot;
       if (sconsole.len() == 0) $display("tb_boot: ERROR: nothing on the serial line");
       else $display("tb_boot: serial line: %0d characters (a release build: no host copy)", sconsole.len());
     end else if (UART_SERIAL_TB) begin
-      if (sconsole.len() == 0) $display("tb_boot: ERROR: nothing on the serial line");
-      else if (console.substr(0, sconsole.len() - 1) != sconsole) $display("tb_boot: ERROR: the serial line and the host copy differ");
+      if (sconsole.len() == 0) serial_err = "nothing on the serial line";
+      else if (console.substr(0, sconsole.len() - 1) != sconsole) serial_err = "the serial line and the host copy differ";
+      if (serial_err != "") $display("tb_boot: ERROR: %s", serial_err);
       else $display("tb_boot: serial line: %0d characters, the same as the host copy", sconsole.len());
     end
-    if (console_has(expect_s)) $display("TEST PASSED (boot, %0d core(s))", N_CORES);
-    else begin
+    if (!console_has(expect_s)) begin
       dump_last();
       $display("TEST FAILED (boot, %0d core(s)): \"%s\" not seen", N_CORES, expect_s);
-    end
+      exit_status_1();
+    end else if (serial_err != "") begin
+      $display("TEST FAILED (boot, %0d core(s)): %s", N_CORES, serial_err);
+      exit_status_1();
+    end else $display("TEST PASSED (boot, %0d core(s))", N_CORES);
     $finish;
   end
 endmodule

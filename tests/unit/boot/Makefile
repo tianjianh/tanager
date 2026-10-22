@@ -6,7 +6,9 @@
 #                                                   script), with the FPU in the device tree
 #   make -C tests/unit/boot linux RELEASE=1 [...]   the same boot on a release build (DR-180): serial console alone
 #   make -C tests/unit/boot run CORES=2 ARGS="+fw=... +dtb=... +expect=... +max_mcycles=N"
-#   ARGS= adds plusargs to any of them, for example ARGS="+dump_pc=<hex> +dump_stop" (tb_boot.sv)
+#   ARGS= adds plusargs to any of them, and overrides theirs: it comes first, and a plusarg's first value counts.
+#   For example ARGS="+max_mcycles=80", or ARGS="+dump_pc=<hex> +dump_stop" (tb_boot.sv)
+#   A failed run (TEST FAILED) exits with status 1, so make fails
 #   TIMING_CUTS=0|1 builds the core in that DR-140 profile (unset: the package's default)
 # Images: OpenSBI fw_jump from sw/build_opensbi.sh (pinned source; built on first use), a device
 # tree built here for CORES x threads of the configuration, 128 MiB, no FPU.
@@ -58,8 +60,10 @@ THREADS := $(if $(filter smt2%,$(CFG)),2,1)
 # the board's shape until M7 (DR-147); each choice builds its trees in a directory of its own
 RUN_THREADS ?= $(THREADS)
 DTS_SFX := $(if $(filter-out $(THREADS),$(RUN_THREADS)),-r$(RUN_THREADS))
-# MCYC: the OpenSBI runs' cycle limit, in millions (the banner comes by 10.7 M cycles at 2x2)
-MCYC    ?= 20
+# MCYC: the OpenSBI runs' cycle limit, in millions: 20 (the banner comes by 10.7 M cycles at 2x2), or 60 with the
+# console on the serial line (SERIAL=1, RELEASE=1), where "Boot HART MEDELEG" ends about 2,700 characters in, at
+# 8,680 cycles each (115200 baud at 100 MHz): about 24 M cycles
+MCYC    ?= $(if $(filter 1,$(SERIAL)),60,20)
 OSBI_FW := $(SOC_BUILD)/opensbi/platform/generic/firmware/fw_jump.bin
 FW      ?= $(OSBI_FW)
 DTB     := $(OUTDIR)/dts$(DTS_SFX)/tanager-kv260.dtb
@@ -89,13 +93,13 @@ $(OSBI_FW):
 
 .PHONY: opensbi
 opensbi: build $(DTB) $(FW)
-	$(OUTDIR)/$(TOP) +fw=$(FW) +dtb=$(DTB) +expect="Boot HART MEDELEG" +max_mcycles=$(MCYC) $(ARGS)
+	$(OUTDIR)/$(TOP) $(ARGS) +fw=$(FW) +dtb=$(DTB) +expect="Boot HART MEDELEG" +max_mcycles=$(MCYC)
 
 .PHONY: linux-kernel linux $(DTB) $(DTB_FPU)
 linux-kernel: build $(DTB) $(FW) $(KERNEL)
-	$(OUTDIR)/$(TOP) +fw=$(FW) +dtb=$(DTB) +kernel=$(KERNEL) +expect="Run /init as init process" +max_mcycles=$(LINUX_MCYC) $(ARGS)
+	$(OUTDIR)/$(TOP) $(ARGS) +fw=$(FW) +dtb=$(DTB) +kernel=$(KERNEL) +expect="Run /init as init process" +max_mcycles=$(LINUX_MCYC)
 linux: build $(DTB_FPU) $(FW) $(KERNEL)
-	$(OUTDIR)/$(TOP) +fw=$(FW) +dtb=$(DTB_FPU) +kernel=$(KERNEL) +expect="TANAGER-BOOT-OK" +max_mcycles=$(LINUX_MCYC) $(ARGS)
+	$(OUTDIR)/$(TOP) $(ARGS) +fw=$(FW) +dtb=$(DTB_FPU) +kernel=$(KERNEL) +expect="TANAGER-BOOT-OK" +max_mcycles=$(LINUX_MCYC)
 
 # The boots take minutes: only the long suite runs them, OpenSBI in 1x1, 2x1 and 2x2 at once
 # (cores x threads; 2x2 is CFG=smt2), each built with -j3 so the three builds stay within -j8 or so.
