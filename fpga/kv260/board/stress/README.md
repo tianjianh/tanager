@@ -544,6 +544,7 @@ It meets 100 MHz at WNS +0.367 ns with 105,934 LUTs. The package is d4r1-riscv w
   - **RESET_REASON reads `0x21`**, both at the prompt and in Ubuntu: an external POR at some point, then software resets.
     - This U-Boot prints the register but doesn't clear it, so it can't tell these resets from Debian's reboots.
     - No SRST, PMU, internal-POR or debug bit is set.
+    - A power-on reads the same. After the user moved the board to a new supply on 10-22, U-Boot printed `SOFT` and the register read `0x21` ([`../d4r2/README.md`](../d4r2/README.md)). So the register can't separate a dip in the supply from a software reset either.
 - **Reading:**
   - Both resets came during the laptop's wake, with the board idle and no warning in either journal. They are laptop events, like s21's power cut, not board faults.
   - The first, in RISC-V mode, could be the PMOD hook. A break of 2.7–10.7 s on COM5's line resets the board as the break ends, and the laptop's USB ports may cut the adapter's power for a few seconds while the firmware wakes.
