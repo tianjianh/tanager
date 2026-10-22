@@ -20,7 +20,7 @@ module tg_issue
   parameter int EARLY_W = IQ_EARLY_W,    // S2 lever: the source tags in flip-flops (IQ_PL_W: all)
   parameter bit MX      = IQ_MX,         // S2 lever: matrix wakeup (dispatch names rows)
   parameter int STALE   = 0,             // 0 guard (spikes.md recommendation), 2 column clear
-  parameter bit CC      = 1'b1,          // the area pass's lever 2: readiness and select on carry chains (tg_iq)
+  parameter bit [1:0] CC = 2'b11,        // the area pass's lever 2, carry chains (tg_iq): [0] readiness, [1] select
   localparam int DW     = DISPATCH_WIDTH,
   localparam int OCC_W  = idx_w(IQ_ROWS_ALL + 1)
 ) (

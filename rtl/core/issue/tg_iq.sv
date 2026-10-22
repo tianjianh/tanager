@@ -97,7 +97,7 @@ module tg_iq
   parameter bit PRE_RDY   = 1'b0,   // registered ID readiness (needs MX, STALE 0/2)
   parameter bit CBLK      = 1'b0,   // rows of a class whose select cls_block can mask (core)
   parameter bit BANK_CAP  = 1'b0,   // bank_left_q ("never a whole bank"); else all ones
-  parameter bit CC        = 1'b0,   // readiness and select on carry chains (see above)
+  parameter bit [1:0] CC  = 2'b00,  // carry chains (see above): [0] the readiness, [1] the select
   localparam int NHI      = (NCOL + 7) / 8,
   localparam int RMAX     = 2 * DW, // room_ge_q's depth
   localparam int OCW      = idx_w(ROWS + 1)
@@ -202,7 +202,7 @@ module tg_iq
     end else begin : g_nocblk
       assign cblk = 1'b0;
     end
-    if (CC) begin : g_cc
+    if (CC[0]) begin : g_cc
       // One stage of the row's own terms, then three ID columns and three matrix rows a stage
       localparam int ND = (NCOL + 2) / 3;
       localparam int NM = MX ? (RA + 2) / 3 : 0;
@@ -237,7 +237,7 @@ module tg_iq
       assign ready[r] = valid_q[r] && age_q[r] == 2'd0 && !pend && !mpend && !sel_block && !cblk;
     end
   end
-  if (CC && (PRE_RDY || STALE == 1)) begin : g_bad_cc
+  if (CC[0] && (PRE_RDY || STALE == 1)) begin : g_bad_cc
     $error("tg_iq: CC needs PRE_RDY = 0 and STALE 0 or 2");
   end
 
@@ -275,7 +275,7 @@ module tg_iq
     for (genvar j = 0; j < ROWS; j++) begin : g_j
       assign older_ready[j] = ready[j] && older[j][r];
     end
-    if (CC && ROWS > 1) begin : g_cc
+    if (CC[1] && ROWS > 1) begin : g_cc
       // The other rows' terms three a stage (older_ready[r] is zero), the row's readiness the carry in
       localparam int NS = (ROWS + 1) / 3;
       logic [ROWS-2:0] oth;

@@ -18,10 +18,12 @@ VFLAGS := --binary --timing --assert -Wno-fatal -Wno-DECLFILENAME -Wno-UNUSEDSIG
 LFLAGS := --lint-only --quiet-stats -Wall -Wno-MULTITOP -I$(ROOT)/rtl/common $(ROOT)/rtl/lint.vlt lint.vlt
 # ROWS-DW-CAP_PCT-BANK_CAP: the smt2 queues (10, 6, 4 rows) at DW 2 and 3, both caps
 VARIANTS := 10-2-50-1 6-2-50-1 4-2-50-1 10-2-75-0 6-2-75-1 10-3-50-1 6-3-50-0 4-3-75-1
-# tb_iqcc's ROWS-DW-NCOL-RA-MX-CBLK-STALE: the smt2 queues (ALU 10, FP 10 with the class block, LD 6, STA 4),
-# no matrix with column clears, and sizes that leave partial stages and chains past one CARRY8
-CC_VARIANTS := 10-2-40-20-1-0-0 10-2-40-20-1-1-0 6-2-40-20-1-0-0 4-2-40-20-1-0-0 10-2-40-20-0-0-2 \
-               5-2-17-7-1-0-0 3-3-9-4-1-1-0 2-2-26-2-1-0-0 1-1-5-2-1-0-0 12-3-64-30-1-1-2
+# tb_iqcc's ROWS-DW-NCOL-RA-MX-CBLK-STALE-CC: the smt2 queues (ALU 10, FP 10 with the class block, LD 6, STA 4),
+# no matrix with column clears, and sizes that leave partial stages and chains past one CARRY8; CC 3 both chains,
+# 1 the readiness only, 2 the select only
+CC_VARIANTS := 10-2-40-20-1-0-0-3 10-2-40-20-1-1-0-3 6-2-40-20-1-0-0-3 4-2-40-20-1-0-0-3 10-2-40-20-0-0-2-3 \
+               5-2-17-7-1-0-0-3 3-3-9-4-1-1-0-3 2-2-26-2-1-0-0-3 1-1-5-2-1-0-0-3 12-3-64-30-1-1-2-3 \
+               10-2-40-20-1-1-0-1 6-2-40-20-1-0-0-1 10-2-40-20-1-0-0-2 4-2-40-20-1-0-0-2
 
 .PHONY: all test cc lint clean
 all: test cc
@@ -41,7 +43,7 @@ $(OBJ)/cc-$(1)/Vtb_iqcc: $(PKGS) $(RTL) models/CARRY8.sv tb_iqcc.sv
 	mkdir -p $(OBJ)/cc-$(1) && verilator $(VFLAGS) +define+TG_SIM_PRIMS --Mdir $(OBJ)/cc-$(1) --top-module tb_iqcc \
 	  -GROWS=$(word 1,$(subst -, ,$(1))) -GDW=$(word 2,$(subst -, ,$(1))) -GNCOL=$(word 3,$(subst -, ,$(1))) \
 	  -GRA=$(word 4,$(subst -, ,$(1))) -GMX=$(word 5,$(subst -, ,$(1))) -GCBLK=$(word 6,$(subst -, ,$(1))) \
-	  -GSTALE=$(word 7,$(subst -, ,$(1))) $$^ > /dev/null
+	  -GSTALE=$(word 7,$(subst -, ,$(1))) -GCCV=$(word 8,$(subst -, ,$(1))) $$^ > /dev/null
 endef
 $(foreach v,$(CC_VARIANTS),$(eval $(call cc_variant,$(v))))
 cc: $(foreach v,$(CC_VARIANTS),$(OBJ)/cc-$(v)/Vtb_iqcc)

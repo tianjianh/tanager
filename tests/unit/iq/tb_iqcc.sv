@@ -15,6 +15,7 @@ module tb_iqcc;
   parameter bit MX    = 1'b1;
   parameter bit CBLK  = 1'b0;
   parameter int STALE = 0;
+  parameter int CCV   = 3;            // the second queue's CC: 1 the readiness, 2 the select, 3 both
   localparam int CAP  = ROWS / 2;
   localparam int RMAX = 2 * DW;
   localparam int OCW  = idx_w(ROWS + 1);
@@ -59,7 +60,7 @@ module tb_iqcc;
     out_t o;
     tg_iq #(.ROWS(ROWS), .DW(DW), .NCOL(NCOL), .PAYLOAD_W(PW), .CAP(CAP), .STALE(STALE), .WAKE_NOW(1'b0),
             .WAKE_ENC(1), .ROBW(ROBW), .DUP_SEL(1'b1), .EARLY_W(PW), .MX(MX), .RA(RA), .PRE_RDY(1'b0),
-            .CBLK(CBLK), .BANK_CAP(1'b1), .CC(v == 1)) u_iq (
+            .CBLK(CBLK), .BANK_CAP(1'b1), .CC((v == 1) ? 2'(CCV) : 2'b00)) u_iq (
       .clk, .rst, .disp_valid, .disp_tid, .disp_dep, .disp_dep_ph('0), .disp_wake_oh('0), .disp_rob,
       .disp_payload, .bank_free_q(o.bank_free_q), .bank_free2_q(o.bank_free2_q), .bank_nfree_q(o.bank_nfree_q),
       .cap_on, .room_ge_q(o.room_ge_q), .occ_q(o.occ_q), .bank_left_q(o.bank_left_q),
@@ -132,8 +133,8 @@ module tb_iqcc;
       if (o0.iss_valid_q) grants++;
     end
     if (errors == 0 && grants > n / 20)
-      $display("PASS tb_iqcc ROWS=%0d DW=%0d NCOL=%0d RA=%0d MX=%0d CBLK=%0d STALE=%0d (%0d cycles, %0d issues)",
-               ROWS, DW, NCOL, RA, MX, CBLK, STALE, n, grants);
+      $display("PASS tb_iqcc ROWS=%0d DW=%0d NCOL=%0d RA=%0d MX=%0d CBLK=%0d STALE=%0d CC=%0d (%0d cycles, %0d issues)",
+               ROWS, DW, NCOL, RA, MX, CBLK, STALE, CCV, n, grants);
     else
       $display("FAIL tb_iqcc ROWS=%0d DW=%0d: %0d mismatching cycles, %0d issues in %0d cycles",
                ROWS, DW, errors, grants, n);
