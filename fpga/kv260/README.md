@@ -64,6 +64,8 @@ Builds for injected latency, the virtio window and the host console (stage C), o
 
 **place_design's directive:** `TG_PLACE_DIRECTIVE` (default `Default`, the plain `place_design`; DR-187) is checked before synthesis and recorded in `summary.txt` as `place=`. `AltSpreadLogic_high` made the product chip, with hart 1, route where the default placement left it congested (spikes §8.18, −1.547 ns at 100 MHz).
 
+**Checkpoints:** `TG_CHECKPOINT=1` (default 0; DR-187) writes `post_opt.dcp` after `opt_design`, with the place-and-route uncertainty set, and `post_place.dcp` after `phys_opt_design`, in the run directory: another placement or a reroute can start from one of them instead of from synthesis.
+
 **Synthesis directive:** `TG_SYNTH_DIRECTIVE` (default `AreaOptimized_high` since 10-16, DR-150; `Default` gives the earlier builds' flow). The two-core `smt2` build with the commit trace no longer fit under `Default` (118.3K LUTs after synthesis, 101%); spikes' full-chip fits and the area numbers already use `AreaOptimized_high`. `summary.txt` records it (`synth=`).
 
 **Synthesis check:** the build fails when synthesis reports an implicit, undriven or forward-referenced net in our own RTL (Synth 8-11241, 8-605, 8-8895, 8-6901, 8-3848); `vivado.log` then names them. Messages about Xilinx's generated IP pass.

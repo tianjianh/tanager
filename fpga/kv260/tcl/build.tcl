@@ -128,6 +128,11 @@ if {$place_dir ni {Default Explore EarlyBlockPlacement WLDrivenBlockPlacement Ex
                    RuntimeOptimized Quick}} {
   puts "ERROR: TG_PLACE_DIRECTIVE must be one of place_design's directives (fpga/kv260/README.md)"; exit 1
 }
+# TG_CHECKPOINT=1 (DR-187): post_opt.dcp after opt_design (with the place-and-route uncertainty set) and
+# post_place.dcp after phys_opt_design, in the run directory, so another placement or a reroute starts from one
+# of them instead of from synthesis. Off by default (each is several hundred MB).
+set ckpt [expr {[info exists ::env(TG_CHECKPOINT)] ? $::env(TG_CHECKPOINT) : 0}]
+if {$ckpt ni {0 1}} { puts "ERROR: TG_CHECKPOINT must be 0 or 1 (fpga/kv260/README.md)"; exit 1 }
 foreach {v g lo hi} {TG_FAN_TTC tg_kv260_fan_ttc 0 3 TG_FAN_WAVE tg_kv260_fan_bit 0 2 TG_FAN_INVERT tg_kv260_fan_invert 0 1} {
   if {[info exists ::env($v)]} { set ::$g $::env($v) }
   set val [set ::$g]
@@ -306,6 +311,7 @@ if {$pr_unc > 0} {
     set pr_unc 0
   }
 }
+if {$ckpt} { stamp "write_checkpoint post_opt"; write_checkpoint -force ./post_opt.dcp }
 stamp "place_design ($place_dir)"
 place_design -directive $place_dir
 if {$fp_on} {
@@ -316,6 +322,7 @@ if {$fp_on} {
 }
 stamp "phys_opt_design"
 phys_opt_design
+if {$ckpt} { stamp "write_checkpoint post_place"; write_checkpoint -force ./post_place.dcp }
 stamp "route_design"
 route_design
 if {$pr_unc > 0} { set_clock_uncertainty -setup 0 $core_clk }   ;# the reports at the real period
