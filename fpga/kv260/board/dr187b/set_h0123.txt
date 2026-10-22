@@ -1,0 +1,145 @@
+ 09:50:28 up 30 min,  3 users,  load average: 0.85, 1.61, 1.55
+BASELINE-BEGIN boot fh80 2026-10-22T09:50:29Z up 1831.29
+== timeline
+[   22.893015] Run /init as init process
+Startup finished in 1min 6.517s (kernel) + 1min 25.748s (userspace) = 2min 32.266s 
+serial-getty@ttyS0 active at 150149132 us after boot
+multi-user.target active at 152199553 us after boot
+6.12.113+deb13-riscv64
+4
+root=LABEL=tanager-root console=ttyS0,115200 earlycon rw
+== DR-141 set (tg-lbench.sh 1)
+TGLB-BEGIN version=1 kernel=6.12.113+deb13-riscv64 harts=4 runs=1
+TGLB-INFO counters=cycle,instret,time timebase=10000000 pagesize=4096 perf_events=8 perf_errno=0
+TGLB forkexec run=1 cycles=2146663590 instret=1206660303 ticks=268332948 ns=26833296000 ops=1000 prog=/bin/true
+TGLB syscall run=1 cycles=624805601 instret=453891437 ticks=78100701 ns=7810071600 ops=1000000 call=getpid
+TGLB memcpy-64 run=1 cycles=69368915 instret=94936917 ticks=8671116 ns=867112600 ops=1048576 bytes=67108864
+TGLB memset-64 run=1 cycles=36779879 instret=48035240 ticks=4597485 ns=459748400 ops=1048576 bytes=67108864
+TGLB memcpy-4096 run=1 cycles=17066350 instret=31819886 ticks=2133295 ns=213331300 ops=16384 bytes=67108864
+TGLB memset-4096 run=1 cycles=11469341 instret=11341775 ticks=1433668 ns=143368100 ops=16384 bytes=67108864
+TGLB memcpy-1048576 run=1 cycles=46627325 instret=31500505 ticks=5828415 ns=582842300 ops=64 bytes=67108864
+TGLB memset-1048576 run=1 cycles=35748274 instret=11309383 ticks=4468534 ns=446854600 ops=64 bytes=67108864
+TGLB pipe run=1 cycles=50617645 instret=20339312 ticks=6327206 ns=632721300 ops=256 size=65536 bytes=16777216
+TGLB tmpfs-write run=1 cycles=48169244 instret=28325625 ticks=6021155 ns=602115800 ops=256 size=65536 bytes=16777216
+TGLB tmpfs-read run=1 cycles=16424328 instret=8209970 ticks=2053040 ns=205305300 ops=256 size=65536 bytes=16777216
+TGLB pagefault run=1 cycles=77788630 instret=22641666 ticks=9723579 ns=972359300 ops=16384 mib=64 faults=33
+TGLB tlbwalk run=1 cycles=51899328 instret=4209686 ticks=6487416 ns=648742600 ops=1000000 mib=64 pages=16384
+TGLB gzip run=1 cycles=1422722314 instret=1044646267 ticks=177840290 ns=17784029900 ops=1 status=0
+TGLB sha256sum run=1 cycles=168239404 instret=303561764 ticks=21029926 ns=2102993400 ops=1 status=0
+2K performance run parameters for coremark.
+CoreMark Size    : 666
+Total ticks      : 16619038000
+Total time (secs): 16.619038
+Iterations/Sec   : 361.031728
+Iterations       : 6000
+Compiler version : GCC15.3.0
+Compiler flags   : -O2 -funroll-loops -fpeel-loops -fgcse-sm -fgcse-las
+Memory location  : STATIC
+seedcrc          : 0xe9f5
+[0]crclist       : 0xe714
+[0]crcmatrix     : 0x1fd7
+[0]crcstate      : 0x8e3a
+[0]crcfinal      : 0xa14c
+Correct operation validated. See README.md for run and reporting rules.
+CoreMark 1.0 : 361.031728 / GCC15.3.0 -O2 -funroll-loops -fpeel-loops -fgcse-sm -fgcse-las / STATIC
+TGLB coremark-a run=1 cycles=1329523043 instret=2050572381 ticks=166190380 ns=16619038000 ops=6000 iterations=6000 crc=0xa14c march=rv64gc
+2K performance run parameters for coremark.
+CoreMark Size    : 666
+Total ticks      : 17581361100
+Total time (secs): 17.581361
+Iterations/Sec   : 341.270506
+Iterations       : 6000
+Compiler version : GCC15.3.0
+Compiler flags   : -O3 -funroll-loops
+Memory location  : STATIC
+seedcrc          : 0xe9f5
+[0]crclist       : 0xe714
+[0]crcmatrix     : 0x1fd7
+[0]crcstate      : 0x8e3a
+[0]crcfinal      : 0xa14c
+Correct operation validated. See README.md for run and reporting rules.
+CoreMark 1.0 : 341.270506 / GCC15.3.0 -O3 -funroll-loops / STATIC
+TGLB coremark-b run=1 cycles=1406508894 instret=2077739293 ticks=175813611 ns=17581361100 ops=6000 iterations=6000 crc=0xa14c march=rv64gc
+TGLB dhrystone run=1 cycles=205032429 instret=325751415 ticks=25629055 ns=2562908200 ops=1000000 march=rv64gc
+2K performance run parameters for coremark.
+CoreMark Size    : 666
+Total ticks      : 16584153600
+Total time (secs): 16.584154
+Iterations/Sec   : 361.791150
+Iterations       : 6000
+Compiler version : GCC15.3.0
+Compiler flags   : -O2 -funroll-loops -fpeel-loops -fgcse-sm -fgcse-las
+Memory location  : STATIC
+seedcrc          : 0xe9f5
+[0]crclist       : 0xe714
+[0]crcmatrix     : 0x1fd7
+[0]crcstate      : 0x8e3a
+[0]crcfinal      : 0xa14c
+Correct operation validated. See README.md for run and reporting rules.
+CoreMark 1.0 : 361.791150 / GCC15.3.0 -O2 -funroll-loops -fpeel-loops -fgcse-sm -fgcse-las / STATIC
+TGLB coremark-a-imafd run=1 cycles=1326732310 instret=2051589995 ticks=165841538 ns=16584153600 ops=6000 iterations=6000 crc=0xa14c march=rv64imafd
+2K performance run parameters for coremark.
+CoreMark Size    : 666
+Total ticks      : 17298469100
+Total time (secs): 17.298469
+Iterations/Sec   : 346.851503
+Iterations       : 6000
+Compiler version : GCC15.3.0
+Compiler flags   : -O3 -funroll-loops
+Memory location  : STATIC
+seedcrc          : 0xe9f5
+[0]crclist       : 0xe714
+[0]crcmatrix     : 0x1fd7
+[0]crcstate      : 0x8e3a
+[0]crcfinal      : 0xa14c
+Correct operation validated. See README.md for run and reporting rules.
+CoreMark 1.0 : 346.851503 / GCC15.3.0 -O3 -funroll-loops / STATIC
+TGLB coremark-b-imafd run=1 cycles=1383877518 instret=2077124451 ticks=172984689 ns=17298469100 ops=6000 iterations=6000 crc=0xa14c march=rv64imafd
+TGLB dhrystone-imafd run=1 cycles=204417953 instret=325689496 ticks=25552244 ns=2555226200 ops=1000000 march=rv64imafd
+TGLB-END status=0
+== the sc3/d4 workload
+gcc build: real	0m4.420s user	0m3.435s sys	0m0.930s 
+run: 5007905533300608  real	0m3.624s user	0m3.572s sys	0m0.050s 
+proj build, 9 files two at a time: real	0m14.345s user	0m18.749s sys	0m5.320s 
+proj prints 135808003256614222 (the stress expects 135808003256614222)
+sysbench cpu 1 thread:     events per second:    37.40
+sysbench cpu 2 threads:     events per second:    65.69
+sysbench memory 1 thread: 1353.15 MiB transferred (67.37 MiB/sec)
+sysbench memory 2 threads: 1557.43 MiB transferred (77.54 MiB/sec)
+sysbench threads 2 threads:     total number of events:              623
+== memgap
+MEMGAP-INFO kernel=6.12.113+deb13-riscv64 machine=riscv64 cpus=4 clocksource=riscv_clocksource idle=10.0 s, each test 1.00 s
+MEMGAP-IDLE-CPU cpu0 user=2.4% nice=0.0% system=1.0% idle=96.3% iowait=0.0% irq=0.0% softirq=0.0% steal=0.0%
+MEMGAP-IDLE-CPU cpu1 user=0.1% nice=0.0% system=0.2% idle=99.4% iowait=0.0% irq=0.0% softirq=0.0% steal=0.0%
+MEMGAP-IDLE-CPU cpu2 user=0.1% nice=0.0% system=0.5% idle=99.2% iowait=0.0% irq=0.0% softirq=0.0% steal=0.0%
+MEMGAP-IDLE-CPU cpu3 user=0.0% nice=0.0% system=0.7% idle=98.4% iowait=0.0% irq=0.0% softirq=0.1% steal=0.0%
+MEMGAP-IDLE-RATE interrupts=86.1/s context-switches=68.1/s over 10.0 s
+MEMGAP-IDLE-IRQ 10 63.2/s RISC-V INTC   5 Edge      riscv-timer
+MEMGAP-IDLE-IRQ 13 0.2/s SiFive PLIC  22 Edge      eth0, eth0
+MEMGAP-IDLE-IRQ 14 0.9/s SiFive PLIC  21 Edge      mmc0
+MEMGAP-IDLE-IRQ IPI0 0.2/s Rescheduling interrupts
+MEMGAP-IDLE-IRQ IPI1 20.9/s Function call interrupts
+MEMGAP clock 1245.5 ns/call
+MEMGAP rdtime 257.5 ns/read
+MEMGAP wr1k 366.5 MiB/s
+MEMGAP wr1m 146.6 MiB/s
+MEMGAP wr16m 136.8 MiB/s
+MEMGAP rd16m 139.4 MiB/s
+MEMGAP chase16k 39.2 ns/load
+MEMGAP chase256k 520.1 ns/load
+MEMGAP chase64m 710.1 ns/load
+MEMGAP pingpong 1655.6 ns/round-trip
+MEMGAP ev1 6782.8 ns/event
+MEMGAP ev2local 10702.3 ns/event (per thread; 186876 events/s in all)
+MEMGAP ev2shared 10751.4 ns/event (per thread; 186023 events/s in all)
+MEMGAP-CPU cpu0 user=20.5% nice=0.0% system=0.3% idle=78.1% iowait=0.0% irq=0.0% softirq=0.2% steal=0.0%
+MEMGAP-CPU cpu1 user=61.2% nice=0.0% system=7.0% idle=31.7% iowait=0.0% irq=0.0% softirq=0.0% steal=0.0%
+MEMGAP-CPU cpu2 user=0.1% nice=0.0% system=0.4% idle=99.4% iowait=0.0% irq=0.0% softirq=0.0% steal=0.0%
+MEMGAP-CPU cpu3 user=31.4% nice=0.0% system=0.4% idle=68.0% iowait=0.0% irq=0.0% softirq=0.0% steal=0.0%
+MEMGAP-RATE interrupts=353.2/s context-switches=43.3/s over 21.5 s
+MEMGAP-IRQ 10 325.5/s RISC-V INTC   5 Edge      riscv-timer
+MEMGAP-IRQ 13 1.2/s SiFive PLIC  22 Edge      eth0, eth0
+MEMGAP-IRQ 14 1.3/s SiFive PLIC  21 Edge      mmc0
+MEMGAP-IRQ IPI0 2.3/s Rescheduling interrupts
+MEMGAP-IRQ IPI1 22.7/s Function call interrupts
+BASELINE-END boot fh80 2026-10-22T09:55:33Z up 2135.66

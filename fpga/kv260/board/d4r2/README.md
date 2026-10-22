@@ -179,3 +179,23 @@ The mean of the three boots, against the fixed tree's first measurement and stag
 **The board now:** RISC-V mode on d4r2 with the fixed tree, with Debian idle and the fan regulator on (`BOARD_CTRL` 3). The laptop's stamped loggers keep running on COM5 and COM7 until about 05:30 UTC on 10-22, so any reset while it idles is on record.
 
 **Before the baseline:** the board had reset twice while it idled after s23, both times at the laptop's wake from hibernation ([`../stress/README.md`](../stress/README.md)). The mode record went back to riscv from Ubuntu at 17:36 UTC, and the switch boot came up as above.
+
+## After the move to a better power supply (10-22): healthy
+
+The user moved the board to a better power supply at about 16:17 UTC; until then it had idled in RISC-V mode since the baseline. The laptop's stamped loggers ran through the move ([`uart_COM7_replug.txt`](uart_COM7_replug.txt), [`uart_COM5_replug.txt`](uart_COM5_replug.txt)), and the outputs are in [`health_1022.txt`](health_1022.txt).
+- **The idle night:** no line reached either console from boot 3's login (18:30 UTC on 10-21) to the end of the loggers' 12 hours (05:32 UTC).
+- **The power-on:** the A53's FSBL at 16:17:26, then U-Boot, the hook's `tanager-mode: ARM mode`, and Ubuntu's login at 16:19:33.
+  - The running RISC-V boot was unconfirmed, so this is DR-172's fallback.
+  - U-Boot printed `Reset reason: SOFT` and RESET_REASON reads `0x21`, the same as after a software reset. The likely reason is that the Kria's boot firmware resets the chip once after a power-on, to start the boot image it selected (the FSBL reports `MultiBootOffset: 0x40`). So on this board the register can't tell a power-on from a software reset.
+- **Ubuntu:** `fancontrol` active (PWM 15/255), `k26-starter-kits` loaded, the AMS at 32.5–34.6 °C, and no error-level journal lines.
+- **The network:** IPv6 link-local only, on both OSes; the laptop's ICS still serves no DHCP.
+- **The two-core 100 MHz image in RISC-V mode** (reset at 16:20:51): Debian came up as before, with OpenSBI's `Region03` a page, `/init` at 53.0 s and the login at 167.6 s.
+  - The root mounted 5 s later than in the baseline (kernel stamp 53.6 s against 48.7 s). That is the initramfs's fsck after the unclean stop: systemd skipped its own root check because the initramfs had already run it.
+  - The previous boot, the baseline's boot 3, ran 20.9 h. Its journal ends at an hourly cron line, with no shutdown lines.
+- **[`../runs/hart_check.sh`](../runs/hart_check.sh) on it, 0 fails** ([`hartcheck_d4r2_100.txt`](hartcheck_d4r2_100.txt)). This is the bring-up's check, tried first on a known-good image:
+  - CoreMark A validated on both harts (453–454 iterations/s), and `t` printed the right sum on both (2.93 s under `taskset`);
+  - `mt` was right on the pair (harts 0 and 2, so across cores), with pingpong at 2,216–2,241 ns;
+  - the project took 11.58 s built two at a time; sysbench on two threads gave cpu 93.84 events/s and threads 778 events;
+  - no new kernel lines appeared.
+  - The run counted each hart twice: Debian's `/proc/cpuinfo` also has a `hart isa` line, which the first version read as a second hart. That's fixed; the record shows the doubled lines.
+- **Back to ARM mode** at 16:28 (Debian's clean reboot with the record at arm). p1's two-core 100 MHz image is now also in `tanager-d4r2-100/`, ready for the switch back ([`../../README.md`](../../README.md)'s change log).

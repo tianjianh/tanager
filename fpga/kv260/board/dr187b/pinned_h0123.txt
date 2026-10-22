@@ -1,0 +1,18 @@
+== pinned to cpus 0,2: two cores (harts 1 and 2)
+MEMGAP wr1k 365.9 MiB/s
+MEMGAP pingpong 1684.1 ns/round-trip
+MEMGAP ev1 6821.7 ns/event
+MEMGAP ev2local 10655.7 ns/event (per thread; 187692 events/s in all)
+MEMGAP ev2shared 10688.9 ns/event (per thread; 187111 events/s in all)
+sysbench cpu 2 threads:     events per second:    75.09
+sysbench memory 2 threads: 2371.59 MiB transferred (118.07 MiB/sec)
+sysbench threads 2 threads:     total number of events:              619
+== pinned to cpus 0,1: one core (harts 1 and 0)
+MEMGAP wr1k 366.0 MiB/s
+MEMGAP pingpong 1648.6 ns/round-trip
+MEMGAP ev1 6818.9 ns/event
+MEMGAP ev2local 10719.6 ns/event (per thread; 186575 events/s in all)
+MEMGAP ev2shared 10723.5 ns/event (per thread; 186507 events/s in all)
+sysbench cpu 2 threads:     events per second:    50.11
+sysbench memory 2 threads: 1426.32 MiB transferred (71.01 MiB/sec)
+sysbench threads 2 threads:     total number of events:              348
