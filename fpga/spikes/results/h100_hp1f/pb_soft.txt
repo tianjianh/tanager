@@ -1,0 +1,253 @@
+== l2b0
+  CELL_COUNT               1
+  CLASS                    pblock
+  CONTAIN_ROUTING          0
+  DERIVED_RANGES           RAMB18_X1Y28:RAMB18_X2Y35 RAMB36_X1Y14:RAMB36_X2Y17 DSP48E2_X12Y28:DSP48E2_X12Y43 URAM288_X0Y15:URAM288_X0Y31 SLICE_X41Y68:SLICE_X60Y107
+  EXCLUDE_PLACEMENT        0
+  GRIDTYPES                SLICE DSP48E2 RAMB18 RAMB36 URAM288
+  GRID_RANGES              SLICE_X41Y68:SLICE_X60Y107 URAM288_X0Y15:URAM288_X0Y31 DSP48E2_X12Y28:DSP48E2_X12Y43 RAMB36_X1Y14:RAMB36_X2Y17 RAMB18_X1Y28:RAMB18_X2Y35
+  HD.MAX_ISOLATED_IN_RP    
+  IS_DFX                   0
+  IS_SOFT                  1
+  NAME                     l2b0
+  NOC_HIGH_ID_MAX          
+  NOC_HIGH_ID_MIN          
+  PARENT                   ROOT
+  PARTPIN_SPREADING        5
+  PBLOCK_SOURCE            
+  PRIMITIVE_COUNT          8008
+  RECTANGLE_COUNT          16
+  RECTANGLE_SITES          { 41 68 60 107 } { 0 15 0 31 } { 12 28 12 43 } { 1 14 2 17 } { 1 28 2 35 }
+  RECTANGLE_SITES_COUNT    857
+  RECTANGLE_TILES          { 338 137 340 177 } { 343 137 343 177 } { 344 125 348 201 } { 349 137 349 177 } { 352 137 354 177 } { 355 156 356 175 } { 357 137 360 177 } { 369 137 373 177 } { 374 156 375 175 } { 376 137 377 177 } { 380 137 380 177 } { 381 135 381 177 } { 382 135 383 175 } { 384 137 389 177 } { 392 137 396 177 }
+  SNAPPING_MODE            
+  outside, by submodule:
+       637  (own level)
+       488  u_rslice
+        93  u_darb
+        81  u_data/u_mem
+        32  u_rack
+        16  u_cbuf/g_m32.g_prim[0].u_ram
+        16  u_cbuf/g_m32.g_prim[1].u_ram
+        16  u_cbuf/g_m32.g_prim[3].u_ram
+        16  u_cbuf/g_m32.g_prim[5].u_ram
+        16  u_cbuf/g_m32.g_prim[6].u_ram
+        16  u_cbuf/g_m32.g_prim[8].u_ram
+        16  u_cbuf/g_m32.g_prim[9].u_ram
+        16  u_dfifo/g_m32.g_prim[11].u_ram
+        16  u_dfifo/g_m32.g_prim[12].u_ram
+        16  u_dfifo/g_m32.g_prim[13].u_ram
+        16  u_dfifo/g_m32.g_prim[14].u_ram
+        16  u_dfifo/g_m32.g_prim[2].u_ram
+        16  u_dfifo/g_m32.g_prim[3].u_ram
+        16  u_dfifo/g_m32.g_prim[4].u_ram
+        16  u_dfifo/g_m32.g_prim[5].u_ram
+        16  u_putbuf/g_m32.g_prim[0].u_ram
+        16  u_putbuf/g_m32.g_prim[1].u_ram
+        16  u_putbuf/g_m32.g_prim[2].u_ram
+        16  u_putbuf/g_m32.g_prim[3].u_ram
+        16  u_putbuf/g_m32.g_prim[4].u_ram
+        16  u_putbuf/g_m32.g_prim[5].u_ram
+        16  u_putbuf/g_m32.g_prim[6].u_ram
+        16  u_putbuf/g_m32.g_prim[7].u_ram
+        16  u_putbuf/g_m32.g_prim[8].u_ram
+        16  u_putbuf/g_m32.g_prim[9].u_ram
+        16  u_wbbuf/g_m32.g_prim[10].u_ram
+        16  u_wbbuf/g_m32.g_prim[11].u_ram
+        16  u_wbbuf/g_m32.g_prim[12].u_ram
+        16  u_wbbuf/g_m32.g_prim[13].u_ram
+        16  u_wbbuf/g_m32.g_prim[14].u_ram
+        16  u_wbbuf/g_m32.g_prim[2].u_ram
+        16  u_wbbuf/g_m32.g_prim[3].u_ram
+        16  u_wbbuf/g_m32.g_prim[4].u_ram
+        16  u_wbbuf/g_m32.g_prim[5].u_ram
+        10  u_putbuf
+         9  u_wbbuf
+         8  u_dfifo
+         7  u_cbuf
+         2  u_dir/u_mem
+  outside, by name form and type:
+       661  synthesis FDRE
+       476  synthesis RAMD
+       243  synthesis LUT6
+       177  synthesis LUT4
+       106  synthesis LUT5
+       100  synthesis LUT3
+        68  synthesis RAMS
+        34  synthesis RAM3
+        21  synthesis LUT2
+        11  synthesis CARR
+         7  synthesis MUXF
+         5  synthesis LUT1
+         2  synthesis RAMB
+  samples:
+    u_soc/u_uncore/u_l2/g_bank[0].u_bank/u_cbuf/g_m32.g_prim[0].u_ram/RAMA                     RAMD32     SLICE_X40Y89     pblock=l2b0
+    u_soc/u_uncore/u_l2/g_bank[0].u_bank/u_cbuf/g_m32.g_prim[3].u_ram/RAMA                     RAMD32     SLICE_X40Y101    pblock=l2b0
+    u_soc/u_uncore/u_l2/g_bank[0].u_bank/u_cbuf/g_m32.g_prim[6].u_ram/RAMA                     RAMD32     SLICE_X40Y100    pblock=l2b0
+    u_soc/u_uncore/u_l2/g_bank[0].u_bank/u_cbuf/g_m32.g_prim[9].u_ram/RAMA                     RAMD32     SLICE_X40Y99     pblock=l2b0
+    u_soc/u_uncore/u_l2/g_bank[0].u_bank/u_data/u_mem/xpm_memory_base_inst/gen_rd_b.gen_doutb_pipe.gen_stage.doutb_pipe_reg[0][144] FDRE       SLICE_X51Y113    pblock=l2b0
+    u_soc/u_uncore/u_l2/g_bank[0].u_bank/u_dfifo/g_m32.g_prim[11].u_ram/RAMA                   RAMD32     SLICE_X53Y111    pblock=l2b0
+    u_soc/u_uncore/u_l2/g_bank[0].u_bank/u_dfifo/g_m32.g_prim[13].u_ram/RAMA                   RAMD32     SLICE_X53Y114    pblock=l2b0
+    u_soc/u_uncore/u_l2/g_bank[0].u_bank/u_dfifo/g_m32.g_prim[2].u_ram/RAMA                    RAMD32     SLICE_X54Y109    pblock=l2b0
+    u_soc/u_uncore/u_l2/g_bank[0].u_bank/u_dfifo/g_m32.g_prim[4].u_ram/RAMA                    RAMD32     SLICE_X54Y112    pblock=l2b0
+    u_soc/u_uncore/u_l2/g_bank[0].u_bank/u_dir/u_mem/xpm_memory_base_inst/gen_wr_a.gen_byte_narrow.for_mem_cols[1].mem_reg_2 RAMB36E2   RAMB36_X1Y10     pblock=l2b0
+    u_soc/u_uncore/u_l2/g_bank[0].u_bank/u_putbuf/g_m32.g_prim[0].u_ram/RAMA                   RAMD32     SLICE_X38Y89     pblock=l2b0
+    u_soc/u_uncore/u_l2/g_bank[0].u_bank/u_putbuf/g_m32.g_prim[2].u_ram/RAMA                   RAMD32     SLICE_X41Y108    pblock=l2b0
+== l2b1
+  CELL_COUNT               1
+  CLASS                    pblock
+  CONTAIN_ROUTING          0
+  DERIVED_RANGES           RAMB18_X1Y54:RAMB18_X2Y61 RAMB36_X1Y27:RAMB36_X2Y30 DSP48E2_X12Y52:DSP48E2_X12Y69 URAM288_X0Y32:URAM288_X0Y49 SLICE_X41Y132:SLICE_X60Y171
+  EXCLUDE_PLACEMENT        0
+  GRIDTYPES                SLICE DSP48E2 RAMB18 RAMB36 URAM288
+  GRID_RANGES              SLICE_X41Y132:SLICE_X60Y171 URAM288_X0Y32:URAM288_X0Y49 DSP48E2_X12Y52:DSP48E2_X12Y69 RAMB36_X1Y27:RAMB36_X2Y30 RAMB18_X1Y54:RAMB18_X2Y61
+  HD.MAX_ISOLATED_IN_RP    
+  IS_DFX                   0
+  IS_SOFT                  1
+  NAME                     l2b1
+  NOC_HIGH_ID_MAX          
+  NOC_HIGH_ID_MIN          
+  PARENT                   ROOT
+  PARTPIN_SPREADING        5
+  PBLOCK_SOURCE            
+  PRIMITIVE_COUNT          8392
+  RECTANGLE_COUNT          9
+  RECTANGLE_SITES          { 41 132 60 171 } { 0 32 0 49 } { 12 52 12 69 } { 1 27 2 30 } { 1 54 2 61 }
+  RECTANGLE_SITES_COUNT    860
+  RECTANGLE_TILES          { 338 71 340 111 } { 343 71 343 111 } { 344 47 348 123 } { 349 71 349 111 } { 352 71 354 111 } { 355 88 356 108 } { 357 71 360 111 } { 369 71 373 111 } { 374 88 375 108 } { 376 71 377 111 } { 380 71 380 111 } { 381 68 383 113 } { 384 71 389 111 } { 392 71 396 111 }
+  SNAPPING_MODE            
+  outside, by submodule:
+       424  (own level)
+       291  u_darb
+       250  u_rslice
+        61  u_data/u_mem
+        39  u_rack
+        17  u_rack/g_ptr.g_lut.u_mem
+        16  u_cbuf/g_m32.g_prim[1].u_ram
+        16  u_cbuf/g_m32.g_prim[3].u_ram
+        16  u_cbuf/g_m32.g_prim[4].u_ram
+        16  u_cbuf/g_m32.g_prim[6].u_ram
+        16  u_cbuf/g_m32.g_prim[7].u_ram
+        16  u_cbuf/g_m32.g_prim[8].u_ram
+        16  u_dfifo/g_m32.g_prim[16].u_ram
+        16  u_dfifo/g_m32.g_prim[19].u_ram
+        16  u_putbuf/g_m32.g_prim[10].u_ram
+        16  u_putbuf/g_m32.g_prim[1].u_ram
+        16  u_putbuf/g_m32.g_prim[3].u_ram
+        16  u_putbuf/g_m32.g_prim[4].u_ram
+        16  u_putbuf/g_m32.g_prim[5].u_ram
+        16  u_putbuf/g_m32.g_prim[6].u_ram
+        16  u_putbuf/g_m32.g_prim[8].u_ram
+        16  u_putbuf/g_m32.g_prim[9].u_ram
+         8  u_putbuf
+         6  u_cbuf
+         4  u_dir/u_mem
+         2  u_dfifo
+  outside, by name form and type:
+       375  synthesis FDRE
+       357  synthesis LUT4
+       238  synthesis RAMD
+       116  synthesis LUT6
+        93  synthesis LUT5
+        85  synthesis LUT3
+        34  synthesis RAMS
+        24  synthesis LUT2
+        17  synthesis RAM3
+         9  synthesis CARR
+         4  synthesis LUT1
+         4  synthesis RAMB
+         2  synthesis FDSE
+  samples:
+    u_soc/u_uncore/u_l2/g_bank[1].u_bank/u_cbuf/g_m32.g_prim[1].u_ram/RAMA                     RAMD32     SLICE_X40Y132    pblock=l2b1
+    u_soc/u_uncore/u_l2/g_bank[1].u_bank/u_cbuf/g_m32.g_prim[4].u_ram/RAMA                     RAMD32     SLICE_X40Y137    pblock=l2b1
+    u_soc/u_uncore/u_l2/g_bank[1].u_bank/u_cbuf/g_m32.g_prim[7].u_ram/RAMA                     RAMD32     SLICE_X43Y131    pblock=l2b1
+    u_soc/u_uncore/u_l2/g_bank[1].u_bank/u_darb/skid_q[corrupt]_i_2                            LUT2       SLICE_X38Y133    pblock=l2b1
+    u_soc/u_uncore/u_l2/g_bank[1].u_bank/u_dfifo/g_m32.g_prim[16].u_ram                        RAM32M16   SLICE_X45Y131    pblock=l2b1
+    u_soc/u_uncore/u_l2/g_bank[1].u_bank/u_dfifo/g_m32.g_prim[19].u_ram/RAMA                   RAMD32     SLICE_X54Y131    pblock=l2b1
+    u_soc/u_uncore/u_l2/g_bank[1].u_bank/u_putbuf/g_m32.g_prim[10].u_ram                       RAM32M16   SLICE_X43Y130    pblock=l2b1
+    u_soc/u_uncore/u_l2/g_bank[1].u_bank/u_putbuf/g_m32.g_prim[1].u_ram/RAMA                   RAMD32     SLICE_X40Y140    pblock=l2b1
+    u_soc/u_uncore/u_l2/g_bank[1].u_bank/u_putbuf/g_m32.g_prim[4].u_ram/RAMA                   RAMD32     SLICE_X40Y139    pblock=l2b1
+    u_soc/u_uncore/u_l2/g_bank[1].u_bank/u_putbuf/g_m32.g_prim[6].u_ram/RAMA                   RAMD32     SLICE_X40Y130    pblock=l2b1
+    u_soc/u_uncore/u_l2/g_bank[1].u_bank/u_putbuf/g_m32.g_prim[9].u_ram/RAMA                   RAMD32     SLICE_X40Y131    pblock=l2b1
+    u_soc/u_uncore/u_l2/g_bank[1].u_bank/u_rack/g_ptr.g_lut.u_mem/g_m32.g_prim[0].u_ram        RAM32M16   SLICE_X54Y130    pblock=l2b1
+== xbar
+  CELL_COUNT               1
+  CLASS                    pblock
+  CONTAIN_ROUTING          0
+  DERIVED_RANGES           RAMB18_X0Y40:RAMB18_X0Y51 RAMB36_X0Y21:RAMB36_X0Y25 DSP48E2_X6Y40:DSP48E2_X11Y51 SLICE_X23Y102:SLICE_X40Y129
+  EXCLUDE_PLACEMENT        0
+  GRIDTYPES                SLICE DSP48E2 RAMB18 RAMB36
+  GRID_RANGES              SLICE_X23Y102:SLICE_X40Y129 DSP48E2_X6Y40:DSP48E2_X11Y51 RAMB36_X0Y21:RAMB36_X0Y25 RAMB18_X0Y40:RAMB18_X0Y51
+  HD.MAX_ISOLATED_IN_RP    
+  IS_DFX                   0
+  IS_SOFT                  1
+  NAME                     xbar
+  NOC_HIGH_ID_MAX          
+  NOC_HIGH_ID_MIN          
+  PARENT                   ROOT
+  PARTPIN_SPREADING        5
+  PBLOCK_SOURCE            
+  PRIMITIVE_COUNT          4820
+  RECTANGLE_COUNT          14
+  RECTANGLE_SITES          { 23 102 40 129 } { 6 40 11 51 } { 0 21 0 25 } { 0 40 0 51 }
+  RECTANGLE_SITES_COUNT    593
+  RECTANGLE_TILES          { 281 114 282 142 } { 285 114 285 142 } { 286 114 288 144 } { 289 114 291 142 } { 292 114 294 144 } { 295 114 295 142 } { 298 114 298 142 } { 299 114 301 144 } { 302 114 304 142 } { 307 114 307 142 } { 308 114 310 144 } { 311 114 313 142 } { 316 114 316 142 } { 317 114 319 144 } { 320 114 322 142 } { 325 114 325 142 } { 326 114 328 144 } { 329 114 331 142 } { 334 114 334 142 } { 335 114 337 144 }
+  SNAPPING_MODE            
+  outside, by submodule:
+       216  g_ta_slice[1].g_s.u_s
+       166  g_ta[1].u_arb
+       153  g_id[0].g_p.g_s.u_s
+       126  g_id[1].g_p.g_s.u_s
+        92  g_tc[1].g_s.u_s
+        80  g_tc[0].g_s.u_s
+        62  g_id[0].g_p.u_arb
+        57  g_id[4].g_p.g_s.u_s
+        56  g_ib[1].g_s.u_s
+        51  g_id[4].g_p.u_arb
+        45  g_id[1].g_p.u_arb
+        44  g_ib[0].g_s.u_s
+        38  g_ta_slice[2].g_s.u_s
+        35  g_ta_slice[0].g_s.u_s
+        24  g_ta[4].u_arb
+        22  g_id[8].g_p.g_s.u_s
+        20  (own level)
+        20  g_ta[2].u_arb
+        17  g_te[0].g_s.u_s
+        17  g_te[1].g_s.u_s
+        15  g_ta_slice[3].g_s.u_s/g_dsp.u_main
+        15  g_ta_slice[4].g_s.u_s
+        11  g_ta[3].u_arb
+         5  g_id[5].g_p.g_s.u_s
+         4  g_ta_slice[3].g_s.u_s
+         4  g_tc[0].g_s.u_s/g_dsp.u_main
+         2  g_ib[0].u_arb
+         2  g_ib[1].u_arb
+         2  g_tc[1].g_s.u_s/g_dsp.u_main
+         2  g_te[0].u_arb
+         2  g_te[1].u_arb
+         1  g_id[8].g_p.u_arb
+         1  g_id[9].g_p.g_s.u_s
+         1  g_ta[0].u_arb
+  outside, by name form and type:
+       816  synthesis FDRE
+       302  synthesis LUT6
+       108  synthesis LUT3
+        66  synthesis LUT4
+        52  synthesis LUT5
+        45  synthesis LUT2
+        10  synthesis LUT1
+         7  synthesis FDSE
+         2  synthesis MUXF
+  samples:
+    u_soc/u_uncore/u_xbar/g_ib[0].u_arb/ptr_q[0]_i_1__14                                       LUT5       SLICE_X50Y127    pblock=xbar
+    u_soc/u_uncore/u_xbar/g_ib[1].u_arb/ptr_q[0]_i_1__15                                       LUT5       SLICE_X50Y126    pblock=xbar
+    u_soc/u_uncore/u_xbar/g_id[0].g_p.u_arb/tg_arb__paramet4_LUT6_10                           LUT6       SLICE_X36Y130    pblock=xbar
+    u_soc/u_uncore/u_xbar/g_id[1].g_p.u_arb/tg_arb__paramet5_LUT6_10                           LUT6       SLICE_X46Y121    pblock=xbar
+    u_soc/u_uncore/u_xbar/g_id[4].g_p.u_arb/g_fab.main_q[data][106]_i_1                        LUT4       SLICE_X27Y131    pblock=xbar
+    u_soc/u_uncore/u_xbar/g_id[8].g_p.g_s.u_s/g_fab.main_q_reg[data][11]                       FDRE       SLICE_X21Y124    pblock=xbar
+    u_soc/u_uncore/u_xbar/g_id[9].g_p.g_s.u_s/xr_data_q[0]_i_2                                 LUT6       SLICE_X18Y120    pblock=xbar
+    u_soc/u_uncore/u_xbar/g_ta[1].u_arb/lock_idx_q[0]_i_2__0                                   LUT5       SLICE_X22Y125    pblock=xbar
+    u_soc/u_uncore/u_xbar/g_ta[3].u_arb/g_dsp[0].u_dsp_i_50__1                                 LUT5       SLICE_X16Y126    pblock=xbar
+    u_soc/u_uncore/u_xbar/g_ta_slice[0].g_s.u_s/FSM_onehot_ain_st_q[1]_i_1                     LUT5       SLICE_X42Y110    pblock=xbar
+    u_soc/u_uncore/u_xbar/g_ta_slice[2].g_s.u_s/beat_q[3]_i_1                                  LUT4       SLICE_X18Y121    pblock=xbar
+    u_soc/u_uncore/u_xbar/g_ta_slice[3].g_s.u_s/g_dsp.u_main/dev_q[0]_i_1                      LUT5       SLICE_X22Y116    pblock=xbar
