@@ -663,9 +663,13 @@ module tg_lsu
   assign nl_pma  = xl_l ? pma_of({dt_pte[0].ppn, ln_va[11:0]}) : pma_of(ln_va[PA_W-1:0]);
   logic       pmp_hit_ld, pmp_hit_st;
   logic [2:0] pmp_rwx_ld, pmp_rwx_st;
-  tg_pmp #(.S(1)) u_pmp_ld (.pa(lck_pa), .dbl(lck_dbl), .acc(ACC_R),
-                            .m_mode(priv_d[t_lck] == PRIV_M), .d(pmp_d[t_lck]), .ok(nl_chk), .hit(pmp_hit_ld),
-                            .rwx(pmp_rwx_ld));
+  // EXPLORE ONLY (claude/spikes-2-explore-pmp, never merged; functionally wrong): the load PMP checker and its
+  // descriptor select stubbed out, to bound what PMP checks at TLB fill could save (the coordinator, 10-21)
+  assign nl_chk     = 1'b1;
+  assign pmp_hit_ld = 1'b0;
+  assign pmp_rwx_ld = 3'b111;
+  logic unused_pmp_ld_explore;
+  assign unused_pmp_ld_explore = ^{lck_pa, lck_dbl, t_lck};
   assign nl_pmpc = xl_l && dt_pte[0].ph;          // the cached result applies
   assign nl_pmpd = !nl_pmpc;                      // ... else the checker decides, later
   assign nl_acc  = (xl_l ? dt_pte[0].big : ln_va[63:PA_W] != '0) || nl_pma == PMA_NONE ||

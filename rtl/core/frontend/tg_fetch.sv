@@ -287,9 +287,13 @@ module tg_fetch
   logic               pw_q, f1_pwait;
   logic [PA_W-1:4]    pw_pa_q;                // fpc_q's translated block address, while pw_q
   assign f1_pwait = xl_i && it_hit[0] && !it_pte[0].ph && !pw_q;
-  tg_pmp #(.S(2)) u_pmp (.pa(xl_i ? {pw_pa_q, 4'b0} : fpc_q[PA_W-1:0]), .dbl(1'b0), .acc(ACC_X),
-                         .m_mode(priv == PRIV_M), .d(pmp_d), .ok(pmp_okw), .hit(pmp_hit_u),
-                         .rwx(pmp_rwx_u));
+  // EXPLORE ONLY (claude/spikes-2-explore-pmp, never merged; functionally wrong): the fetch PMP checker and its
+  // descriptor select stubbed out, to bound what PMP checks at TLB fill could save (the coordinator, 10-21)
+  assign pmp_okw   = '1;
+  assign pmp_hit_u = 1'b0;
+  assign pmp_rwx_u = 3'b111;
+  logic unused_pmp_explore;
+  assign unused_pmp_explore = ^{pmp_d, pw_pa_q};
   assign f1_pmpd = (xl_i && it_pte[0].ph) ? {NW{!it_pte[0].px}} : ~pmp_okw;
 
   // ---- I$ arrays ----
