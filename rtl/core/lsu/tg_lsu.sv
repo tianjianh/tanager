@@ -1002,7 +1002,7 @@ module tg_lsu
   // An FP load's response (an FP load from a device) also waits while P4 writes its bank next cycle (DR-179), and
   // blocks IQ-FP's select meanwhile (fp_block, below)
   logic xr_take, xr_fcol;
-  assign xr_fcol = EXT_FD && lqc_rd[1].dv && lqc_rd[1].fp && ((p4_nx_we && p4_nx_bank == lqc_rd[1].fb) || fk_hold);
+  assign xr_fcol = FP_XBANK && lqc_rd[1].dv && lqc_rd[1].fp && ((p4_nx_we && p4_nx_bank == lqc_rd[1].fb) || fk_hold);
   assign xr_take = xr_v_q && !m2_okw && !kill_t[x_t] && !xr_fcol;
   // A held FP load's result (DR-179; M2 above): it takes the result register last, when nothing else does and P4
   // leaves its bank next cycle, so its write never meets P4's; a flush of its thread drops it
@@ -1023,7 +1023,7 @@ module tg_lsu
   // register then and writes into P4's free slot: P4 loses one select a hold, not the 7 cycles of a drain (lone FP
   // restores -4.8% -> -0.7% against FP 96, core-2's RTL runs with crossing). The blocks after 8 failed takes stay for
   // a slot taken anyway (an MMIO or atomic result, a flush)
-  localparam bit         FH_HOLE = 1'b1;
+  localparam bit         FH_HOLE = FP_XBANK;
 
   // ================= Atomics =================
   // AM_IDLE -> (ROB head, address and data known, older stores drained) -> AM_REQ: the D$ holds
