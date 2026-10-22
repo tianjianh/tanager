@@ -1516,6 +1516,37 @@ Results: `fpga/spikes/results/h100_hu0/`, `h100_hu1/` (their `errors.txt` and su
 
 Results: `fpga/spikes/results/h100_hz0_synth/` and `h100_hu_util/` (`util_hz0.rpt`, `groups_hz0.tsv`, `groups_hn0.tsv`, `diff_hz0_hn0.txt`, `diff_cells_hz0_hn0.txt`).
 
+#### hp1: the edge, placed (2026-10-21)
+
+**Asked** (the coordinator): one placed point near the device's edge, to find where this design actually closes. The 96% figure is §8.17's chip, built with filler; M8's target could lie anywhere from "just fit" to 96%.
+
+**Build:**
+- **hp1** is hu1 without the three product windows: hp0 with the URF on, on main 7864d3bf.
+- **Comparable with hu1:** the RTL since 071de15c only makes the speculative-wakeup filter switchable, with the default unchanged.
+- **Settings as hu1's otherwise:** d4r2's synthesis, no floorplan, 1.0 ns on the core clock and on `clk2x`, `LAT_INJ=0`, `TG_HART1=1`. 24 GB declared per step; the routed checkpoint is `fp/h100_hp1_routed.dcp`.
+
+| | LUTs | Of 117,120 |
+|---|---|---|
+| After synthesis | 121,295 | — |
+| After `opt_design` | 116,223 | 99.2% |
+| Placed | **113,636** (16,270 LUTRAM), 62,028 FFs, 121 BRAM tiles, 50 UltraRAMs | **97.0%** |
+
+**Result: it places and routes, but misses 100 MHz by 2.1 ns.**
+- **Run time:** placement 14 minutes, routing 2.5 hours (no routing errors).
+- **Core clock `c0`:** WNS **−2.098 ns** (about 83 MHz), TNS −8,566 ns, WHS +0.001 ns. 14,020 of 299,396 endpoints fail: core 0 8,912, core 1 3,859, the uncore 1,249.
+- **`clk2x` and the URF are not the limit:** +0.721 into `clk2x`, +1.329 within it, +0.604 back to the core clock.
+- **Congestion:** the placer ends at level 5 (32 × 32 windows) in every direction over both cores and the uncore. The router starts at level 6 (64 × 64, short wires east and west) over core 0, whose windows have 97–99% of their LUTs used.
+- **The worst paths are everywhere, and mostly wire.** 654 families fall below 1.0 ns, with 64–79% wire on the worst paths:
+  - the LSU 205 families, rename 171, the CSR file 101, fetch 94, the two RAS 30, the L2 28, the ROB 12;
+  - the worst: core 0's DTLB (−2.10, 16 levels, 9.5 ns of wire), rename's FP free-list counts (−2.09), the LSU's replay address (−2.09), F2's cone into the RAS (−2.07).
+
+**Findings:**
+- **"Just fit" does not close.** At 97.0% placed with the board's flow, wire dominates everywhere, not one path.
+- **Between §8.17's 96.0% (+0.022 ns) and hp1's 97.0% (−2.098 ns) lies a cliff of 2.1 ns for 1.2K more placed LUTs.** Fill and flow both changed: §8.17's chips had the `g4_uncore` pblocks and `-flatten_hierarchy none`. One more placement of hp1's own synthesis with §8.17's floorplan would separate the two, at no new synthesis.
+- **Until then, M8's target is the 96% end or lower:** about 7K LUTs a chip back from hu1, not 2K.
+
+Results: `fpga/spikes/results/h100_hp1/` (with `near_families_hp1.txt`, `urf_chip.txt`, `congestion.rpt` and `worst_paths.txt`, from [`q_congestion.tcl`](../../fpga/spikes/tcl/query/q_congestion.tcl)) and `h100_hp1_synth/`.
+
 ## 9. S1: PL → PS DDR latency and bandwidth
 
 **Status: done on the board (2026-10-14).** The bitstream meets 200 MHz (WNS +0.809 ns with the fan rule of DR-129; +0.513 before it; 4,081 LUTs, 5,133 flip-flops, one block-RAM tile), and the board session ran it at 200 MHz. The design, the A53 program and the step-by-step instructions (SD image, boot firmware, network, files, commands) are in [`fpga/spikes/s1/README.md`](../../fpga/spikes/s1/README.md).

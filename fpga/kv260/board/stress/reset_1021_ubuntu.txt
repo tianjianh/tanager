@@ -1,0 +1,13 @@
+A53 date 2026-10-20T19:25:16Z up 1012.31 s
+ -2 354fb444b35041b2b53d6766324dcd41 Mon 2026-10-12 07:36:19 UTC Tue 2026-10-20 13:16:52 UTC
+ -1 5cf02ec6244745f0b254a33ae6dcc643 Mon 2026-10-12 07:36:19 UTC Tue 2026-10-20 19:05:01 UTC
+  0 d881f9b5dd64431a9d9280d162aad998 Mon 2026-10-12 07:36:19 UTC Tue 2026-10-20 19:25:14 UTC
+boot -1 last entry:
+[20911.134915] kria CRON[18796]: pam_unix(cron:session): session closed for user root
+boot -1 shutdown-path lines: 0
+RESET_REASON 0x00000021
+fancontrol active
+/dev/mmcblk1 sector 2047: riscv, trial 1: the last RISC-V boot never confirmed, so the next boot is ARM
+/dev/mmcblk1 sector 2047: riscv: the next boot starts the RISC-V
+/dev/mmcblk1 sector 2047: riscv: the next boot starts the RISC-V
+reboot queued 19:25:18

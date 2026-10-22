@@ -30,6 +30,7 @@ spike_platform_t platform_of(const lockstep_cfg_t& c) {
   p.rom_size = c.rom_size;
   p.dev_regions = c.dev_regions;
   p.deny = c.deny;
+  p.mtgsmt = c.mtgsmt;
   return p;
 }
 
@@ -1575,6 +1576,80 @@ void lockstep_impl_t::report(FILE* f) const {
 }
 
 // ---------------------------------------------------------------------------------------------
+
+hart_order_t::hart_order_t(lockstep_t& ls, const std::vector<uint32_t>& hartids)
+    : ls_(ls), ids_(hartids), q_(hartids.size() + 1) {}  // the last queue: harts the checker lacks (it reports them)
+
+size_t hart_order_t::index(uint32_t hart) const {
+  for (size_t i = 0; i < ids_.size(); i++)
+    if (ids_[i] == hart) return i;
+  return ids_.size();
+}
+
+void hart_order_t::push(const tr_rec_t& r) {
+  item_t it;
+  it.cyc = r.cycle;
+  it.idx = idx_++;
+  it.r = r;
+  q_[index(r.hart)].push_back(it);
+}
+
+void hart_order_t::push(const tr_wb_t& w) {
+  item_t it;
+  it.cyc = w.cycle;
+  it.idx = idx_++;
+  it.wb = true;
+  it.w = w;
+  q_[index(w.hart)].push_back(it);
+}
+
+size_t hart_order_t::queued() const {
+  size_t n = 0;
+  for (auto& d : q_) n += d.size();
+  return n;
+}
+
+// Applies the head of queue b, after the atomic of another queue its read needs (from queues not already waiting
+// for one: `busy`)
+bool hart_order_t::head(size_t b, unsigned busy) {
+  busy |= 1u << b;
+  if (b < ids_.size()) {
+    const item_t& hd = q_[b].front();
+    std::vector<const tr_rec_t*> later;
+    std::vector<std::pair<size_t, size_t>> at;
+    for (size_t h = 0; h < ids_.size(); h++)
+      for (size_t k = 0; !(busy >> h & 1) && k < q_[h].size() && q_[h][k].cyc <= hd.cyc + ATOMIC_EARLY; k++)
+        if (!q_[h][k].wb && q_[h][k].r.mem_st) {
+          later.push_back(&q_[h][k].r);
+          at.push_back({h, k});
+        }
+    if (const int e = hd.wb ? ls_.early_atomic(hd.w, later) : ls_.early_atomic(hd.r, later); e >= 0) {
+      early_++;
+      for (size_t j = 0; j <= at[size_t(e)].second; j++)
+        if (!head(at[size_t(e)].first, busy)) return false;
+    }
+  }
+  item_t it = std::move(q_[b].front());
+  q_[b].pop_front();
+  std::vector<tr_rec_t> rr;
+  std::vector<tr_wb_t> ww;
+  if (it.wb) ww.push_back(it.w);
+  else rr.push_back(it.r);
+  return ls_.cycle(rr, ww);
+}
+
+bool hart_order_t::drain(uint64_t upto) {
+  for (;;) {
+    int best = -1;
+    for (size_t i = 0; i < q_.size(); i++)
+      if (!q_[i].empty() && q_[i].front().cyc <= upto &&
+          (best < 0 || q_[i].front().cyc < q_[size_t(best)].front().cyc ||
+           (q_[i].front().cyc == q_[size_t(best)].front().cyc && q_[i].front().idx < q_[size_t(best)].front().idx)))
+        best = int(i);
+    if (best < 0) return true;
+    if (!head(size_t(best), 0)) return false;
+  }
+}
 
 lockstep_t::lockstep_t(const lockstep_cfg_t& cfg, const mem_t& image, const elf_t* elf)
     : impl_(new lockstep_impl_t(cfg, image, elf)) {}

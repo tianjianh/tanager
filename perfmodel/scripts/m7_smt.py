@@ -1767,7 +1767,9 @@ def resid7(workers):
 
 RTL_RUNS = {   # the RTL's pair runs (the runner's ws.json, in results/), by final set: the build, the basis, the files
     "pair-final-39b16a6a": [("5c (071de15c)", "half", ["pair_rtl_5c_071de15c_half.json"]),     # verif-2, REPEAT, 10-21
-                            ("5c (071de15c)", "merged", ["pair_rtl_5c_071de15c_merged.json"])],
+                            ("5c (071de15c)", "merged", ["pair_rtl_5c_071de15c_merged.json"]),
+                            ("5e (main 3511f430)", "half", ["pair_rtl_5e_3511f430_half.json"]),   # 5d and 5e on main
+                            ("5e (main 3511f430)", "merged", ["pair_rtl_5e_3511f430_merged.json"])],
     "pair-final-b7db3e16": [("5c (9cba5f9b)", "half",   # core-2's, 10-21: 30 cycles, then 120 and 250
                              ["pair_rtl_5c_9cba5f9b.json", "pair_rtl_5c_9cba5f9b_120_250.json"]),
                             ("C (4c60872b)", "half",
@@ -1775,25 +1777,38 @@ RTL_RUNS = {   # the RTL's pair runs (the runner's ws.json, in results/), by fin
                             ("5d (3ed31186; 6ac63df1 at 120 and 250)", "half",
                              ["pair_rtl_5d_3ed31186.json", "pair_rtl_5d_6ac63df1_120_250.json"]),
                             ("5e (0138c48c)", "half",
-                             ["pair_rtl_5e_0138c48c.json", "pair_rtl_5e_0138c48c_120_250.json"])]}
+                             ["pair_rtl_5e_0138c48c.json", "pair_rtl_5e_0138c48c_120_250.json"]),
+                            ("5f (65fac9b4: 1ca3d58b with main 6d89e7a3)", "half",
+                             ["pair_rtl_5f_65fac9b4.json", "pair_rtl_5f_65fac9b4_120_250.json"])]}
+DEC5E, DEC5F = {"smt_dec_rr": 2}, {"smt_dec_rr": 3}   # decode's choice a cycle ahead with 5e's acc_o, with 5f's
+C_AB = {**S5B, **CM_RTL, **RR, "smt_fetch_hold": 2, "smt_rn_sel": 1, "smt_commit_stale": 1}   # §13.19's all three
+D_AB = {**C_AB, **CM_FIX4}
+E_AB = {**D_AB, "smt_fetch_hold": 3}   # 5e's fetch as built
 AS_BUILT = {"5c": {"one RN register, the RTL's commit turns, F3's hold, the head window a cycle ahead (§13.19)":
                        {**S5B, **RN_ONE, **CM_RTL, **RR, "smt_fetch_hold": 2, "smt_commit_stale": 1},
                    "the same with §13.16's hold (a full queue's block)": {**S5B, **RN_ONE, **CM_RTL, **RR, **FHOLD}},
-            "C": {"a rename register per thread, rename's choice a cycle ahead (§13.19's all three)":
-                      {**S5B, **CM_RTL, **RR, "smt_fetch_hold": 2, "smt_rn_sel": 1, "smt_commit_stale": 1}},
-            "5d": {"C with core-2's commit fix":
-                       {**S5B, **CM_FIX4, **RR, "smt_fetch_hold": 2, "smt_rn_sel": 1, "smt_commit_stale": 1}},
-            "5e": {"5d with the fetch fix as built (F3's hold while its queue drains, a park after 2 cycles unread)":
-                       {**S5B, **CM_FIX4, **RR, "smt_fetch_hold": 3, "smt_rn_sel": 1, "smt_commit_stale": 1},
-                   "5d with the fetch fix as approved (out of fetch while a block doesn't fit)":
-                       {**S5B, **CM_FIX4, **RR, "smt_fetch_room": 1, "smt_rn_sel": 1, "smt_commit_stale": 1}}}
-STEP7_EST = {"step 7 as decided, as built (5e's fetch; rename and the head window as 5d's)":
-                 {**S7R, **CM_FIX4, **FP64X, "smt_fetch_hold": 3, "smt_rn_sel": 1, "smt_commit_stale": 1},
-             "the same with the fetch fix as approved (§13.19's as built)":
-                 {**S7F, "smt_rn_sel": 1, "smt_commit_stale": 1},
-             "the same with 5d's fetch (F3's hold)":
-                 {**S7R, **CM_FIX4, **FP64X, "smt_fetch_hold": 2, "smt_rn_sel": 1, "smt_commit_stale": 1},
-             "the fetch fix as approved, rename's choice and the head window fixed (§13.19)": S7F}
+            "C": {"a rename register per thread, rename's choice a cycle ahead, decode's a cycle ahead with 5e's "
+                  "acc_o": {**C_AB, **DEC5E},
+                  "the same with the model's own decode (§13.20)": C_AB},
+            "5d": {"C with core-2's commit fix, decode's choice with 5e's acc_o": {**D_AB, **DEC5E},
+                   "the same with the model's own decode (§13.20)": D_AB},
+            "5e": {"5d with the fetch fix as built (F3's hold while its queue drains, a park after 2 cycles unread), "
+                   "decode's choice with 5e's acc_o": {**E_AB, **DEC5E},
+                   "the same with the model's own decode (§13.20)": E_AB},
+            "5f": {"5e with 5f's acc_o (rename's chosen register counts only while its group looks able)":
+                       {**E_AB, **DEC5F}}}
+S7_AB = {**S7R, **CM_FIX4, **FP64X, "smt_fetch_hold": 3, "smt_rn_sel": 1, "smt_commit_stale": 1}   # §13.20's step 7
+STEP7_EST = {"step 7 as decided with 5f (5e's fetch; rename, the head window and decode's choice a cycle ahead, "
+             "5f's acc_o)": {**S7_AB, **DEC5F},
+             "the same with 5e's acc_o": {**S7_AB, **DEC5E},
+             "the same with the model's own decode (§13.20's as built)": S7_AB,
+             "with the fetch fix as approved": {**S7F, "smt_rn_sel": 1, "smt_commit_stale": 1, **DEC5F},
+             "+ rename's choice and the head window in the same cycle (decode's still a cycle ahead)":
+                 {**S7F, "smt_dec_rr": 1}}
+F_SPOT = {("ms_spmv", "embench_nsichneu"): (0.22, 0.61, 1.212, 1.601, 0.62),   # core-2's 5e -> 5f at 250 cycles,
+          ("ms_stream", "embench_nsichneu"): (0.20, 0.73, 1.135, 1.666, 0.46),  # half basis: the compute thread's
+          ("ms_copy", "coremark_A"): (0.34, 0.59, 1.501, 1.708, 0.64),          # share of its alone IPC, the pair's
+          ("ms_hashprobe", "coremark_A"): (0.28, None, 1.220, None, 0.64)}      # WS; 5e's decode slots lost
 
 
 def rtl_runs(name):
@@ -1947,6 +1962,31 @@ def asbuilt(workers):
             mo = [ev(c, lat, basis, {(a, b, lat)})["per"].get((a, b), (0, None))[1] for lat in LATS]
             cell = lambda xs: " / ".join("hung" if x is None else f"{x:.2f}" for x in xs)
             print(f"| {smt.pname(a, b)} | {g} | {cell(rt)} | {cell(mo)} |")
+    first = FINALDIR.name == "pair-final-b7db3e16"   # core-2's images
+    print("\n**core-2's four mixed pairs at 250 cycles, half basis** (the compute thread's share of its alone IPC; "
+          "the pair's WS; decode's slots left empty while the other thread's queue holds instructions, as TG-STALL2 "
+          "counts them, over the longer region" + ("; the RTL's 5e and 5f first)\n" if first else ")\n"))
+    rows = {f"5e: {n}": c for n, c in AS_BUILT["5e"].items()}
+    rows.update({f"5f: {n}": c for n, c in AS_BUILT["5f"].items()})
+    rows.update({f"step 7: {n}": c for n, c in list(STEP7_EST.items())[:3]})
+    print("| Pair | " + ("The RTL, 5e | The RTL, 5f | " if first else "") + " | ".join(rows) + " |\n|---|" +
+          "---|" * (len(rows) + (2 if first else 0)))
+    for (a, b), (s5e, s5f, w5e, w5f, d5e) in F_SPOT.items():
+        cells = []
+        for c in rows.values():
+            r = run7(PRESET, {**RUNNER, **c, "dram_lat": 250}, f"{a}.s0", f"{b}.s1")
+            ip = ipc2(r)
+            if ip is None:
+                cells.append("hung")
+                continue
+            ws = ip[0] / al["half"][250][f"{a}.s0"] + ip[1] / al["half"][250][f"{b}.s1"]
+            cyc = max(t["region"]["cycles"] for t in r["threads"])
+            lost = sum(t["region"].get("dec_lost_other", 0) for t in r["threads"]) / (2 * cyc)
+            cells.append(f"{ip[1] / al['half'][250][f'{b}.s1']:.2f}, {ws:.3f}, {lost:.0%}")
+            out.setdefault("spot", {}).setdefault(smt.pname(a, b), []).append([ip[1] / al["half"][250][f"{b}.s1"],
+                                                                               ws, lost])
+        rt = [f"{s5e:.2f}, {w5e:.3f}, {d5e:.0%}", "–" if s5f is None else f"{s5f:.2f}, {w5f:.3f}"] if first else []
+        print(f"| {smt.pname(a, b)} | " + " | ".join(rt + cells) + " |")
     prev = json.loads(OUT.read_text()).get("asbuilt", {}) if OUT.exists() else {}   # each set's run kept
     return {**{k: v for k, v in prev.items() if k.startswith("pair-final")}, FINALDIR.name: out}
 

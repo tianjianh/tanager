@@ -235030,6 +235030,318 @@
        ]
       }
      }
+    },
+    "5e (main 3511f430), half": {
+     "rtl": [
+      {
+       "ws": 1.2911153092779513,
+       "groups": {
+        "mem+mem": 1.3422794577347175,
+        "compute+compute": 1.1907213574301712,
+        "mixed": 1.346610526544946
+       },
+       "n": 42
+      },
+      {
+       "ws": 1.2233812169637701,
+       "groups": {
+        "mem+mem": 1.2409950826494323,
+        "compute+compute": 1.1897411582137438,
+        "mixed": 1.2401176207118174
+       },
+       "n": 40
+      },
+      {
+       "ws": 1.1853883799623097,
+       "groups": {
+        "mem+mem": 1.2067776549832263,
+        "compute+compute": 1.1880271601974444,
+        "mixed": 1.1617919621126023
+       },
+       "n": 40
+      }
+     ],
+     "hangs": {
+      "30": [],
+      "120": [
+       "stride+hashprobe",
+       "stride+Dhrystone"
+      ],
+      "250": [
+       "stride+hashprobe",
+       "stride+Dhrystone"
+      ]
+     },
+     "model": {
+      "5d with the fetch fix as built (F3's hold while its queue drains, a park after 2 cycles unread), decode's choice with 5e's acc_o": {
+       "ws": [
+        1.3378380611094953,
+        1.2866510686480421,
+        1.2537369360463122
+       ],
+       "groups": [
+        {
+         "mem+mem": 1.4319711561616273,
+         "compute+compute": 1.1895263472116873,
+         "mixed": 1.4057312712390972
+        },
+        {
+         "mem+mem": 1.3211873492082002,
+         "compute+compute": 1.1909588679965433,
+         "mixed": 1.3536961259988167
+        },
+        {
+         "mem+mem": 1.2794660705893497,
+         "compute+compute": 1.1932952208487944,
+         "mixed": 1.2907513479025257
+        }
+       ],
+       "n": [
+        35,
+        33,
+        33
+       ],
+       "rtl_same": [
+        1.3015958697690744,
+        1.2317753112149614,
+        1.1897201918049658
+       ],
+       "rtl_same_groups": [
+        {
+         "mem+mem": 1.3930891531220535,
+         "compute+compute": 1.1907213574301712,
+         "mixed": 1.3293502797789931
+        },
+        {
+         "mem+mem": 1.3009701537163312,
+         "compute+compute": 1.1897411582137438,
+         "mixed": 1.2074653205150763
+        },
+        {
+         "mem+mem": 1.2625891002086536,
+         "compute+compute": 1.1880271601974444,
+         "mixed": 1.122654424059131
+        }
+       ],
+       "residual": [
+        0.9729098817009552,
+        0.9573499305520791,
+        0.9489392532031283
+       ]
+      },
+      "the same with the model's own decode (\u00a713.20)": {
+       "ws": [
+        1.3546984173831043,
+        1.3348834075301697,
+        1.3127058058017929
+       ],
+       "groups": [
+        {
+         "mem+mem": 1.4426154307436527,
+         "compute+compute": 1.1942083118577418,
+         "mixed": 1.4431025944363924
+        },
+        {
+         "mem+mem": 1.3479988255258026,
+         "compute+compute": 1.1970149818658604,
+         "mixed": 1.474147379218816
+        },
+        {
+         "mem+mem": 1.3070361693810788,
+         "compute+compute": 1.2012759863261118,
+         "mixed": 1.4406942294243983
+        }
+       ],
+       "n": [
+        35,
+        33,
+        33
+       ],
+       "rtl_same": [
+        1.3015958697690744,
+        1.2317753112149614,
+        1.1897201918049658
+       ],
+       "rtl_same_groups": [
+        {
+         "mem+mem": 1.3930891531220535,
+         "compute+compute": 1.1907213574301712,
+         "mixed": 1.3293502797789931
+        },
+        {
+         "mem+mem": 1.3009701537163312,
+         "compute+compute": 1.1897411582137438,
+         "mixed": 1.2074653205150763
+        },
+        {
+         "mem+mem": 1.2625891002086536,
+         "compute+compute": 1.1880271601974444,
+         "mixed": 1.122654424059131
+        }
+       ],
+       "residual": [
+        0.9608012034762622,
+        0.9227587250440238,
+        0.906311365842015
+       ]
+      }
+     }
+    },
+    "5e (main 3511f430), merged": {
+     "rtl": [
+      {
+       "ws": 1.2026650369835785,
+       "groups": {
+        "mem+mem": 1.2226489506347575,
+        "compute+compute": 1.1416414282349172,
+        "mixed": 1.246242498875052
+       },
+       "n": 42
+      },
+      {
+       "ws": 1.1693220524637638,
+       "groups": {
+        "mem+mem": 1.1891043526318872,
+        "compute+compute": 1.1411150448543006,
+        "mixed": 1.178292248065011
+       },
+       "n": 40
+      },
+      {
+       "ws": 1.1356064882084071,
+       "groups": {
+        "mem+mem": 1.1650945430608537,
+        "compute+compute": 1.138738196629669,
+        "mixed": 1.1038207121846455
+       },
+       "n": 40
+      }
+     ],
+     "hangs": {
+      "30": [],
+      "120": [
+       "stride+hashprobe",
+       "stride+Dhrystone"
+      ],
+      "250": [
+       "stride+hashprobe",
+       "stride+Dhrystone"
+      ]
+     },
+     "model": {
+      "5d with the fetch fix as built (F3's hold while its queue drains, a park after 2 cycles unread), decode's choice with 5e's acc_o": {
+       "ws": [
+        1.2508271124727572,
+        1.2302439728211665,
+        1.209017900959338
+       ],
+       "groups": [
+        {
+         "mem+mem": 1.2859737311443924,
+         "compute+compute": 1.1720577536032104,
+         "mixed": 1.2984067044680538
+        },
+        {
+         "mem+mem": 1.2383770930969964,
+         "compute+compute": 1.1734080625525196,
+         "mixed": 1.281361762939562
+        },
+        {
+         "mem+mem": 1.2195653040811525,
+         "compute+compute": 1.1755720378994774,
+         "mixed": 1.2326616528187389
+        }
+       ],
+       "n": [
+        35,
+        33,
+        33
+       ],
+       "rtl_same": [
+        1.203562850492771,
+        1.1727554040936659,
+        1.1359444675039796
+       ],
+       "rtl_same_groups": [
+        {
+         "mem+mem": 1.2484292634914078,
+         "compute+compute": 1.1416414282349172,
+         "mixed": 1.22324278363127
+        },
+        {
+         "mem+mem": 1.234367947779595,
+         "compute+compute": 1.1411150448543006,
+         "mixed": 1.1451127789039823
+        },
+        {
+         "mem+mem": 1.2095412424131862,
+         "compute+compute": 1.138738196629669,
+         "mixed": 1.064208521997081
+        }
+       ],
+       "residual": [
+        0.962213593302635,
+        0.9532705951034499,
+        0.9395596761657741
+       ]
+      },
+      "the same with the model's own decode (\u00a713.20)": {
+       "ws": [
+        1.2690948526269117,
+        1.2808394241722396,
+        1.2705367137473125
+       ],
+       "groups": [
+        {
+         "mem+mem": 1.296850077640559,
+         "compute+compute": 1.17673005124908,
+         "mixed": 1.3394164579210242
+        },
+        {
+         "mem+mem": 1.2654600161935277,
+         "compute+compute": 1.1794571459087857,
+         "mixed": 1.4078405384008141
+        },
+        {
+         "mem+mem": 1.2469103635214172,
+         "compute+compute": 1.1835313429146455,
+         "mixed": 1.3897819246065244
+        }
+       ],
+       "n": [
+        35,
+        33,
+        33
+       ],
+       "rtl_same": [
+        1.203562850492771,
+        1.1727554040936659,
+        1.1359444675039796
+       ],
+       "rtl_same_groups": [
+        {
+         "mem+mem": 1.2484292634914078,
+         "compute+compute": 1.1416414282349172,
+         "mixed": 1.22324278363127
+        },
+        {
+         "mem+mem": 1.234367947779595,
+         "compute+compute": 1.1411150448543006,
+         "mixed": 1.1451127789039823
+        },
+        {
+         "mem+mem": 1.2095412424131862,
+         "compute+compute": 1.138738196629669,
+         "mixed": 1.064208521997081
+        }
+       ],
+       "residual": [
+        0.9483631960223498,
+        0.9156146992052305,
+        0.8940666217772114
+       ]
+      }
+     }
     }
    },
    "all42": {
@@ -235108,7 +235420,53 @@
      ],
      "ws_dead": null
     },
-    "merged: C: a rename register per thread, rename's choice a cycle ahead (\u00a713.19's all three)": {
+    "merged: C: a rename register per thread, rename's choice a cycle ahead, decode's a cycle ahead with 5e's acc_o": {
+     "ws": [
+      1.1376949546784452,
+      1.1045033332143541,
+      1.0941750658482532
+     ],
+     "groups": [
+      {
+       "mem+mem": 1.1498360218410275,
+       "compute+compute": 1.1397988134237156,
+       "mixed": 1.123604282638478
+      },
+      {
+       "mem+mem": 1.1111608669490785,
+       "compute+compute": 1.1416675220230261,
+       "mixed": 1.06214670968916
+      },
+      {
+       "mem+mem": 1.1027153749836993,
+       "compute+compute": 1.1441441790475286,
+       "mixed": 1.0382842260325644
+      }
+     ],
+     "hung": [
+      [
+       "spmv+chase8",
+       "Dhrystone+huffbench",
+       "matmult+Dhrystone",
+       "stride+Dhrystone",
+       "chase8+Dhrystone"
+      ],
+      [
+       "Dhrystone+huffbench",
+       "matmult+Dhrystone",
+       "stride+Dhrystone",
+       "chase8+Dhrystone"
+      ],
+      [
+       "Dhrystone+huffbench",
+       "matmult+Dhrystone",
+       "stride+Dhrystone",
+       "chase8+Dhrystone"
+      ]
+     ],
+     "ws_dead": null
+    },
+    "merged: C: the same with the model's own decode (\u00a713.20)": {
      "ws": [
       1.1349394759925875,
       1.1083186469250916,
@@ -235157,7 +235515,52 @@
      ],
      "ws_dead": null
     },
-    "merged: 5d: C with core-2's commit fix": {
+    "merged: 5d: C with core-2's commit fix, decode's choice with 5e's acc_o": {
+     "ws": [
+      1.1519052541714776,
+      1.1227837129246143,
+      1.1123058998398145
+     ],
+     "groups": [
+      {
+       "mem+mem": 1.1440615470524853,
+       "compute+compute": 1.1696134803369822,
+       "mixed": 1.1422430486991029
+      },
+      {
+       "mem+mem": 1.1182331398857248,
+       "compute+compute": 1.1713170988684167,
+       "mixed": 1.0806410736322085
+      },
+      {
+       "mem+mem": 1.1080250776565903,
+       "compute+compute": 1.1738664509268382,
+       "mixed": 1.0580457375255448
+      }
+     ],
+     "hung": [
+      [
+       "Dhrystone+huffbench",
+       "matmult+Dhrystone",
+       "stride+Dhrystone",
+       "chase8+Dhrystone"
+      ],
+      [
+       "Dhrystone+huffbench",
+       "matmult+Dhrystone",
+       "stride+Dhrystone",
+       "chase8+Dhrystone"
+      ],
+      [
+       "Dhrystone+huffbench",
+       "matmult+Dhrystone",
+       "stride+Dhrystone",
+       "chase8+Dhrystone"
+      ]
+     ],
+     "ws_dead": null
+    },
+    "merged: 5d: the same with the model's own decode (\u00a713.20)": {
      "ws": [
       1.1522795209408803,
       1.1264632612700092,
@@ -235204,7 +235607,61 @@
      ],
      "ws_dead": null
     },
-    "merged: 5e: 5d with the fetch fix as built (F3's hold while its queue drains, a park after 2 cycles unread)": {
+    "merged: 5e: 5d with the fetch fix as built (F3's hold while its queue drains, a park after 2 cycles unread), decode's choice with 5e's acc_o": {
+     "ws": [
+      1.2508271124727572,
+      1.2253793216689688,
+      1.2038336161673513
+     ],
+     "groups": [
+      {
+       "mem+mem": 1.2859737311443924,
+       "compute+compute": 1.1720577536032104,
+       "mixed": 1.2984067044680538
+      },
+      {
+       "mem+mem": 1.2430216155165297,
+       "compute+compute": 1.1734080625525196,
+       "mixed": 1.2614902352193365
+      },
+      {
+       "mem+mem": 1.2221088663453141,
+       "compute+compute": 1.1755720378994774,
+       "mixed": 1.2143398781952601
+      }
+     ],
+     "hung": [
+      [
+       "hashprobe+chase8",
+       "chase8+stream",
+       "spmv+chase8",
+       "chase8+copy",
+       "chase8+chase8",
+       "chase8+minver",
+       "chase8+Dhrystone"
+      ],
+      [
+       "hashprobe+chase8",
+       "chase8+stream",
+       "spmv+chase8",
+       "chase8+copy",
+       "chase8+chase8",
+       "chase8+minver",
+       "chase8+Dhrystone"
+      ],
+      [
+       "hashprobe+chase8",
+       "chase8+stream",
+       "spmv+chase8",
+       "chase8+copy",
+       "chase8+chase8",
+       "chase8+minver",
+       "chase8+Dhrystone"
+      ]
+     ],
+     "ws_dead": null
+    },
+    "merged: 5e: the same with the model's own decode (\u00a713.20)": {
      "ws": [
       1.2690948526269117,
       1.2729972195752643,
@@ -235258,27 +235715,27 @@
      ],
      "ws_dead": null
     },
-    "merged: 5e: 5d with the fetch fix as approved (out of fetch while a block doesn't fit)": {
+    "merged: 5f: 5e with 5f's acc_o (rename's chosen register counts only while its group looks able)": {
      "ws": [
-      1.2842077345791625,
-      1.2864797140597897,
-      1.273560804723334
+      1.2643766484934076,
+      1.2657196463880591,
+      1.2537046727083634
      ],
      "groups": [
       {
-       "mem+mem": 1.2941353701919835,
-       "compute+compute": 1.2142458244172931,
-       "mixed": 1.3477815843298944
+       "mem+mem": 1.2851296435775221,
+       "compute+compute": 1.1744558380997596,
+       "mixed": 1.3392010050051584
       },
       {
-       "mem+mem": 1.2671786175239748,
-       "compute+compute": 1.217141213105291,
-       "mixed": 1.380479694813609
+       "mem+mem": 1.2542886155834219,
+       "compute+compute": 1.1768578562225338,
+       "mixed": 1.3736973877452539
       },
       {
-       "mem+mem": 1.2434040583341994,
-       "compute+compute": 1.220547988273814,
-       "mixed": 1.3611058930679538
+       "mem+mem": 1.232262249729342,
+       "compute+compute": 1.1811063929959134,
+       "mixed": 1.3539217633262906
       }
      ],
      "hung": [
@@ -235312,7 +235769,75 @@
      ],
      "ws_dead": null
     },
-    "merged: step 7 as decided, as built (5e's fetch; rename and the head window as 5d's)": {
+    "merged: step 7 as decided with 5f (5e's fetch; rename, the head window and decode's choice a cycle ahead, 5f's acc_o)": {
+     "ws": [
+      1.2597532549539963,
+      1.2676070106081532,
+      1.260273521154859
+     ],
+     "groups": [
+      {
+       "mem+mem": 1.2209392721044603,
+       "compute+compute": 1.1755210666529428,
+       "mixed": 1.3929386458072626
+      },
+      {
+       "mem+mem": 1.1924806450252674,
+       "compute+compute": 1.178489814733661,
+       "mixed": 1.4493615142459566
+      },
+      {
+       "mem+mem": 1.1823406940729932,
+       "compute+compute": 1.182827138037731,
+       "mixed": 1.4312994926273384
+      }
+     ],
+     "hung": [
+      [],
+      [],
+      []
+     ],
+     "ws_dead": [
+      0,
+      0,
+      0
+     ]
+    },
+    "merged: the same with 5e's acc_o": {
+     "ws": [
+      1.233964280035631,
+      1.2120042890078369,
+      1.186281909980957
+     ],
+     "groups": [
+      {
+       "mem+mem": 1.2077117742388148,
+       "compute+compute": 1.1724337419790791,
+       "mixed": 1.3269548789472339
+      },
+      {
+       "mem+mem": 1.174539267648788,
+       "compute+compute": 1.174103639040176,
+       "mixed": 1.291036423851652
+      },
+      {
+       "mem+mem": 1.1589531011275942,
+       "compute+compute": 1.1757959629635844,
+       "mixed": 1.225084081060113
+      }
+     ],
+     "hung": [
+      [],
+      [],
+      []
+     ],
+     "ws_dead": [
+      0,
+      0,
+      0
+     ]
+    },
+    "merged: the same with the model's own decode (\u00a713.20's as built)": {
      "ws": [
       1.2622084328902337,
       1.2731992269473784,
@@ -235346,27 +235871,27 @@
       0
      ]
     },
-    "merged: the same with the fetch fix as approved (\u00a713.19's as built)": {
+    "merged: with the fetch fix as approved": {
      "ws": [
-      1.283397238110949,
-      1.2961183964760858,
-      1.2865751033009356
+      1.2824329383865152,
+      1.290180031800994,
+      1.2800111648214239
      ],
      "groups": [
       {
-       "mem+mem": 1.220521213071709,
-       "compute+compute": 1.2158898331770773,
-       "mixed": 1.4244386266649598
+       "mem+mem": 1.2205781694679327,
+       "compute+compute": 1.2173292677441199,
+       "mixed": 1.4194834397700036
       },
       {
-       "mem+mem": 1.200033919739401,
-       "compute+compute": 1.2187582274879891,
-       "mixed": 1.488754002645738
+       "mem+mem": 1.1929173470632781,
+       "compute+compute": 1.2203463965815973,
+       "mixed": 1.4752223074064066
       },
       {
-       "mem+mem": 1.1812172630152884,
-       "compute+compute": 1.2221510613879814,
-       "mixed": 1.4751994931766594
+       "mem+mem": 1.1774729075984063,
+       "compute+compute": 1.223987975382774,
+       "mixed": 1.4551682111626332
       }
      ],
      "hung": [
@@ -235380,76 +235905,27 @@
       0
      ]
     },
-    "merged: the same with 5d's fetch (F3's hold)": {
+    "merged: + rename's choice and the head window in the same cycle (decode's still a cycle ahead)": {
      "ws": [
-      1.1020297824901728,
-      1.077184198614349,
-      1.0675626329251733
+      1.2979239540962866,
+      1.3064824919477562,
+      1.2948230255581563
      ],
      "groups": [
       {
-       "mem+mem": 1.0723041484903715,
-       "compute+compute": 1.172738452025696,
-       "mixed": 1.06429211177614
+       "mem+mem": 1.229801176234346,
+       "compute+compute": 1.222639769855377,
+       "mixed": 1.4541671202299191
       },
       {
-       "mem+mem": 1.0684768539570684,
-       "compute+compute": 1.1747115099611765,
-       "mixed": 0.9958033420253506
+       "mem+mem": 1.2039646970449924,
+       "compute+compute": 1.2256675416565124,
+       "mixed": 1.5112083504144749
       },
       {
-       "mem+mem": 1.0645904573399732,
-       "compute+compute": 1.1775392539807628,
-       "mixed": 0.9705594216398595
-      }
-     ],
-     "hung": [
-      [
-       "Dhrystone+huffbench",
-       "matmult+Dhrystone",
-       "stride+Dhrystone",
-       "chase8+Dhrystone"
-      ],
-      [
-       "Dhrystone+huffbench",
-       "matmult+Dhrystone",
-       "stride+Dhrystone",
-       "chase8+Dhrystone"
-      ],
-      [
-       "Dhrystone+huffbench",
-       "matmult+Dhrystone",
-       "stride+Dhrystone",
-       "chase8+Dhrystone"
-      ]
-     ],
-     "ws_dead": [
-      0,
-      0,
-      0
-     ]
-    },
-    "merged: the fetch fix as approved, rename's choice and the head window fixed (\u00a713.19)": {
-     "ws": [
-      1.2965900566799204,
-      1.3058247763922641,
-      1.2935850936373643
-     ],
-     "groups": [
-      {
-       "mem+mem": 1.2288721081002394,
-       "compute+compute": 1.2213055913089916,
-       "mixed": 1.452369191405732
-      },
-      {
-       "mem+mem": 1.2055064394996364,
-       "compute+compute": 1.2240337650764792,
-       "mixed": 1.5090088297375333
-      },
-      {
-       "mem+mem": 1.1847056925707105,
-       "compute+compute": 1.2283795450281776,
-       "mixed": 1.4874485615796906
+       "mem+mem": 1.1847145461175144,
+       "compute+compute": 1.2295989774362375,
+       "mixed": 1.4902324882990625
       }
      ],
      "hung": [
@@ -235538,7 +236014,53 @@
      ],
      "ws_dead": null
     },
-    "half: C: a rename register per thread, rename's choice a cycle ahead (\u00a713.19's all three)": {
+    "half: C: a rename register per thread, rename's choice a cycle ahead, decode's a cycle ahead with 5e's acc_o": {
+     "ws": [
+      1.2146412323645293,
+      1.1527398512134475,
+      1.1335088458456488
+     ],
+     "groups": [
+      {
+       "mem+mem": 1.2497782889852236,
+       "compute+compute": 1.1571578671407823,
+       "mixed": 1.2391345626958448
+      },
+      {
+       "mem+mem": 1.1652236249465604,
+       "compute+compute": 1.1591171948637387,
+       "mixed": 1.134115516420886
+      },
+      {
+       "mem+mem": 1.1450368403540607,
+       "compute+compute": 1.161789962721637,
+       "mixed": 1.094782032358072
+      }
+     ],
+     "hung": [
+      [
+       "spmv+chase8",
+       "Dhrystone+huffbench",
+       "matmult+Dhrystone",
+       "stride+Dhrystone",
+       "chase8+Dhrystone"
+      ],
+      [
+       "Dhrystone+huffbench",
+       "matmult+Dhrystone",
+       "stride+Dhrystone",
+       "chase8+Dhrystone"
+      ],
+      [
+       "Dhrystone+huffbench",
+       "matmult+Dhrystone",
+       "stride+Dhrystone",
+       "chase8+Dhrystone"
+      ]
+     ],
+     "ws_dead": null
+    },
+    "half: C: the same with the model's own decode (\u00a713.20)": {
      "ws": [
       1.2125806504193861,
       1.1572316717335704,
@@ -235587,7 +236109,52 @@
      ],
      "ws_dead": null
     },
-    "half: 5d: C with core-2's commit fix": {
+    "half: 5d: C with core-2's commit fix, decode's choice with 5e's acc_o": {
+     "ws": [
+      1.2284879660962322,
+      1.1717912269575452,
+      1.1522062842904308
+     ],
+     "groups": [
+      {
+       "mem+mem": 1.2395062674493362,
+       "compute+compute": 1.1874157097228344,
+       "mixed": 1.2596828084367413
+      },
+      {
+       "mem+mem": 1.1728227411251861,
+       "compute+compute": 1.1892091377735554,
+       "mixed": 1.1536129178898311
+      },
+      {
+       "mem+mem": 1.1506960138437685,
+       "compute+compute": 1.191951256731519,
+       "mixed": 1.1152484139440746
+      }
+     ],
+     "hung": [
+      [
+       "Dhrystone+huffbench",
+       "matmult+Dhrystone",
+       "stride+Dhrystone",
+       "chase8+Dhrystone"
+      ],
+      [
+       "Dhrystone+huffbench",
+       "matmult+Dhrystone",
+       "stride+Dhrystone",
+       "chase8+Dhrystone"
+      ],
+      [
+       "Dhrystone+huffbench",
+       "matmult+Dhrystone",
+       "stride+Dhrystone",
+       "chase8+Dhrystone"
+      ]
+     ],
+     "ws_dead": null
+    },
+    "half: 5d: the same with the model's own decode (\u00a713.20)": {
      "ws": [
       1.2290201027063017,
       1.1761358161689774,
@@ -235634,7 +236201,61 @@
      ],
      "ws_dead": null
     },
-    "half: 5e: 5d with the fetch fix as built (F3's hold while its queue drains, a park after 2 cycles unread)": {
+    "half: 5e: 5d with the fetch fix as built (F3's hold while its queue drains, a park after 2 cycles unread), decode's choice with 5e's acc_o": {
+     "ws": [
+      1.3378380611094953,
+      1.2772478206394662,
+      1.2451588766482682
+     ],
+     "groups": [
+      {
+       "mem+mem": 1.4319711561616273,
+       "compute+compute": 1.1895263472116873,
+       "mixed": 1.4057312712390972
+      },
+      {
+       "mem+mem": 1.3185488280587117,
+       "compute+compute": 1.1909588679965433,
+       "mixed": 1.3268826986586588
+      },
+      {
+       "mem+mem": 1.2770361688322902,
+       "compute+compute": 1.1932952208487944,
+       "mixed": 1.266844201461577
+      }
+     ],
+     "hung": [
+      [
+       "hashprobe+chase8",
+       "chase8+stream",
+       "spmv+chase8",
+       "chase8+copy",
+       "chase8+chase8",
+       "chase8+minver",
+       "chase8+Dhrystone"
+      ],
+      [
+       "hashprobe+chase8",
+       "chase8+stream",
+       "spmv+chase8",
+       "chase8+copy",
+       "chase8+chase8",
+       "chase8+minver",
+       "chase8+Dhrystone"
+      ],
+      [
+       "hashprobe+chase8",
+       "chase8+stream",
+       "spmv+chase8",
+       "chase8+copy",
+       "chase8+chase8",
+       "chase8+minver",
+       "chase8+Dhrystone"
+      ]
+     ],
+     "ws_dead": null
+    },
+    "half: 5e: the same with the model's own decode (\u00a713.20)": {
      "ws": [
       1.3546984173831043,
       1.322661303269883,
@@ -235688,27 +236309,27 @@
      ],
      "ws_dead": null
     },
-    "half: 5e: 5d with the fetch fix as approved (out of fetch while a block doesn't fit)": {
+    "half: 5f: 5e with 5f's acc_o (rename's chosen register counts only while its group looks able)": {
      "ws": [
-      1.369188512145934,
-      1.3364685656126376,
-      1.3128042459675455
+      1.3492256782064067,
+      1.3152277558530128,
+      1.292381983807898
      ],
      "groups": [
       {
-       "mem+mem": 1.4381369105102573,
-       "compute+compute": 1.2317305059334072,
-       "mixed": 1.4490180970372617
+       "mem+mem": 1.4280461958551358,
+       "compute+compute": 1.1918945743101115,
+       "mixed": 1.4430244662769205
       },
       {
-       "mem+mem": 1.3424724889600688,
-       "compute+compute": 1.2347231991633305,
-       "mixed": 1.4401284912553667
+       "mem+mem": 1.3290909932006616,
+       "compute+compute": 1.194377229893407,
+       "mixed": 1.433199559631448
       },
       {
-       "mem+mem": 1.2986143649083464,
-       "compute+compute": 1.2383003641579693,
-       "mixed": 1.4069987602830327
+       "mem+mem": 1.2867127492085388,
+       "compute+compute": 1.1988127343504107,
+       "mixed": 1.3993931182827093
       }
      ],
      "hung": [
@@ -235742,7 +236363,75 @@
      ],
      "ws_dead": null
     },
-    "half: step 7 as decided, as built (5e's fetch; rename and the head window as 5d's)": {
+    "half: step 7 as decided with 5f (5e's fetch; rename, the head window and decode's choice a cycle ahead, 5f's acc_o)": {
+     "ws": [
+      1.3404312116409145,
+      1.3154100948891705,
+      1.2982082433491884
+     ],
+     "groups": [
+      {
+       "mem+mem": 1.3544529742388762,
+       "compute+compute": 1.1929700750427175,
+       "mixed": 1.4905279156334286
+      },
+      {
+       "mem+mem": 1.2611933236101398,
+       "compute+compute": 1.1960394651063653,
+       "mixed": 1.508885684579603
+      },
+      {
+       "mem+mem": 1.2329454269600864,
+       "compute+compute": 1.2005590176549363,
+       "mixed": 1.4781064738692005
+      }
+     ],
+     "hung": [
+      [],
+      [],
+      []
+     ],
+     "ws_dead": [
+      0,
+      0,
+      0
+     ]
+    },
+    "half: the same with 5e's acc_o": {
+     "ws": [
+      1.3146907180593845,
+      1.260690631691634,
+      1.2248570495479787
+     ],
+     "groups": [
+      {
+       "mem+mem": 1.3397428212760527,
+       "compute+compute": 1.1899157033871304,
+       "mixed": 1.425388188318276
+      },
+      {
+       "mem+mem": 1.2430049063181303,
+       "compute+compute": 1.1916777445262925,
+       "mixed": 1.3526763756232287
+      },
+      {
+       "mem+mem": 1.2080885807336716,
+       "compute+compute": 1.1935371546436069,
+       "mixed": 1.274446168298416
+      }
+     ],
+     "hung": [
+      [],
+      [],
+      []
+     ],
+     "ws_dead": [
+      0,
+      0,
+      0
+     ]
+    },
+    "half: the same with the model's own decode (\u00a713.20's as built)": {
      "ws": [
       1.3430831073790437,
       1.3213419784272613,
@@ -235776,27 +236465,27 @@
       0
      ]
     },
-    "half: the same with the fetch fix as approved (\u00a713.19's as built)": {
+    "half: with the fetch fix as approved": {
      "ws": [
-      1.3648430416346191,
-      1.3450801595166824,
-      1.3254114079548882
+      1.3637741859132297,
+      1.3389640157817413,
+      1.318631138845103
      ],
      "groups": [
       {
-       "mem+mem": 1.354253871070394,
-       "compute+compute": 1.233398651214407,
-       "mixed": 1.5221048681337672
+       "mem+mem": 1.3542409994731244,
+       "compute+compute": 1.2348287165758094,
+       "mixed": 1.5167874216102397
       },
       {
-       "mem+mem": 1.2694844420656,
-       "compute+compute": 1.2363633515103312,
-       "mixed": 1.5504972281243306
+       "mem+mem": 1.2620744065571492,
+       "compute+compute": 1.2379392822933055,
+       "mixed": 1.536464084619757
       },
       {
-       "mem+mem": 1.2316873139628277,
-       "compute+compute": 1.239924165029427,
-       "mixed": 1.5246021238620875
+       "mem+mem": 1.227689989562866,
+       "compute+compute": 1.2417682065227125,
+       "mixed": 1.50397539284468
       }
      ],
      "hung": [
@@ -235810,76 +236499,27 @@
       0
      ]
     },
-    "half: the same with 5d's fetch (F3's hold)": {
+    "half: + rename's choice and the head window in the same cycle (decode's still a cycle ahead)": {
      "ws": [
-      1.1756351431521086,
-      1.1243683511411484,
-      1.1059811489776006
+      1.3812625467275335,
+      1.3561838264598471,
+      1.3339713731788443
      ],
      "groups": [
       {
-       "mem+mem": 1.162577371257713,
-       "compute+compute": 1.1906124232315405,
-       "mixed": 1.173884598004727
+       "mem+mem": 1.3650682318479659,
+       "compute+compute": 1.2402374693380478,
+       "mixed": 1.5565730260585626
       },
       {
-       "mem+mem": 1.121101557860319,
-       "compute+compute": 1.1926834948648644,
-       "mixed": 1.0630548477587964
+       "mem+mem": 1.2742125762857435,
+       "compute+compute": 1.2433592265384552,
+       "mixed": 1.5744075860743185
       },
       {
-       "mem+mem": 1.1059490992734726,
-       "compute+compute": 1.1957052057764508,
-       "mixed": 1.023019506296536
-      }
-     ],
-     "hung": [
-      [
-       "Dhrystone+huffbench",
-       "matmult+Dhrystone",
-       "stride+Dhrystone",
-       "chase8+Dhrystone"
-      ],
-      [
-       "Dhrystone+huffbench",
-       "matmult+Dhrystone",
-       "stride+Dhrystone",
-       "chase8+Dhrystone"
-      ],
-      [
-       "Dhrystone+huffbench",
-       "matmult+Dhrystone",
-       "stride+Dhrystone",
-       "chase8+Dhrystone"
-      ]
-     ],
-     "ws_dead": [
-      0,
-      0,
-      0
-     ]
-    },
-    "half: the fetch fix as approved, rename's choice and the head window fixed (\u00a713.19)": {
-     "ws": [
-      1.3798246717557847,
-      1.355562456315335,
-      1.3326545007945008
-     ],
-     "groups": [
-      {
-       "mem+mem": 1.3639858490462764,
-       "compute+compute": 1.2389039344663428,
-       "mixed": 1.554619895036173
-      },
-      {
-       "mem+mem": 1.2761198105938591,
-       "compute+compute": 1.2417184269858248,
-       "mixed": 1.5719691528119235
-      },
-      {
-       "mem+mem": 1.2355916166613063,
-       "compute+compute": 1.2462545239466691,
-       "mixed": 1.5369898882657331
+       "mem+mem": 1.2356844149705286,
+       "compute+compute": 1.2474780018286484,
+       "mixed": 1.5399232079389817
       }
      ],
      "hung": [
@@ -235962,6 +236602,74 @@
       "compute+compute": 1.103329358794956,
       "mixed": 1.2650470406961054
      }
+    ],
+    "5e (main 3511f430), half: 5d with the fetch fix as built (F3's hold while its queue drains, a park after 2 cycles unread), decode's choice with 5e's acc_o": [
+     {
+      "mem+mem": 1.1291098191635858,
+      "compute+compute": 1.0482827699203532,
+      "mixed": 1.1698340276722663
+     },
+     {
+      "mem+mem": 1.0529994807737086,
+      "compute+compute": 1.0506219974057271,
+      "mixed": 1.2835597294383696
+     },
+     {
+      "mem+mem": 1.034991156205235,
+      "compute+compute": 1.055366667797157,
+      "mixed": 1.452122404404279
+     }
+    ],
+    "5e (main 3511f430), half: the same with the model's own decode (\u00a713.20)": [
+     {
+      "mem+mem": 1.1333167385393443,
+      "compute+compute": 1.0526570524259484,
+      "mixed": 1.2202472266705904
+     },
+     {
+      "mem+mem": 1.0650405031891712,
+      "compute+compute": 1.0562292612802944,
+      "mixed": 1.5339551364213846
+     },
+     {
+      "mem+mem": 1.0510495583950081,
+      "compute+compute": 1.0627370168287649,
+      "mixed": 1.9362388434540014
+     }
+    ],
+    "5e (main 3511f430), merged: 5d with the fetch fix as built (F3's hold while its queue drains, a park after 2 cycles unread), decode's choice with 5e's acc_o": [
+     {
+      "mem+mem": 1.1291098191635858,
+      "compute+compute": 1.0482827699203532,
+      "mixed": 1.1698340276722663
+     },
+     {
+      "mem+mem": 1.0529994807737086,
+      "compute+compute": 1.0506219974057271,
+      "mixed": 1.2835597294383696
+     },
+     {
+      "mem+mem": 1.034991156205235,
+      "compute+compute": 1.055366667797157,
+      "mixed": 1.452122404404279
+     }
+    ],
+    "5e (main 3511f430), merged: the same with the model's own decode (\u00a713.20)": [
+     {
+      "mem+mem": 1.1333167385393443,
+      "compute+compute": 1.0526570524259484,
+      "mixed": 1.2202472266705904
+     },
+     {
+      "mem+mem": 1.0650405031891712,
+      "compute+compute": 1.0562292612802944,
+      "mixed": 1.5339551364213846
+     },
+     {
+      "mem+mem": 1.0510495583950081,
+      "compute+compute": 1.0627370168287649,
+      "mixed": 1.9362388434540014
+     }
     ]
    },
    "alone": {
@@ -235973,6 +236681,16 @@
        0.13109734006083001
       ],
       "5c (071de15c), merged": [
+       0.5876195108257468,
+       0.2453791798657645,
+       0.13327376131411828
+      ],
+      "5e (main 3511f430), half": [
+       0.5755083120204604,
+       0.24071699349464126,
+       0.13058007703411406
+      ],
+      "5e (main 3511f430), merged": [
        0.5876195108257468,
        0.2453791798657645,
        0.13327376131411828
@@ -236002,6 +236720,16 @@
        0.5297801160895548,
        0.1757474578843527,
        0.08891917703689128
+      ],
+      "5e (main 3511f430), half": [
+       0.5274725274725275,
+       0.17572245563785696,
+       0.08941912318295013
+      ],
+      "5e (main 3511f430), merged": [
+       0.5297801160895548,
+       0.1757474578843527,
+       0.08891917703689128
       ]
      },
      "model": {
@@ -236025,6 +236753,16 @@
        0.1189301490873222
       ],
       "5c (071de15c), merged": [
+       0.7095687568537429,
+       0.2433284777386706,
+       0.12491286830382
+      ],
+      "5e (main 3511f430), half": [
+       0.5647811450343724,
+       0.22393527966169366,
+       0.11815750464469138
+      ],
+      "5e (main 3511f430), merged": [
        0.7095687568537429,
        0.2433284777386706,
        0.12491286830382
@@ -236054,6 +236792,16 @@
        0.42358995415470385,
        0.24321324887318652,
        0.14933909966827674
+      ],
+      "5e (main 3511f430), half": [
+       0.3922651212066972,
+       0.20597782074717297,
+       0.12098038719817213
+      ],
+      "5e (main 3511f430), merged": [
+       0.42358995415470385,
+       0.24321324887318652,
+       0.14933909966827674
       ]
      },
      "model": {
@@ -236077,6 +236825,16 @@
        0.01900537082156445
       ],
       "5c (071de15c), merged": [
+       0.1162941599180285,
+       0.037611859888931,
+       0.019021459336244845
+      ],
+      "5e (main 3511f430), half": [
+       0.11622819753373212,
+       0.03760879710104076,
+       0.019020163781223766
+      ],
+      "5e (main 3511f430), merged": [
        0.1162941599180285,
        0.037611859888931,
        0.019021459336244845
@@ -236106,6 +236864,16 @@
        0.9582800247920256,
        0.4360299197156023,
        0.2439598995524197
+      ],
+      "5e (main 3511f430), half": [
+       0.8064084370326013,
+       0.40064310363389555,
+       0.23219732645214117
+      ],
+      "5e (main 3511f430), merged": [
+       0.9582800247920256,
+       0.4360299197156023,
+       0.2439598995524197
       ]
      },
      "model": {
@@ -236129,6 +236897,16 @@
        0.10249447103429637
       ],
       "5c (071de15c), merged": [
+       0.49158930401222256,
+       0.19426440778243328,
+       0.10513298804163972
+      ],
+      "5e (main 3511f430), half": [
+       0.37890810203659364,
+       0.18784340941142544,
+       0.10250558474092687
+      ],
+      "5e (main 3511f430), merged": [
        0.49158930401222256,
        0.19426440778243328,
        0.10513298804163972
@@ -236158,6 +236936,16 @@
        1.535624171244554,
        1.5167281348788197,
        1.4899025914353978
+      ],
+      "5e (main 3511f430), half": [
+       1.5363435956371312,
+       1.5159702586658288,
+       1.4877370194460553
+      ],
+      "5e (main 3511f430), merged": [
+       1.535624171244554,
+       1.5167281348788197,
+       1.4899025914353978
       ]
      },
      "model": {
@@ -236181,6 +236969,16 @@
        1.5174101640486435
       ],
       "5c (071de15c), merged": [
+       1.6182017047597497,
+       1.6149035593370258,
+       1.6101884151250003
+      ],
+      "5e (main 3511f430), half": [
+       1.5247033571547872,
+       1.5232931962174185,
+       1.5191321066030288
+      ],
+      "5e (main 3511f430), merged": [
        1.6182017047597497,
        1.6149035593370258,
        1.6101884151250003
@@ -236210,6 +237008,16 @@
        1.2979911924795582,
        1.2980094033822174,
        1.2979785852308998
+      ],
+      "5e (main 3511f430), half": [
+       1.2957195446333247,
+       1.2955415892665076,
+       1.2955820610943993
+      ],
+      "5e (main 3511f430), merged": [
+       1.2979911924795582,
+       1.2980094033822174,
+       1.2979785852308998
       ]
      },
      "model": {
@@ -236233,6 +237041,16 @@
        1.219721497022563
       ],
       "5c (071de15c), merged": [
+       1.2245455620812824,
+       1.2206284488268981,
+       1.222413943118783
+      ],
+      "5e (main 3511f430), half": [
+       1.221836828046556,
+       1.2220749255122358,
+       1.2223600743949758
+      ],
+      "5e (main 3511f430), merged": [
        1.2245455620812824,
        1.2206284488268981,
        1.222413943118783
@@ -236262,6 +237080,16 @@
        1.787470216785395,
        1.7874485247121834,
        1.787470216785395
+      ],
+      "5e (main 3511f430), half": [
+       1.4721768739213583,
+       1.4721866837251452,
+       1.4714709114522628
+      ],
+      "5e (main 3511f430), merged": [
+       1.787470216785395,
+       1.7874485247121834,
+       1.787470216785395
       ]
      },
      "model": {
@@ -236288,6 +237116,16 @@
        1.9282069095961765,
        1.9281905445498337,
        1.9280011977877296
+      ],
+      "5e (main 3511f430), half": [
+       1.92052263949975,
+       1.9195223884200012,
+       1.9197842306320314
+      ],
+      "5e (main 3511f430), merged": [
+       1.9282069095961765,
+       1.9281905445498337,
+       1.9280011977877296
       ]
      },
      "model": {
@@ -236303,6 +237141,136 @@
       ]
      }
     }
+   },
+   "spot": {
+    "spmv+nsichneu": [
+     [
+      0.6533601599478925,
+      1.6468082275008613,
+      0.44767039266265407
+     ],
+     [
+      0.9207176851332479,
+      1.909293772836656,
+      0.0
+     ],
+     [
+      0.9213982820969772,
+      1.9101060802804333,
+      0.0678282090451538
+     ],
+     [
+      0.9262442904806231,
+      1.9102401661547699,
+      0.06819738239478192
+     ],
+     [
+      0.6749393286906067,
+      1.6654783906829425,
+      0.4352158104193158
+     ],
+     [
+      0.926568247481851,
+      1.9105190003141161,
+      0.0
+     ]
+    ],
+    "stream+nsichneu": [
+     [
+      0.3340533241030816,
+      1.2797901036400632,
+      0.6074705224402711
+     ],
+     [
+      0.9187531679150599,
+      1.866099845286531,
+      0.0
+     ],
+     [
+      0.9211103197488685,
+      1.8679412784687803,
+      0.11208603125146782
+     ],
+     [
+      0.9210952648640082,
+      1.8681633471739776,
+      0.11212668292097032
+     ],
+     [
+      0.33493234688676815,
+      1.2806678268836509,
+      0.6089846359986961
+     ],
+     [
+      0.9211678065635872,
+      1.8686277565848166,
+      0.0
+     ]
+    ],
+    "copy+CoreMark": [
+     [
+      0.39269190074100624,
+      1.3441571324554658,
+      0.5526734793440824
+     ],
+     [
+      0.8224294087627767,
+      1.7257499686244033,
+      0.0
+     ],
+     [
+      0.8229176607650788,
+      1.7247772955216132,
+      0.09433920797683058
+     ],
+     [
+      0.8198176062111678,
+      1.730699347435717,
+      0.09515328151986183
+     ],
+     [
+      0.40106081024350554,
+      1.3438961823343183,
+      0.539845313354706
+     ],
+     [
+      0.8183333025210601,
+      1.732841129903466,
+      0.0
+     ]
+    ],
+    "hashprobe+CoreMark": [
+     [
+      0.80568937189509,
+      1.7553245775212836,
+      0.0266093509850496
+     ],
+     [
+      0.8105639803599376,
+      1.770048470118666,
+      0.0
+     ],
+     [
+      0.8099894720533642,
+      1.770894139061428,
+      0.03448579649398707
+     ],
+     [
+      0.8401093714809181,
+      1.792285331669036,
+      0.020200291098587203
+     ],
+     [
+      0.812610530927854,
+      1.7527665633304164,
+      0.04060375034308385
+     ],
+     [
+      0.8397905984311325,
+      1.7924173208361514,
+      0.0
+     ]
+    ]
    }
   },
   "pair-final-b7db3e16": {
@@ -236534,7 +237502,63 @@
       ]
      },
      "model": {
-      "a rename register per thread, rename's choice a cycle ahead (\u00a713.19's all three)": {
+      "a rename register per thread, rename's choice a cycle ahead, decode's a cycle ahead with 5e's acc_o": {
+       "ws": [
+        1.2572749046187868,
+        1.1913561084821245,
+        1.173499658296016
+       ],
+       "groups": [
+        {
+         "mem+mem": 1.295672283293112,
+         "compute+compute": 1.1786169362280063,
+         "mixed": 1.301436237632525
+        },
+        {
+         "mem+mem": 1.2163881179970504,
+         "compute+compute": 1.1819202674452425,
+         "mixed": 1.1761546736725004
+        },
+        {
+         "mem+mem": 1.194139780193373,
+         "compute+compute": 1.1827848647541448,
+         "mixed": 1.1441632062867744
+        }
+       ],
+       "n": [
+        36,
+        36,
+        34
+       ],
+       "rtl_same": [
+        1.2498270838030303,
+        1.1857821319541366,
+        1.151510497759604
+       ],
+       "rtl_same_groups": [
+        {
+         "mem+mem": 1.303023098708769,
+         "compute+compute": 1.1679582246749978,
+         "mixed": 1.2828337316585634
+        },
+        {
+         "mem+mem": 1.25985956899632,
+         "compute+compute": 1.1597965752912542,
+         "mixed": 1.1410659464865074
+        },
+        {
+         "mem+mem": 1.2353213777787913,
+         "compute+compute": 1.1596667144684505,
+         "mixed": 1.0658364187368727
+        }
+       ],
+       "residual": [
+        0.9940762192990604,
+        0.9953213178760719,
+        0.9812618943849192
+       ]
+      },
+      "the same with the model's own decode (\u00a713.20)": {
        "ws": [
         1.2430613380338864,
         1.194439400052371,
@@ -236648,7 +237672,63 @@
       ]
      },
      "model": {
-      "C with core-2's commit fix": {
+      "C with core-2's commit fix, decode's choice with 5e's acc_o": {
+       "ws": [
+        1.2634872596107023,
+        1.209628317781381,
+        1.1928259048005174
+       ],
+       "groups": [
+        {
+         "mem+mem": 1.2987613582331923,
+         "compute+compute": 1.1986769712970324,
+         "mixed": 1.2956302542794984
+        },
+        {
+         "mem+mem": 1.2185004296051491,
+         "compute+compute": 1.2110243695805787,
+         "mixed": 1.1994365160599116
+        },
+        {
+         "mem+mem": 1.1943197515129618,
+         "compute+compute": 1.2125770859413105,
+         "mixed": 1.1719287667310467
+        }
+       ],
+       "n": [
+        36,
+        35,
+        34
+       ],
+       "rtl_same": [
+        1.2472033891686052,
+        1.1913375206619672,
+        1.1625801818257848
+       ],
+       "rtl_same_groups": [
+        {
+         "mem+mem": 1.2956644129579808,
+         "compute+compute": 1.1964106700330823,
+         "mixed": 1.2515235868491033
+        },
+        {
+         "mem+mem": 1.258339289873,
+         "compute+compute": 1.1885976126323166,
+         "mixed": 1.1305033381899199
+        },
+        {
+         "mem+mem": 1.2287576031171825,
+         "compute+compute": 1.186890174661665,
+         "mixed": 1.0774372677382469
+        }
+       ],
+       "residual": [
+        0.9871119630861063,
+        0.9848789939433945,
+        0.9746436400710204
+       ]
+      },
+      "the same with the model's own decode (\u00a713.20)": {
        "ws": [
         1.2670275061970449,
         1.2161208882838297,
@@ -236746,7 +237826,63 @@
       ]
      },
      "model": {
-      "5d with the fetch fix as built (F3's hold while its queue drains, a park after 2 cycles unread)": {
+      "5d with the fetch fix as built (F3's hold while its queue drains, a park after 2 cycles unread), decode's choice with 5e's acc_o": {
+       "ws": [
+        1.3582740424012434,
+        1.3025804256359752,
+        1.2735785687308212
+       ],
+       "groups": [
+        {
+         "mem+mem": 1.452885013552367,
+         "compute+compute": 1.2151678102986683,
+         "mixed": 1.419366996340704
+        },
+        {
+         "mem+mem": 1.3293593069100058,
+         "compute+compute": 1.2169640926165881,
+         "mixed": 1.366134622766217
+        },
+        {
+         "mem+mem": 1.2898149392288831,
+         "compute+compute": 1.2202259880375435,
+         "mixed": 1.3125309526073579
+        }
+       ],
+       "n": [
+        35,
+        33,
+        34
+       ],
+       "rtl_same": [
+        1.302730540510591,
+        1.2248205397577092,
+        1.2100662462481504
+       ],
+       "rtl_same_groups": [
+        {
+         "mem+mem": 1.3850684470577954,
+         "compute+compute": 1.190334543745296,
+         "mixed": 1.3409837372271618
+        },
+        {
+         "mem+mem": 1.274352690704069,
+         "compute+compute": 1.1914111682636146,
+         "mixed": 1.2102248744120476
+        },
+        {
+         "mem+mem": 1.2778466071625068,
+         "compute+compute": 1.1869203434124176,
+         "mixed": 1.1682267400028437
+        }
+       ],
+       "residual": [
+        0.9591072934056377,
+        0.9403031979078756,
+        0.9501308171776448
+       ]
+      },
+      "the same with the model's own decode (\u00a713.20)": {
        "ws": [
         1.3675955697835935,
         1.3458712214524553,
@@ -236801,61 +237937,103 @@
         0.9100577531005463,
         0.9145779032364286
        ]
+      }
+     }
+    },
+    "5f (65fac9b4: 1ca3d58b with main 6d89e7a3), half": {
+     "rtl": [
+      {
+       "ws": 1.3107446017100832,
+       "groups": {
+        "mem+mem": 1.366062706890582,
+        "compute+compute": 1.2015061424407056,
+        "mixed": 1.3720110289898366
+       },
+       "n": 40
       },
-      "5d with the fetch fix as approved (out of fetch while a block doesn't fit)": {
+      {
+       "ws": 1.2645383490127613,
+       "groups": {
+        "mem+mem": 1.2490501189999885,
+        "compute+compute": 1.1985263933986603,
+        "mixed": 1.350730001189738
+       },
+       "n": 41
+      },
+      {
+       "ws": 1.2601331279487675,
+       "groups": {
+        "mem+mem": 1.245057680247256,
+        "compute+compute": 1.191057704561419,
+        "mixed": 1.3493574543173272
+       },
+       "n": 41
+      }
+     ],
+     "hangs": {
+      "30": [],
+      "120": [
+       "stride+Dhrystone"
+      ],
+      "250": [
+       "stride+Dhrystone"
+      ]
+     },
+     "model": {
+      "5e with 5f's acc_o (rename's chosen register counts only while its group looks able)": {
        "ws": [
-        1.3956709052460943,
-        1.3637816699315803,
-        1.3369710963040764
+        1.3706543058224205,
+        1.3438326711961626,
+        1.3177646811297714
        ],
        "groups": [
         {
-         "mem+mem": 1.4670926021702966,
-         "compute+compute": 1.2590853455580466,
-         "mixed": 1.4717579110255912
+         "mem+mem": 1.46409098677323,
+         "compute+compute": 1.2183388548012355,
+         "mixed": 1.4436025560658694
         },
         {
-         "mem+mem": 1.3498775844789073,
-         "compute+compute": 1.2655225876027738,
-         "mixed": 1.4848078678336225
+         "mem+mem": 1.3474318660343199,
+         "compute+compute": 1.219372187262261,
+         "mixed": 1.4770407845739786
         },
         {
-         "mem+mem": 1.306355274355534,
-         "compute+compute": 1.2654811929564607,
-         "mixed": 1.4456030539309943
+         "mem+mem": 1.2985213692726554,
+         "compute+compute": 1.2235657171540004,
+         "mixed": 1.4402476953966903
         }
        ],
        "n": [
-        35,
-        33,
+        34,
+        34,
         34
        ],
        "rtl_same": [
-        1.302730540510591,
-        1.2248205397577092,
-        1.2100662462481504
+        1.3079741782541938,
+        1.2640605453494362,
+        1.2597117273889296
        ],
        "rtl_same_groups": [
         {
-         "mem+mem": 1.3850684470577954,
-         "compute+compute": 1.190334543745296,
-         "mixed": 1.3409837372271618
+         "mem+mem": 1.3831309008778114,
+         "compute+compute": 1.2015061424407056,
+         "mixed": 1.3465058093795528
         },
         {
-         "mem+mem": 1.274352690704069,
-         "compute+compute": 1.1914111682636146,
-         "mixed": 1.2102248744120476
+         "mem+mem": 1.2869801076193539,
+         "compute+compute": 1.1985263933986603,
+         "mixed": 1.3094357436214639
         },
         {
-         "mem+mem": 1.2778466071625068,
-         "compute+compute": 1.1869203434124176,
-         "mixed": 1.1682267400028437
+         "mem+mem": 1.283407321028912,
+         "compute+compute": 1.191057704561419,
+         "mixed": 1.3077243255909068
         }
        ],
        "residual": [
-        0.9334081090419267,
-        0.8981060288184965,
-        0.905080333892975
+        0.9542699225457747,
+        0.9406383491363399,
+        0.9559458873255954
        ]
       }
      }
@@ -236924,7 +238102,46 @@
      ],
      "ws_dead": null
     },
-    "merged: C: a rename register per thread, rename's choice a cycle ahead (\u00a713.19's all three)": {
+    "merged: C: a rename register per thread, rename's choice a cycle ahead, decode's a cycle ahead with 5e's acc_o": {
+     "ws": [
+      1.1520136470564046,
+      1.1020949827039486,
+      1.0856130096863668
+     ],
+     "groups": [
+      {
+       "mem+mem": 1.1348433299940266,
+       "compute+compute": 1.163319878106347,
+       "mixed": 1.1580780044990486
+      },
+      {
+       "mem+mem": 1.1013834249223398,
+       "compute+compute": 1.164365297621502,
+       "mixed": 1.0438288261309072
+      },
+      {
+       "mem+mem": 1.091166120910941,
+       "compute+compute": 1.1650728924070974,
+       "mixed": 1.0064243746139663
+      }
+     ],
+     "hung": [
+      [
+       "hashprobe+chase8",
+       "chase8+minver"
+      ],
+      [
+       "hashprobe+chase8",
+       "spmv+chase8"
+      ],
+      [
+       "hashprobe+chase8",
+       "spmv+chase8"
+      ]
+     ],
+     "ws_dead": null
+    },
+    "merged: C: the same with the model's own decode (\u00a713.20)": {
      "ws": [
       1.1429220437703742,
       1.0997742081667519,
@@ -236964,7 +238181,48 @@
      ],
      "ws_dead": null
     },
-    "merged: 5d: C with core-2's commit fix": {
+    "merged: 5d: C with core-2's commit fix, decode's choice with 5e's acc_o": {
+     "ws": [
+      1.160375254513129,
+      1.1221759859427993,
+      1.1006251883774931
+     ],
+     "groups": [
+      {
+       "mem+mem": 1.1361351270934679,
+       "compute+compute": 1.1823657832487775,
+       "mixed": 1.1630905723295006
+      },
+      {
+       "mem+mem": 1.1129198142172778,
+       "compute+compute": 1.1940118870930585,
+       "mixed": 1.0634336224572973
+      },
+      {
+       "mem+mem": 1.0910622393912743,
+       "compute+compute": 1.1944658531676147,
+       "mixed": 1.023045804209934
+      }
+     ],
+     "hung": [
+      [
+       "hashprobe+chase8",
+       "Dhrystone+huffbench"
+      ],
+      [
+       "hashprobe+chase8",
+       "chase8+stream",
+       "spmv+chase8",
+       "chase8+Dhrystone"
+      ],
+      [
+       "hashprobe+chase8",
+       "spmv+chase8"
+      ]
+     ],
+     "ws_dead": null
+    },
+    "merged: 5d: the same with the model's own decode (\u00a713.20)": {
      "ws": [
       1.1635107494041352,
       1.1181906365005434,
@@ -237004,7 +238262,61 @@
      ],
      "ws_dead": null
     },
-    "merged: 5e: 5d with the fetch fix as built (F3's hold while its queue drains, a park after 2 cycles unread)": {
+    "merged: 5e: 5d with the fetch fix as built (F3's hold while its queue drains, a park after 2 cycles unread), decode's choice with 5e's acc_o": {
+     "ws": [
+      1.2569873943009044,
+      1.2096784319718772,
+      1.188419476394719
+     ],
+     "groups": [
+      {
+       "mem+mem": 1.2808944694888744,
+       "compute+compute": 1.1974643598944203,
+       "mixed": 1.2948421263111354
+      },
+      {
+       "mem+mem": 1.20025521354461,
+       "compute+compute": 1.1992168154426615,
+       "mixed": 1.2298113636081711
+      },
+      {
+       "mem+mem": 1.1772451847101049,
+       "compute+compute": 1.2022492741458635,
+       "mixed": 1.1858993624751624
+      }
+     ],
+     "hung": [
+      [
+       "hashprobe+chase8",
+       "chase8+stream",
+       "spmv+chase8",
+       "chase8+copy",
+       "chase8+chase8",
+       "chase8+minver",
+       "chase8+Dhrystone"
+      ],
+      [
+       "hashprobe+chase8",
+       "chase8+stream",
+       "spmv+chase8",
+       "chase8+copy",
+       "chase8+chase8",
+       "chase8+minver",
+       "chase8+Dhrystone"
+      ],
+      [
+       "hashprobe+chase8",
+       "chase8+stream",
+       "spmv+chase8",
+       "chase8+copy",
+       "chase8+chase8",
+       "chase8+minver",
+       "chase8+Dhrystone"
+      ]
+     ],
+     "ws_dead": null
+    },
+    "merged: 5e: the same with the model's own decode (\u00a713.20)": {
      "ws": [
       1.268204168446627,
       1.2534039800676726,
@@ -237058,27 +238370,27 @@
      ],
      "ws_dead": null
     },
-    "merged: 5e: 5d with the fetch fix as approved (out of fetch while a block doesn't fit)": {
+    "merged: 5f: 5e with 5f's acc_o (rename's chosen register counts only while its group looks able)": {
      "ws": [
-      1.2952412147660797,
-      1.2697525060227284,
-      1.251676327509381
+      1.2704249718998777,
+      1.2518501853798136,
+      1.2336567064245292
      ],
      "groups": [
       {
-       "mem+mem": 1.2952175789122489,
-       "compute+compute": 1.240659345430433,
-       "mixed": 1.3522490482972573
+       "mem+mem": 1.2929724135657616,
+       "compute+compute": 1.1988174253294852,
+       "mixed": 1.3228322048168897
       },
       {
-       "mem+mem": 1.2218241396324054,
-       "compute+compute": 1.243002910087169,
-       "mixed": 1.3479580890774114
+       "mem+mem": 1.2197900080104864,
+       "compute+compute": 1.201610506168699,
+       "mixed": 1.3384689030389314
       },
       {
-       "mem+mem": 1.194464470551265,
-       "compute+compute": 1.2468024198252805,
-       "mixed": 1.3167558100991075
+       "mem+mem": 1.1874397754845942,
+       "compute+compute": 1.2056254248594829,
+       "mixed": 1.3114718756833317
       }
      ],
      "hung": [
@@ -237112,7 +238424,75 @@
      ],
      "ws_dead": null
     },
-    "merged: step 7 as decided, as built (5e's fetch; rename and the head window as 5d's)": {
+    "merged: step 7 as decided with 5f (5e's fetch; rename, the head window and decode's choice a cycle ahead, 5f's acc_o)": {
+     "ws": [
+      1.2757210486418018,
+      1.2733809368125375,
+      1.2604056979737668
+     ],
+     "groups": [
+      {
+       "mem+mem": 1.2225935971436994,
+       "compute+compute": 1.2021731625681775,
+       "mixed": 1.412596149306543
+      },
+      {
+       "mem+mem": 1.1729944224692297,
+       "compute+compute": 1.2054759804307225,
+       "mixed": 1.4602275012587775
+      },
+      {
+       "mem+mem": 1.1481710855937268,
+       "compute+compute": 1.210203537818013,
+       "mixed": 1.44100686402102
+      }
+     ],
+     "hung": [
+      [],
+      [],
+      []
+     ],
+     "ws_dead": [
+      0,
+      0,
+      0
+     ]
+    },
+    "merged: the same with 5e's acc_o": {
+     "ws": [
+      1.255102723818531,
+      1.2170416381349187,
+      1.1905778775028677
+     ],
+     "groups": [
+      {
+       "mem+mem": 1.2118478338013359,
+       "compute+compute": 1.1999040860991188,
+       "mixed": 1.3597002991645144
+      },
+      {
+       "mem+mem": 1.1477710182370489,
+       "compute+compute": 1.2018575977394605,
+       "mixed": 1.3067967411532606
+      },
+      {
+       "mem+mem": 1.1272766844233877,
+       "compute+compute": 1.2045452268837984,
+       "mixed": 1.2428530717349502
+      }
+     ],
+     "hung": [
+      [],
+      [],
+      []
+     ],
+     "ws_dead": [
+      0,
+      0,
+      0
+     ]
+    },
+    "merged: the same with the model's own decode (\u00a713.20's as built)": {
      "ws": [
       1.2792362716329937,
       1.2772937081928506,
@@ -237146,27 +238526,27 @@
       0
      ]
     },
-    "merged: the same with the fetch fix as approved (\u00a713.19's as built)": {
+    "merged: with the fetch fix as approved": {
      "ws": [
-      1.300247334968681,
-      1.2931475911648629,
-      1.279857747771093
+      1.298425326366284,
+      1.2899305863833335,
+      1.2751890451590218
      ],
      "groups": [
       {
-       "mem+mem": 1.228759227923598,
-       "compute+compute": 1.244053713482402,
-       "mixed": 1.4380433979601457
+       "mem+mem": 1.2238065764968182,
+       "compute+compute": 1.244907444079403,
+       "mixed": 1.4368157748391965
       },
       {
-       "mem+mem": 1.1780192405188104,
-       "compute+compute": 1.246422384695828,
-       "mixed": 1.472741964031719
+       "mem+mem": 1.1713719080644496,
+       "compute+compute": 1.247519765813367,
+       "mixed": 1.4687801083819478
       },
       {
-       "mem+mem": 1.1548208968788514,
-       "compute+compute": 1.2504236324105817,
-       "mixed": 1.4518217504462723
+       "mem+mem": 1.1488147706985308,
+       "compute+compute": 1.251612069603582,
+       "mixed": 1.442128521521876
       }
      ],
      "hung": [
@@ -237180,63 +238560,27 @@
       0
      ]
     },
-    "merged: the same with 5d's fetch (F3's hold)": {
+    "merged: + rename's choice and the head window in the same cycle (decode's still a cycle ahead)": {
      "ws": [
-      1.12589571694884,
-      1.0764920659719082,
-      1.0649463487093944
+      1.3152969833659176,
+      1.304862843946128,
+      1.2897875689209688
      ],
      "groups": [
       {
-       "mem+mem": 1.0783635104179286,
-       "compute+compute": 1.1962654794031782,
-       "mixed": 1.1063734536719407
+       "mem+mem": 1.2378492034807593,
+       "compute+compute": 1.252011505559529,
+       "mixed": 1.4682344526353794
       },
       {
-       "mem+mem": 1.0506826471181978,
-       "compute+compute": 1.1870747004937305,
-       "mixed": 1.0001908821227732
+       "mem+mem": 1.1804762766624513,
+       "compute+compute": 1.2548605877955663,
+       "mixed": 1.499829360777702
       },
       {
-       "mem+mem": 1.0458948712558744,
-       "compute+compute": 1.1983443057898335,
-       "mixed": 0.9636371547507148
-      }
-     ],
-     "hung": [
-      [],
-      [
-       "Dhrystone+huffbench"
-      ],
-      []
-     ],
-     "ws_dead": [
-      0,
-      0,
-      0
-     ]
-    },
-    "merged: the fetch fix as approved, rename's choice and the head window fixed (\u00a713.19)": {
-     "ws": [
-      1.3132917923503975,
-      1.3029164702891292,
-      1.2877212006209027
-     ],
-     "groups": [
-      {
-       "mem+mem": 1.2365064866955058,
-       "compute+compute": 1.2506518009302994,
-       "mixed": 1.4647074090246917
-      },
-      {
-       "mem+mem": 1.1809704853076506,
-       "compute+compute": 1.2534796076736836,
-       "mixed": 1.494147268873856
-      },
-      {
-       "mem+mem": 1.158136837093585,
-       "compute+compute": 1.256907067962018,
-       "mixed": 1.466906704669982
+       "mem+mem": 1.1579507928968782,
+       "compute+compute": 1.2587247958648995,
+       "mixed": 1.472087647838674
       }
      ],
      "hung": [
@@ -237312,7 +238656,46 @@
      ],
      "ws_dead": null
     },
-    "half: C: a rename register per thread, rename's choice a cycle ahead (\u00a713.19's all three)": {
+    "half: C: a rename register per thread, rename's choice a cycle ahead, decode's a cycle ahead with 5e's acc_o": {
+     "ws": [
+      1.2367828736598792,
+      1.1750482679506993,
+      1.1534997832285072
+     ],
+     "groups": [
+      {
+       "mem+mem": 1.2509114680236388,
+       "compute+compute": 1.180797886541619,
+       "mixed": 1.2807909404753806
+      },
+      {
+       "mem+mem": 1.1987176579348526,
+       "compute+compute": 1.1819202674452425,
+       "mixed": 1.1451491029817276
+      },
+      {
+       "mem+mem": 1.1780377477206505,
+       "compute+compute": 1.1827848647541448,
+       "mixed": 1.1015078244666967
+      }
+     ],
+     "hung": [
+      [
+       "hashprobe+chase8",
+       "chase8+minver"
+      ],
+      [
+       "hashprobe+chase8",
+       "spmv+chase8"
+      ],
+      [
+       "hashprobe+chase8",
+       "spmv+chase8"
+      ]
+     ],
+     "ws_dead": null
+    },
+    "half: C: the same with the model's own decode (\u00a713.20)": {
      "ws": [
       1.2244737905082346,
       1.1746126252090994,
@@ -237352,7 +238735,48 @@
      ],
      "ws_dead": null
     },
-    "half: 5d: C with core-2's commit fix": {
+    "half: 5d: C with core-2's commit fix, decode's choice with 5e's acc_o": {
+     "ws": [
+      1.2431454655394714,
+      1.2016005012163067,
+      1.1694457510308822
+     ],
+     "groups": [
+      {
+       "mem+mem": 1.2534643667950958,
+       "compute+compute": 1.2002413566530359,
+       "mixed": 1.2769834565687939
+      },
+      {
+       "mem+mem": 1.2185004296051491,
+       "compute+compute": 1.2119733980640877,
+       "mixed": 1.174793482047617
+      },
+      {
+       "mem+mem": 1.1782016978693457,
+       "compute+compute": 1.2125770859413105,
+       "mixed": 1.119466854820135
+      }
+     ],
+     "hung": [
+      [
+       "hashprobe+chase8",
+       "Dhrystone+huffbench"
+      ],
+      [
+       "hashprobe+chase8",
+       "chase8+stream",
+       "spmv+chase8",
+       "chase8+Dhrystone"
+      ],
+      [
+       "hashprobe+chase8",
+       "spmv+chase8"
+      ]
+     ],
+     "ws_dead": null
+    },
+    "half: 5d: the same with the model's own decode (\u00a713.20)": {
      "ws": [
       1.2464841265517548,
       1.194330657821147,
@@ -237392,7 +238816,61 @@
      ],
      "ws_dead": null
     },
-    "half: 5e: 5d with the fetch fix as built (F3's hold while its queue drains, a park after 2 cycles unread)": {
+    "half: 5e: 5d with the fetch fix as built (F3's hold while its queue drains, a park after 2 cycles unread), decode's choice with 5e's acc_o": {
+     "ws": [
+      1.3582740424012434,
+      1.2939062704759747,
+      1.26519719183561
+     ],
+     "groups": [
+      {
+       "mem+mem": 1.452885013552367,
+       "compute+compute": 1.2151678102986683,
+       "mixed": 1.419366996340704
+      },
+      {
+       "mem+mem": 1.3293593069100058,
+       "compute+compute": 1.2170085666556272,
+       "mixed": 1.338974902883076
+      },
+      {
+       "mem+mem": 1.2898149392288831,
+       "compute+compute": 1.2202259880375435,
+       "mixed": 1.2867879485625295
+      }
+     ],
+     "hung": [
+      [
+       "hashprobe+chase8",
+       "chase8+stream",
+       "spmv+chase8",
+       "chase8+copy",
+       "chase8+chase8",
+       "chase8+minver",
+       "chase8+Dhrystone"
+      ],
+      [
+       "hashprobe+chase8",
+       "chase8+stream",
+       "spmv+chase8",
+       "chase8+copy",
+       "chase8+chase8",
+       "chase8+minver",
+       "chase8+Dhrystone"
+      ],
+      [
+       "hashprobe+chase8",
+       "chase8+stream",
+       "spmv+chase8",
+       "chase8+copy",
+       "chase8+chase8",
+       "chase8+minver",
+       "chase8+Dhrystone"
+      ]
+     ],
+     "ws_dead": null
+    },
+    "half: 5e: the same with the model's own decode (\u00a713.20)": {
      "ws": [
       1.3675955697835935,
       1.333320075449514,
@@ -237446,27 +238924,27 @@
      ],
      "ws_dead": null
     },
-    "half: 5e: 5d with the fetch fix as approved (out of fetch while a block doesn't fit)": {
+    "half: 5f: 5e with 5f's acc_o (rename's chosen register counts only while its group looks able)": {
      "ws": [
-      1.3956709052460943,
-      1.3504576979204381,
-      1.3246944043238622
+      1.3699576281879815,
+      1.3318595189885152,
+      1.305673680928223
      ],
      "groups": [
       {
-       "mem+mem": 1.4670926021702966,
-       "compute+compute": 1.2590853455580466,
-       "mixed": 1.4717579110255912
+       "mem+mem": 1.46409098677323,
+       "compute+compute": 1.2164820231905211,
+       "mixed": 1.4436025560658694
       },
       {
-       "mem+mem": 1.3498775844789073,
-       "compute+compute": 1.2615035549814164,
-       "mixed": 1.4463056738975733
+       "mem+mem": 1.3474318660343199,
+       "compute+compute": 1.219372187262261,
+       "mixed": 1.4379115034929257
       },
       {
-       "mem+mem": 1.306355274355534,
-       "compute+compute": 1.2654811929564607,
-       "mixed": 1.4061450005996305
+       "mem+mem": 1.2985213692726554,
+       "compute+compute": 1.2235657171540004,
+       "mixed": 1.4009658487909682
       }
      ],
      "hung": [
@@ -237500,7 +238978,75 @@
      ],
      "ws_dead": null
     },
-    "half: step 7 as decided, as built (5e's fetch; rename and the head window as 5d's)": {
+    "half: step 7 as decided with 5f (5e's fetch; rename, the head window and decode's choice a cycle ahead, 5f's acc_o)": {
+     "ws": [
+      1.3700117724980228,
+      1.3496379350154317,
+      1.329082120322879
+     ],
+     "groups": [
+      {
+       "mem+mem": 1.3786140684565928,
+       "compute+compute": 1.2199131665277423,
+       "mixed": 1.5289781264604794
+      },
+      {
+       "mem+mem": 1.2886671795435611,
+       "compute+compute": 1.223323276628494,
+       "mixed": 1.5594441409335444
+      },
+      {
+       "mem+mem": 1.24769940161757,
+       "compute+compute": 1.2282397804284475,
+       "mixed": 1.5320125423694733
+      }
+     ],
+     "hung": [
+      [],
+      [],
+      []
+     ],
+     "ws_dead": [
+      0,
+      0,
+      0
+     ]
+    },
+    "half: the same with 5e's acc_o": {
+     "ws": [
+      1.3495345613448593,
+      1.2951872868276983,
+      1.2612296308401636
+     ],
+     "groups": [
+      {
+       "mem+mem": 1.3664975256228513,
+       "compute+compute": 1.2176714869824163,
+       "mixed": 1.4771107110724062
+      },
+      {
+       "mem+mem": 1.2620758524827076,
+       "compute+compute": 1.2197174466946066,
+       "mixed": 1.411409464111557
+      },
+      {
+       "mem+mem": 1.2260496842803463,
+       "compute+compute": 1.2225850852951416,
+       "mixed": 1.3384289839891335
+      }
+     ],
+     "hung": [
+      [],
+      [],
+      []
+     ],
+     "ws_dead": [
+      0,
+      0,
+      0
+     ]
+    },
+    "half: the same with the model's own decode (\u00a713.20's as built)": {
      "ws": [
       1.373403381543279,
       1.3535550605605537,
@@ -237534,27 +239080,27 @@
       0
      ]
     },
-    "half: the same with the fetch fix as approved (\u00a713.19's as built)": {
+    "half: with the fetch fix as approved": {
      "ws": [
-      1.3949313085122026,
-      1.3702652347426467,
-      1.349589891663933
+      1.3929774490608156,
+      1.366661899544286,
+      1.344530185548289
      ],
      "groups": [
       {
-       "mem+mem": 1.3846479536355434,
-       "compute+compute": 1.2625184023969396,
-       "mixed": 1.552677931791534
+       "mem+mem": 1.379233857951256,
+       "compute+compute": 1.2633440584737576,
+       "mixed": 1.5512175336683967
       },
       {
-       "mem+mem": 1.2946813012378457,
-       "compute+compute": 1.2649803506373318,
-       "mixed": 1.5709677251379017
+       "mem+mem": 1.2868030231391612,
+       "compute+compute": 1.2660348665548145,
+       "mixed": 1.5668431472763222
       },
       {
-       "mem+mem": 1.2558475630126655,
-       "compute+compute": 1.2691530764235084,
-       "mixed": 1.5422490672806037
+       "mem+mem": 1.248849648644299,
+       "compute+compute": 1.2703179666272257,
+       "mixed": 1.532106919616258
       }
      ],
      "hung": [
@@ -237568,63 +239114,27 @@
       0
      ]
     },
-    "half: the same with 5d's fetch (F3's hold)": {
+    "half: + rename's choice and the head window in the same cycle (decode's still a cycle ahead)": {
      "ws": [
-      1.203559424568386,
-      1.1439021965057607,
-      1.1280045227391966
+      1.4125232908383247,
+      1.3829010810808442,
+      1.3602615930129096
      ],
      "groups": [
       {
-       "mem+mem": 1.1820922277617556,
-       "compute+compute": 1.2142241207802924,
-       "mixed": 1.2146534727994887
+       "mem+mem": 1.396153682838641,
+       "compute+compute": 1.2705907013835878,
+       "mixed": 1.588722161599612
       },
       {
-       "mem+mem": 1.131986537423173,
-       "compute+compute": 1.2051192952739276,
-       "mixed": 1.0972242054737784
+       "mem+mem": 1.2969624707578609,
+       "compute+compute": 1.273532151725255,
+       "mixed": 1.6011647679376362
       },
       {
-       "mem+mem": 1.1188276394637382,
-       "compute+compute": 1.2165522657609598,
-       "mixed": 1.0544805276377816
-      }
-     ],
-     "hung": [
-      [],
-      [
-       "Dhrystone+huffbench"
-      ],
-      []
-     ],
-     "ws_dead": [
-      0,
-      0,
-      0
-     ]
-    },
-    "half: the fetch fix as approved, rename's choice and the head window fixed (\u00a713.19)": {
-     "ws": [
-      1.4102579404841498,
-      1.380893566870344,
-      1.3580254509668055
-     ],
-     "groups": [
-      {
-       "mem+mem": 1.3944260232349956,
-       "compute+compute": 1.2692253500987423,
-       "mixed": 1.5847524956573373
-      },
-      {
-       "mem+mem": 1.2977062486393074,
-       "compute+compute": 1.2721444466217746,
-       "mixed": 1.5950261107762795
-      },
-      {
-       "mem+mem": 1.2593779086198258,
-       "compute+compute": 1.2757453321190149,
-       "mixed": 1.5588476363669865
+       "mem+mem": 1.2591887594866709,
+       "compute+compute": 1.2775754542253772,
+       "mixed": 1.5645516696907416
       }
      ],
      "hung": [
@@ -237674,7 +239184,24 @@
       "mixed": 1.2895287781759113
      }
     ],
-    "C (4c60872b), half: a rename register per thread, rename's choice a cycle ahead (\u00a713.19's all three)": [
+    "C (4c60872b), half: a rename register per thread, rename's choice a cycle ahead, decode's a cycle ahead with 5e's acc_o": [
+     {
+      "mem+mem": 1.0765970735809178,
+      "compute+compute": 1.0482523282383553,
+      "mixed": 1.1065585095108759
+     },
+     {
+      "mem+mem": 1.0153035793093823,
+      "compute+compute": 1.0575034262083602,
+      "mixed": 1.1569512315900465
+     },
+     {
+      "mem+mem": 1.0099392356338546,
+      "compute+compute": 1.0588819800493823,
+      "mixed": 1.28792612396162
+     }
+    ],
+    "C (4c60872b), half: the same with the model's own decode (\u00a713.20)": [
      {
       "mem+mem": 1.0645883207588758,
       "compute+compute": 1.048983062443274,
@@ -237691,7 +239218,24 @@
       "mixed": 1.2870494549629532
      }
     ],
-    "5d (3ed31186; 6ac63df1 at 120 and 250), half: C with core-2's commit fix": [
+    "5d (3ed31186; 6ac63df1 at 120 and 250), half: C with core-2's commit fix, decode's choice with 5e's acc_o": [
+     {
+      "mem+mem": 1.0806679371468597,
+      "compute+compute": 1.0478579112442956,
+      "mixed": 1.119451630916521
+     },
+     {
+      "mem+mem": 1.0189153296381928,
+      "compute+compute": 1.0590112944777477,
+      "mixed": 1.2136117946473775
+     },
+     {
+      "mem+mem": 1.0152228030082573,
+      "compute+compute": 1.0604650450376807,
+      "mixed": 1.3446736778758575
+     }
+    ],
+    "5d (3ed31186; 6ac63df1 at 120 and 250), half: the same with the model's own decode (\u00a713.20)": [
      {
       "mem+mem": 1.074741103087231,
       "compute+compute": 1.0532847344015088,
@@ -237708,7 +239252,24 @@
       "mixed": 1.345514763658148
      }
     ],
-    "5e (0138c48c), half: 5d with the fetch fix as built (F3's hold while its queue drains, a park after 2 cycles unread)": [
+    "5e (0138c48c), half: 5d with the fetch fix as built (F3's hold while its queue drains, a park after 2 cycles unread), decode's choice with 5e's acc_o": [
+     {
+      "mem+mem": 1.113416882338978,
+      "compute+compute": 1.059280954376627,
+      "mixed": 1.1246331122503608
+     },
+     {
+      "mem+mem": 1.0434344126301978,
+      "compute+compute": 1.0618648309141492,
+      "mixed": 1.2772937215706786
+     },
+     {
+      "mem+mem": 1.041902895469045,
+      "compute+compute": 1.067356942539126,
+      "mixed": 1.4843085759285208
+     }
+    ],
+    "5e (0138c48c), half: the same with the model's own decode (\u00a713.20)": [
      {
       "mem+mem": 1.1085353956286021,
       "compute+compute": 1.0634744777491978,
@@ -237725,21 +239286,21 @@
       "mixed": 1.913695283701094
      }
     ],
-    "5e (0138c48c), half: 5d with the fetch fix as approved (out of fetch while a block doesn't fit)": [
+    "5f (65fac9b4: 1ca3d58b with main 6d89e7a3), half: 5e with 5f's acc_o (rename's chosen register counts only while its group looks able)": [
      {
-      "mem+mem": 1.1213890741068027,
-      "compute+compute": 1.0934883789065473,
-      "mixed": 1.1961162477529925
+      "mem+mem": 1.112364093186188,
+      "compute+compute": 1.0540184987707963,
+      "mixed": 1.1356868572156387
      },
      {
-      "mem+mem": 1.0522672159257556,
-      "compute+compute": 1.0998196001448532,
-      "mixed": 1.5287385435784717
+      "mem+mem": 1.0452308876538379,
+      "compute+compute": 1.0555998926703802,
+      "mixed": 1.2569463071915141
      },
      {
-      "mem+mem": 1.048675253202294,
-      "compute+compute": 1.103089203273304,
-      "mixed": 1.9274975192839556
+      "mem+mem": 1.0370748433612156,
+      "compute+compute": 1.0667687112925976,
+      "mixed": 1.3147181013683855
      }
     ]
    },
@@ -237765,6 +239326,11 @@
        0.5505117690051773,
        0.22942161904865072,
        0.12309908909450346
+      ],
+      "5f (65fac9b4: 1ca3d58b with main 6d89e7a3), half": [
+       0.5537282742265156,
+       0.2276292513178975,
+       0.12264274023091871
       ]
      },
      "model": {
@@ -237796,6 +239362,11 @@
        0.5082430393635989,
        0.1761384161992585,
        0.08910305426110542
+      ],
+      "5f (65fac9b4: 1ca3d58b with main 6d89e7a3), half": [
+       0.51383881524211,
+       0.17541467848216313,
+       0.0894977345402904
       ]
      },
      "model": {
@@ -237827,6 +239398,11 @@
        0.5649482683317765,
        0.22394318198573784,
        0.11833722504431578
+      ],
+      "5f (65fac9b4: 1ca3d58b with main 6d89e7a3), half": [
+       0.5652015021138895,
+       0.22355847154320946,
+       0.118885108057422
       ]
      },
      "model": {
@@ -237858,6 +239434,11 @@
        0.38609637279498626,
        0.20400688406840845,
        0.12028222294776245
+      ],
+      "5f (65fac9b4: 1ca3d58b with main 6d89e7a3), half": [
+       0.3855702922817041,
+       0.2037238776083449,
+       0.12066612107237776
       ]
      },
      "model": {
@@ -237889,6 +239470,11 @@
        0.11621042525970243,
        0.037599541090211346,
        0.01897557195357369
+      ],
+      "5f (65fac9b4: 1ca3d58b with main 6d89e7a3), half": [
+       0.11624867613204022,
+       0.037501186746416025,
+       0.018991549962263626
       ]
      },
      "model": {
@@ -237920,6 +239506,11 @@
        0.7987311646676079,
        0.4062253250592543,
        0.2342420336736252
+      ],
+      "5f (65fac9b4: 1ca3d58b with main 6d89e7a3), half": [
+       0.825152099738818,
+       0.40624630879116375,
+       0.2342425453063805
       ]
      },
      "model": {
@@ -237951,6 +239542,11 @@
        0.41028112881688794,
        0.18743526172249,
        0.07840457092304598
+      ],
+      "5f (65fac9b4: 1ca3d58b with main 6d89e7a3), half": [
+       0.41858038123649777,
+       0.18771511580229847,
+       0.07903120917841289
       ]
      },
      "model": {
@@ -237982,6 +239578,11 @@
        1.4752761811585342,
        1.4603677869372225,
        1.4340665094833613
+      ],
+      "5f (65fac9b4: 1ca3d58b with main 6d89e7a3), half": [
+       1.4766477711554435,
+       1.4599196361294524,
+       1.4332875995417191
       ]
      },
      "model": {
@@ -238013,6 +239614,11 @@
        1.5687357061504459,
        1.566053093598181,
        1.5623264663310545
+      ],
+      "5f (65fac9b4: 1ca3d58b with main 6d89e7a3), half": [
+       1.5688188792113673,
+       1.5662731970335542,
+       1.5625398328386475
       ]
      },
      "model": {
@@ -238044,6 +239650,11 @@
        1.3093309760448175,
        1.3095576542297807,
        1.3093701757785707
+      ],
+      "5f (65fac9b4: 1ca3d58b with main 6d89e7a3), half": [
+       1.3094963435819016,
+       1.3093716012676626,
+       1.309468541807979
       ]
      },
      "model": {
@@ -238075,6 +239686,11 @@
        1.2048476978001814,
        1.2023175094664238,
        1.2045820609252644
+      ],
+      "5f (65fac9b4: 1ca3d58b with main 6d89e7a3), half": [
+       1.2042602338286166,
+       1.2031030787786312,
+       1.2062206785434535
       ]
      },
      "model": {
@@ -238106,6 +239722,11 @@
        1.3441342345576113,
        1.3440483758619537,
        1.3435293688390506
+      ],
+      "5f (65fac9b4: 1ca3d58b with main 6d89e7a3), half": [
+       1.3438480815551932,
+       1.3436641903829372,
+       1.343023008419197
       ]
      },
      "model": {
@@ -238137,6 +239758,11 @@
        1.9602017246309644,
        1.9601666916260383,
        1.9601956843683614
+      ],
+      "5f (65fac9b4: 1ca3d58b with main 6d89e7a3), half": [
+       1.960181187889993,
+       1.9602017246309644,
+       1.960181187889993
       ]
      },
      "model": {
@@ -238147,6 +239773,136 @@
       ]
      }
     }
+   },
+   "spot": {
+    "spmv+nsichneu": [
+     [
+      0.6123377167768516,
+      1.6057246353059313,
+      0.47285150690285355
+     ],
+     [
+      0.9097212611750564,
+      1.8993968791185385,
+      0.0
+     ],
+     [
+      0.910684493121622,
+      1.900542386230084,
+      0.06780539871394418
+     ],
+     [
+      0.9164618161448933,
+      1.9011736786256077,
+      0.06748493205767558
+     ],
+     [
+      0.6285241387411616,
+      1.6202466349512088,
+      0.4632643071825111
+     ],
+     [
+      0.9165174905751416,
+      1.8997797098707934,
+      0.0
+     ]
+    ],
+    "stream+nsichneu": [
+     [
+      0.4908104323006025,
+      1.439124731624669,
+      0.5323313413563552
+     ],
+     [
+      0.9026641504918409,
+      1.8501356735250418,
+      0.0
+     ],
+     [
+      0.9022101857752072,
+      1.849548873822978,
+      0.11374766694745883
+     ],
+     [
+      0.9023623413780864,
+      1.8496153492002327,
+      0.11373983695079425
+     ],
+     [
+      0.4908104323006025,
+      1.439127344900994,
+      0.5323339893228165
+     ],
+     [
+      0.9025433141098597,
+      1.8499637853504645,
+      0.0
+     ]
+    ],
+    "copy+CoreMark": [
+     [
+      0.4199910258717551,
+      1.370667623776177,
+      0.5385319659743757
+     ],
+     [
+      0.8333717382465884,
+      1.736709025022219,
+      0.0
+     ],
+     [
+      0.8332862871122305,
+      1.737252981873194,
+      0.10178853692700382
+     ],
+     [
+      0.8238283388333061,
+      1.7570945789938341,
+      0.10999275393733704
+     ],
+     [
+      0.4211514965284636,
+      1.372359177054049,
+      0.5330097344772441
+     ],
+     [
+      0.8276602041439863,
+      1.7362976191542732,
+      0.0
+     ]
+    ],
+    "hashprobe+CoreMark": [
+     [
+      0.8210971878499139,
+      1.7677855351325733,
+      0.027703408200477026
+     ],
+     [
+      0.8270517623479294,
+      1.782652216524188,
+      0.0
+     ],
+     [
+      0.8256569196492604,
+      1.7825961088119535,
+      0.03592953437551743
+     ],
+     [
+      0.8581176768730806,
+      1.8078392312243514,
+      0.022036653103748884
+     ],
+     [
+      0.8289971569532234,
+      1.7653250144948278,
+      0.04353367241963441
+     ],
+     [
+      0.8598116998050779,
+      1.808982681475682,
+      0.0
+     ]
+    ]
    }
   }
  }

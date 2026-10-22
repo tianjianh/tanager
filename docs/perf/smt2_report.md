@@ -837,6 +837,9 @@ TG_FINALDIR=<each final set> python3 scripts/m7_smt.py --asbuilt   # §13.20: th
 | FP 64's write ports and transfers (§13.18, fpu-2) | P4 first with a colliding FP load held (tg_lsu's `fh`, its guards as built) costs the FP pairs 0.12–0.27%, a lone FP restore 6–10%, tk_dgemm 0.45%, the suite 0.6%. IQ-LD's block from the 4th failed take halves the pairs' cost. No fix at the hold removes the restore's cost (−8 to −14%). Upstream it goes: a group short in its own FP bank asks for a transfer even while it crosses, and a parked sibling's free FP registers move to the running hart ahead of need, all of them. FP 64 then matches FP 96 on the lone programs and the FP pairs read −0.01 to −0.02%, at no cost to a waking integer task. fpu-2's P cuts a lone restore's hold cost to a quarter; the restore-with-itself pairs swing ±30% with phase, on the RTL and in the model, and say nothing of capacity. Without FP transfers nothing hangs; a lone nbody on the merged window loses 5.6%, the suite 0.16% | IQ-LD's block from the 4th failed take; keep IQ-FP's at the 8th; none of A, B, D; per-bank wants and eager FP borrowing (keeping none) in rename's transfers; keep the FP transfers |
 | The remaining residuals (§13.19) | F3's hold on a block that doesn't fit whole, rename's choice a cycle ahead and the head window read a cycle ahead bring the model to the RTL's step-5 1.243 exactly (F3's hold 0.070 of the 0.091). At step 7 as decided with the approved fetch fix: 1.297 / 1.306 / 1.294; rename's choice costs 0.4–0.6% and the head window 0.1–0.3%, so 1.283 / 1.296 / 1.287 as built | Tuning order: rename's choice, then the head window; exit 2 at the bar |
 | The RTL's step-5 pair runs and step 7 on the merged basis (§13.20) | The model as built tracks 5c, C and 5d within 3.4% on both bases (verif-2's 5c on the merged basis: 1.107 / 1.081 / 1.060 against 1.119 / 1.103 / 1.097). 5e's fetch fix gained the RTL +2.2% / +1.5% / +2.5% like for like, against the model's +5.6% / +10.4% / +10.4%: with F2's hold gone, decode leaves 46–64% of its slots empty in memory and mixed pairs at 250, and a compute thread beside spmv, hashprobe, stream or copy keeps 0.17–0.34 of its speed. Step 7 as built lands at about 1.20 / 1.15 / 1.15 on the merged basis; about 1.26 with decode's loss removed, the approved fetch form, and rename's choice and the head window in the same cycle | Diagnose decode's loss with simulation-only counters first (worth +0.03 / +0.08 / +0.08); then the approved fetch form (+0.02), then the two residuals (+0.01); R2 for stride + Dhrystone's hang. Exit 2 at 1.3 looks out of reach by about 0.04 even then: the bar is for the coordinator and the user |
+| 5f: decode's stall modelled; step 7 re-estimated (§13.21) | Modelling 5e's acc_o (rename's chosen register counted as free) reproduces the stall in spmv's, stream's and copy's pairs (decode loses 47–54% of slots, the RTL 46–64%) and takes 5e's residual to 0.959 / 0.940 / 0.950; hashprobe's pairs still stall only on the RTL. Step 7 with 5f reads 1.260 / 1.268 / 1.260 in the model, 5f worth 2.1–6.2% of it; with the expected residual of 0.94–0.96, about 1.20 on the RTL's merged basis (1.22–1.24 if it falls to 5d's) | 5f; TG-DSLOT on 5f, hashprobe's pairs first. With the approved fetch form and the two same-cycle fixes, about 1.24 (best case 1.25–1.28): the bar stays the coordinator's and the user's |
+| 5e on main, on exit 2's basis (§13.22, verif-2) | The RTL's merged basis: 1.203 / 1.169 / 1.136, with 4 hangs (stride with Dhrystone or hashprobe at 120 and 250). The model with 5e's acc_o: residual 0.962 / 0.953 / 0.940, mixed pairs 0.94 / 0.89 / 0.86, the rest within 3%. Step 7 with 5f from this measured residual: about 1.21 / 1.21–1.23 / 1.18–1.20 | As §13.21: about 1.25 with the approved fetch form and the two same-cycle fixes, still under 1.3 at every latency |
+| 5f on the RTL (§13.23, core-2) | 1.311 / 1.265 / 1.260 on the half basis, +1.4% / +3.5% / +4.2% from 5e, as the model predicted; residual unchanged at 0.954 / 0.941 / 0.956 (mixed 0.93 / 0.89 / 0.91), most of it in hashprobe's, matmult's and nsichneu's pairs at 250. Step 7 with 5f: about 1.20 / 1.18 / 1.19 on the merged basis (1.21 / 1.21 / 1.18 from 5e's merged residual) | About 1.22–1.25 with every fix in hand, 0.05–0.08 under the bar; TG-DSLOT on 5f in hashprobe's and matmult's pairs if the rest is to be found |
 | D3 with FP banks of 64 (§13.13) | Every rule that keeps an op in its own FP bank deadlocks, including a lone hart's single FP restore. Renaming into the other FP bank when the hart's own is exhausted, both ways, never deadlocks (by construction, and 0 of 90 pairs and 37 lone programs). It matches FP 96 when a crossed write costs nothing extra, and loses 0.3–0.6% on FP pairs at 2 cycles more, 0.7–1.0% at 4 | FP 64 with renaming across both ways, if core-2 and fpu-2 cost it well under FP 96's +1,575 LUTs a core |
 
 ### 13.2 Exit 2: the blind prediction
@@ -2414,3 +2417,155 @@ At 120 and 250 cycles only copy (+28% / +23%), hashprobe (−27% / −31%) and s
 **Learned:**
 - A fix can move a bottleneck rather than remove it. With F2's hold gone, decode became the shared stall. The model, which has no such decode stall, overstated the fetch fix 4–7× at 120 and 250 cycles.
 - A model that matches the RTL overall (5c to 5d within 3.4%) can still miss a mechanism when errors in other pairs cancel it. The mixed residual was 0.92–0.94 at 250 all along.
+
+### 13.21 5f: decode's stall modelled, and step 7 re-estimated (10-21)
+
+*core-2 traced §13.20's decode stall with new simulation counters (TG-DSLOT: 5e, four mixed pairs at 250 cycles) and fixed it as 5f (1ca3d58b, on 5e's 189aeda6). The coordinator asked for three things:*
+1. *model 5e's stall exactly and check that the model matches the RTL again;*
+2. *re-estimate step 7 on the merged basis with 5f, and give the residual expected against the RTL;*
+3. *put core-2's 5f pair runs beside the model when they land.*
+
+*The cause, in tg_rename:*
+- *Rename tells decode which threads' RN registers can take a group next cycle (acc_o): `acc_o[t] = !vn[t] || sel_n == t || block_q[t]`.*
+- *The term `sel_n == t` counted the register rename had chosen, even when its group couldn't fire.*
+- *So decode kept reading the memory thread, whose group waited for its ROB, LQ or SQ half, rows or DS. Meanwhile the compute thread's RN register stood empty with its queue full, for a whole miss.*
+- *5f counts the chosen register only while its group is ready: `(sel_n == t && rdy[t])`. It costs two LUTs.*
+
+*The model (`m7_smt.py --asbuilt`):*
+- *`smt_dec_rr` has two new values, with rename's choice made a cycle ahead (`smt_rn_sel`):*
+  - *2 is 5e's acc_o: rename can take a group from the register it has chosen, whether that group can go or not.*
+  - *3 is 5f's: only while that group looks able (`rn_able`, the model's registered readiness).*
+- *A thread held at the runner's barrier is left out of the chosen-register term, since on the RTL it spins there. Without that, both values deadlock the model at the barrier.*
+- *A counter (`dec_lost_other`) counts decode's slots left empty while the other thread's queue holds instructions, as TG-STALL2 does.*
+- *Every other setting is identical: 16 of 16 runs against run 18's `tgsim`.*
+- *C, 5d and 5e as built now carry decode's choice with 5e's acc_o, and 5f with 5f's.*
+
+**1. 5e's stall in the model** (core-2's four pairs at 250 cycles, half basis; each cell: the compute thread's share of its alone IPC, the pair's WS, and decode's slots lost):
+
+| Pair | The RTL, 5e | The model, 5e's acc_o | The model's own decode (§13.20) | The RTL, 5f | The model, 5f's acc_o |
+|---|---|---|---|---|---|
+| spmv + nsichneu | 0.22, 1.212, 62% | 0.61, 1.606, 47% | 0.91, 1.899, 0% | 0.61, 1.601 | 0.91, 1.901, 7% |
+| stream + nsichneu | 0.20, 1.135, 46% | 0.49, 1.439, 53% | 0.90, 1.850, 0% | 0.73, 1.666 | 0.90, 1.850, 11% |
+| copy + CoreMark | 0.34, 1.501, 64% | 0.42, 1.371, 54% | 0.83, 1.737, 0% | 0.59, 1.708 | 0.83, 1.737, 10% |
+| hashprobe + CoreMark | 0.28, 1.220, 64% | 0.82, 1.768, 3% | 0.83, 1.783, 0% | +35% instructions | 0.83, 1.783, 4% |
+
+**2. The residual, with 5e's acc_o modelled** (the RTL's WS over the model's on the pairs both complete; the first final set, half basis; 30 / 120 / 250 cycles):
+
+| Build | All | Mixed pairs | All, before (§13.20) |
+|---|---|---|---|
+| C (4c60872b) | 0.994 / 0.995 / 0.981 | 0.986 / 0.970 / 0.932 | 1.000 / 0.998 / 0.985 |
+| 5d | 0.987 / 0.985 / 0.975 | 0.966 / 0.943 / 0.919 | 0.985 / 0.985 / 0.976 |
+| **5e (0138c48c)** | **0.959 / 0.940 / 0.950** | **0.945 / 0.886 / 0.890** | 0.953 / 0.910 / 0.915 |
+
+- **The model now has the stall,** in three of the four pairs.
+  - Decode loses 47–54% of its slots (the RTL 46–64%).
+  - The compute thread's share falls from 0.83–0.91 to 0.42–0.61 (the RTL 0.20–0.34).
+  - C and 5d move by under 0.6%. Their F2 hold mostly kept the stall from showing.
+- **It closes a third to two fifths of 5e's gap at 120 and 250, not all of it.**
+  - 4–6% remains, most of it in mixed pairs (0.89 at 120 and 250).
+  - hashprobe's pairs don't stall in the model (3% of slots against the RTL's 64%). There, the memory thread's group is blocked far more often on the RTL than in the model. 5f still lifts them on the RTL: core-2 measures +35% instructions in hashprobe + CoreMark.
+- **The model's 5f is still above the RTL's 5f** on core-2's three measured pairs: residuals 0.84, 0.90 and 0.98 (geometric mean 0.91, against 0.87 for the same pairs at 5e).
+  - The RTL's compute threads keep 0.59–0.73 of their speed; the model's keep 0.83–0.91.
+
+**3. Step 7 with 5f on the merged basis.** Step 7 here is C, core-2's commit fix, FP 64 across both, 50% caps, R2, round robin, 5e's fetch, rename's choice and the head window a cycle ahead, and decode's choice with 5f's acc_o; the second final set, 30 / 120 / 250 cycles:
+
+| | The model | Expected RTL (residual 0.94–0.96) | If 5f's residual falls to 5d's (0.96–0.98) |
+|---|---|---|---|
+| **Step 7 with 5f** | **1.260 / 1.268 / 1.260** | **1.20 / 1.18–1.20 / 1.19–1.21** | 1.24 / 1.24 / 1.22 |
+| With 5e's acc_o, for scale | 1.234 / 1.212 / 1.186 | | |
+| With the model's own decode (§13.20's as built) | 1.262 / 1.273 / 1.268 | | |
+| + the fetch fix as approved | 1.282 / 1.290 / 1.280 | 1.22–1.23 / 1.21–1.23 / 1.20–1.22 | 1.26 / 1.26 / 1.23 |
+| + rename's choice and the head window in the same cycle | 1.298 / 1.306 / 1.295 | 1.24 / 1.22–1.24 / 1.22–1.24 | 1.28 / 1.28 / 1.25 |
+
+- **No step-7 row hangs** any of the 42 or the 16 working-set pairs. The first set reads the same: 1.276 / 1.273 / 1.260 with 5f.
+- **5f is worth 2.1% / 4.6% / 6.2% at step 7.** Decode's choice a cycle ahead then costs only 0.2–0.6% against the model's own decode.
+- **How the expected residual is built:**
+  - It applies 5e's residual by group, with 5e's acc_o modelled: memory 0.95–0.99, compute 0.97–0.98, mixed 0.89–0.95.
+  - Its mixed part is lifted to 5f's three measured pairs (0.93–0.95).
+  - It includes the merged basis's 0.990–0.995 from 5c.
+  - That gives 0.956 / 0.950 / 0.956 overall. 5e's residual unadjusted gives 0.954 / 0.935 / 0.941, and 1.20 / 1.18 / 1.19.
+
+**4. What exit 2 looks like now.** The bar is 1.3 at 30, 120 and 250 cycles on the merged basis, with every pair running.
+- **Step 7 with 5f should land at about 1.20 at all three:** about 0.10 short.
+- **5f recovers the stall the model can see.** The 4–5% left is what the model doesn't yet explain: hashprobe's pairs, and the mixed and memory pairs' shortfall after the fix.
+- **The approved fetch form, and rename's choice and head window in the same cycle,** add about 0.04 together. That gives about 1.24, or 1.25–1.28 if 5f's residual falls to 5d's.
+- **The bar stays out of reach:** by about 0.06 with every fix, and by 0.02–0.05 even in the best case. This is §13.20's conclusion, now with 5f measured on the RTL.
+
+**5. Next.**
+- Core-2's 5f pair runs on both bases go beside the model when they land (item 3 of the request): `RTL_RUNS` takes them.
+- The residual left in mixed and memory pairs needs TG-DSLOT's counters on 5f, as on 5e:
+  - which thread decode reads in its empty slots;
+  - why that thread's group can't rename (its ROB, LQ or SQ half, rows, or DS).
+  - hashprobe's pairs first.
+
+**Decisions:** none here. The bar remains the coordinator's and the user's (§13.20).
+
+**Learned:** a stall that sits in a choice between two threads is invisible to a model whose choice is ideal. Modelling 5e's acc_o took the model's 5e from 0.91 to 0.94–0.95 of the RTL. The rest lies in why the memory thread's group is blocked as often as it is on the RTL.
+
+### 13.22 5e on main, on exit 2's basis: the residual measured directly (verif-2, 10-21)
+
+*verif-2 ran the 42 pairs on main 3511f430, which has 5d and 5e through 189aeda6 but not 5f. The runs used the second final set, REPEAT builds, 30 / 120 / 250 cycles, and both bases.*
+- *They measure 5e, acc_o stall included, on the set and basis exit 2 is judged on.*
+- *They take step 7's estimate from a measured residual, without carrying one over from the first set's half basis (§13.21).*
+
+**1. The RTL beside the model** (WS at 30 / 120 / 250 cycles; the model's rows over the pairs both complete):
+
+| Basis | The RTL (pairs) | The model, 5e's acc_o | Residual | Memory / compute / mixed | The model's own decode: residual |
+|---|---|---|---|---|---|
+| **Merged** | **1.203 / 1.169 / 1.136** (42 / 40 / 40) | 1.251 / 1.230 / 1.209 | **0.962 / 0.953 / 0.940** | 0.97–1.00 / 0.97 / **0.94 / 0.89 / 0.86** | 0.948 / 0.916 / 0.894 |
+| Half | 1.291 / 1.223 / 1.185 (42 / 40 / 40) | 1.338 / 1.287 / 1.254 | 0.973 / 0.957 / 0.949 | 0.97–0.99 / 1.00 / 0.95 / 0.89 / 0.87 | 0.961 / 0.923 / 0.906 |
+
+- **Against 5c on the same set,** the RTL's merged basis rose from 1.107 / 1.081 / 1.060, and hangs fell from 12 to 4.
+  - The 4 left: stride + Dhrystone and stride + hashprobe, at 120 and 250 cycles.
+  - In each, stride in slot 0 finishes its first region and slot 1 never does.
+- **The residual matches the first set's** (§13.21: 0.959 / 0.940 / 0.950). It is again almost all in mixed pairs, while memory and compute pairs are within 3%.
+- **The model's step-5 forms of 5e still hang chase8's 7 pairs,** for IQ-LD's rows; its step 7 hangs none.
+
+**2. Step 7 with 5f on the merged basis** (the second set; the model's rows from §13.21, by group, times this residual):
+
+| | The model | Expected RTL: 5e's residual as measured | With 5f lifting the mixed part as on core-2's pairs |
+|---|---|---|---|
+| **Step 7 with 5f** | 1.260 / 1.268 / 1.260 | **1.21 / 1.21 / 1.18** | 1.21 / 1.23 / 1.20 |
+| + the fetch fix as approved | 1.282 / 1.290 / 1.280 | 1.23 / 1.23 / 1.20 | 1.24 / 1.25 / 1.22 |
+| + rename's choice and the head window in the same cycle | 1.298 / 1.306 / 1.295 | 1.25 / 1.25 / 1.22 | 1.25 / 1.27 / 1.24 |
+
+- **A cross-check agrees.** The RTL's 5e times the model's step from 5e to step 7 with 5f (+0.7% / +3.5% / +4.7%) gives 1.21 / 1.21 / 1.19.
+- **Exit 2 with step 7 as built would land at about 1.21 / 1.21–1.23 / 1.18–1.20:** 0.07–0.12 short.
+- **With the approved fetch form and the two same-cycle fixes it is about 1.25:** 0.03–0.08 short.
+- **This is §13.21's picture with a measured residual:** within 0.03 of it, still under the bar at every latency.
+
+**Decisions:** none here.
+
+### 13.23 5f on the RTL beside the model (core-2, 10-21)
+
+*core-2 ran its pair runner on 65fac9b4: 5f (1ca3d58b) merged with main 6d89e7a3, which adds no model-visible change. It used the first final set's images, half basis, 30 / 120 / 250 cycles. The model's 5f is §13.21's: 5e as built with 5f's acc_o.*
+
+| | The RTL (pairs) | The model, same pairs | Residual | Memory / compute / mixed |
+|---|---|---|---|---|
+| 5e (0138c48c), §13.21 | 1.293 / 1.222 / 1.209 (42 / 40 / 41) | 1.358 / 1.303 / 1.274 | 0.959 / 0.940 / 0.950 | 0.95–0.99 / 0.97–0.98 / 0.95 / 0.89 / 0.89 |
+| **5f (65fac9b4)** | **1.311 / 1.265 / 1.260** (40 / 41 / 41) | 1.371 / 1.344 / 1.318 | **0.954 / 0.941 / 0.956** | 0.94–0.99 / 0.97–0.99 / **0.93 / 0.89 / 0.91** |
+
+- **5f gained on the RTL what the model predicted:** +1.4% / +3.5% / +4.2% from 5e, mixed pairs +1% / +8% / +12%. The residual is unchanged.
+  - So 5f did not close the rest of the gap. §13.22's case "with 5f lifting the mixed part" doesn't hold.
+- **Hangs:** stride + Dhrystone still hangs at 120 and 250. At 30, chase8 + chase8 and CoreMark + CoreMark report no WS in core-2's runner (as in 5d); they are not hangs.
+- **The rest is in a few pairs at 250 cycles** (the RTL against the model):
+  - hashprobe's three pairs: 1.37 vs 1.78 with CoreMark, 1.32 vs 1.65 with huffbench, 1.51 vs 1.82 with stream;
+  - matmult's two: 1.01 vs 1.23 with spmv, 1.08 vs 1.33 with stream;
+  - nsichneu's two: 1.60 vs 1.90 with spmv, 1.67 vs 1.85 with stream.
+  - Elsewhere the differences run both ways and largely cancel. copy's pairs read 7–13% higher on the RTL; spmv + hashprobe reads 9% lower.
+
+**Step 7 with 5f on the merged basis** (the second set; the model's rows from §13.21, times the residual by group; 30 / 120 / 250 cycles):
+
+| | The model | × 5f's residual (first set, to the merged basis) | × 5e's residual (second set, merged, §13.22) |
+|---|---|---|---|
+| **Step 7 with 5f** | 1.260 / 1.268 / 1.260 | **1.20 / 1.18 / 1.19** | 1.21 / 1.21 / 1.18 |
+| + the fetch fix as approved | 1.282 / 1.290 / 1.280 | 1.22 / 1.21 / 1.21 | 1.23 / 1.23 / 1.20 |
+| + rename's choice and the head window in the same cycle | 1.298 / 1.306 / 1.295 | 1.23 / 1.22 / 1.22 | 1.25 / 1.25 / 1.22 |
+
+- **Exit 2 with step 7 as built would land at about 1.20 at all three latencies:** 0.09–0.12 short.
+- **With every fix in hand it is about 1.22–1.25:** 0.05–0.08 short.
+- **Next, if the coordinator wants the rest found:** TG-DSLOT on 5f, in hashprobe's and matmult's pairs at 250 cycles.
+  - In the empty-slot cycles, which thread decode reads.
+  - Why the other thread's group can't rename.
+
+**Decisions:** none here.

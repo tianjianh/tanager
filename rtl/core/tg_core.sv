@@ -387,6 +387,9 @@ module tg_core
   // FP loads and FP store data between the LSU and P4
   logic                             fld_m2_will, fld_valid, sd_busy;
   logic [FPIDX_W-1:0]               fld_m2_idx, fld_idx;
+  // FP banks of 64 with renaming across both (DR-179): an FP load's bank (tg_lsu, from its register's name), and P4's
+  // write next cycle with its bank (tg_fp_exec), which holds a load bound for that bank in tg_lsu
+  logic                             fld_m2_bank, fld_bank, p4_nx_we, p4_nx_bank;
   logic [63:0]                      fld_data;
   logic [1:0][63:0]                 fsd_data;   // both FP banks (P4): the LSU picks by fsd_tag's bank
   preg_t                            fsd_tag;
@@ -441,7 +444,7 @@ module tg_core
 
   // ---- Issue ----
   logic [NCOL-1:0] wake_reg, wake_x, wake_l, col_clr;
-  logic            a1_block, ld_block;
+  logic            a1_block, ld_block, fp_block;
   logic [N_IQ-1:0] iss_valid;
   iq_pl_t [N_IQ-1:0] iss_pl;
   preg_t [N_XQ-1:0][1:0] iss_src_n;     // URF: the RF stage's next source tags
@@ -454,10 +457,12 @@ module tg_core
     col_clr = '0;
     col_clr[IQ_TAGS-1:0] = tag_free;
   end
+  logic             ld_m2_will;                 // the integer load in M2 completes (tg_lsu; tg_issue's filter)
   tg_issue u_is (
     .clk, .rst, .flush, .flush_tid, .disp_we(iq_we), .disp_dep(iq_dep),
-    .disp_pl(iq_pl), .disp_mdep(iq_mdep), .bank_free(iq_bank_free), .bank_free2(iq_bank_free2), .mx_hold, .mx_alloc, .alloc(wid_alloc), .wake_reg, .ld_m2_miss, .col_clr,
-    .w(w_vec), .busy(iq_busy), .a1_block, .ld_block, .fp_misc_block, .iss_valid, .iss_pl, .iss_src_n, .spec_cancel);
+    .disp_pl(iq_pl), .disp_mdep(iq_mdep), .bank_free(iq_bank_free), .bank_free2(iq_bank_free2), .mx_hold, .mx_alloc, .alloc(wid_alloc), .wake_reg, .ld_m2_will, .ld_m2_miss, .col_clr,
+    .w(w_vec), .busy(iq_busy), .a1_block, .ld_block, .fp_block, .fp_misc_block, .iss_valid, .iss_pl, .iss_src_n,
+    .spec_cancel);
 
   // LLTs are released the cycle after their register is written
   always_ff @(posedge clk) begin
@@ -466,7 +471,7 @@ module tg_core
   end
 
   // ---- Execute ----
-  logic             ld_m2_will, ld_res_valid;
+  logic             ld_res_valid;
   logic [PIDX_W-1:0] ld_m2_dst, ld_res_dst;
   logic [63:0]      ld_res_data;
   logic             ld_ag_valid, sta_ag_valid;
@@ -619,9 +624,10 @@ module tg_core
     .flush_tid(lsu_flush_tid), .ds_fire, .ds_valid, .ds_uop,
     .ds_ren,
     .lq_head_o(lq_head_t), .sq_head_o(sq_head_t), .sq_cmt_o(sq_cmt_t),
-    .ld_ag_valid, .ld_ag_pl, .ld_ag_addr, .sta_ag_valid, .sta_ag_pl, .sta_ag_addr, .ld_block,
+    .ld_ag_valid, .ld_ag_pl, .ld_ag_addr, .sta_ag_valid, .sta_ag_pl, .sta_ag_addr, .ld_block, .fp_block,
     .ld_m2_will, .ld_m2_miss, .ld_m2_dst, .ld_res_valid, .ld_res_dst, .ld_res_data,
-    .wake_ld(wake_l), .llt_done(llt_done_l), .fld_m2_will, .fld_m2_idx, .fld_valid, .fld_idx,
+    .wake_ld(wake_l), .llt_done(llt_done_l), .fld_m2_will, .fld_m2_bank, .fld_m2_idx, .fld_valid, .fld_bank,
+    .fld_idx, .p4_nx_we, .p4_nx_bank,
     .fld_data, .sd_tag, .sd_data, .sd_busy, .fsd_tag, .fsd_data, .fp_we, .fp_widx,
     .ds_src2_rdy, .rf_we, .rf_widx,
     .ld_cmp_valid(ld_cmp), .ld_cmp_rob, .ld_cmp_mmio, .st_cmp_valid(st_cmp), .st_cmp_rob,
@@ -715,8 +721,6 @@ module tg_core
     assign fdiv_iss = iss_valid[Q_FP] && iss_pl[Q_FP].fp_div;
     assign fpi_iss  = iss_valid[Q_FP] && iss_pl[Q_FP].fp_int;
     assign fp_iss_tid = iss_pl[Q_FP].tid;
-    logic f0_we;
-    logic [FPIDX_W-1:0] f0_widx;
     tid_t       p4_cmp_tid, p4_er_tid;
     logic       p4_er_v;
     logic [4:0] p4_er_ff;
@@ -724,11 +728,12 @@ module tg_core
     tg_fp_exec #(.FDIV_Q(FDIV_INFLIGHT), .FPI_Q(FPI_INFLIGHT)) u_p4 (
       .clk, .rst, .flush, .flush_tid,
       .init_we(!init_done), .init_bank(1'b0), .init_idx(FPIDX_W'(init_q[4:0])),
-      .iss_valid(iss_valid[Q_FP]), .iss_pl(p4_pl), .fmisc_block(fp_misc_block),
+      .iss_valid(iss_valid[Q_FP]), .iss_pl(p4_pl), .fmisc_block(fp_misc_block), .fp_block,
       .isrc_valid, .isrc_tag, .isrc_data,
-      .fld_m2_will, .fld_m2_idx, .fld_valid, .fld_idx, .fld_data,
+      .fld_m2_will, .fld_m2_bank, .fld_m2_idx, .fld_valid, .fld_bank, .fld_idx, .fld_data,
+      .p4_nx_we_o(p4_nx_we), .p4_nx_bank_o(p4_nx_bank),
       .fsd_tag, .fsd_data, .tr_tag, .tr_data(tr_data_p4),
-      .f0_we_o(f0_we), .f0_widx_o(f0_widx),
+      .fp_we_o(fp_we), .fp_widx_o(fp_widx),
       .wake_reg(wake_p4), .llt_done(llt_done_p4),
       .cmp_valid(p4_cmp), .cmp_tid(p4_cmp_tid), .cmp_rob(fp_cmp_rob), .cmp_wid(p4_cmp_wid),
       .cmp_fflags(fp_cmp_fflags),
@@ -736,8 +741,6 @@ module tg_core
       .fdiv_done, .fdiv_ret_valid(1'b0), .fdiv_ret_tid('0), .fdiv_ret_llt('0),
       .er_valid(p4_er_v), .er_tid(p4_er_tid), .er_fflags(p4_er_ff));
     assign fp_cmp     = p4_cmp;
-    assign fp_we      = {fld_valid, f0_we};
-    assign fp_widx    = {fld_idx, f0_widx};
     assign fpi_rob    = p4_fpi.rob;
     assign fpi_tid    = p4_fpi.tid;
     assign fpi_llt    = p4_fpi.llt;
@@ -818,8 +821,10 @@ module tg_core
     assign fc_fflags     = '0;
     assign fc_frm        = '0;
     assign fs_dirty      = '0;
+    assign p4_nx_we      = 1'b0;
+    assign p4_nx_bank    = 1'b0;
     logic unused;
-    assign unused = ^{fld_m2_will, fld_m2_idx, fld_valid, fld_idx, fld_data, fsd_tag,
+    assign unused = ^{fld_m2_will, fld_m2_bank, fld_m2_idx, fld_valid, fld_bank, fld_idx, fld_data, fsd_tag,
                       isrc_data, fpi_ready, cm_fflags, fc_wvalid, fc_waddr, fc_wdata};
   end
 
