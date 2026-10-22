@@ -1720,6 +1720,35 @@ The same snapshot as the baseline, with `place_design -directive AltSpreadLogic_
 
 Results: `fpga/spikes/results/product_asl_high/` (summary, timing, utilization after `opt_design`, placement and routing, the floorplan's reports, `fail_families.txt` from [`q_fail_families.tcl`](../../fpga/spikes/tcl/query/q_fail_families.tcl)).
 
+#### No slices + AltSpreadLogic_high, with the ACLINT registers: −1.74 ns (2026-10-22)
+
+**Build 1 of the coordinator's combinations** (`product_wt_ns_aslh`):
+- **Snapshot:** `snap/product_wt`, main dde95639 with soc-2's ACLINT registers (b856230a) merged as a preview, plus the measurement lines.
+- **Settings:** no crossbar or memory-port slices (DR-186's new default), `TG_AR_SLICE=1`, `AltSpreadLogic_high`.
+
+| | asl_high (c0030303, slices on, no ACLINT registers) | **No slices + AltSpreadLogic_high + ACLINT registers** |
+|---|---|---|
+| LUTs after `opt_design` / routed | 116,190 / 113,723 | 115,692 / 113,346 (96.8%) |
+| FFs routed, DSPs | 63,895, 157 | 60,146, 140 |
+| CLBs, control sets | 14,640, 2,820 | 14,629, 2,878 |
+| The router's congestion | routed | level 5, never put routability ahead of timing |
+| WNS / TNS on the core clock (ns) | −1.547 / −2,887 (7,651 failing) | **−1.740 / −5,766** (11,571 failing) |
+| `clk2x` within / into it / back (ns) | +1.607 / — / — | +1.118 / **−0.298** / +0.269 |
+| Endpoints within 1 ns | 23,782 in 645 families | 24,794 in 619 families |
+
+- **The ACLINT registers worked.** No path from the ACLINT is left within 1 ns, where asl_high had 128 families and 4,055 endpoints (worst −1.43 ns).
+- **The response path through the crossbar shrank but remains.** From the L2 banks into the cores: 24 families and 1,169 endpoints within 1 ns (856 of them into fetch), worst −1.459 ns, from the bank's D-queue read pointer into core 1's fetch PC (22 levels).
+  - With default placement it had been 42 families and 2,441 endpoints at −3.168 ns.
+  - Nothing from the cores into the crossbar, and nothing on the memory ports, is within 1 ns.
+- **The worst paths are now decode into the per-thread rename registers.** Fetch's `u_cmp/rt_q` reaches `rn_u_q`'s `imm` (512 endpoints, −1.686 ns) and `br_target` (504, −1.666 ns) through 21 levels, 73% wire.
+  - Those are the payload fields that rename's payload lever would carry beside rename. So that lever pays in timing as well as area.
+  - Next come fetch's `rt_q` from rename's `ltail_q` (−1.740 ns, 26 levels), the ROB's `hw_q`, and the LSU's M2 from step 6's `md_q` (−1.47).
+  - By unit within 1 ns: rename 228 families, the LSU 153, fetch 84, the CSR files 79, the RAS 29.
+- **A new failure into `clk2x`:** core 0's issue-queue age (`age_q`) into the URF's UltraRAM read address, 14 levels, −0.298 ns. Build 3 (0.5 ns of uncertainty on `clk2x`) tests that side.
+- **Against asl_high this is no gain in WNS.** The ACLINT registers took 4K endpoints out, but the response path put 1.2K in, and the netlist moved on: step 6 and fpu-2's levers.
+
+Results: `fpga/spikes/results/product_wt_ns_aslh/`.
+
 #### AltSpreadLogic_medium: spreads too little at this fill (2026-10-22)
 
 The slices-on product build on the new snapshot (`snap/product_wt2`, main e2570c7c) with `place_design -directive AltSpreadLogic_medium` (`product_wt2_aslm`).
