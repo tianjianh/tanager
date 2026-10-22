@@ -10,8 +10,9 @@
 #   C. the same, both unpinned;
 #   D. hart_check.sh: every hart alone, every pair, then all four at once;
 #   E. hsm_rounds.sh 1: CPUs 1-3 off and on again.
-# After each step the kernel's new lines are checked for trouble. A DR-141 set passes with 4 CoreMark validations,
-# TGLB-END status=0 and no TGLB-FAIL; a stress pass with ok=1.
+# After each step the kernel's new lines are checked for trouble. A DR-141 set passes with TGLB-END status=0, no
+# TGLB-FAIL, no CoreMark CRC error, and each of its 4 CoreMark runs validated or only under CoreMark's 10 s rule (a
+# note, not a failure: beside the stress its sizing can pick too few iterations); a stress pass with ok=1.
 H=/home/tanager; S=$H/soak4; B=$H/baseline/bin
 mkdir -p "$S" && cd "$S" || exit 1
 L=$S/soak.log
@@ -33,8 +34,13 @@ pair() {  # pair NAME STRESS_CPUS DR141_CPUS (empty: unpinned)
   if grep -q "^STRESS pass 1 ok=1" "$so"; then log "r$r $n stress PASS $(grep -o '^STRESS pass 1 .*' "$so" | cut -d' ' -f6-9)"
   else log "r$r $n stress FAIL"; grep STRESS "$so" | head -5 >> "$L"; fi
   v=$(grep -c "Correct operation validated" "$dout"); e=$(grep -c "^TGLB-END status=0" "$dout"); f=$(grep -c "^TGLB-FAIL" "$dout")
-  if [ "$v" = 4 ] && [ "$e" = 1 ] && [ "$f" = 0 ]; then log "r$r $n DR-141 PASS $(awk '/^TGLB coremark-a / { for (i = 1; i <= NF; i++) if ($i ~ /^cycles=/) print "coremark-a", $i }' "$dout")"
-  else log "r$r $n DR-141 FAIL validated=$v end=$e fails=$f"; grep -E "TGLB-FAIL|ERROR|rror" "$dout" | head -5 >> "$L"; fi
+  # CoreMark's own checks: a CRC error is a wrong result; "Must execute for at least 10 secs" is its timing rule,
+  # which its sizing trips when its calibration ran slowly beside the stress (the CRCs are still checked).
+  c=$(grep -c -E "ERROR! (seed|list|matrix|state)" "$dout"); short=$(grep -c "Must execute for at least 10 secs" "$dout")
+  note=""; [ "$short" != 0 ] && note=" (note: $short CoreMark run(s) under 10 s, CoreMark's timing rule; CRCs right)"
+  if [ "$e" = 1 ] && [ "$f" = 0 ] && [ "$c" = 0 ] && [ $((v + short)) = 4 ]; then
+    log "r$r $n DR-141 PASS $(awk '/^TGLB coremark-a / { for (i = 1; i <= NF; i++) if ($i ~ /^cycles=/) print "coremark-a", $i }' "$dout")$note"
+  else log "r$r $n DR-141 FAIL validated=$v short=$short crc-errors=$c end=$e fails=$f"; grep -E "TGLB-FAIL|ERROR|rror" "$dout" | head -5 >> "$L"; fi
   kcheck "r$r $n"
 }
 log "SOAK4-BEGIN nproc=$(nproc) online=$(cat /sys/devices/system/cpu/online)"
