@@ -1,0 +1,53 @@
+== Ubuntu after the re-plug (ARM mode, 10-22 16:20 UTC; the A53's clock has no NTP)
+A53 clock 2026-10-20T19:27:25Z (no NTP), up 139.62 s
+ -1 d881f9b5dd64431a9d9280d162aad998 Mon 2026-10-12 07:36:19 UTC Tue 2026-10-20 19:25:29 UTC
+  0 a7ac59c5b969436b99bcf44ab109ed60 Tue 2026-10-20 19:27:20 UTC Tue 2026-10-20 19:27:25 UTC
+eth0             UP             fe80::48ff:2967:7216:51ee/64 
+eth0             UP             fe80::48ff:2967:7216:51ee/64 
+AMS temps: 32554 34583 33433 
+== fh_p1 status 2026-10-20 19:27:39 UTC, A53 up 153.41 s
+-- tanager/:
+b0094d235a36f8bd fw_jump.bin
+459992b884a8a3e0 payload.bin
+8aa45e615548e570 riscv.cmd
+e6ed38d5e03aebc4 riscv.scr
+33e29f3d4d9f95b5 tanager.bit.bin
+9b1fb7efc85581b3 tanager.dtb
+45ba89a91ea1b278 tanager.dtb.pre-pmpfix
+/dev/mmcblk1 sector 2047: riscv, trial 1: the last RISC-V boot never confirmed, so the next boot is ARM
+/dev/mmcblk1p1 1009M  265M  745M  27% /boot/firmware
+fan: pwm1 15/255, fancontrol active
+active app: k26-starter-kits
+RESET_REASON 0x00000021
+-- No entries --
+
+== Debian in RISC-V mode on the two-core 100 MHz image (16:24 UTC; its clock has no NTP)
+up 155.75
+boot -1 (the power cut) last 3:
+[75353.453609] tanager CRON[2321]: pam_unix(cron:session): session opened for user root(uid=0) by root(uid=0)
+[75353.473490] tanager CRON[2323]: (root) CMD (cd / && run-parts --report /etc/cron.hourly)
+[75353.542230] tanager CRON[2321]: pam_unix(cron:session): session closed for user root
+boot -1 shutdown lines: 0
+this boot, the root:
+[   53.602056] EXT4-fs (mmcblk0p3): mounted filesystem 45d8e126-fa57-4bee-8133-ba472bb7b0c6 r/w with ordered data mode. Quota mode: none.
+[   79.022434] systemd[1]: systemd-fsck-root.service - File System Check on Root Device skipped, unmet condition check ConditionPathExists=!
+[   86.436637] EXT4-fs (mmcblk0p3): re-mounted 45d8e126-fa57-4bee-8133-ba472bb7b0c6.
+Oct 22 09:09:38 tanager systemd[1]: systemd-fsck-root.service - File System Check on Root Device skipped, unmet condition check ConditionPat
+
+== p1's backup (ARM mode, 16:31 UTC)
+== fh_p1 backup 2026-10-20 19:30:03 UTC, A53 up 133.82 s
+backup: 7 files, 9.0M
+b0094d235a36f8bd fw_jump.bin
+459992b884a8a3e0 payload.bin
+8aa45e615548e570 riscv.cmd
+e6ed38d5e03aebc4 riscv.scr
+33e29f3d4d9f95b5 tanager.bit.bin
+9b1fb7efc85581b3 tanager.dtb
+45ba89a91ea1b278 tanager.dtb.pre-pmpfix
+/dev/mmcblk1p1 1009M  273M  736M  28% /boot/firmware
+45ba89a91ea1b278 tanager.dtb.pre-pmpfix
+/dev/mmcblk1 sector 2047: arm
+/dev/mmcblk1p1 1009M  273M  736M  28% /boot/firmware
+fan: pwm1 15/255, fancontrol active
+active app: k26-starter-kits
+RESET_REASON 0x00000021
