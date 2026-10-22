@@ -1,0 +1,48 @@
+HARTCHECK-BEGIN d4r2-100-health 2026-10-22T09:11:08Z up 178.03
+6.12.113+deb13-riscv64
+root=LABEL=tanager-root console=ttyS0,115200 earlycon rw
+online CPUs: 0-1 (nproc 2)
+cpu0 = hart 0, siblings 0
+cpu0 = hart rv64imafdc_zicntr_zicond_zicsr_zifencei_zca_zcd_zba_zbb_zbs_sstc, siblings 0
+cpu1 = hart 2, siblings 1
+cpu1 = hart rv64imafdc_zicntr_zicond_zicsr_zifencei_zca_zcd_zba_zbb_zbs_sstc, siblings 1
+[   18.903021] Run /init as init process
+Startup finished in 56.924s (kernel) + 1min 15.082s (userspace) = 2min 12.006s 
+== kernel messages
+dmesg PASS no trouble lines
+[    0.000000] SBI specification v3.0 detected
+[    0.000000] SBI implementation ID=0x1 Version=0x10009
+[    0.000000] SBI TIME extension detected
+[    0.000000] SBI IPI extension detected
+[    0.000000] SBI RFENCE extension detected
+[    0.000000] SBI SRST extension detected
+[    0.000000] SBI DBCN extension detected
+[    0.000000] SBI HSM extension detected
+[    0.000000] riscv: providing IPIs using SBI IPI extension
+[    0.000000] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645041785100000 ns
+[    0.000000] clocksource: riscv_clocksource: mask: 0xffffffffffffffff max_cycles: 0x24e6a1710, max_idle_ns: 440795202120 ns
+[    0.275145] smp: Bringing up secondary CPUs ...
+== each hart alone
+coremark-a cpu0 (hart 0) PASS 452.859903 iterations/s
+t cpu0 (hart 0) PASS 2.93 s
+coremark-a cpu0 (hart rv64imafdc_zicntr_zicond_zicsr_zifencei_zca_zcd_zba_zbb_zbs_sstc) PASS 454.191271 iterations/s
+t cpu0 (hart rv64imafdc_zicntr_zicond_zicsr_zifencei_zca_zcd_zba_zbb_zbs_sstc) PASS 2.93 s
+coremark-a cpu1 (hart 2) PASS 453.451249 iterations/s
+t cpu1 (hart 2) PASS 2.93 s
+coremark-a cpu1 (hart rv64imafdc_zicntr_zicond_zicsr_zifencei_zca_zcd_zba_zbb_zbs_sstc) PASS 452.779911 iterations/s
+t cpu1 (hart rv64imafdc_zicntr_zicond_zicsr_zifencei_zca_zcd_zba_zbb_zbs_sstc) PASS 2.93 s
+== pairs of harts
+mt cpu0+cpu1 PASS
+pingpong cpu0+cpu1: 2216.0 ns/round-trip
+mt cpu0+cpu1 PASS
+pingpong cpu0+cpu1: 2226.3 ns/round-trip
+mt cpu0+cpu1 PASS
+pingpong cpu0+cpu1: 2222.3 ns/round-trip
+mt cpu0+cpu1 PASS
+pingpong cpu0+cpu1: 2240.7 ns/round-trip
+== all harts at once
+proj, 2 at a time PASS 11.58 s
+sysbench cpu, 2 threads:     events per second:    93.84
+sysbench threads, 2 threads:     total number of events:              778
+dmesg after the checks PASS no new lines
+HARTCHECK-END d4r2-100-health fails=0 2026-10-22T09:14:07Z up 357.22
