@@ -1697,6 +1697,29 @@ The floorplan checks all graded OK:
 
 Results: `fpga/spikes/results/product_c0030303/` (the utilization after synthesis, `opt_design` and placement; the floorplan's reports; `run_excerpt.txt`, the build's FLOORPLAN, timing and congestion lines).
 
+#### AltSpreadLogic_high: the product chip routes, at −1.55 ns (2026-10-22)
+
+The same snapshot as the baseline, with `place_design -directive AltSpreadLogic_high` in the measurement copy (approved by the coordinator; `product_asl_high`).
+
+| | Baseline (default placement) | AltSpreadLogic_high |
+|---|---|---|
+| LUTs placed / routed | 113,792 / — | 113,719 / 113,723 (97.1%) |
+| FFs, CLBs, control sets | 63,912, 14,637, 2,849 | 63,895, 14,640, 2,820 |
+| Routes | no: 28,100 unrouted | **yes** (2.4 h in all) |
+| WNS / TNS on the core clock (ns) | — | **−1.547 / −2,887**, 7,651 failing endpoints |
+| `clk2x` / the host clock (ns) | — | +1.607 / +3.025 |
+| Endpoints within 1 ns | — | 23,782 in 645 families |
+
+- **Spreading buys routability and costs timing.** The worst paths are 64–78% wire.
+- **The worst families sit in the cores.** Below 1 ns:
+  - the LSU has 193 families (worst −1.55: the walker's `base_q` from the ROB's `ct_q`), rename 192 (−1.41: from fetch's `u_cmp/rt_q` through decode into the per-thread rename registers), the CSR files 98 (−1.43) and fetch 83 (−1.51);
+  - the L2 has 27 (−0.90) and the crossbar, with its slices on, 13 (−0.15).
+- **128 families (4,055 endpoints, worst −1.43 ns) start at the ACLINT.** That is `rst_q` and the timer wake hints, running combinationally into both cores' CSR files (80 families), rename, the ROB and fetch.
+  - hp1fs showed the same path.
+  - A register on each hart's timer-interrupt and wake lines, in the ACLINT or at the core's input, removes them all for one cycle of interrupt latency.
+
+Results: `fpga/spikes/results/product_asl_high/` (summary, timing, utilization after `opt_design`, placement and routing, the floorplan's reports, `fail_families.txt` from [`q_fail_families.tcl`](../../fpga/spikes/tcl/query/q_fail_families.tcl)).
+
 #### The area exploration: the LSU, rename and the PMP bound (2026-10-21)
 
 **Asked** (the coordinator): three synthesis-only measurements on main e6691d53 (DR-179's FP banks of 64), with hu1's settings: smt2, TG_HART1=1, the release form's `LAT_INJ=0`, the product windows, the URF on. Measurement only; nothing goes to main.
