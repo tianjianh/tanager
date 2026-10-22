@@ -1,14 +1,15 @@
-/* M7 step 7: the issue-queue caps lift while a hart waits in WFI and come back when it wakes (the coordinator, 10-21).
-   Hart 1 enables its software interrupt (mie.MSIE; mstatus.MIE stays 0, so WFI resumes without a trap), says it is
-   ready, and waits in WFI. Hart 0 sees it ready, gives it time to settle in WFI (the caps lift), wakes it by an IPI,
-   and at once fills its window with long-latency work: a load from a cold line, three divides behind it, and behind
-   those ALU ops, loads, store addresses and FP ops, more than half of every issue queue (two ALU queues of 10, LD 6,
-   STA 4, FP 10). Hart 1 then needs rows while hart 0 holds more than its share. The caps stop hart 0's dispatch,
-   hart 0's rows drain as the divides complete, and hart 1 must finish its work (a sum, then a done flag) before
-   hart 0's bounded wait runs out. Lockstep checks every value. Without hart 1, hart 0 finds no ready flag within its
-   wait and runs the block alone. tg_issue's +capstat line (stderr) counts the returns of the caps that find the
-   running thread above its share of every queue before the woken thread's first row. Added by the FPU track (for
-   verif-2's review). */
+/* M7 step 7: the issue-queue caps lift while the halves are merged and come back at the split (core-2's review,
+   10-21). Hart 1 enables its software interrupt (mie.MSIE; mstatus.MIE stays 0, so WFI resumes without a trap), says it
+   is ready, and waits in WFI. Hart 0 sees it ready and gives it time to fall asleep and the halves to merge (step 6:
+   the caps lift). Then hart 0 wakes it by an IPI and at once fills its window with long-latency work: a load from a cold
+   line, three divides behind it, and behind those ALU ops, loads, store addresses and FP ops, more than half of every
+   issue queue (two ALU queues of 10, LD 6, STA 4, FP 10). The wake splits the halves once hart 0's window fits in its
+   half, and the caps come back. Hart 1 then needs rows while hart 0 holds more than its share. The caps stop hart 0's
+   dispatch, hart 0's rows drain as the divides complete, and hart 1 must finish its work (a sum, then a done flag)
+   before hart 0's bounded wait runs out. Lockstep checks every value. Without hart 1, hart 0 finds no ready flag
+   within its wait and runs the block alone. tg_issue's +capstat line (stderr) counts the splits that find the running
+   thread above its share of every queue before the woken thread's first row; tg_rename's TG-SMT line counts the
+   merges and splits. Added by the FPU track (for verif-2's review). */
 #include "tg_test.h"
   .option arch, +zicsr, +f, +d
   .section .text.init, "ax"
@@ -38,7 +39,7 @@ hart0:
   jal ra, block                /* no hart 1: the block alone */
   j pass
 2:
-  li t1, 200                   /* hart 1 settles in WFI: the caps lift */
+  li t1, 200                   /* hart 1 falls asleep and the halves merge: the caps lift */
 3:
   addi t1, t1, -1
   bnez t1, 3b

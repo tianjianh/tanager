@@ -139,7 +139,6 @@ module tg_rob
   output tid_t                         flush_tid,
   output logic [63:0]                  flush_pc,
   output logic                         icinv,
-  output logic [NUM_THREADS-1:0]       park_o,       // with hart 1: each thread waits in WFI, no interrupt pending
   // Commit trace
   output tr_rec_t [CW-1:0]             trace_o,
   output logic [CW-1:0]                trace_valid_o,
@@ -873,9 +872,6 @@ module tg_rob
   logic o_has;                      // ... it has entries
   localparam int RUN_K = 4;
   logic [1:0] run_q;                // (MT) this thread's turns in a row before this one, while the other waits
-  for (genvar t = 0; t < NT; t++) begin : g_park   // each thread's WFI wait, as o_park's (tg_issue: the caps lift)
-    assign park_o[t] = MT && wfp_q[t] && !wkh_q[t] && int'(wfi_cnt_q[t]) != WFI_MAX;
-  end
   always_comb begin
     ct_n = t_cm;
     o_park = MT && wfp_q[~t_cm] && !wkh_q[~t_cm] && int'(wfi_cnt_q[~t_cm]) != WFI_MAX && !slp_rdy[~t_cm];
