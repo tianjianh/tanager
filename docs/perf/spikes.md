@@ -1680,7 +1680,10 @@ The floorplan checks all graded OK:
 
 - **DR-180's −3,170 flip-flops are −2,150 after `opt_design`.** About 1,025 of those it trims at synthesis were flip-flops that `opt_design` swept anyway: it removes 1,487 from hp1, 1,268 from hu1 and ex1, and only 243 from the product.
 - **After `opt_design` the uncore nets out near zero** (the windows' +2,179 against DR-180's −2,150). The placed flip-flop growth is, to first order, 5d's second rename register (+1,580 a chip), with the LSU's and fetch's +300.
-- **Control sets** (2,799 placed in hp1, 2,849 in the product, +50) wait for a per-unit query on the next run's synthesis checkpoint ([`q_ctrl_sets.tcl`](../../fpga/spikes/tcl/query/q_ctrl_sets.tcl)).
+- **Control sets didn't grow.** After synthesis the product has 2,595 against hp1's 2,621 ([`q_ctrl_sets.tcl`](../../fpga/spikes/tcl/query/q_ctrl_sets.tcl)).
+  - By unit: rename −11 a core (5d added registers, not control sets), fetch +6 and the LSU +4 to +5 a core.
+  - The uncore −27: DR-180's PLIC −55 and the host bridge −12, against the new host DMA +33 and the PS window +11.
+  - So control-set merging is the weaker of the flow levers below.
 - **So the design lever that matches the growth is rename's payload beside rename.**
   - It takes about 3.4K flip-flops and 1K LUT cells out of the same two registers and the DS register that 5d doubled.
   - The PMP at TLB fill (2.5–3K LUTs) answers the LUTs.

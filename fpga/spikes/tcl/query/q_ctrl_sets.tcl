@@ -10,7 +10,7 @@ proc cs {r} {
   return [list $n $ff]
 }
 proc kids {parent} {
-  return [lsort [get_cells -quiet -filter "PARENT == \"$parent\" && !IS_PRIMITIVE"]]
+  return [lsort [get_cells -quiet -hierarchical -filter "PARENT == \"$parent\" && !IS_PRIMITIVE"]]
 }
 set fs [open ctrl_sets.txt w]
 foreach arg $argv {
@@ -22,11 +22,11 @@ foreach arg $argv {
   puts $fs [format "== %s: %s control sets (%s)" $label $n $dcp]
   set units {}
   foreach core {u_soc/g_core[0].g_tgc.u_core u_soc/g_core[1].g_tgc.u_core u_soc/u_uncore} {
-    if {[llength [get_cells -quiet -filter "NAME == \"$core\""]]} { lappend units $core }
+    if {[llength [get_cells -quiet -hierarchical -filter "NAME == \"$core\""]]} { lappend units $core }
     foreach k [kids $core] { lappend units [get_property NAME $k] }
   }
   foreach u $units {
-    set c [get_cells -quiet -filter "NAME == \"$u\""]
+    set c [get_cells -quiet -hierarchical -filter "NAME == \"$u\""]
     if {![llength $c]} { continue }
     lassign [cs [report_control_sets -cells $c -return_string]] n ff
     regsub {^u_soc/} $u {} short
