@@ -985,30 +985,32 @@ module tg_rename
     for (int b = 0; b < INT_BANKS; b++) if (int'(pops[b]) > int'(fl_count[b][t_rn])) want_any = 1'b1;
     for (int b = 0; b < 2; b++) if (EXT_FD && int'(fpops[b]) > int'(ffl_count[b][t_rn])) want_any = 1'b1;
   end
-  // Both are written as a choice by rn_fire between their values with rename firing (f = 1) and without (f = 0): the
-  // same function (timing: rn_fire, the end of rename's checks, reached decode's thread choice through de_take, the
-  // registers' next valid bits and sel_n; now through one select. The product chip's paths into fetch's rt_q)
-  logic                    sel_n;
-  logic [1:0]              sel_f, tk_f;    // sel_n, de_take given rn_fire = f
-  logic [1:0][NT-1:0]      vn, nw, acc_f;  // each register holds a group next cycle; ... one decode hands it now; acc_o
+  // Both are written as a choice by rn_fire and decode's valid bits (de_any) between their values for each pair (i =
+  // {rn_fire, de_any}): the same function (timing: rn_fire, the end of rename's checks, reached decode's thread choice
+  // through de_take, the registers' next valid bits and sel_n, and decode's valid bits through the next valid bits and
+  // sel_n; now both through one select. The product chip's paths into fetch's rt_q)
+  logic                    sel_n, de_any;
+  logic [3:0]              sel_f, tk_f;    // sel_n, de_take given {rn_fire, de_any} = i
+  logic [3:0][NT-1:0]      vn, nw, acc_f;  // each register holds a group next cycle; ... one decode hands it now; acc_o
+  assign de_any = |de_valid;
   always_comb
-    for (int f = 0; f < 2; f++) begin
-      tk_f[f] = !flush && ready && (!(|rn_v_q[CMT ? t_de : 0]) || (sel_q == t_de[0] && f == 1) || block_q[t_de]);
+    for (int i = 0; i < 4; i++) begin
+      tk_f[i] = !flush && ready && (!(|rn_v_q[CMT ? t_de : 0]) || (sel_q == t_de[0] && i >= 2) || block_q[t_de]);
       for (int t = 0; t < NT; t++) begin
-        nw[f][t] = CMT && tk_f[f] && |de_valid && t_de == tid_t'(t) && !block_q[t];
-        vn[f][t] = nw[f][t] || (CMT && |rn_v_q[CMT ? t : 0] && !(sel_q == t[0] && f == 1) && !block_q[t] &&
+        nw[i][t] = CMT && tk_f[i] && i % 2 == 1 && t_de == tid_t'(t) && !block_q[t];
+        vn[i][t] = nw[i][t] || (CMT && |rn_v_q[CMT ? t : 0] && !(sel_q == t[0] && i >= 2) && !block_q[t] &&
                                 !(flush && t_fl == tid_t'(t)));
       end
-      sel_f[f] = sel_q;
+      sel_f[i] = sel_q;
       if (CMT) begin
-        if (vn[f][sel_q] && |rn_valid_q && want_any)                sel_f[f] = sel_q;   // its transfer needs it chosen
-        else if (vn[f][!sel_q] && (nw[f][!sel_q] || rdy[!sel_q])) sel_f[f] = !sel_q;
-        else if (!vn[f][sel_q])                                   sel_f[f] = !sel_q;
+        if (vn[i][sel_q] && |rn_valid_q && want_any)                sel_f[i] = sel_q;   // its transfer needs it chosen
+        else if (vn[i][!sel_q] && (nw[i][!sel_q] || rdy[!sel_q])) sel_f[i] = !sel_q;
+        else if (!vn[i][sel_q])                                   sel_f[i] = !sel_q;
       end
-      for (int t = 0; t < NT; t++) acc_f[f][t] = CMT && (!vn[f][t] || (sel_f[f] == t[0] && rdy[t]) || block_q[t]);
+      for (int t = 0; t < NT; t++) acc_f[i][t] = CMT && (!vn[i][t] || (sel_f[i] == t[0] && rdy[t]) || block_q[t]);
     end
-  assign sel_n = rn_fire ? sel_f[1] : sel_f[0];
-  assign acc_o = rn_fire ? acc_f[1] : acc_f[0];
+  assign sel_n = sel_f[{rn_fire, de_any}];
+  assign acc_o = acc_f[{rn_fire, de_any}];
 `ifndef SYNTHESIS
   // The choice as it was written before, from de_take, checked against the select every cycle
   logic          sel_r;
@@ -1028,8 +1030,8 @@ module tg_rename
     for (int t = 0; t < NT; t++) acc_r[t] = CMT && (!vn_r[t] || (sel_r == t[0] && rdy[t]) || block_q[t]);
   end
   always_ff @(posedge clk)
-    if (!rst && CMT) assert (sel_n == sel_r && acc_o == acc_r && de_take == tk_f[rn_fire])
-      else $error("tg_rename: the thread choice's select by rn_fire differs from the choice through de_take");
+    if (!rst && CMT) assert (sel_n == sel_r && acc_o == acc_r && de_take == tk_f[{rn_fire, de_any}])
+      else $error("tg_rename: the thread choice's select by rn_fire and de_any differs from the choice through de_take");
 `endif
 
   // The pops each free list takes when rename fires (the free list applies rn_fire last)
