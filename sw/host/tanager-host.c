@@ -33,6 +33,15 @@
 #include "extwrite.h"
 #include "virtio.h"
 
+/* The full barrier between the CPU's stores and the PL's view of memory (the host DMA window, the RISC-V's RAM): the
+ * A53's dsb sy. On another host (make native, a build and warnings check) the compiler's full fence stands in, so
+ * that build compiles as the board's does */
+#if defined(__aarch64__)
+#define TG_DSB() __asm__ volatile("dsb sy" ::: "memory")
+#else
+#define TG_DSB() __sync_synchronize()
+#endif
+
 /* ---- Host register map (docs/spec/host.md) ---- */
 enum {
   R_ID = 0x000, R_VERSION = 0x004, R_CLK_HZ = 0x008, R_CAPS = 0x00C,
@@ -471,7 +480,7 @@ static void cmd_dma_adma(const struct opts *o, int argc, char **argv) {
   volatile uint64_t *hp = dma_map(o, off, n);
   uint64_t w = n / 8;
   for (uint64_t i = 0; i < w; i++) { ddr[w + i] = 0xD0D0000000000000ull ^ (off + 8 * i) * 0x9E3779B97F4A7C15ull; ddr[2 * w + i] = 0; hp[i] = 0; }
-  __asm__ volatile("dsb sy" ::: "memory");
+  TG_DSB();
   uint32_t wr0 = rd(R_HDMA_WR_LINES), rd0 = rd(R_HDMA_RD_LINES), dr0 = rd(R_HDMA_WR_DROPS);
   double us1, us2;
   uint32_t isr1 = adma_copy(ch, o->base + off + n, o->dma_pa + off, n, &us1);
@@ -526,7 +535,7 @@ static void cmd_dma(const struct opts *o, int argc, char **argv) {
   } else if (!strcmp(argv[0], "write") && argc >= 3) {
     volatile uint64_t *p = dma_map(o, num(argv[1]), 8);
     p[0] = num(argv[2]);
-    __asm__ volatile("dsb sy" ::: "memory");
+    TG_DSB();
   } else if (!strcmp(argv[0], "adma")) {
     cmd_dma_adma(o, argc, argv);
   } else if (!strcmp(argv[0], "check")) {
@@ -539,7 +548,7 @@ static void cmd_dma(const struct opts *o, int argc, char **argv) {
     uint32_t rd0 = rd(R_HDMA_RD_LINES), wr0 = rd(R_HDMA_WR_LINES);
     double t0 = now_s();
     for (uint64_t i = 0; i < n; i++) p[i] = (off + 8 * i) * 0x9E3779B97F4A7C15ull;
-    __asm__ volatile("dsb sy" ::: "memory");
+    TG_DSB();
     double t1 = now_s();
     for (uint64_t i = 0; i < n; i++)
       if (p[i] != (off + 8 * i) * 0x9E3779B97F4A7C15ull && bad++ < 4)
@@ -548,7 +557,7 @@ static void cmd_dma(const struct opts *o, int argc, char **argv) {
     /* narrow stores: every other 32-bit half, then the whole words again */
     volatile uint32_t *q = (volatile uint32_t *)p;
     for (uint64_t i = 0; i < 2 * n; i += 2) q[i] = (uint32_t)i;
-    __asm__ volatile("dsb sy" ::: "memory");
+    TG_DSB();
     for (uint64_t i = 0; i < n; i++) {
       uint64_t want = (((off + 8 * i) * 0x9E3779B97F4A7C15ull) & ~0xffffffffull) | (uint32_t)(2 * i);
       if (p[i] != want && bad++ < 8) fprintf(stderr, "dma check: 0x%" PRIx64 " reads 0x%016" PRIx64 " after a 32-bit store\n", off + 8 * i, p[i]);
@@ -883,7 +892,7 @@ static uint64_t h_ram_rd64(uint64_t off)             { return *(volatile uint64_
 static void     h_ram_wr64(uint64_t off, uint64_t v) { *(volatile uint64_t *)(vio_ram + off) = v; }
 static void     h_ram_wr32(uint64_t off, uint32_t v) { *(volatile uint32_t *)(vio_ram + off) = v; }
 static void     h_ram_wr8(uint64_t off, uint8_t v)   { vio_ram[off] = v; }
-static void     h_barrier(void)                      { __asm__ volatile("dsb sy" ::: "memory"); }
+static void     h_barrier(void)                      { TG_DSB(); }
 
 /* Board lockstep with the back-ends (extwrite.h; docs/spec/verification.md §3.10): with --trace, every store
  * through the DMA port becomes an external-write record in the trace, between the ring's records. The port
