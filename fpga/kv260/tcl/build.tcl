@@ -294,6 +294,7 @@ proc tg_clk2x_clock {} {
 stamp "opt_design ($opt_dir)"
 opt_design -directive $opt_dir
 tg_prim_check -file $rep/prim_check_opt.txt -fail 0
+report_utilization -file $rep/opt_utilization.rpt   ;# spikes-2's measurement copy only (not soc-2's build.tcl)
 set pr_unc_note ""
 if {$pr_unc > 0} {
   set core_clk [tg_core_clock]
@@ -317,6 +318,7 @@ if {$pr_unc > 0} {
 if {$ckpt} { stamp "write_checkpoint post_opt"; write_checkpoint -force ./post_opt.dcp }
 stamp "place_design ($place_dir)"
 place_design -directive $place_dir
+report_utilization -file $rep/place_utilization.rpt   ;# spikes-2's measurement copy only
 if {$fp_on} {
   # each pblock's own LUTs against its sites, and its cells placed outside: FLOORPLAN_OK, _WARN (above 85%) or _TIGHT
   # (above 90%) in the log, the reports in reports/util_pblocks.rpt
@@ -329,6 +331,7 @@ if {$ckpt} { stamp "write_checkpoint post_place"; write_checkpoint -force ./post
 stamp "route_design"
 route_design
 if {$pr_unc > 0} { set_clock_uncertainty -setup 0 $core_clk }   ;# the reports at the real period
+write_checkpoint -force routed.dcp   ;# spikes-2's measurement copy only: for later queries
 stamp "reports"
 report_timing_summary -max_paths 20 -report_unconstrained -file $rep/timing_summary.rpt
 report_utilization -file $rep/utilization.rpt
