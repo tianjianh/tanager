@@ -13,7 +13,8 @@
 module tg_alu
   import tg_alu_pkg::*;
 #(
-  parameter bit MINMAX = 1'b1
+  parameter bit MINMAX = 1'b1,
+  parameter bit SIMPLE = 1'b0      // (scratch study) add/sub, logic, slt, lui only: no shifter, Zba, Zbs, unary
 ) (
   input  alu_ctl_t     ctl,
   input  logic [63:0]  a,
@@ -30,8 +31,8 @@ module tg_alu
   logic        cout;
   assign is_lg = ctl.grp[G_LOGIC];
   assign is_pb = ctl.grp[G_PASSB];
-  assign a_uw  = ctl.uw ? {32'b0, a[31:0]} : a;
-  assign a_add = a_uw << ctl.zba_sh;
+  assign a_uw  = (!SIMPLE && ctl.uw) ? {32'b0, a[31:0]} : a;
+  assign a_add = SIMPLE ? a_uw : a_uw << ctl.zba_sh;
   assign lb    = ctl.lg_invb ? ~b : b;
   always_comb begin
     unique case (ctl.lg_fn)
@@ -114,6 +115,9 @@ module tg_alu
     if (ctl.grp[G_UNARY] || ctl.grp[G_SLT])   rs = 2'd3;
   end
   always_comb begin
+    if (SIMPLE) begin
+      res = ctl.word ? {{32{sum[31]}}, sum[31:0]} : sum;
+    end else
     for (int i = 0; i < 64; i++) begin
       unique case (rs)
         2'd0:    res[i] = (i >= 32 && ctl.word) ? sum[31] : sum[i];

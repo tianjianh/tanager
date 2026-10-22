@@ -311,7 +311,7 @@ module tg_exec
   logic [N_ALU-1:0][63:0] alu_res;
   logic [N_ALU-1:0]       f_eq, f_lt, f_ltu;
   for (genvar i = 0; i < N_ALU; i++) begin : g_alu
-    tg_alu #(.MINMAX(1'b0)) u_alu (.ctl(ex_pl_q[i].alu), .a(opa[i]), .b(opb[i]), .res(alu_res[i]),
+    tg_alu #(.MINMAX(1'b0), .SIMPLE(ALU_SIMPLE[i])) u_alu (.ctl(ex_pl_q[i].alu), .a(opa[i]), .b(opb[i]), .res(alu_res[i]),
                   .eq(f_eq[i]), .lt(f_lt[i]), .ltu(f_ltu[i]));
   end
 

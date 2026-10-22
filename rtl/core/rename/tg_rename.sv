@@ -507,8 +507,9 @@ module tg_rename
   logic [INT_BANKS-1:0][idx_w(W+1)-1:0] pops;
   always_comb begin
     int nrob, nld, nst, ndiv, nfdiv, nfpi, port, pref, p, b, fb;
-    logic found;
+    logic found, full_only;
     pops = '0;
+    full_only = 1'b0;
     fpops = '0;
     fown_s = '0;
     nld = 0; nst = 0; ndiv = 0; nfdiv = 0; nfpi = 0; nrob = 0;
@@ -525,12 +526,17 @@ module tg_rename
         C_LD:  port = Q_LD;
         C_ST:  port = Q_STA;
         C_ALU: begin
+          // SCRATCH (the asymmetric-ALU study): an op a simple ALU cannot do goes to a full one
+          full_only = rn_uop_q[k].d.alu.grp[1] || rn_uop_q[k].d.alu.grp[5] || rn_uop_q[k].d.alu.grp[6] ||
+                      rn_uop_q[k].d.alu.zba_sh != 2'd0 || rn_uop_q[k].d.alu.uw;      // shifts, Zbs, unary, Zba
           pref = k % N_ALU;
+          if (full_only && ALU_SIMPLE[pref])
+            for (int j = N_ALU - 1; j >= 0; j--) if (!ALU_SIMPLE[j]) pref = j;    // the lowest full ALU
           port = pref;
           found = 1'b0;
           for (int j = 0; j < N_ALU; j++) begin
             p = (pref + j) % N_ALU;
-            if (!found && st_free[p][k] && icv[p][idx_w(W)'(pops[p])]) begin   // fl_count[p] > pops[p]
+            if (!found && !(full_only && ALU_SIMPLE[p]) && st_free[p][k] && icv[p][idx_w(W)'(pops[p])]) begin
               port = p;
               found = 1'b1;
             end

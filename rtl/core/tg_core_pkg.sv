@@ -197,6 +197,14 @@ package tg_core_pkg;
   // area_recovery.md §6.8): a bank's registered free flag misses the row the group in DS is taking,
   // so rename also reads "at least two rows free" and counts the DS op in its slot. TG_STEER_LA=0
   // steers on the one flag, cycle for cycle as before
+  // SCRATCH (fpu-2's asymmetric-ALU study, claude/track-fpu-395911-explore-alu, never merged): ALU i is "simple"
+  // when bit i is set: add/sub (and W), logic, slt/sltu, lui and branches only; shifts, Zba, Zbs and the unary ops
+  // go to a full ALU (rename's steering)
+`ifdef TG_ALU_SIMPLE
+  localparam logic [2:0] ALU_SIMPLE = `TG_ALU_SIMPLE;
+`else
+  localparam logic [2:0] ALU_SIMPLE = 3'b000;
+`endif
 `ifdef TG_STEER_LA
   localparam bit STEER_LA = `TG_STEER_LA;
 `else
