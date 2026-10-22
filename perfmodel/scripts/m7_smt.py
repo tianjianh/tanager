@@ -1767,7 +1767,9 @@ def resid7(workers):
 
 RTL_RUNS = {   # the RTL's pair runs (the runner's ws.json, in results/), by final set: the build, the basis, the files
     "pair-final-39b16a6a": [("5c (071de15c)", "half", ["pair_rtl_5c_071de15c_half.json"]),     # verif-2, REPEAT, 10-21
-                            ("5c (071de15c)", "merged", ["pair_rtl_5c_071de15c_merged.json"])],
+                            ("5c (071de15c)", "merged", ["pair_rtl_5c_071de15c_merged.json"]),
+                            ("5e (main 3511f430)", "half", ["pair_rtl_5e_3511f430_half.json"]),   # 5d and 5e on main
+                            ("5e (main 3511f430)", "merged", ["pair_rtl_5e_3511f430_merged.json"])],
     "pair-final-b7db3e16": [("5c (9cba5f9b)", "half",   # core-2's, 10-21: 30 cycles, then 120 and 250
                              ["pair_rtl_5c_9cba5f9b.json", "pair_rtl_5c_9cba5f9b_120_250.json"]),
                             ("C (4c60872b)", "half",
@@ -1775,7 +1777,9 @@ RTL_RUNS = {   # the RTL's pair runs (the runner's ws.json, in results/), by fin
                             ("5d (3ed31186; 6ac63df1 at 120 and 250)", "half",
                              ["pair_rtl_5d_3ed31186.json", "pair_rtl_5d_6ac63df1_120_250.json"]),
                             ("5e (0138c48c)", "half",
-                             ["pair_rtl_5e_0138c48c.json", "pair_rtl_5e_0138c48c_120_250.json"])]}
+                             ["pair_rtl_5e_0138c48c.json", "pair_rtl_5e_0138c48c_120_250.json"]),
+                            ("5f (65fac9b4: 1ca3d58b with main 6d89e7a3)", "half",
+                             ["pair_rtl_5f_65fac9b4.json", "pair_rtl_5f_65fac9b4_120_250.json"])]}
 DEC5E, DEC5F = {"smt_dec_rr": 2}, {"smt_dec_rr": 3}   # decode's choice a cycle ahead with 5e's acc_o, with 5f's
 C_AB = {**S5B, **CM_RTL, **RR, "smt_fetch_hold": 2, "smt_rn_sel": 1, "smt_commit_stale": 1}   # §13.19's all three
 D_AB = {**C_AB, **CM_FIX4}
