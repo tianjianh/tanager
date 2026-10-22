@@ -353,7 +353,7 @@ Up to `COMMIT_WIDTH` complete entries in order per cycle. Per retirement: CRAT u
 - **Mispredict:** the branch retires (in any slot); the group ends there; flush and redirect to the oldest-mispredict target.
 - **Exception:** TR_TRAP, trap entry (§9.3), flush, redirect to `mtvec` base.
 - **Replay** (ordering violation): nothing retires; flush and refetch at the entry's PC. A replay marked `tlb` waits for the LSU instead: refetch once the DTLB translates the entry, or trap if the deciding walk faults (core-mmu.md).
-- **Serialising:** CSR (apply the CSR write, §9.2), MRET (§9.3), FENCE and FENCE.I (wait until the SQ has drained; FENCE.I also invalidates the I$), WFI (wait until `mip & mie` is nonzero, or 4096 cycles: the ISA lets WFI complete at any time) retire alone, then flush and refetch at the next PC (MRET: at `mepc`).
+- **Serialising:** CSR (apply the CSR write, §9.2), MRET (§9.3), FENCE and FENCE.I (wait until the SQ has drained; FENCE.I also invalidates the I$), WFI (wait until `mip & mie` is nonzero, or 4096 cycles: the ISA lets WFI complete at any time; with hart 1, after 64 cycles while the sibling is awake, it sleeps: §8.5) retire alone, then flush and refetch at the next PC (MRET: at `mepc`).
 - **Interrupts** (§9.4) are checked before the head retires.
 - **Commit holds** (§8.1): the group stops before a store the LSU holds while its PMP denial may still come, and before a load whose ordering replay mark is on its way.
 - **Return-address stack** (§3.2): each retiring instruction's stack operation goes to the committed copy. A second push in a group ends the group before it, so the copy has one write port.
@@ -369,6 +369,47 @@ Up to `COMMIT_WIDTH` complete entries in order per cycle. Per retirement: CRAT u
 - **Split mode (`SPLIT`, D1):** thread t owns entries [40t, 40t + 40) in smt2, and its pointers wrap there (`rob_add_t`, `rob_cnt_t`, `rob_start` in `tg_core_pkg`). The commit thread is chosen a cycle ahead (`ct_q`), so the head window is still read from flip-flops: the other thread whenever it has entries, so two busy threads alternate and an empty one is not served. With hart 1 (5d) a thread keeps the turn while it commits and the other thread's head is not actionable: the other thread's turn comes next cycle when its head is actionable (complete, marked for a replay or a TLB miss, or an MMIO load to issue: its flags read at its head through one more port on the flag tables, and its dispatch parities from a two-bit copy of the payload's), when this thread committed nothing, or after `RUN_K` = 4 turns in a row. `RUN_K` bounds the wait of the head operations the LSU runs only in their thread's turns (MMIO loads, atomics, walks at the head), asserted in simulation (a thread with entries, not parked in WFI, waits at most `RUN_K` cycles for a turn; `tests/isa/directed/turn_wait`). A thread that waited every other cycle beside a sibling whose head was not ready now commits every cycle; the turns' rule as built before 5d is in reports/commit-turns.md of the core track. The LSU's head checks, its MMIO load, `sq_drained` and `mmio_busy` follow the commit thread (`hd_tid_o`, step 4; core-lsu.md). Whether a commit group should also take the slots the served thread leaves (D7) is open: one thread per group is the cheap form, and the model is to price the other before step 5.
 - The payload and the flag tables stay indexed by entry: in the split mode a thread's entries are a range of them, of whole bank rows.
 - **Hart 1 runs (5c):** an interrupt is taken at either thread's head (tg_csr gives the head thread's, `hd_tid_o`). A report (completion, exception, mispredict, MMIO, replay) in a flush's cycle is dropped only when its entry is the flushed thread's (`rdrop`; every report while one thread runs), and the other thread's oldest-exception and oldest-mispredict registers take theirs: before, hart 0's flushes lost hart 1's completions and hart 1's head never completed. Commit waits while a trap's three cold-CSR writes run (tg_csr's `cold_busy`: one LUTRAM write port, and the other thread no longer waits behind the trap's flush). A thread whose head is a WFI still waiting at its last turn takes no commit turns until an interrupt is pending for it (registered) or its count ends; the count then runs every cycle, so a parked hart costs its sibling no commit bandwidth.
+
+### 8.5 Sleep, merge and split (M7's step 6, D2; threading.md)
+With hart 1 a thread that waits in WFI while its sibling runs lends its half of the window to the sibling.
+- **Sleep:**
+  - A WFI that has waited `SLP_WAIT` (64) cycles at its thread's head while the sibling is awake retires (`tg_rob`'s
+    `slp_q`), as WFI may complete at any time.
+  - Its flush (`flush_slp`) keeps the thread blocked at rename (`block_q`), so decode drops its groups and fetch holds
+    its stream at the next PC. A blocked stream's F1 PC waits in its slot (`sv_s_q`) when the other stream takes F1.
+- **Merge:**
+  - Once the sleeper's window is empty (its committed stores drained), a merge waits (`mg_pend`): the runner's tails
+    may not wrap in its half (rename's room flags).
+  - The runner's window stops wrapping as its heads move on, and the halves merge around it: the mode (`md_t` in
+    `tg_core_pkg`, `tg_rename`'s `md_q`) gives the runner every ROB, LQ and SQ entry.
+  - The mode is decided from registered pointers and announced a cycle ahead (`mdn_q`, then `md_q`) to the ROB and the
+    LSU. Its tails still cannot wrap while it travels, so no pointer crosses its half's end before every module
+    has it.
+  - The partition helpers (`x_add_t`, `x_cnt_t`, `x_start`, `x_tid`, `x_part`, `x_own`) take the mode.
+- **Wake:**
+  - A sleeper wakes on a locally enabled interrupt (its next instruction takes it if globally enabled), or after
+    65,536 cycles asleep.
+  - While merged the wake waits for the split: the runner renames nothing until its window lies in its half without
+    wrapping (`win_fits`), or is empty. An empty window's pointers then go back to its half's start (`mrs`, in rename,
+    the ROB and the LSU, which also rereads the drain head's entry).
+  - The sleeper's fetch restarts at its next PC with the split.
+  - While the split waits, the runner's own WFI completes, so its window drains.
+- **Merged, a lone thread runs as without hart 1:**
+  - The D$'s store reservation for two threads (core-lsu.md) is off.
+  - The LSU's flush masks take a thread's own entries, so a sleeper owns none.
+  - The registers need nothing new: D3's transfers lend the sleeper's free registers.
+- **`mtgsmt` (0x7C0, M-mode, one per core with hart 1; else illegal):** bit 0 HART1_OFF keeps hart 1 asleep once it
+  sleeps (SMT off).
+  - A running hart 1 is not stopped: firmware parks it first.
+  - Firmware leaves the bit at 0 for now (soc-2). Whoever sets it keeps it consistent with the device tree: set it
+    only where hart 1 is not in the tree, or have OpenSBI's hart_start clear it before the wake IPI. Otherwise Linux's
+    HSM start of hart 1 waits forever.
+  - Spike models it exactly: shared by a core's two harts, bit 0 writable, reads compared (verif-2).
+  - Tanager's custom M-mode CSRs number upward from 0x7C0 with an `mtg` prefix.
+- **Simulation only:** TG-SMT counts the merges, the splits (and those with the window empty), the cycles merged,
+  the cycles a split waited and the wakes.
+- **Without hart 1:** the mode is the constant `MD_C` (merged with `RUN_TID`, or `TG_SPLIT`'s test mode): the core
+  before step 6.
 
 ## 9. CSRs and traps (`tg_csr`)
 
@@ -389,6 +430,7 @@ Up to `COMMIT_WIDTH` complete entries in order per cycle. Per retirement: CRAT u
 | `mhpmcounter3–31`, `mhpmevent3–31` | read 0, writes ignored (counter reads `nondet`) |
 | `tselect`, `tdata1–3`, `tinfo` | read 0, writes ignored |
 | `mcontext` | 13 bits read/write |
+| `mtgsmt` (0x7C0, custom) | with hart 1 only (§8.5): bit 0 HART1_OFF, hart 1 kept asleep; one per core; else illegal |
 | `pmpcfg0, 2, …, 14`, `pmpaddr0–63` | entries 0–7 implemented (`PMP_ENTRIES`, DR-167; 0–15 with `TG_PMP_ENTRIES=16`; Spike's WARL rules: lock, R=0/W=1 dropped, 54-bit addresses); the others read 0 and ignore writes (Spike with `--pmpregions` at the same count). Reset: entry 0 = NAPOT RWX over the whole space, as Spike. Checked by `tg_pmp` (core-mmu.md) |
 
 Everything else is illegal (cause 2, `tval` = the instruction bits), as is a write to a read-only CSR. `csrrs/csrrc` with rs1 = x0 and the immediate forms with uimm = 0 do not write.

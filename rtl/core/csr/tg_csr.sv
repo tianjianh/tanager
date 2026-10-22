@@ -101,7 +101,8 @@ module tg_csr
   output logic                   fc_wvalid,
   output logic [1:0]             fc_waddr,     // 1 fflags, 2 frm, 3 fcsr
   output logic [7:0]             fc_wdata,
-  input  logic [NUM_THREADS-1:0] fs_dirty
+  input  logic [NUM_THREADS-1:0] fs_dirty,
+  output logic                   h1off_o       // with hart 1 (step 6): mtgsmt.HART1_OFF, hart 1 kept asleep (tg_rob)
 );
   localparam int NT   = NUM_THREADS;
   localparam int NPMP = PMP_ENTRIES;      // 8 or 16 (DR-167); pmpcfg0 holds entries 0-7, pmpcfg2 8-15
@@ -461,6 +462,7 @@ module tg_csr
                        : (xret_v ? caddr(RUN_TID, {!xret_s, CX_EPC}) : caddr(RUN_TID, {a[9], a[2:0]}));
   assign cold_rd  = (a[2:0] == CX_EPC) ? {cw_rd[0][63:2], cw_rd[0][1] && re.misa_c, 1'b0} : cw_rd[0];
   logic        exists, deny;
+  logic        h1off_q;                          // mtgsmt.HART1_OFF (below)
   logic [63:0] rval, rval_w;                     // rval_w: the old value a csrrs/csrrc modifies
   always_comb begin
     exists = 1'b1;
@@ -475,6 +477,7 @@ module tg_csr
       12'h344: rval = {52'b0, mip[et]};
       12'h7A0, 12'h7A1, 12'h7A2, 12'h7A3, 12'h7A4: rval = '0;
       12'h7A8: rval = {51'b0, re.mcontext};
+      12'h7C0: begin rval = {63'b0, h1off_q}; exists = HART1_ON; end      // mtgsmt (step 6), with hart 1
       // ---- F and D ----
       12'h001: begin rval = {59'b0, fc_fflags}; exists = EXT_FD; if (re.fs == 2'd0) deny = 1'b1; end
       12'h002: begin rval = {61'b0, fc_frm}; exists = EXT_FD; if (re.fs == 2'd0) deny = 1'b1; end
@@ -680,6 +683,14 @@ module tg_csr
           else $error("tg_csr: the other thread's CSR state changed while one thread runs");
   end
 `endif
+
+  // ---- mtgsmt (0x7C0, custom M-mode read/write; M7's step 6, threading.md): one per core, with hart 1 ----
+  // Bit 0, HART1_OFF: hart 1 does not wake once it sleeps in WFI (tg_rob), so hart 0 keeps the whole window (SMT off).
+  // Other bits read 0.
+  always_ff @(posedge clk)
+    if (rst || !HART1_ON) h1off_q <= 1'b0;
+    else if (cm_csr && pv && pa == 12'h7C0) h1off_q <= pd[0];
+  assign h1off_o = h1off_q;
 
   // ---- Next state of each hart ----
   always_comb begin
