@@ -1720,6 +1720,45 @@ The same snapshot as the baseline, with `place_design -directive AltSpreadLogic_
 
 Results: `fpga/spikes/results/product_asl_high/` (summary, timing, utilization after `opt_design`, placement and routing, the floorplan's reports, `fail_families.txt` from [`q_fail_families.tcl`](../../fpga/spikes/tcl/query/q_fail_families.tcl)).
 
+#### No crossbar or memory-port slices: routes, but congested (2026-10-22)
+
+**Asked** (the coordinator): the product build with `TG_XBAR_SLICE=0` and `TG_MEM_SLICE=0`, keeping `TG_AR_SLICE=1` (the user's decision), with everything else as the baseline: default placement.
+- **Why:** soc.md measures the slices at about 1,150 LUTs, 4,629 FFs and 21 DSPs. They were built for 200 MHz and cost cycles.
+- **Basis:** the new snapshot `snap/product_wt2`, main e2570c7c (M7 step 6 and its fix, fpu-2's FPU levers, DR-181). So beside the baseline it also carries step 6's +768 and fpu-2's −580 LUTs a chip.
+- **Run:** `product_wt2_noslice`.
+
+| | Baseline (c0030303, slices on) | No slices (e2570c7c) |
+|---|---|---|
+| LUTs after `opt_design` | 116,190 | 115,674 |
+| LUTs routed | — | 113,231 (96.7%) |
+| FFs placed | 63,912 | **60,185** (−3,727) |
+| DSPs | 157 | 140 |
+| CLBs, control sets | 14,637, 2,849 | 14,640, 2,852 |
+| WNS after `phys_opt_design` (estimated, with 1.0 ns of uncertainty on) | −1.704 ns | **−0.390 ns** |
+| The router's starting short congestion | level 6 in four directions, 29–34% of tiles | level 6 east and west, 5 north and south, 22–29% |
+| Routes | no | **yes**, after giving up timing for congestion |
+| WNS / TNS on the core clock (ns) | — | −3.507 / −13,951, 16,470 failing endpoints |
+| `clk2x` / the host clock (ns) | — | +1.810 / +4.367 |
+
+- **The flip-flops and the placement improved; routing undid the timing.** The router's first timing pass read −0.29 ns, with the uncertainty still on. Then it reported that congestion kept it from routing every net, put routability ahead of timing, and finished at −3.5 ns.
+- **The crossbar's response direction is where the slices mattered.** By path:
+
+| Path | Families below 1 ns | Endpoints | Worst |
+|---|---|---|---|
+| The L2 banks through the crossbar into both cores' fetch (the bank's `u_rack` pointer into the I$ valid-bit RAM and the fetch PC) | 42 | 2,441 | −3.168 ns, 23 levels |
+| The cores into the crossbar (fetch's `ps_q` into its error responder) | 6 | 16 | −1.283 ns |
+| The host bridge into a core | 2 | 6 | −0.527 ns |
+| Within the uncore | 15 | 523 | −0.520 ns |
+| The memory ports: the PS's responses into an L2 bank (`m_vact`, 88% wire) | 2 | 2 | −0.204 ns |
+
+- **The worst paths are still the cores'.** At −3.5 ns the LSU's LQ state and M2 registers are reached from rename's `md_q` (step 6's merged halves). Then come the walker, the ROB's `hw_q` and the DTLB.
+- **So no-slice alone is the better netlist but not yet a placement.** It needs the spread placement that made the slices-on chip routable.
+- **If the L2-to-core response is still long then:** the worst of it starts in the bank's ReleaseAck queue (`u_rack`), which feeds the bank's D channel.
+  - `TG_D_SLICE=1` puts a skid buffer (`tg_skid`) on each bank's D channel before the crossbar, so it registers that response at the bank.
+  - Its cost is two banks' D-channel registers, against about 4.6K FFs for the crossbar's own slices.
+
+Results: `fpga/spikes/results/product_wt2_noslice/` (summary, timing, utilization, the floorplan's reports, `route_excerpt.txt`, `fail_families.txt`).
+
 #### The area exploration: the LSU, rename and the PMP bound (2026-10-21)
 
 **Asked** (the coordinator): three synthesis-only measurements on main e6691d53 (DR-179's FP banks of 64), with hu1's settings: smt2, TG_HART1=1, the release form's `LAT_INJ=0`, the product windows, the URF on. Measurement only; nothing goes to main.
