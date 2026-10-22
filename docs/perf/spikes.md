@@ -1589,6 +1589,30 @@ Results: `fpga/spikes/results/h100_hp1/` (with `near_families_hp1.txt`, `urf_chi
   - So `report_utilization -pblocks` counts a pblock's own cells wherever they sit: bank 0's own cells fill 968 slices against its 800.
   - hp1f's result is with soft pblocks. Hard ones are untested: bank 1's pblock, at 101% before `opt_design`, might not place hard.
 
+**hp1fs: a second sample of hp1f** (2026-10-21). The same netlist and pblocks, with 1.05 ns of over-constraint instead of 1.0, which is the perturbation the placer responds to (Vivado has no seed).
+
+| | hp1f (1.0 ns) | hp1fs (1.05 ns) |
+|---|---|---|
+| Placed LUTs | 113,893 | 113,789 |
+| WNS / TNS on the core clock (ns) | −0.096 / −1.131 | **−0.426 / −72.318** |
+| Failing endpoints | 31 (core 0 14, core 1 17) | 552 (core 0 343, core 1 205, the uncore 4) |
+| `clk2x`: into / within / back (ns) | +1.08 / +1.87 / +1.02 | +0.73 / +1.71 / +1.02 |
+| WHS (ns) | +0.006 | +0.001 |
+| Families within 1 ns | 369 | 421 |
+| Placement / routing time | 15 min / 1.45 h | 10 min / 1.41 h |
+
+- **The noise is about 0.3 ns.** hp1f's −0.096 was the good end. At 97.2% placed with the floorplan, two placements land 0.1–0.4 ns short of 100 MHz.
+- **The same units hold the near-critical families.** Below 1 ns:
+  - rename has 155 (hp1f 119), the LSU 147 (160), fetch 70 (52) and the RAS 26 (14);
+  - the worst are fetch's TAGE carry, the I$ valid-bit RAM and the RAS pop, rename's free-list counts, and the LSU's LQ state (187 endpoints).
+- **New in hp1fs: 57 families start at the ACLINT.** hp1f had none.
+  - The path runs from the uncore ACLINT's `rst_q`, through hart 3's timer compare (`g_mti[3]`), combinationally into core 1's CSR file (the interrupt decision and the trap code), then its ROB (the commit) and rename's free-list counts.
+  - That is 21 levels and 7.0 ns of wire, at −0.42 ns. The ACLINT sits in the uncore at row 113–170 and core 1's CSR file at row 173 and above, so this placement made the wire long.
+  - A register on each hart's timer-interrupt line, in the ACLINT or at the core's input, takes the path out for one cycle of interrupt latency.
+- **For M8:** "fit plus a little" has to cover this noise, about 0.3–0.4 ns of margin rather than 0.1. That margin comes from timing fixes such as the ACLINT register and the I$ valid-bit path, or from a lower fill.
+
+Results: `fpga/spikes/results/h100_hp1fs/` (with `near_families_hp1fs.txt`, `urf_chip.txt`, `floorplan.txt`, and `path_cells_aclint.txt` from [`q_path_cells.tcl`](../../fpga/spikes/tcl/query/q_path_cells.tcl)).
+
 **DR-181: the floorplan in the board's flow.** The coordinator adopted `g4_uncore` for the board's product builds; soc-2 wires it into `build.tcl` and spikes-2 keeps it tuned. [`fp_lib.tcl`](../../fpga/spikes/tcl/fp_lib.tcl) adds two checks for every product build:
 - `tg_fp_check`, after the floorplan and before `opt_design`: each pblock's LUT cells against its LUT sites. It warns above 105% and calls the pblock tight above 115%.
 - `tg_fp_check_placed`, after `place_design`: each pblock's own LUTs against its sites. It warns above 85% and calls the pblock tight above 90%, which means resize it. It also logs IS_SOFT and the share of the pblock's own LUT cells placed outside it.
