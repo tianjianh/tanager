@@ -272,9 +272,13 @@ module tg_core
 `endif
   tid_t dred_tid;
   tid_t [CW-1:0] cm_tid;                              // the retiring instructions' threads (fetch's predictors take it)
+  // M7's step 6 (D2, threading.md): sleep, merge and split (tg_rename's mode, tg_rob's sleepers, tg_csr's mtgsmt)
+  md_t                              md, mdn;
+  logic                             mrs, sph, flush_slp, h1off;
+  logic [NUM_THREADS-1:0]           slp, wkr, wk;
   tg_fetch u_fetch (
     .clk, .rst, .boot_pc(64'(boot_addr_i)), .ready(fe_ready),
-    .flush, .flush_tid, .flush_pc, .icinv, .dred, .dred_tid, .dred_pc, .dred_ftq, .dred_slot, .dred_rop, .dred_rlink,
+    .flush, .flush_tid, .flush_pc, .fl_slp(flush_slp), .icinv, .dred, .dred_tid, .dred_pc, .dred_ftq, .dred_slot, .dred_rop, .dred_rlink,
     .c_cbr(cm_cbr), .c_taken(cm_ctaken), .c_pred(cm_cpred), .c_ftq(cm_cftq), .c_slot(cm_cslot),
     .c_hv(cm_hv), .c_hftq(cm_hftq), .c_tid(cm_tid[0]),
     .ras_v_s(ras_v_t), .ras_top_s(ras_top_t), .ras_tos_s(ras_tos_t), .ras_cnt_s(ras_cnt_t), .ras_tid(fras_tid),
@@ -440,7 +444,8 @@ module tg_core
     .cm_tid(cm_tid[0]), .cm_valid, .cm_rd_en, .cm_rd, .cm_dst, .cm_old, .cm_rd_fp,
     .ds_fire, .ds_valid, .ds_uop, .ds_ren, .iq_we, .iq_dep, .iq_pl, .iq_mdep, .mx_hold,
     .mx_alloc, .wid_alloc,
-    .ds_src2_rdy, .rob_tail(rob_tail_t), .dbg_o(rn_dbg));
+    .ds_src2_rdy, .rob_tail(rob_tail_t), .dbg_o(rn_dbg),
+    .flush_slp, .slp_i(slp), .wkr_i(wkr), .md_o(md), .mdn_o(mdn), .mrs_o(mrs), .wk_o(wk), .sph_o(sph));
 
   // ---- Issue ----
   logic [NCOL-1:0] wake_reg, wake_x, wake_l, col_clr;
@@ -527,7 +532,7 @@ module tg_core
   // A flush drops the reports registered in its cycle that are its thread's: with hart 1 the other thread's stay
   // (as the ROB's own drop, rdrop), or that thread's entry never completes (M7 step 5c).
   function automatic logic rpt_drop(robid_t e);
-    return flush && (!MT || rob_tid(e) == flush_tid);
+    return flush && (!MT || rob_tid(e, md) == flush_tid);
   endfunction
   logic [1:0]       st_cmp_r;
   robid_t [1:0]     st_cmp_rob_r;
@@ -645,7 +650,7 @@ module tg_core
     .l1d_c_o, .l1d_c_valid_o, .l1d_c_ready_i, .l1d_d_i, .l1d_d_valid_i, .l1d_d_ready_o,
     .l1d_e_o, .l1d_e_valid_o, .l1d_e_ready_i,
     .mmio_a_o, .mmio_a_valid_o, .mmio_a_ready_i, .mmio_d_i, .mmio_d_valid_i, .mmio_d_ready_o,
-    .dbg_o(lsu_dbg));
+    .dbg_o(lsu_dbg), .md_i(md), .mdn_i(mdn), .mrs_i(mrs));
 
   // ---- CSRs ----
   logic             cm_csr, tr_valid, mret, sret, irq_take, wfi_wake, csr_cold_busy;
@@ -669,7 +674,7 @@ module tg_core
     .satp_asid, .satp_wr, .pmp_d, .pmp_wr, .pmp_busy, .cold_busy(csr_cold_busy), .dst_h(dst_csr), .priv_h, .priv_d_h, .sum_h, .mxr_h, .sv39_h, .satp_ppn_h,
     .pmp_d_h, .pmp_al_h, .pmp_p2m_h,
     .irq_mei(irq_mei_i), .irq_mti(irq_mti_i), .irq_msi(irq_msi_i), .irq_sei(irq_sei_i),
-    .irq_ssi(irq_ssi_i), .mtime(mtime_i));
+    .irq_ssi(irq_ssi_i), .mtime(mtime_i), .h1off_o(h1off));
 
   // ---- ROB and commit ----
   // The ROB's commit gate needs neither rename's ready nor the init flag: both are one-time
@@ -699,7 +704,9 @@ module tg_core
     .tr_st_data, .tr_st_size, .tr_lq, .tr_ld_va, .tr_ld_size, .tr_tag, .tr_data,
     .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret, .sret, .sfence,
     .trap_target, .irq_target, .xret_v, .xret_s, .xepc, .priv(priv_cm), .irq_take, .irq_code, .wfi_wake, .wfi_wake_h,
-    .csr_hold(csr_cold_busy), .flush, .flush_tid, .flush_pc, .icinv, .trace_o, .trace_valid_o);
+    .csr_hold(csr_cold_busy), .flush, .flush_tid, .flush_pc, .icinv, .trace_o, .trace_valid_o,
+    .md_i(md), .mdn_i(mdn), .mrs_i(mrs), .wk_i(wk), .sph_i(sph), .h1off_i(h1off), .flush_slp, .slp_o(slp),
+    .wkr_o(wkr));
 
   // ---- Unused in M2 ----
   assign merr_o           = '0;
@@ -835,7 +842,7 @@ module tg_core
   if (DBG_WORD) begin : g_dbg
     logic [31:0] dbg_q;
     always_ff @(posedge clk)
-      dbg_q <= {flush, trace_stall_q, lsu_dbg, 6'(rob_cnt_t(rob_tail_t[RUN_TID], rob_head_t[RUN_TID])), rn_dbg};
+      dbg_q <= {flush, trace_stall_q, lsu_dbg, 6'(rob_cnt_t(rob_tail_t[RUN_TID], rob_head_t[RUN_TID], md)), rn_dbg};
     // The allocation log (words 1-31): slots 0 and 1 of the first dispatch groups and commit cycles
     function automatic logic [14:0] dslot(input logic v, input logic fp, input logic [4:0] rd,
                                           input preg_t p);
