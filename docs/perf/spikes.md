@@ -1574,8 +1574,36 @@ Results: `fpga/spikes/results/h100_hp1/` (with `near_families_hp1.txt`, `urf_chi
   - fetch's F2 cone (94 → 52) now holds the worst endpoints: the I$ valid-bit RAM (26 levels, −0.096), TAGE's history count and the RAS target register;
   - the CSR file's paths, congestion detours in hp1, mostly drop out (101 → 20).
 - **So with the floorplan, M8's target is "fit plus a little",** not 96%: hu1's product chip needs to come down to about hp1f's 113.9K placed. That is the windows' +3.1K less DR-180's −1.8K, plus a little margin, roughly 2K LUTs a chip rather than 7K. A second sample (1.05 ns of over-constraint) measures the placement noise around −0.1 ns.
+- **Congestion has the same levels, spread more evenly.**
+  - The placer ends at level 5 in every direction, as in hp1, with no global window (hp1 had one, west).
+  - The router starts at level 5 north and south and level 6 east and west, as in hp1.
+  - hp1's level-6 west window was 77% core 0. hp1f's level-6 windows each hold core 1 36–44%, core 0 28–32% and the uncore 26–29%, at 97–98% of their LUTs used (hp1: 97–99%).
+  - So the floorplan didn't lower the congestion; it evened it out across the cores and the uncore.
+- **The 31 failing endpoints are all in the cores,** none in the uncore:
+  - fetch's I$ valid-bit RAM (26 levels) and its I$-data cones into TAGE and the RAS;
+  - the D$'s `lose_line_q` enables;
+  - the LSU's M1 → M2 and age paths.
+- **The pblocks are soft.**
+  - Vivado 2025.2 creates them with IS_SOFT 1, before `opt_design`; nothing in this flow sets it.
+  - The placer kept each pblock's cells near it, but put 20% (bank 0), 15% (bank 1) and 28% (the crossbar) of their LUT cells just outside: the banks' own-level logic, register slice and LUTRAM buffers, and the crossbar's register slices and arbiters.
+  - So `report_utilization -pblocks` counts a pblock's own cells wherever they sit: bank 0's own cells fill 968 slices against its 800.
+  - hp1f's result is with soft pblocks. Hard ones are untested: bank 1's pblock, at 101% before `opt_design`, might not place hard.
 
-Results: `fpga/spikes/results/h100_hp1f/` (with `near_families_hp1f.txt`, `urf_chip.txt` and `floorplan.txt`).
+**DR-181: the floorplan in the board's flow.** The coordinator adopted `g4_uncore` for the board's product builds; soc-2 wires it into `build.tcl` and spikes-2 keeps it tuned. [`fp_lib.tcl`](../../fpga/spikes/tcl/fp_lib.tcl) adds two checks for every product build:
+- `tg_fp_check`, after the floorplan and before `opt_design`: each pblock's LUT cells against its LUT sites. It warns above 105% and calls the pblock tight above 115%.
+- `tg_fp_check_placed`, after `place_design`: each pblock's own LUTs against its sites. It warns above 85% and calls the pblock tight above 90%, which means resize it. It also logs IS_SOFT and the share of the pblock's own LUT cells placed outside it.
+
+| Pblock | LUT sites | hp1f before `opt_design` | hp1f own after placement | hp1f outside | Main e6691d53 with the product windows, before `opt_design` |
+|---|---|---|---|---|---|
+| `l2b0` (L2 bank 0) | 6,400 | 95% | 73% | 20% | 94% |
+| `l2b1` (L2 bank 1) | 6,400 | 101% | 77% | 15% | 102% |
+| `xbar` (the crossbar) | 4,032 | 52% | 45% | 28% | 72% |
+
+- **The two thresholds agree.** After `opt_design` and LUT packing, a pblock's own LUTs came to 76–87% of its estimate, so 105% before `opt_design` is about 80–90% own after placement.
+- **The product windows** grow the crossbar's pblock from 52% to 72%; the banks barely change.
+- **Resizing:** a bank's pblock grows by two SLICE rows (160 LUT sites a row in the X2 column). The crossbar has room in X1.
+
+Results: `fpga/spikes/results/h100_hp1f/` (with `near_families_hp1f.txt`, `urf_chip.txt`, `floorplan.txt`, `congestion.rpt` and `worst_paths.txt`; `fp_checks.txt` from [`q_fp_checks.tcl`](../../fpga/spikes/tcl/query/q_fp_checks.tcl); `pb_spill.txt` and `pb_soft.txt`, the cells outside, from [`q_pb_spill.tcl`](../../fpga/spikes/tcl/query/q_pb_spill.tcl) and [`q_pb_soft.tcl`](../../fpga/spikes/tcl/query/q_pb_soft.tcl)); main's check in `h100_ex1_synth/fp_check_g4_uncore.txt`.
 
 ## 9. S1: PL → PS DDR latency and bandwidth
 
