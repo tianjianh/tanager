@@ -384,7 +384,9 @@ With hart 1 a thread that waits in WFI while its sibling runs lends its half of 
     `tg_core_pkg`, `tg_rename`'s `md_q`) gives the runner every ROB, LQ and SQ entry.
   - The mode is decided from registered pointers and announced a cycle ahead (`mdn_q`, then `md_q`) to the ROB and the
     LSU. Its tails still cannot wrap while it travels, so no pointer crosses its half's end before every module
-    has it.
+    has it. `mg_pend` holds them through that cycle even when the sleeper asks to wake in it: a tail that wrapped
+    then would leave the sleeper's stale half inside the merged window (found by `+xwake` below; a
+    simulation-only assertion checks the runner's windows at every merge).
   - The partition helpers (`x_add_t`, `x_cnt_t`, `x_start`, `x_tid`, `x_part`, `x_own`) take the mode.
 - **Wake:**
   - A sleeper wakes on a locally enabled interrupt (its next instruction takes it if globally enabled), or after
@@ -394,6 +396,10 @@ With hart 1 a thread that waits in WFI while its sibling runs lends its half of 
     the ROB and the LSU, which also rereads the drain head's entry).
   - The sleeper's fetch restarts at its next PC with the split.
   - While the split waits, the runner's own WFI completes, so its window drains.
+  - `+xwake=N` (simulation only, `tg_rob`): a sleeper also asks to wake with probability N per mille a cycle, as WFI
+    may complete at any time, so merges and splits come at random points (about 200 a directed test at N = 20,
+    against about 30). Without it no random number is drawn. `hart1_off.S` assumes hart 1 is asleep when HART1_OFF
+    is set, so it cannot run with it.
 - **Merged, a lone thread runs as without hart 1:**
   - The D$'s store reservation for two threads (core-lsu.md) is off.
   - The LSU's flush masks take a thread's own entries, so a sleeper owns none.
