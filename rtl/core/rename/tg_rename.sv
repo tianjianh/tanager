@@ -1079,7 +1079,7 @@ module tg_rename
     td    = CMT ? t_de : tid_t'(0);
     rv    = |rn_v_q[CMT ? td[0] : 1'b0];
     rr    = rn_s_q[CMT ? td[0] : 1'b0];
-    dv    = |ds_valid_q && (!CMT || t_ds == td);    // (one register without hart 1: DS's group is the thread's)
+    dv    = |ds_valid_q && t_ds == td;              // (negative: 134f4d25's form, to show the shadow check fires)
     pay_s = 2'd0;
     for (int i = 2; i >= 0; i--)
       if (!(rv && rr == 2'(i)) && !(dv && ds_s_q == 2'(i))) pay_s = 2'(i);
