@@ -764,7 +764,11 @@ module tg_rename
 
   // (CMT) the register rename works on next cycle: the other thread's when its group looks able to rename (or has
   // just come from decode, not yet judged), so two such threads alternate and a stalled group gives way; else this
-  // one's while it holds a group. acc_o tells decode's thread choice which registers take a group next cycle.
+  // one's while it holds a group. acc_o tells decode's thread choice which registers take a group next cycle: an
+  // empty one, a blocked thread's, or the chosen one's while its group looks able to rename (rdy). A chosen group
+  // that cannot (its ROB, LQ or SQ half full for a miss's length) does not keep decode on its thread: rename stays
+  // on it while the other register is empty, and the other thread's group, waiting in its queue, would never come
+  // (smt2_report §13.20: 52-89% of decode's empty slots in mixed pairs at 250 cycles).
   // A group short of registers stays chosen: its thread's transfer next cycle needs that thread to be the one
   // popping (tg_freelist's pt == xt, the want registered from this cycle's group), so alternating would starve it
   logic          want_any;
@@ -787,7 +791,7 @@ module tg_rename
       else if (vn[!sel_q] && (nw[!sel_q] || rdy[!sel_q])) sel_n = !sel_q;
       else if (!vn[sel_q])                               sel_n = !sel_q;
     end
-    for (int t = 0; t < NT; t++) acc_o[t] = CMT && (!vn[t] || sel_n == t[0] || block_q[t]);
+    for (int t = 0; t < NT; t++) acc_o[t] = CMT && (!vn[t] || (sel_n == t[0] && rdy[t]) || block_q[t]);
   end
 
   // The pops each free list takes when rename fires (the free list applies rn_fire last)

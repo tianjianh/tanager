@@ -2,9 +2,12 @@
 // DSP48E2 tiles (x in 26 + 26 + 8 bits on the 27-bit port, y in 17 + 17 + 17 + 9 bits on the
 // 18-bit port). Operands are registered at the end of the cycle they are presented in (c0, the
 // DSP input registers); the full 120-bit product is registered at the end of c3.
-//   c1: tiles of y chunks 0 and 2 multiply into their P registers; chunks 1 and 3 into M
-//   c2: chunks 1 and 3 add the neighbouring tile shifted right by 17 (the DSP cascade pattern)
-//   c3: the six pair sums are added: two ternary adders and one binary adder
+//   c1: every tile multiplies into its M register
+//   c2: each x chunk's four tiles add along the DSP cascade, each the previous one's sum shifted
+//       right by 17 (Z = PCIN >> 17): x_i * y in one chain, whose low 17 bits a stage leave it
+//   c3: the three chains' sums are added: one ternary adder
+// (The area pass, lever 9: the chains run the whole of y, where c2 summed pairs before, so c3 has
+// one fabric adder where it had three.)
 module tg_fpu_div_mul (
   input  logic          clk,
   input  logic [59:0]   x,
@@ -24,35 +27,31 @@ module tg_fpu_div_mul (
   end
 
   // c1 (use_dsp: Vivado would build the smallest tile, 8 x 9 bits, in LUTs)
-  logic [42:0] p0_q [3], p2_q [3];     // tiles (i, 0) and (i, 2): A x B into P
-  (* use_dsp = "yes" *) logic [42:0] m1_q [3], m3_q [3];   // tiles (i, 1) and (i, 3): A x B into M
+  (* use_dsp = "yes" *) logic [42:0] m_q [3][4];
   always_ff @(posedge clk) begin
-    for (int i = 0; i < 3; i++) begin
-      p0_q[i] <= 43'(xr[i]) * 43'(yr[0]);
-      p2_q[i] <= 43'(xr[i]) * 43'(yr[2]);
-      m1_q[i] <= 43'(xr[i]) * 43'(yr[1]);
-      m3_q[i] <= 43'(xr[i]) * 43'(yr[3]);
-    end
+    for (int i = 0; i < 3; i++)
+      for (int j = 0; j < 4; j++)
+        m_q[i][j] <= 43'(xr[i]) * 43'(yr[j]);
   end
 
-  // c2: pair sums x_i * y[33:0] and x_i * y[59:34]
-  logic [59:0] lo_q [3];
-  logic [51:0] hi_q [3];
-  always_ff @(posedge clk) begin
+  // c2: the chains (x_i * y = s3 : s2[16:0] : s1[16:0] : s0[16:0])
+  logic [42:0] s0 [3], s1 [3], s2 [3];
+  logic [43:0] s3 [3];
+  logic [85:0] r_q [3];
+  always_comb begin
     for (int i = 0; i < 3; i++) begin
-      lo_q[i][59:17] <= m1_q[i] + 43'(p0_q[i][42:17]);
-      lo_q[i][16:0]  <= p0_q[i][16:0];
-      hi_q[i][51:17] <= 35'(m3_q[i] + 43'(p2_q[i][42:17]));
-      hi_q[i][16:0]  <= p2_q[i][16:0];
+      s0[i] = m_q[i][0];
+      s1[i] = m_q[i][1] + 43'(s0[i][42:17]);
+      s2[i] = m_q[i][2] + 43'(s1[i][42:17]);
+      s3[i] = 44'(m_q[i][3]) + 44'(s2[i][42:17]);
     end
+  end
+  always_ff @(posedge clk) begin
+    for (int i = 0; i < 3; i++) r_q[i] <= {s3[i][34:0], s2[i][16:0], s1[i][16:0], s0[i][16:0]};
   end
 
   // c3
-  logic [93:0] glo;      // x * y[33:0]
-  logic [85:0] ghi;      // x * y[59:34]
-  assign glo = 94'(lo_q[0]) + (94'(lo_q[1]) << 26) + (94'(lo_q[2]) << 52);
-  assign ghi = 86'(hi_q[0]) + (86'(hi_q[1]) << 26) + (86'(hi_q[2]) << 52);
   always_ff @(posedge clk) begin
-    p <= 120'(glo) + (120'(ghi) << 34);
+    p <= 120'(r_q[0]) + (120'(r_q[1]) << 26) + (120'(r_q[2]) << 52);
   end
 endmodule
