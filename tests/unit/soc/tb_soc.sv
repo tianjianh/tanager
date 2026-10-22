@@ -27,7 +27,12 @@
 //                     delays), its line on ps_irq[PS_IRQ_SD1]; hart 0 handles it as Linux's sdhci and PLIC drivers
 //                     do while hart 1 contends on the device bus. Every request must complete; on a failure this
 //                     side prints the PLIC's own state for source 21. The PS window's own checks don't run.
-//   Every KIND: BOARD_CTRL[0] reaches board_ctrl_o (the KV260's fan regulator).
+//   RELEASE = 1 (make ... RELEASE=1: also LAT_INJ = 0 and no trace; DR-180): a release build. The console comes from
+//                     the UART's own output (no host console: its input path must not reach the UART); the
+//                     program (FROMHOST bit 3) finds the PLIC's M contexts empty and 1-bit priorities, claims the
+//                     UART's interrupt on hart 0's S context, and with the PS window finds TTC1's line no source
+//                     and UART1's claimed there instead; the DMA port's completions and line counters read 0.
+//   Every KIND: BOARD_CTRL[0] reaches board_ctrl_o (the KV260's fan regulator); CAPS's DR-177 and DR-180 bits.
 module tb_soc;
   import tg_pkg::*, tg_tl_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*;
 
@@ -37,6 +42,11 @@ module tb_soc;
   parameter bit    HOST_DMA = 1'b0;     // the coherent host DMA port (tg_uncore HOST_DMA)
   parameter bit    SDIRQ = 1'b0;        // the SD-like interrupt stress (with the PS window; sw/sd_irq.c)
   parameter bit    LAT_INJ = 1'b1;      // the two latency injectors (tg_uncore LAT_INJ); 0: a release build (DR-177)
+  // A release build (tg_uncore RELEASE, DR-180; the Makefile's RELEASE=1 also sets LAT_INJ = 0 and builds without the
+  // trace): no host console, so the console is read where the UART's characters leave it; the PLIC's M contexts
+  // hold nothing (the program claims on hart 0's S context) and TTC1 is no source; the DMA port has no line
+  // counters or completions; CAPS[9], [10] and [11] read 0
+  parameter bit    RELEASE = 1'b0;
   // A program runs on the test cores, or with SDIRQ on the real ones too (KIND = "core")
   localparam bit   PROG = KIND == "tcore" || SDIRQ;
 
@@ -101,7 +111,7 @@ module tb_soc;
   tanager_soc #(
     .N_CORES (NUM_CORES), .CLK_HZ (100_000_000), .L2_SETS (16), .L2_MSHR (24),
     .CORE_RST_INIT (1'b1), .UNCORE_RST_INIT (1'b1), .CORE_KIND ((KIND == "trafgen") ? "trafgen" : "core"),
-    .VIRTIO_WINDOW (VIRTIO), .HOST_DMA (HOST_DMA), .LAT_INJ (LAT_INJ), .BREAK_LOG2 (6)
+    .VIRTIO_WINDOW (VIRTIO), .HOST_DMA (HOST_DMA), .LAT_INJ (LAT_INJ), .RELEASE (RELEASE), .BREAK_LOG2 (6)
   ) dut (
     .uart_txd_o (), .uart_rxd_i (ps_rxd),
     .clk, .clk2x, .rst, .clk_host, .rst_host,
@@ -168,11 +178,11 @@ module tb_soc;
 
   // ---- the PS behind the PS window (PS_WINDOW): one transaction at a time, as the window issues them ----
   // Byte registers, 0 until written; IOU_SLCR reads byte a as a ^ 0x5A; TTC1's first register drives
-  // ps_irq[PS_IRQ_TTC1]; SD1 + 0x100 answers SLVERR; GEM3 + 0x200 answers 70,000 cycles late, past the
-  // window's timeout. CRL_APB RESET_CTRL (the board's reset) records its writes and answers as ps_rst_mode
+  // ps_irq[PS_IRQ_TTC1], UART1's at 0x40 ps_irq[PS_IRQ_UART1]; SD1 + 0x100 answers SLVERR; GEM3 + 0x200 answers
+  // 70,000 cycles late, past the window's timeout. CRL_APB RESET_CTRL (the board's reset) records its writes and answers as ps_rst_mode
   // says. An address the window should have denied is an error here.
   localparam logic [31:0] PS_TTC1 = 32'hFF12_0000, PS_ERR = 32'hFF17_0100, PS_LATE = 32'hFF0E_0200;
-  localparam logic [31:0] PS_RST = 32'hFF5E_0218;
+  localparam logic [31:0] PS_RST = 32'hFF5E_0218, PS_U1IRQ = 32'hFF01_0040;
   byte unsigned ps_mem [logic [31:0]];
   int ps_txn = 0, ps_late = 0, ps_done = 0;   // transactions accepted, GEM3's late ones, answered
   int ps_rst = 0;                             // writes to RESET_CTRL, the last one's beat below
@@ -315,6 +325,7 @@ module tb_soc;
       if (SDIRQ && a.addr[31:0] == PS_SD_SIG) sd_sig = d.data[8 * a.addr[3:0] +: 32];
       if (SDIRQ && a.addr[31:0] == PS_SD_CMD) begin sd_wrq.push_back(d.data[8 * a.addr[3:0] + 31]); sd_go++; end
       if (a.addr[31:0] == PS_TTC1) ps_irq[PS_IRQ_TTC1] <= d.data[0];
+      if (a.addr[31:0] == PS_U1IRQ) ps_irq[PS_IRQ_UART1] <= d.data[8 * PS_U1IRQ[3:0]];
       if (rst_w) begin ps_rst++; ps_rst_aw = a; ps_rst_w = d; end
       ps_txn++;
       lat = (a.addr[31:0] == PS_LATE || (rst_w && ps_rst_mode == 2)) ? 70000 : $urandom_range(1, 20);
@@ -401,10 +412,16 @@ module tb_soc;
     if (v != want) fail($sformatf("%s: BOARD_CTRL %h, want %h", what, v, want));
   endtask
 
-  // Drain the console: everything the RISC-V side has written so far
-  string console;
+  // Drain the console: everything the RISC-V side has written so far. A release build has no console through
+  // the host: there the UART's characters are taken where they leave it (its serial side)
+  string console, uconsole = "";
+  always @(posedge clk) if (dut.u_uncore.u_tx_v && dut.u_uncore.u_tx_r) uconsole = {uconsole, $sformatf("%c", dut.u_uncore.u_tx_b)};
   task automatic drain_console();
     logic [31:0] v;
+    if (RELEASE) begin
+      console = uconsole;
+      return;
+    end
     do begin
       hr(16'h100, v);
       if (v[8]) console = {console, $sformatf("%c", v[7:0])};
@@ -501,30 +518,40 @@ module tb_soc;
       dma_write(DMA_B + 32'(128 * b), beats, r);
       if (r != 2'b00) fail($sformatf("DMA write response %0d", r));
     end
-    // one completion per line written, in order, with rising cycles. The count is the queue's level as the
-    // host side sees it, a few clk_host cycles behind the last AccessAck (the asynchronous FIFO's pointer
-    // synchronizer), while the last write's B comes in clk: poll it
-    begin
-      int t;
-      t = 0;
-      do begin hr(16'h1304, v); t++; end while (v != 32'd8 && t < 20);
-    end
-    if (v != 32'd8) fail($sformatf("HDMA_STATUS %0d completions, want 8", v));
-    begin
-      logic [31:0] last;
-      last = 0;
-      for (int i = 0; i < 8; i++) begin
-        hr(16'h1310, v);
-        hr(16'h1314, v1);
-        if (!v[31] || v[25:0] != 26'((DMA_B >> 6) + 32'(i)) || (i > 0 && v1 <= last))
-          fail($sformatf("completion %0d: %h cycle %0d", i, v, v1));
-        last = v1;
+    if (RELEASE) begin
+      // a release build without the trace: no completion queue and no line counters (DR-180); they read 0
+      repeat (100) @(posedge clk);
+      expect_reg(16'h1300, 32'd0, "HDMA_CTRL in a release build");
+      expect_reg(16'h1304, 32'd0, "HDMA_STATUS in a release build");
+      expect_reg(16'h1310, 32'd0, "HDMA_CPL0 in a release build");
+      expect_reg(16'h1308, 32'd0, "HDMA_RD_LINES in a release build");
+      expect_reg(16'h130C, 32'd0, "HDMA_WR_LINES in a release build");
+    end else begin
+      // one completion per line written, in order, with rising cycles. The count is the queue's level as the
+      // host side sees it, a few clk_host cycles behind the last AccessAck (the asynchronous FIFO's pointer
+      // synchronizer), while the last write's B comes in clk: poll it
+      begin
+        int t;
+        t = 0;
+        do begin hr(16'h1304, v); t++; end while (v != 32'd8 && t < 20);
       end
+      if (v != 32'd8) fail($sformatf("HDMA_STATUS %0d completions, want 8", v));
+      begin
+        logic [31:0] last;
+        last = 0;
+        for (int i = 0; i < 8; i++) begin
+          hr(16'h1310, v);
+          hr(16'h1314, v1);
+          if (!v[31] || v[25:0] != 26'((DMA_B >> 6) + 32'(i)) || (i > 0 && v1 <= last))
+            fail($sformatf("completion %0d: %h cycle %0d", i, v, v1));
+          last = v1;
+        end
+      end
+      hr(16'h1308, v);
+      if (v != 32'd8) fail($sformatf("HDMA_RD_LINES %0d, want 8", v));
+      hr(16'h130C, v);
+      if (v != 32'd8) fail($sformatf("HDMA_WR_LINES %0d, want 8", v));
     end
-    hr(16'h1308, v);
-    if (v != 32'd8) fail($sformatf("HDMA_RD_LINES %0d, want 8", v));
-    hr(16'h130C, v);
-    if (v != 32'd8) fail($sformatf("HDMA_WR_LINES %0d, want 8", v));
     hr(16'h1318, v);
     if (v != 32'd0) fail($sformatf("HDMA_WR_DROPS %0d, want 0", v));
     hw(16'h074, 32'h1);                         // MBOX_OUT: the program reads DMA_B
@@ -662,8 +689,8 @@ module tb_soc;
     end
     if (KIND == "tcore" && VIRTIO) hw(16'h1100, 32'h1);     // VQ_CTRL: the host serves the window
     if (KIND == "tcore" && HOST_DMA && !SDIRQ) hw(16'h1300, 32'h1);   // HDMA_CTRL: record the completions
-    if (PROG && (VIRTIO || HOST_DMA || PS_WINDOW)) // FROMHOST: which parts the program runs
-      hw64(16'h068, 64'h7467_0000 | 64'(VIRTIO) | (64'(HOST_DMA) << 1) | (64'(PS_WINDOW) << 2));
+    if (PROG && (VIRTIO || HOST_DMA || PS_WINDOW || RELEASE)) // FROMHOST: which parts the program runs
+      hw64(16'h068, 64'h7467_0000 | 64'(VIRTIO) | (64'(HOST_DMA) << 1) | (64'(PS_WINDOW) << 2) | (64'(RELEASE) << 3));
     hw(16'h010, 32'h0);                         // release the cores
     wait_status(0, 1'b0, 5);
 
@@ -687,12 +714,13 @@ module tb_soc;
     if (!dut.u_uncore.u_host.mbox_pend_q) fail("MBOX_OUT did not reach the RISC-V side");
     if (!dut.u_uncore.plic_src[IRQ_HOSTCTL]) fail("mailbox not on PLIC source 11");
 
-    // ---- console input reaches the UART ----
+    // ---- console input reaches the UART (a release build: there is no such path) ----
     hr(16'h10C, v);
-    if (v != 512) fail($sformatf("UART_RX_SPACE %0d, want 512", v));
+    if (v != (RELEASE ? 0 : 512)) fail($sformatf("UART_RX_SPACE %0d, want %0d", v, RELEASE ? 0 : 512));
     hw(16'h108, 32'h41);
     repeat (40) @(posedge clk);
-    if (dut.u_uncore.u_uart.rx_cnt != 1) fail("console byte did not reach the UART RX FIFO");
+    if (dut.u_uncore.u_uart.rx_cnt != (RELEASE ? 0 : 1))
+      fail(RELEASE ? "a console byte from the host reached the UART in a release build" : "console byte did not reach the UART RX FIFO");
 
     if (PROG) begin
       // run until the program reports through TOHOST, echoing the console; +run_limit=N: N x 500 cycles at most
@@ -746,8 +774,10 @@ module tb_soc;
                  dut.u_uncore.u_plic.src_i[IRQ_PS0 + PS_IRQ_SD1]);
         if (sd_go == 0 || sd_xfers != sd_go) fail($sformatf("SD device: %0d requests, %0d completed", sd_go, sd_xfers));
       end else if (PS_WINDOW) begin
-        if (ps_txn != 17 || ps_late != 1 || ps_rst != 1)
-          fail($sformatf("PS window: %0d transactions (%0d late, %0d to RESET_CTRL), want 17 (1, 1)", ps_txn, ps_late, ps_rst));
+        // a release build's program also raises and lowers UART1's line: two transactions more
+        if (ps_txn != (RELEASE ? 19 : 17) || ps_late != 1 || ps_rst != 1)
+          fail($sformatf("PS window: %0d transactions (%0d late, %0d to RESET_CTRL), want %0d (1, 1)", ps_txn, ps_late,
+                         ps_rst, RELEASE ? 19 : 17));
         else $display("PS window: %0d transactions, 1 answered after the timeout, 1 to RESET_CTRL", ps_txn);
         if (!board_done) fail("the board's reset part never asked for BOARD_CTRL[1]");
         test_hook();
@@ -826,11 +856,17 @@ module tb_soc;
       for (int i = 0; i < console.len(); i++) if (console[i] != ".") fail("console shows an error pass");
     end
 
-    // ---- the injectors' capability bit (DR-177: none in a release build) ----
+    // ---- the injectors' capability bit (DR-177: none in a release build), and DR-180's ----
     begin
       logic [31:0] caps;
       hr(16'h00C, caps);
       if (caps[1] != LAT_INJ) fail($sformatf("capability bit 1 (the latency injector) %0d with LAT_INJ=%0d", caps[1], LAT_INJ));
+      if (caps[9] != !RELEASE) fail($sformatf("capability bit 9 (the host console) %0d with RELEASE=%0d", caps[9], RELEASE));
+      if (caps[10] != (HOST_DMA && !RELEASE))
+        fail($sformatf("capability bit 10 (the DMA line counters) %0d with HOST_DMA=%0d RELEASE=%0d", caps[10], HOST_DMA, RELEASE));
+      if (caps[11] != (HOST_DMA && (!RELEASE || TRACE)))
+        fail($sformatf("capability bit 11 (the DMA completion queue) %0d with HOST_DMA=%0d RELEASE=%0d", caps[11], HOST_DMA, RELEASE));
+      if (caps[31:12] != 0) fail($sformatf("CAPS %h: bits above 11 set", caps));
     end
 
     // ---- hold everything in reset again (tanager-host reset) ----

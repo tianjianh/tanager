@@ -47,7 +47,7 @@ Emulates longer DRAM latency on the board, so Linux-scale workloads run at the 9
   - a beat costs 256 tokens.
 - **Why buffer.** The PS port's limit of 16 outstanding transactions applies only to the time a request spends downstream. Responses wait in the injector's own buffer, so the emulated latency is not distorted (plan §5.6).
 - **Defaults.** Reset values (`rd_delay` = `wr_delay` = 0, mode 0, no cap) make the injector a pass-through with a few cycles of buffering.
-- **Release builds** (`tg_uncore` `LAT_INJ` = 0, build.tcl `TG_LAT_INJ=0`, DR-177; [soc.md](soc.md) §2.5) leave both injectors out. Each bank's channels go straight to its window, and the statistics read 0.
+- **Release builds** (`tg_uncore` `LAT_INJ` = 0, build.tcl `TG_LAT_INJ=0`, or `TG_RELEASE=1`, which brings it; DR-177, DR-180; [soc.md](soc.md) §2.5) leave both injectors out. Each bank's channels go straight to its window, and the statistics read 0.
   - The L2 then sees the PS's own response order. It takes it: R goes by ID into its MSHRs, and beats of different IDs may interleave ([l2.md](l2.md)).
   - The few cycles of buffering go too, so each fill arrives a little sooner.
 
