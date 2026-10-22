@@ -5,6 +5,22 @@
 // zeros, so a signal our RTL takes from a primitive counts as driven. The LUT and SRL primitives come
 // from the behavioural models in tests/unit/prim/models instead.
 
+// CARRY8 (UG974): tg_iq_cand's chains (rtl/core/issue/tg_iq.sv, the FPU track's lever 2; for verif-2's review)
+module CARRY8 #(
+  parameter CARRY_TYPE = "SINGLE_CY8"
+) (
+  output [7:0] CO,
+  output [7:0] O,
+  input        CI,
+  input        CI_TOP,
+  input  [7:0] DI,
+  input  [7:0] S
+);
+  assign CO = '0;
+  assign O  = '0;
+  wire unused = ^{CI, CI_TOP, DI, S};
+endmodule
+
 module DSP48E2 #(
   parameter ACASCREG = 1, parameter ADREG = 1, parameter ALUMODEREG = 1, parameter AMULTSEL = "A",
   parameter AREG = 1, parameter AUTORESET_PATDET = "NO_RESET", parameter AUTORESET_PRIORITY = "RESET",

@@ -20,6 +20,7 @@ module tg_issue
   parameter int EARLY_W = IQ_EARLY_W,    // S2 lever: the source tags in flip-flops (IQ_PL_W: all)
   parameter bit MX      = IQ_MX,         // S2 lever: matrix wakeup (dispatch names rows)
   parameter int STALE   = 0,             // 0 guard (spikes.md recommendation), 2 column clear
+  parameter bit CC      = 1'b1,          // the area pass's lever 2: readiness and select on carry chains (tg_iq)
   localparam int DW     = DISPATCH_WIDTH,
   localparam int OCC_W  = idx_w(IQ_ROWS_ALL + 1)
 ) (
@@ -446,7 +447,7 @@ module tg_issue
     tg_iq #(
       .ROWS(ROWS), .DW(DW), .NCOL(NCOL), .PAYLOAD_W(PW), .CAP(CAP), .STALE(STALE), .CBLK(q == Q_FP),
       .WAKE_NOW(1'b0), .WAKE_ENC(1), .ROBW(ROBW), .DUP_SEL(DUP_SEL), .EARLY_W(EW),
-      .MX(MX), .RA(RA), .PRE_RDY(1'b0), .BANK_CAP(IQ_BANK_RULE != 0)
+      .MX(MX), .RA(RA), .PRE_RDY(1'b0), .BANK_CAP(IQ_BANK_RULE != 0), .CC(CC)
     ) u_iq (
       .clk, .rst,
       .disp_valid(disp_we[q]), .disp_tid(dtid), .disp_dep(disp_dep), .disp_dep_ph(no_ph),
