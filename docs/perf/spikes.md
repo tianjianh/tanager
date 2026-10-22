@@ -1767,6 +1767,24 @@ Build 1 plus `TG_D_SLICE=1`, which puts a skid buffer on each L2 bank's D channe
 
 Results: `fpga/spikes/results/product_wt_nsd_aslh/` (utilization after `opt_design` and placement, the floorplan's reports, `congestion_placed.rpt` from the placed checkpoint, `run_excerpt.txt`).
 
+#### Build 3, with 0.5 ns of uncertainty on `clk2x`: doesn't route (2026-10-22)
+
+Build 1 with `TG_PR_UNC2X=0.5`: `clk2x` carries 0.5 ns of placement uncertainty and the core clock keeps 1.0 (`product_wt_ns2x_aslh`; the log confirms 0.5 ns on c2x).
+
+| | Build 1 | Build 3 |
+|---|---|---|
+| LUTs placed, FFs, CLBs | 113,343, 60,133, 14,629 | 113,223, 60,124, 14,634 |
+| WNS after `phys_opt_design` (estimated, with the core clock's 1.0 ns on) | −0.897 ns | −2.172 ns |
+| Routing | routed at −1.740 ns | **failed:** 51,224 signals unrouted for congestion (level 6), 79,675 node overlaps |
+
+- **The placement itself came out worse** (−2.17 against −0.90 before routing), and routing then failed.
+- **Of the three ACLINT-snapshot builds with AltSpreadLogic_high, only build 1 routed.**
+  - The three differ by a D slice (+596 FFs) or by a clock uncertainty, yet the outcomes span routed at −1.74 ns to 51K nets unrouted.
+  - At 96.8% of the LUTs with every CLB used, whether this chip routes is a coin toss. Build 1 was the good toss.
+- **So the chip needs area back before flow levers can be judged:** single runs can't rank them. The `clk2x` setting is unjudged here.
+
+Results: `fpga/spikes/results/product_wt_ns2x_aslh/`.
+
 #### AltSpreadLogic_medium: spreads too little at this fill (2026-10-22)
 
 The slices-on product build on the new snapshot (`snap/product_wt2`, main e2570c7c) with `place_design -directive AltSpreadLogic_medium` (`product_wt2_aslm`).
