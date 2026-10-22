@@ -210,8 +210,12 @@ module tg_rename
   // DR-185: the fields rename never reads (the payload: the PC, the instruction, the prediction state, the immediate,
   // the branch target, the units' controls) wait in a LUTRAM beside rename, not in the RN and DS registers. Decode
   // writes a group's payload as the group enters its thread's RN register; DS reads it as the group dispatches. A
-  // thread has at most two groups between them (its RN register's and DS's), so two rows a thread ({thread, slot});
-  // the RN and DS registers keep the fields rename reads and the slot (rn_s_q, ds_s_q). ds_full is DS's group whole.
+  // thread has at most two groups between them (its RN register's and DS's); with three rows a thread ({thread, row})
+  // one is always free, so decode writes its group every cycle into its thread's free row, chosen from registers
+  // alone (the write port waits for no fire). The write is registered and lands a cycle later (pay_wa_q, pay_wd_q):
+  // decode's paths end at flip-flops beside decode, not at the LUTRAM, and a group taken in cycle c is written at
+  // the end of c + 1, while DS reads it at c + 2 at the earliest. The RN and DS registers keep the fields rename reads
+  // and the row (rn_s_q, ds_s_q). ds_full is DS's group whole.
   typedef struct packed {
     logic [63:0]     pc;
     logic [31:0]     insn;
@@ -279,10 +283,10 @@ module tg_rename
     return u;
   endfunction
   localparam int PAYW = $bits(pay_t);
-  localparam int PAYA = (NRN > 1) ? 2 : 1;          // a payload row's address: {thread,} slot
-  logic [NRN-1:0]        rn_s_q;                    // each RN register's group's slot
-  logic                  ds_s_q;                    // DS's group's
-  logic                  pay_s;                     // the slot decode's group takes
+  localparam int PAYA = (NRN > 1) ? 3 : 2;          // a payload row's address: {thread,} row (0..2)
+  logic [NRN-1:0][1:0]   rn_s_q;                    // each RN register's group's row
+  logic [1:0]            ds_s_q;                    // DS's group's
+  logic [1:0]            pay_s;                     // the free row of decode's thread: where its group is written
   pay_t [W-1:0]          ds_pay;
   uop_t [W-1:0]          ds_full;
   // The threads: RN's group (t_rn), DS's (t_ds), commit's (t_cm) and the flushed one (t_fl); without SMT thread 0,
@@ -1157,23 +1161,33 @@ module tg_rename
   // serial uop, resources, fire, DS busy, and ready && start
   assign dbg_o = {ready && start, |ds_valid_q, rn_fire, rn_ok, block_q[t_rn], window_empty, rn_serial,
                   rn_valid_q[0]};
-  // DR-185's payload LUTRAM (above): decode's group takes the slot that its thread's group at DS next cycle does not
-  // hold: RN's group if it fires to DS now, DS's own if it stays; a dropped or flushed group's row is simply written
-  // again. The read is DS's group's row, from registers
+  // DR-185's payload LUTRAM (above): decode's thread's free row is the first that neither its RN register's group nor
+  // its group at DS holds, from registers; the write goes there every cycle, taken or not, so a taken group's row
+  // holds it and an untaken one is written again next cycle. A dropped or flushed group's row is simply free. The read
+  // is DS's group's row, from registers
   always_comb begin
-    tid_t td;
+    logic       rv, dv;
+    logic [1:0] rr;
+    tid_t       td;
     td    = CMT ? t_de : tid_t'(0);
-    pay_s = 1'b0;
-    if (rn_fire && t_rn == td)                        pay_s = !rn_s_q[CMT ? t_rn[0] : 1'b0];
-    else if (|ds_valid_q && t_ds == td && !ds_fire)    pay_s = !ds_s_q;
+    rv    = |rn_v_q[CMT ? td[0] : 1'b0];
+    rr    = rn_s_q[CMT ? td[0] : 1'b0];
+    dv    = |ds_valid_q && t_ds == td;
+    pay_s = 2'd0;
+    for (int i = 2; i >= 0; i--)
+      if (!(rv && rr == 2'(i)) && !(dv && ds_s_q == 2'(i))) pay_s = 2'(i);
   end
-  logic [PAYA-1:0] pay_wa, pay_ra;
-  logic [W*PAYW-1:0] pay_wd, pay_rd;
+  logic [PAYA-1:0] pay_wa, pay_ra, pay_wa_q;
+  logic [W*PAYW-1:0] pay_wd, pay_rd, pay_wd_q;
+  always_ff @(posedge clk) begin
+    pay_wa_q <= pay_wa;
+    pay_wd_q <= pay_wd;
+  end
   assign pay_wa = (NRN > 1) ? PAYA'({t_de[0], pay_s}) : PAYA'(pay_s);
   assign pay_ra = (NRN > 1) ? PAYA'({t_ds[0], ds_s_q}) : PAYA'(ds_s_q);
   always_comb for (int k = 0; k < W; k++) pay_wd[k*PAYW +: PAYW] = pay_of(de_uop[k]);
-  tg_ram_lut #(.DEPTH(2 * NRN), .WIDTH(W * PAYW), .NR(1)) u_pay (
-    .clk, .we(de_take && !(CMT && block_q[t_de])), .waddr(pay_wa), .wdata(pay_wd), .raddr(pay_ra), .rdata(pay_rd));
+  tg_ram_lut #(.DEPTH(4 * NRN), .WIDTH(W * PAYW), .NR(1)) u_pay (
+    .clk, .we(1'b1), .waddr(pay_wa_q), .wdata(pay_wd_q), .raddr(pay_ra), .rdata(pay_rd));
   always_comb
     for (int k = 0; k < W; k++) begin
       ds_pay[k]  = pay_rd[k*PAYW +: PAYW];
@@ -1468,7 +1482,7 @@ module tg_rename
         if (de_take && !(CMT && block_q[t_de])) begin
           rn_v_q[CMT ? t_de[0] : 1'b0] <= de_valid;
           for (int k = 0; k < W; k++) rn_u_q[CMT ? t_de[0] : 1'b0][k] <= ren_of(de_uop[k]);
-          rn_s_q[CMT ? t_de[0] : 1'b0] <= pay_s;
+          rn_s_q[CMT ? t_de[0] : 1'b0] <= pay_s;     // the row this cycle's write fills
         end
       end
       // Step 6: a wake unblocks its thread; a split with the running thread's window empty moves its tails to its
