@@ -202,6 +202,88 @@ module tg_rename
   logic [W-1:0]          ds_valid_q;
   uop_t [W-1:0]          ds_uop_q;
   ren_t [W-1:0]          ds_ren_q;
+  // DR-185: the fields rename never reads (the payload: the PC, the instruction, the prediction state, the immediate,
+  // the branch target, the units' controls) wait in a LUTRAM beside rename, not in the RN and DS registers. Decode
+  // writes a group's payload as the group enters its thread's RN register; DS reads it as the group dispatches. A
+  // thread has at most two groups between them (its RN register's and DS's); with three rows a thread ({thread, row})
+  // one is always free, so decode writes its group every cycle into its thread's free row, chosen from registers
+  // alone (the write port waits for no fire). With PAY_WREG (the default) the write is registered and lands a cycle
+  // later (pay_wa_q, pay_wd_q): decode's paths end at flip-flops beside decode, not at the LUTRAM, and a group taken
+  // in cycle c is written at the end of c + 1, while DS reads it at c + 2 at the earliest. The RN and DS registers keep
+  // the fields rename reads and the row (rn_s_q, ds_s_q). ds_full is DS's group whole.
+  typedef struct packed {
+    logic [63:0]     pc;
+    logic [31:0]     insn;
+    logic            rvc;
+    logic [63:0]     pred_npc;
+    logic            ubtb_hit, ubtb_way, dfix, ptk;
+    logic [FTQW-1:0] ftq;
+    tg_alu_pkg::alu_ctl_t alu;
+    logic            b_imm;
+    logic [63:0]     imm;
+    br_kind_e        br_kind;
+    logic [2:0]      br_f3;
+    logic [63:0]     br_target;
+    logic [11:0]     jalr_off;
+    logic [1:0]      mem_size;
+    logic            mem_uns;
+    logic [4:0]      amo_op;
+    mul_op_e         mul_op;
+    div_op_e         div_op;
+    logic            word, bcnt;
+    csr_op_e         csr_op;
+    logic            csr_imm, csr_wr;
+    sys_e            sys;
+    logic [3:0]      exc_cause;
+    logic            exc_hi;
+    tg_fpu_pkg::fop_e  fop;
+    tg_fpu_pkg::ffmt_e fmt, src_fmt;
+    tg_fpu_pkg::ifmt_e ifmt;
+    tg_fpu_pkg::rm_e   rm;
+  } pay_t;
+  /* verilator lint_off UNUSEDSIGNAL */            // each of the two reads its own part of the uop
+  function automatic pay_t pay_of(input uop_t u);
+    pay_t p;
+    p.pc = u.pc; p.insn = u.insn; p.rvc = u.rvc; p.pred_npc = u.pred_npc; p.ubtb_hit = u.ubtb_hit;
+    p.ubtb_way = u.ubtb_way; p.dfix = u.dfix; p.ptk = u.ptk; p.ftq = u.ftq;
+    p.alu = u.d.alu; p.b_imm = u.d.b_imm; p.imm = u.d.imm; p.br_kind = u.d.br_kind; p.br_f3 = u.d.br_f3;
+    p.br_target = u.d.br_target; p.jalr_off = u.d.jalr_off; p.mem_size = u.d.mem_size; p.mem_uns = u.d.mem_uns;
+    p.amo_op = u.d.amo_op; p.mul_op = u.d.mul_op; p.div_op = u.d.div_op; p.word = u.d.word; p.bcnt = u.d.bcnt;
+    p.csr_op = u.d.csr_op; p.csr_imm = u.d.csr_imm; p.csr_wr = u.d.csr_wr; p.sys = u.d.sys;
+    p.exc_cause = u.d.exc_cause; p.exc_hi = u.d.exc_hi; p.fop = u.d.fop; p.fmt = u.d.fmt; p.src_fmt = u.d.src_fmt;
+    p.ifmt = u.d.ifmt; p.rm = u.d.rm;
+    return p;
+  endfunction
+  function automatic uop_t ren_of(input uop_t u);     // the fields rename reads; the payload's zero
+    uop_t r;
+    r = '0;
+    r.tid = u.tid; r.d.cls = u.d.cls; r.d.rs1 = u.d.rs1; r.d.rs2 = u.d.rs2; r.d.rd = u.d.rd; r.d.rs3 = u.d.rs3;
+    r.d.rs1_en = u.d.rs1_en; r.d.rs2_en = u.d.rs2_en; r.d.rd_en = u.d.rd_en; r.d.rs3_en = u.d.rs3_en;
+    r.d.rs1_fp = u.d.rs1_fp; r.d.rs2_fp = u.d.rs2_fp; r.d.rd_fp = u.d.rd_fp; r.d.amo = u.d.amo;
+    r.d.serial = u.d.serial; r.d.exc = u.d.exc; r.d.fp_int = u.d.fp_int; r.d.fp_div = u.d.fp_div;
+    return r;
+  endfunction
+  /* verilator lint_on UNUSEDSIGNAL */
+  function automatic uop_t with_pay(input uop_t r, input pay_t p);
+    uop_t u;
+    u = r;
+    u.pc = p.pc; u.insn = p.insn; u.rvc = p.rvc; u.pred_npc = p.pred_npc; u.ubtb_hit = p.ubtb_hit;
+    u.ubtb_way = p.ubtb_way; u.dfix = p.dfix; u.ptk = p.ptk; u.ftq = p.ftq;
+    u.d.alu = p.alu; u.d.b_imm = p.b_imm; u.d.imm = p.imm; u.d.br_kind = p.br_kind; u.d.br_f3 = p.br_f3;
+    u.d.br_target = p.br_target; u.d.jalr_off = p.jalr_off; u.d.mem_size = p.mem_size; u.d.mem_uns = p.mem_uns;
+    u.d.amo_op = p.amo_op; u.d.mul_op = p.mul_op; u.d.div_op = p.div_op; u.d.word = p.word; u.d.bcnt = p.bcnt;
+    u.d.csr_op = p.csr_op; u.d.csr_imm = p.csr_imm; u.d.csr_wr = p.csr_wr; u.d.sys = p.sys;
+    u.d.exc_cause = p.exc_cause; u.d.exc_hi = p.exc_hi; u.d.fop = p.fop; u.d.fmt = p.fmt; u.d.src_fmt = p.src_fmt;
+    u.d.ifmt = p.ifmt; u.d.rm = p.rm;
+    return u;
+  endfunction
+  localparam int PAYW = $bits(pay_t);
+  localparam int PAYA = (NRN > 1) ? 3 : 2;          // a payload row's address: {thread,} row (0..2)
+  logic [NRN-1:0][1:0]   rn_s_q;                    // each RN register's group's row
+  logic [1:0]            ds_s_q;                    // DS's group's
+  logic [1:0]            pay_s;                     // the free row of decode's thread: where its group is written
+  pay_t [W-1:0]          ds_pay;
+  uop_t [W-1:0]          ds_full;
   // The threads: RN's group (t_rn), DS's (t_ds), commit's (t_cm) and the flushed one (t_fl); without SMT thread 0,
   // whatever
   // the tid bits hold
@@ -977,7 +1059,52 @@ module tg_rename
   // serial uop, resources, fire, DS busy, and ready && start
   assign dbg_o = {ready && start, |ds_valid_q, rn_fire, rn_ok, block_q[t_rn], window_empty, rn_serial,
                   rn_valid_q[0]};
-  assign ds_uop   = ds_uop_q;
+  // DR-185's payload LUTRAM (above): decode's thread's free row is the first that neither its RN register's group nor
+  // its group at DS holds, from registers; the write goes there every cycle, taken or not, so a taken group's row
+  // holds it and an untaken one is written again next cycle. A dropped or flushed group's row is simply free. The read
+  // is DS's group's row, from registers
+  always_comb begin
+    logic       rv, dv;
+    logic [1:0] rr;
+    tid_t       td;
+    td    = CMT ? t_de : tid_t'(0);
+    rv    = |rn_v_q[CMT ? td[0] : 1'b0];
+    rr    = rn_s_q[CMT ? td[0] : 1'b0];
+    dv    = |ds_valid_q && t_ds == td;
+    pay_s = 2'd0;
+    for (int i = 2; i >= 0; i--)
+      if (!(rv && rr == 2'(i)) && !(dv && ds_s_q == 2'(i))) pay_s = 2'(i);
+  end
+  logic [PAYA-1:0] pay_wa, pay_ra, pay_wa_q;
+  logic [W*PAYW-1:0] pay_wd, pay_rd, pay_wd_q;
+  if (PAY_WREG) begin : g_pay_wreg              // (tg_core_pkg: through a register, or direct)
+    always_ff @(posedge clk) begin
+      pay_wa_q <= pay_wa;
+      pay_wd_q <= pay_wd;
+    end
+  end else begin : g_pay_wdir
+    assign pay_wa_q = pay_wa;
+    assign pay_wd_q = pay_wd;
+  end
+  assign pay_wa = (NRN > 1) ? PAYA'({t_de[0], pay_s}) : PAYA'(pay_s);
+  assign pay_ra = (NRN > 1) ? PAYA'({t_ds[0], ds_s_q}) : PAYA'(ds_s_q);
+  always_comb for (int k = 0; k < W; k++) pay_wd[k*PAYW +: PAYW] = pay_of(de_uop[k]);
+  tg_ram_lut #(.DEPTH(4 * NRN), .WIDTH(W * PAYW), .NR(1)) u_pay (
+    .clk, .we(1'b1), .waddr(pay_wa_q), .wdata(pay_wd_q), .raddr(pay_ra), .rdata(pay_rd));
+  always_comb
+    for (int k = 0; k < W; k++) begin
+      ds_pay[k]  = pay_rd[k*PAYW +: PAYW];
+      ds_full[k] = with_pay(ds_uop_q[k], ds_pay[k]);
+    end
+`ifndef SYNTHESIS
+  // (DR-185) the split loses no field: a uop's rename fields and its payload give it back whole
+  always_ff @(posedge clk)
+    if (!rst && de_take)
+      for (int k = 0; k < W; k++)
+        if (de_valid[k]) assert (with_pay(ren_of(de_uop[k]), pay_of(de_uop[k])) == de_uop[k])
+          else $error("tg_rename: a uop field is neither rename's nor the payload's (DR-185)");
+`endif
+  assign ds_uop   = ds_full;
   assign ds_ren   = ds_ren_q;
 
   // MX: name a pending source by the ALU-queue row that holds its 1-cycle producer
@@ -1085,51 +1212,51 @@ module tg_rename
       iq_mdep[k] = mrow1[k] | ((STA_BASE && ds_uop_q[k].d.cls == C_ST) ? '0 : mrow2[k]);
       iq_pl[k] = '0;
       iq_pl[k].rob       = ds_ren_q[k].rob;
-      iq_pl[k].tid       = ds_uop_q[k].tid;
-      iq_pl[k].cls       = ds_uop_q[k].d.cls;
-      iq_pl[k].alu       = ds_uop_q[k].d.alu;
-      iq_pl[k].b_imm     = ds_uop_q[k].d.b_imm;
-      iq_pl[k].imm       = ds_uop_q[k].d.imm;
+      iq_pl[k].tid       = ds_full[k].tid;
+      iq_pl[k].cls       = ds_full[k].d.cls;
+      iq_pl[k].alu       = ds_full[k].d.alu;
+      iq_pl[k].b_imm     = ds_full[k].d.b_imm;
+      iq_pl[k].imm       = ds_full[k].d.imm;
       iq_pl[k].src1      = ds_ren_q[k].src1;
       iq_pl[k].src2      = ds_ren_q[k].src2;
-      iq_pl[k].dst_en    = ds_uop_q[k].d.rd_en;
+      iq_pl[k].dst_en    = ds_full[k].d.rd_en;
       iq_pl[k].dst       = ds_ren_q[k].dst;
       iq_pl[k].wid       = ds_ren_q[k].wid;
       iq_pl[k].llt       = ds_ren_q[k].llt;
-      iq_pl[k].pc        = ds_uop_q[k].pc;
-      iq_pl[k].br_kind   = ds_uop_q[k].d.br_kind;
-      iq_pl[k].br_f3     = ds_uop_q[k].d.br_f3;
-      iq_pl[k].br_target = ds_uop_q[k].d.br_target;
-      iq_pl[k].jalr_off  = ds_uop_q[k].d.jalr_off;
-      iq_pl[k].pred_npc  = ds_uop_q[k].pred_npc;
-      iq_pl[k].ubtb_hit  = ds_uop_q[k].ubtb_hit;
-      iq_pl[k].ubtb_way  = ds_uop_q[k].ubtb_way;
-      iq_pl[k].dfix      = ds_uop_q[k].dfix;
-      iq_pl[k].rvc       = ds_uop_q[k].rvc;
-      iq_pl[k].mul_op    = ds_uop_q[k].d.mul_op;
-      iq_pl[k].div_op    = ds_uop_q[k].d.div_op;
-      iq_pl[k].word      = ds_uop_q[k].d.word;
-      iq_pl[k].bcnt      = ds_uop_q[k].d.bcnt;
-      iq_pl[k].csr_op    = ds_uop_q[k].d.csr_op;
-      iq_pl[k].csr_imm   = ds_uop_q[k].d.csr_imm;
-      iq_pl[k].csr_wr    = ds_uop_q[k].d.csr_wr;
-      iq_pl[k].csr_addr  = ds_uop_q[k].insn[31:20];
-      iq_pl[k].csr_zimm  = ds_uop_q[k].insn[19:15];
-      iq_pl[k].insn      = ds_uop_q[k].insn;
+      iq_pl[k].pc        = ds_full[k].pc;
+      iq_pl[k].br_kind   = ds_full[k].d.br_kind;
+      iq_pl[k].br_f3     = ds_full[k].d.br_f3;
+      iq_pl[k].br_target = ds_full[k].d.br_target;
+      iq_pl[k].jalr_off  = ds_full[k].d.jalr_off;
+      iq_pl[k].pred_npc  = ds_full[k].pred_npc;
+      iq_pl[k].ubtb_hit  = ds_full[k].ubtb_hit;
+      iq_pl[k].ubtb_way  = ds_full[k].ubtb_way;
+      iq_pl[k].dfix      = ds_full[k].dfix;
+      iq_pl[k].rvc       = ds_full[k].rvc;
+      iq_pl[k].mul_op    = ds_full[k].d.mul_op;
+      iq_pl[k].div_op    = ds_full[k].d.div_op;
+      iq_pl[k].word      = ds_full[k].d.word;
+      iq_pl[k].bcnt      = ds_full[k].d.bcnt;
+      iq_pl[k].csr_op    = ds_full[k].d.csr_op;
+      iq_pl[k].csr_imm   = ds_full[k].d.csr_imm;
+      iq_pl[k].csr_wr    = ds_full[k].d.csr_wr;
+      iq_pl[k].csr_addr  = ds_full[k].insn[31:20];
+      iq_pl[k].csr_zimm  = ds_full[k].insn[19:15];
+      iq_pl[k].insn      = ds_full[k].insn;
       iq_pl[k].lq        = ds_ren_q[k].lq;
       iq_pl[k].sq        = ds_ren_q[k].sq;
-      iq_pl[k].mem_size  = ds_uop_q[k].d.mem_size;
-      iq_pl[k].mem_uns   = ds_uop_q[k].d.mem_uns;
+      iq_pl[k].mem_size  = ds_full[k].d.mem_size;
+      iq_pl[k].mem_uns   = ds_full[k].d.mem_uns;
       iq_pl[k].src3      = ds_ren_q[k].src3;
-      iq_pl[k].src1_fp   = ds_uop_q[k].d.rs1_fp;
-      iq_pl[k].dst_fp    = ds_uop_q[k].d.rd_fp;
-      iq_pl[k].fop       = ds_uop_q[k].d.fop;
-      iq_pl[k].fmt       = ds_uop_q[k].d.fmt;
-      iq_pl[k].src_fmt   = ds_uop_q[k].d.src_fmt;
-      iq_pl[k].ifmt      = ds_uop_q[k].d.ifmt;
-      iq_pl[k].rm        = ds_uop_q[k].d.rm;
-      iq_pl[k].fp_int    = ds_uop_q[k].d.fp_int;
-      iq_pl[k].fp_div    = ds_uop_q[k].d.fp_div;
+      iq_pl[k].src1_fp   = ds_full[k].d.rs1_fp;
+      iq_pl[k].dst_fp    = ds_full[k].d.rd_fp;
+      iq_pl[k].fop       = ds_full[k].d.fop;
+      iq_pl[k].fmt       = ds_full[k].d.fmt;
+      iq_pl[k].src_fmt   = ds_full[k].d.src_fmt;
+      iq_pl[k].ifmt      = ds_full[k].d.ifmt;
+      iq_pl[k].rm        = ds_full[k].d.rm;
+      iq_pl[k].fp_int    = ds_full[k].d.fp_int;
+      iq_pl[k].fp_div    = ds_full[k].d.fp_div;
     end
   end
 
@@ -1257,7 +1384,8 @@ module tg_rename
         if (CMT) for (int t = 0; t < NT; t++) if (block_q[t]) rn_v_q[CMT ? t : 0] <= '0;
         if (de_take && !(CMT && block_q[t_de])) begin
           rn_v_q[CMT ? t_de[0] : 1'b0] <= de_valid;
-          rn_u_q[CMT ? t_de[0] : 1'b0] <= de_uop;
+          for (int k = 0; k < W; k++) rn_u_q[CMT ? t_de[0] : 1'b0][k] <= ren_of(de_uop[k]);
+          rn_s_q[CMT ? t_de[0] : 1'b0] <= pay_s;     // the row this cycle's write fills
         end
       end
       // Step 6: a wake unblocks its thread; a split with the running thread's window empty moves its tails to its
@@ -1380,6 +1508,7 @@ module tg_rename
     if (ds_free) begin
       ds_uop_q <= rn_uop_q;
       ds_ren_q <= ren;
+      ds_s_q   <= rn_s_q[CMT ? sel_q : 1'b0];
     end
   end
 
