@@ -27,11 +27,12 @@ COV_UNITS ?= rename rob lsu
 empty    :=
 space    := $(empty) $(empty)
 include $(ROOT)/sim/profile.mk
-# The lint-only switches (#2, #8; the commit trace off) never reach a model that runs programs, even an
-# up-to-date one (DR-140: #2 and #8 are not verified; DR-146: lockstep needs the trace).
+# The lint-only switches (#2, #8; the commit trace off; TAGE sizes other than the built ones) never reach a model
+# that runs programs, even an up-to-date one (DR-140: #2 and #8 are not verified; DR-146: lockstep needs the trace;
+# other TAGE sizes have run only in DR-170's study: docs/spec/area_switches.md).
 ifneq ($(strip $(LINT_ONLY_SET)),)
   ifneq ($(filter-out lint,$(or $(MAKECMDGOALS),all)),)
-    $(error $(strip $(LINT_ONLY_SET)) is for lint only (DR-140: #2 and #8 are not verified; DR-146: lockstep needs the commit trace))
+    $(error $(strip $(LINT_ONLY_SET)) is for lint only (sim/profile.mk; DR-140, DR-146, area_switches.md))
   endif
 endif
 BUILD    := $(BUILD_ROOT)/$(CFG)-$(CORE)$(TC_SUFFIX)$(if $(COV),-cov-$(subst $(space),+,$(strip $(COV_UNITS))))
