@@ -1,6 +1,6 @@
 # tanager-host, the A53 control program (docs/spec/host.md).
 #   make -C sw/host                 static aarch64 binary with the pinned external toolchain
-#   make -C sw/host native          host build (syntax and warnings check only)
+#   make -C sw/host native          host build (a build and warnings check; it fails as the board's build would)
 #   make -C sw/host test            the virtio back-ends' test, native (test/vio_test.c), plain and with
 #                                   the external-write records (extwrite.c)
 # The aarch64 toolchain (Bootlin aarch64 musl, GCC 15; sw/versions.sh), unpacked by sw/fetch.sh: this
@@ -30,7 +30,7 @@ $(O)/tanager-host: $(SRCS) $(HDRS) Makefile
 
 native: $(SRCS) $(HDRS)
 	@mkdir -p $(O)
-	gcc-15 $(CFLAGS) -o $(O)/tanager-host-native $(SRCS) 2>&1 | grep -v "dsb" || true
+	gcc-15 $(CFLAGS) -o $(O)/tanager-host-native $(SRCS)
 	@echo "native build OK"
 
 test: test/vio_test.c virtio.c extwrite.c $(HDRS)

@@ -63,6 +63,7 @@ module tg_rename
   input  logic start,          // the core's reset sequence is done
   input  logic flush,
   input  tid_t flush_tid,
+  input  logic flush_slp,      // with hart 1 (step 6): the flush follows a WFI gone to sleep; its thread stays blocked
   // From decode
   input  logic [W-1:0]   de_valid,
   input  uop_t [W-1:0]   de_uop,
@@ -118,7 +119,16 @@ module tg_rename
   output logic [NCOL-1:0]                  wid_alloc,   // IDs given out at RN (clear W)
   output logic [DISPATCH_WIDTH-1:0]        ds_src2_rdy,  // DS: rs2's register is written
   output robid_t [NUM_THREADS-1:0]         rob_tail,    // next ROB entry RN gives out, per thread
-  output logic [7:0]                       dbg_o        // board debug: RN's stall flags (tg_core's dbg_o)
+  output logic [7:0]                       dbg_o,       // board debug: RN's stall flags (tg_core's dbg_o)
+  // Step 6 (D2, threading.md), with hart 1: a sleeping thread lends its half of the window to its sibling
+  input  logic [NUM_THREADS-1:0]           slp_i,       // each thread asleep (tg_rob)
+  input  logic [NUM_THREADS-1:0]           wkr_i,       // ... and asking to wake
+  output md_t                              md_o,        // the mode (tg_core_pkg's md_t)
+  output md_t                              mdn_o,       // ... next cycle's
+  output logic                             mrs_o,       // at this edge the split moves md_o.run's empty window to
+                                                        // its half's start (tg_rob, tg_lsu)
+  output logic [NUM_THREADS-1:0]           wk_o,        // each sleeping thread wakes (registered)
+  output logic                             sph_o        // a wake waits for the split: md_o.run's WFI retires (tg_rob)
 );
   if (W != DISPATCH_WIDTH) begin : g_bad
     $error("tg_rename: RENAME_WIDTH must equal DISPATCH_WIDTH");
@@ -136,6 +146,18 @@ module tg_rename
     return c == C_ALU || c == C_BR;
   endfunction
   localparam int NT = NUM_THREADS;
+  // M7's step 6 (D2): the mode, merged or split (md_q, below), and next cycle's; constants without hart 1
+  md_t md_q, mdn_q;
+  md_t md, mdn;
+  assign md  = HART1_ON ? md_q : MD_C;
+  assign mdn = HART1_ON ? mdn_q : MD_C;
+  logic sp_hold;                    // the split stops the running thread's renaming
+  logic [NT-1:0] mg_pend;           // each thread runs beside a sleeper whose window is empty: a merge waits
+  logic [NT-1:0] nwr_hold;          // ... and a tail is within a group of its half's end: that thread waits
+  // the end of thread t's half (split): its pointers' last index + 1
+  function automatic int rob_end(input int t); return (t != 0) ? ROB_ENTRIES : ROB_ENTRIES / 2; endfunction
+  function automatic int lq_end(input int t);  return (t != 0) ? LQ_ENTRIES : LQ_ENTRIES / 2;   endfunction
+  function automatic int sq_end(input int t);  return (t != 0) ? SQ_ENTRIES : SQ_ENTRIES / 2;   endfunction
   logic [LLT_ENTRIES-1:0] llt_busy_q;
   logic [IQ_TAGS-1:0]    tag_busy_q;
   logic [LLT_ENTRIES-1:0] llt_tid_q;       // each LLT's and tag's thread (bit 0 of the tid: NT <= 2)
@@ -475,9 +497,9 @@ module tg_rename
   always_comb begin
     for (int t = 0; t < NT; t++)
       for (int n = 0; n <= W; n++) begin
-        rob_room_t[t][n] = rob_cnt_t(rtail_q[t], rob_head[t]) + n <= part_size(ROB_ENTRIES);
-        lq_room_t[t][n]  = lq_cnt_t(ltail_q[t], lq_head[t]) + n <= part_size(LQ_ENTRIES);
-        sq_room_t[t][n]  = sq_cnt_t(stail_q[t], sq_head[t]) + n <= part_size(SQ_ENTRIES);
+        rob_room_t[t][n] = rob_cnt_t(rtail_q[t], rob_head[t], md) + n <= part_size(ROB_ENTRIES, md) && !nwr_hold[t];
+        lq_room_t[t][n]  = lq_cnt_t(ltail_q[t], lq_head[t], md) + n <= part_size(LQ_ENTRIES, md) && !nwr_hold[t];
+        sq_room_t[t][n]  = sq_cnt_t(stail_q[t], sq_head[t], md) + n <= part_size(SQ_ENTRIES, md) && !nwr_hold[t];
       end
     rob_room = rob_room_t[t_rn];
     lq_room  = lq_room_t[t_rn];
@@ -541,9 +563,9 @@ module tg_rename
       endcase
       ren[k].q = QW'(port);
       // Window entries
-      ren[k].rob = rob_add_t(rtail_q[t_rn], k, t_rn);
-      ren[k].lq  = lq_add_t(ltail_q[t_rn], nld, t_rn);
-      ren[k].sq  = sq_add_t(stail_q[t_rn], nst, t_rn);
+      ren[k].rob = rob_add_t(rtail_q[t_rn], k, t_rn, md);
+      ren[k].lq  = lq_add_t(ltail_q[t_rn], nld, t_rn, md);
+      ren[k].sq  = sq_add_t(stail_q[t_rn], nst, t_rn, md);
       if (rn_valid_q[k]) begin
         if (rn_uop_q[k].d.cls == C_LD) nld++;
         if (rn_uop_q[k].d.cls == C_ST) nst++;
@@ -668,11 +690,12 @@ module tg_rename
       end
     end
 `ifndef SYNTHESIS
-    rn_ok_ref = !(rob_cnt_t(rtail_q[t_rn], rob_head[t_rn]) + nrob > part_size(ROB_ENTRIES) ||
-                  lq_cnt_t(ltail_q[t_rn], lq_head[t_rn]) + nld > part_size(LQ_ENTRIES) ||
-                  sq_cnt_t(stail_q[t_rn], sq_head[t_rn]) + nst > part_size(SQ_ENTRIES) || llt_short || tag_short ||
+    rn_ok_ref = !(rob_cnt_t(rtail_q[t_rn], rob_head[t_rn], md) + nrob > part_size(ROB_ENTRIES, md) ||
+                  lq_cnt_t(ltail_q[t_rn], lq_head[t_rn], md) + nld > part_size(LQ_ENTRIES, md) ||
+                  sq_cnt_t(stail_q[t_rn], sq_head[t_rn], md) + nst > part_size(SQ_ENTRIES, md) || llt_short || tag_short ||
                   int'(div_cnt_q) + ndiv > DIV_INFLIGHT || int'(fdiv_pre_q) + int'(fdiv_post_q) + nfdiv > FDIV_INFLIGHT ||
                   int'(fpi_pre_q) + int'(fpi_post_q) + nfpi > FPI_INFLIGHT);
+    if (nwr_hold[t_rn]) rn_ok_ref = 1'b0;
     for (int i = 0; i < 2; i++) if (int'(fpops[i]) > int'(ffl_count[i][t_rn])) rn_ok_ref = 1'b0;
     for (int i = 0; i < INT_BANKS; i++) if (int'(pops[i]) > int'(fl_count[i][t_rn])) rn_ok_ref = 1'b0;
 `endif
@@ -697,7 +720,7 @@ module tg_rename
   end
   assign rows_need = CMT && |rn_v_q[CMT ? !sel_q : 1'b0];
   assign rn_fire = (|rn_valid_q) && rn_ok && ds_free && !block_q[t_rn] && !flush && ready && start &&
-                   irdy_ready && frdy_ready && (!rn_serial || window_empty) && (!rows_need || iq_rows);
+                   irdy_ready && frdy_ready && (!rn_serial || window_empty) && (!rows_need || iq_rows) && !sp_hold;
   assign blk_o   = CMT ? block_q : '0;
 
   // With hart 1 (step 5d) each register's group is judged from registered state: it looks able to rename when its
@@ -1142,9 +1165,9 @@ module tg_rename
       llt_busy_q <= '0;
       tag_busy_q <= '0;
       for (int t = 0; t < NT; t++) begin
-        rtail_q[t] <= rob_start(tid_t'(t));
-        ltail_q[t] <= lq_start(tid_t'(t));
-        stail_q[t] <= sq_start(tid_t'(t));
+        rtail_q[t] <= rob_start(tid_t'(t), MD_C);
+        ltail_q[t] <= lq_start(tid_t'(t), MD_C);
+        stail_q[t] <= sq_start(tid_t'(t), MD_C);
       end
       div_cnt_q  <= '0;
       div_t_q    <= '0;
@@ -1183,7 +1206,7 @@ module tg_rename
           if (fdiv_iss && fp_iss_tid != t_fl) fdiv_pre_t_q[fp_iss_tid] <= fdiv_pre_t_q[fp_iss_tid] - 1'b1;
           if (fpi_iss && fp_iss_tid != t_fl)  fpi_pre_t_q[fp_iss_tid]  <= fpi_pre_t_q[fp_iss_tid] - 1'b1;
         end
-        block_q[t_fl] <= 1'b0;
+        block_q[t_fl] <= HART1_ON && flush_slp;   // (step 6: a WFI's sleep keeps its thread blocked until it wakes)
         if (CMT)               rn_v_q[CMT ? t_fl[0] : 1'b0] <= '0;   // (with hart 1 the flushed thread's)
         else if (t_rn == t_fl) rn_v_q[0]       <= '0;
         if (t_ds == t_fl) ds_valid_q <= '0;
@@ -1220,9 +1243,9 @@ module tg_rename
               end
             end
           end
-          rtail_q[t_rn] <= rob_add_t(rtail_q[t_rn], $countones(rn_valid_q), t_rn);
-          ltail_q[t_rn] <= lq_add_t(ltail_q[t_rn], ren_nld(rn_uop_q, rn_valid_q), t_rn);
-          stail_q[t_rn] <= sq_add_t(stail_q[t_rn], ren_nst(rn_uop_q, rn_valid_q), t_rn);
+          rtail_q[t_rn] <= rob_add_t(rtail_q[t_rn], $countones(rn_valid_q), t_rn, md);
+          ltail_q[t_rn] <= lq_add_t(ltail_q[t_rn], ren_nld(rn_uop_q, rn_valid_q), t_rn, md);
+          stail_q[t_rn] <= sq_add_t(stail_q[t_rn], ren_nst(rn_uop_q, rn_valid_q), t_rn, md);
           div_cnt_q <= div_cnt_q + (idx_w(DIV_INFLIGHT + 1))'(ren_ndiv(rn_uop_q, rn_valid_q))
                        - (idx_w(DIV_INFLIGHT + 1))'(div_dec);
           if (CMT)
@@ -1237,9 +1260,106 @@ module tg_rename
           rn_u_q[CMT ? t_de[0] : 1'b0] <= de_uop;
         end
       end
+      // Step 6: a wake unblocks its thread; a split with the running thread's window empty moves its tails to its
+      // half's start (with the ROB's and the LSU's pointers: mrs_o)
+      if (HART1_ON) begin
+        for (int t = 0; t < NT; t++) if (wk_o[t]) block_q[t] <= 1'b0;
+        if (mrs_o) begin
+          rtail_q[md.run] <= rob_start(md.run, mdn);
+          ltail_q[md.run] <= lq_start(md.run, mdn);
+          stail_q[md.run] <= sq_start(md.run, mdn);
+        end
+      end
       if (CMT) sel_q <= sel_n;
     end
   end
+
+  // ---- Step 6 (D2, threading.md): merge and split ----
+  // A thread that waited in WFI while its sibling ran goes to sleep: tg_rob retires the WFI, and its flush keeps the
+  // thread blocked here, so decode drops its groups and fetch holds its stream. Once the sleeper's window is empty
+  // (its committed stores drained) a merge waits (mg_pend): the runner's tails do not wrap in its half (the room
+  // flags above), so its window stops wrapping as its heads move on, and the halves merge around it. The mode,
+  // decided from registered pointers and announced a cycle ahead (mdn_q, then md_q), reaches every module while the
+  // tails still cannot wrap. A wake waits for the split: the runner renames nothing until its window lies in its half
+  // without wrapping (win_fits), or is empty; then its pointers go back to its half's start (mrs_o). The sleeper wakes
+  // with the split.
+  logic          rs_q, sp_q;
+  logic [NT-1:0] wk_q, emp, nwr, fit, wk_now;
+  logic          mg_go, sp_go;
+  tid_t          mg_r;                   // a merge's running thread
+  always_comb begin
+    for (int t = 0; t < NT; t++) begin
+      emp[t] = rtail_q[t] == rob_head[t] && ltail_q[t] == lq_head[t] && stail_q[t] == sq_head[t];
+      nwr[t] = rtail_q[t][ROBW-1] == rob_head[t][ROBW-1] && ltail_q[t][LQW-1] == lq_head[t][LQW-1] &&
+               stail_q[t][SQW-1] == sq_head[t][SQW-1];        // its windows do not wrap
+      fit[t] = win_fits(int'(rob_head[t][ROBW-2:0]), rob_head[t][ROBW-1], int'(rtail_q[t][ROBW-2:0]),
+                        rtail_q[t][ROBW-1], ROB_ENTRIES / 2, tid_t'(t)) &&
+               win_fits(int'(lq_head[t][LQW-2:0]), lq_head[t][LQW-1], int'(ltail_q[t][LQW-2:0]),
+                        ltail_q[t][LQW-1], LQ_ENTRIES / 2, tid_t'(t)) &&
+               win_fits(int'(sq_head[t][SQW-2:0]), sq_head[t][SQW-1], int'(stail_q[t][SQW-2:0]),
+                        stail_q[t][SQW-1], SQ_ENTRIES / 2, tid_t'(t));
+      // a sleeper's wake without a merge to undo (none in flight)
+      wk_now[t] = HART1_ON && slp_i[t] && wkr_i[t] && !wk_q[t] && md_q.split && mdn_q.split && !sp_q;
+    end
+    mg_go = 1'b0;
+    mg_r  = '0;
+    if (HART1_ON && NT > 1 && md_q.split && mdn_q.split && !sp_q)
+      for (int t = 0; t < NT; t++)
+        if (slp_i[t] && !wkr_i[t] && !wk_q[t] && emp[t] && nwr[NT - 1 - t]) begin
+          mg_go = 1'b1;
+          mg_r  = tid_t'(NT - 1 - t);
+        end
+    sp_go = HART1_ON && sp_q && (fit[md_q.run] || emp[md_q.run]);
+    for (int t = 0; t < NT; t++) begin
+      mg_pend[t] = HART1_ON && NT > 1 && md_q.split && !sp_q && slp_i[NT - 1 - t] && !wkr_i[NT - 1 - t] &&
+                   emp[NT - 1 - t];
+      nwr_hold[t] = mg_pend[t] && (int'(rtail_q[t][ROBW-2:0]) + W >= rob_end(t) ||
+                                   int'(ltail_q[t][LQW-2:0]) + W >= lq_end(t) ||
+                                   int'(stail_q[t][SQW-2:0]) + W >= sq_end(t));
+    end
+  end
+  always_ff @(posedge clk)
+    if (rst || !HART1_ON) begin
+      md_q  <= MD_C;
+      mdn_q <= MD_C;
+      rs_q  <= 1'b0;
+      sp_q  <= 1'b0;
+      wk_q  <= '0;
+    end else begin
+      md_q <= mdn_q;
+      wk_q <= wk_now;
+      if (mdn_q.split && !md_q.split) wk_q[~md_q.run] <= 1'b1;            // the sleeper wakes with the split
+      rs_q <= sp_go && emp[md_q.run];
+      if (mg_go) mdn_q <= '{split: 1'b0, run: mg_r};
+      if (!md_q.split && mdn_q == md_q && wkr_i[~md_q.run] && !sp_q) sp_q <= 1'b1;
+      if (sp_go) begin
+        mdn_q <= '{split: 1'b1, run: md_q.run};
+        sp_q  <= 1'b0;
+      end
+    end
+  assign sp_hold = HART1_ON && (sp_q || (mdn_q.split && !md_q.split));
+`ifndef SYNTHESIS
+  // (step 6) the merges and splits, the cycles merged and the splits' drains, the wakes; on stderr at the end
+  longint unsigned n_mg, n_sp, n_spr, n_mgc, n_spc, n_wk;
+  always_ff @(posedge clk)
+    if (rst) begin
+      n_mg <= 0; n_sp <= 0; n_spr <= 0; n_mgc <= 0; n_spc <= 0; n_wk <= 0;
+    end else if (HART1_ON) begin
+      if (mg_go) n_mg <= n_mg + 1;
+      if (sp_go) n_sp <= n_sp + 1;
+      if (sp_go && emp[md_q.run]) n_spr <= n_spr + 1;
+      if (!md_q.split) n_mgc <= n_mgc + 1;
+      if (sp_q) n_spc <= n_spc + 1;
+      n_wk <= n_wk + longint'($countones(wk_q));
+    end
+  final if (HART1_ON) $fwrite(32'h8000_0002, "TG-SMT %m: %0d merges, %0d splits (%0d with the window empty), %0d cycles merged, %0d cycles draining for a split, %0d wakes\n",
+                              n_mg, n_sp, n_spr, n_mgc, n_spc, n_wk);
+`endif
+  assign md_o    = md;
+  assign mdn_o   = mdn;
+  assign mrs_o   = HART1_ON && rs_q;
+  assign wk_o    = HART1_ON ? wk_q : '0;
+  assign sph_o   = HART1_ON && sp_q;
 
   // The DS payload takes RN's group whenever DS is free, so its enable does not wait for
   // rn_fire (a load of every DS flip-flop); ds_valid_q says whether RN fired, and nothing reads
