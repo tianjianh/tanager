@@ -865,7 +865,7 @@ tools/ci/boot_lockstep.py --nightly | --install-cron
 
 ### 4.8 Pair throughput (`tests/bench/pair`, M7's exit 2)
 
-M7's exit 2 (m7-smt2-plan §1): weighted throughput at least 1.3 times single-thread at 30, 120 and 250 cycles of latency. The runner puts two programs on one `smt2` core, one per hart, and compares each with itself alone. It follows smt2-study's method (smt2_report §2.2–§2.4), so the RTL's figures compare with the model's prediction.
+M7's exit 2 (m7-smt2-plan §1): weighted throughput against single-thread at 30, 120 and 250 cycles of latency. Since DR-184 (10-21) it is step 7's measured result, expected about 1.20, in place of DR-175's 1.3, on two conditions: no pair hangs, and one thread alone loses no speed against the hart-1-off core. The runner puts two programs on one `smt2` core, one per hart, and compares each with itself alone. It follows smt2-study's method (smt2_report §2.2–§2.4), so the RTL's figures compare with the model's prediction.
 - **The figure:**
   - WS = IPC_pair(a) / IPC_alone(a) + IPC_pair(b) / IPC_alone(b), each over the program's first region of interest;
   - a group's figure (memory + memory, compute + compute, mixed) is the geometric mean of its pairs' WS;
@@ -892,16 +892,17 @@ M7's exit 2 (m7-smt2-plan §1): weighted throughput at least 1.3 times single-th
 - **Commands:**
   - `make -C tests/bench/pair [REPEAT=0]` builds the 13 programs at both slots, 26 alone images and 42 pair images. Builds repeat bit for bit. `manifest.md5` lists every ELF's md5 and `build.info` the tree, so the model and the RTL can check that they run the same files; a program's code moves with any change to the runtime, which is linked first;
   - `replay` runs the images Spike against Spike;
-  - `run BASIS=half|merged [ALONE_SIM=<tg_vsim>] [ONLY=alone|pairs|all] [LAT=30,120,250] [LOCKSTEP=0] [SELECT=prog,a+b]` runs them in `tg_vsim` with `CFG=smt2`, lockstep on by default. It writes the figures as JSON in the build directory: the basis, each run's region cycles, instructions, IPC and restarts per slot, the alone runs' whole cycles, each pair's WS, the pairs left out, and the group and overall figures.
+  - `run BASIS=half|merged [ALONE_SIM=<tg_vsim>] [ONLY=alone|pairs|all] [LAT=30,120,250] [LOCKSTEP=0] [SELECT=prog,a+b] [OFF_ALONE=<json>]` runs them in `tg_vsim` with `CFG=smt2`, lockstep on by default. It writes the figures as JSON in the build directory: the basis, each run's region cycles, instructions, IPC and restarts per slot, the alone runs' whole cycles, each pair's WS, the pairs left out, and the group and overall figures.
     - The alone runs go first. `ONLY=pairs` takes the alone figures from `ONLY=alone`'s JSON, and refuses one of another basis.
     - `SELECT` runs some programs (every pair they are in) or some pairs; every program in those runs alone too.
     - `run_pair.py --only pairs --alone FILE --pairs-from FILE` runs nothing: it scores an earlier run's pairs against other alone figures, for example the same pairs on the merged basis from a hart-1-off build's alone runs.
-    - **Every pair counts or is named.** A pair that hangs, fails or lacks a line of output is left out of the means. The report lists each with its reason, and the overall figure needs all three groups.
+    - **Every failure is named and fails exit 2** (DR-184, 10-21). A pair that hangs (reaches its cycle limit), fails, lacks a line of output or lacks alone figures is left out of the means. Its cell reads HANG, FAIL or "no alone", and its latency's line starts with FAIL and says how many of the 42 pairs the means cover. The last line lists exit 2's failures, failed alone runs and losses alone among them, and the exit code is then 1. The overall figure needs all three groups.
+    - **Single thread, no loss** (DR-184): `--off-alone FILE` (`OFF_ALONE=`) takes the alone figures of a build with hart 1 off, from `run BASIS=merged ONLY=alone` without `HART1` on the same images. Each program's IPC alone on the run's build is divided by its IPC there, per slot and latency. A ratio under 1 (`--loss-tol`, default 0) is a loss, and a region whose instruction count differs between the two (other images) is not compared; both fail exit 2. The JSON keeps the ratios (`no_loss`) and the failures (`exit2`). The check's own test, on 5e's half-window alone runs: 10 of 78 at least as fast as with hart 1 off, the slowest ms_copy at 30 cycles (0.765), minver 0.82 and Dhrystone 0.94 at every latency, as a split window should read.
     - **Same-program pairs before the print lock** (fixed 10-21): chase8 + chase8 and CoreMark + CoreMark came out NaN on step 5c's RTL. The two copies' regions end within cycles of each other, and the first finisher's `PAIR-STOP` line interleaved on the UART with the last one's results. The runtime now prints under a lock. On 5c, at 30 cycles, they read 1.001 and 1.158.
     - The alone runs must use the same images as the pairs: a change to the runtime alone moved CoreMark's alone cycles by 1%, through code alignment.
 - **The basis** (`--basis`, required on the RTL, printed and kept in the JSON) is what each program alone had (smt2_report §13.14):
   - **half:** its half of the split window. On a build with hart 1 on, before step 6 merges the window while the sibling sleeps, this is what alone runs on the pairs' build get;
-  - **merged:** the whole window. That is step 6's merge, or before step 6 a build with hart 1 off, given as `ALONE_SIM` (`--alone-sim`);
+  - **merged:** the whole window. That is step 6's merge, or before step 6 a build with hart 1 off, given as `ALONE_SIM` (`--alone-sim`). From step 6, exit 2's alone runs are on the pairs' own build with hart 1 asleep in WFI (smt2_report §13.2, DR-184): `run HART1=1 BASIS=merged OFF_ALONE=<the hart-1-off build's ws-alone.json>`;
   - **exit 2 is judged on merged.** Half-window alone runs are slower and read memory pairs high: on step 5c's RTL the half basis gave 1.221, where the model reads 1.376 on that basis and 1.279 on merged.
 - **Hangs:**
   - **What the model predicts:** without the drain's priority, smt2-study's model hangs six pairs at step 5 — chase8 with stream, spmv, copy, minver and Dhrystone, and chase8 + chase8 at 120 and 250. The sibling's committed stores wait for miss entries that chase8's loads keep taking.
@@ -948,7 +949,7 @@ M7's exit 2 (m7-smt2-plan §1): weighted throughput at least 1.3 times single-th
   - **the hangs** are the same six chase8 pairs without the priority.
   - The print lock moved the code, and single programs moved with it: stream alone fell 26% at 30 cycles on the RTL, because its loop's branch now straddles a 16-byte fetch block (2.41 cycles an iteration on the RTL, 0.75 in the model). minver's straddler went away (+17%).
   - The set stays frozen, since any layout has straddlers. If the front end changes how it handles them, the alone runs are repeated with the pairs on one build.
-- **The pairs** run once hart 1 fetches (M7's step 5c). The alone runs are repeated on that build (the half basis until step 6), and on the merged basis for exit 2: after step 6 on the same build, or before it on a build with hart 1 off.
+- **The pairs** run once hart 1 fetches (M7's step 5c). The alone runs are repeated on that build (the half basis until step 6), and on the merged basis for exit 2: after step 6 on the same build, with the no-loss check against a build with hart 1 off, or before step 6 on a build with hart 1 off.
 
 ## 5. The test core (`tg_tcore`)
 
