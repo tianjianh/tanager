@@ -116,7 +116,7 @@ module tg_alu
   end
   always_comb begin
     if (SIMPLE) begin
-      res = ctl.word ? {{32{sum[31]}}, sum[31:0]} : sum;
+      res = ctl.grp[G_SLT] ? 64'd0 : ctl.word ? {{32{sum[31]}}, sum[31:0]} : sum;   // slt: zeros above bit 0
     end else
     for (int i = 0; i < 64; i++) begin
       unique case (rs)
