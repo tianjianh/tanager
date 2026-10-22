@@ -29,21 +29,22 @@ Device-bus port; `irq_msi_o[NUM_HARTS]`, `irq_mti_o[NUM_HARTS]`, `mtime_o[63:0]`
 ### Behaviour
 | Offset | Register | Notes |
 |---|---|---|
-| `0x0000 + 4h` | `msip[h]` | bit 0 RW, other bits 0; `irq_msi_o[h] = msip[h]` |
+| `0x0000 + 4h` | `msip[h]` | bit 0 RW, other bits 0; `irq_msi_o[h] = msip[h]`, a cycle later (Outputs) |
 | `0x4000 + 8h` | `mtimecmp[h]` | 64-bit RW, reset all ones |
 | `0xBFF8` | `mtime` | 64-bit RW, reset 0 |
 
 - **Tick:** `mtime` increments at `TIMEBASE_HZ` (10 MHz, `tg_map_pkg`) from `clk`, by a phase accumulator: `acc += TIMEBASE_HZ` every cycle; on `acc ≥ CLK_HZ`, `acc -= CLK_HZ` and `mtime++`. The average rate is exact for any `CLK_HZ ≥ TIMEBASE_HZ`; jitter is one `clk` period.
 - **Freeze:** `freeze_i` holds the accumulator and `mtime` (a write still lands). `tg_uncore` raises it while the commit trace stalls a core, if the host sets `CTRL.TFREEZE` ([host.md](host.md)): under board lockstep the trace's back-pressure slows the harts about a thousandfold while time would run on, and Linux would spend its time catching up on ticks. Off by default.
 - **Outputs:** `irq_mti_o[h] = (mtime ≥ mtimecmp[h])`, registered. A write to `mtime` or `mtimecmp` takes effect on the next compare.
+- **Output registers** (spikes §8.18): each hart's MTIP and MSIP leave through a register of their own, so they reach the core a cycle after the compare's register and `msip[h]`. The lines run into the cores' interrupt logic: the CSR file, rename, the ROB's wake hints, fetch. Without the registers, the DSPs' clock-to-out, the registered reset and the route from the uncore led 128 failing path families of the product chip (worst −1.43 ns). Interrupts are asynchronous, so the extra cycle is legal.
 - **Width:** harts beyond `NUM_HARTS` read 0 and ignore writes.
 
 ### Parameters
 `N_HARTS` (= `NUM_HARTS`), `CLK_HZ` (SoC parameter: the core clock, from `tanager_soc`).
 
 ### Timing and area
-- One 64-bit incrementer, and the `N_HARTS` comparators in DSP48E2s (DR-136): two `tg_dsp_cmp` per hart at latency 1, on the high and low words. The DSPs' P registers are the irq registers; their lt and eq bits are combined after them.
-- A registered `rst` keeps the synchronous reset of the register it replaced, so MTIP is cycle-identical from the first clock edge on (an assertion checks it against `mtime ≥ mtimecmp`, registered).
+- One 64-bit incrementer, and the `N_HARTS` comparators in DSP48E2s (DR-136): two `tg_dsp_cmp` per hart at latency 1, on the high and low words. The DSPs' P registers are the compare's registers; their lt and eq bits are combined after them, into the output register.
+- A registered `rst` keeps the synchronous reset of the register it replaced, so the compare is cycle-identical from the first clock edge on (an assertion checks it against `mtime ≥ mtimecmp`, registered). It now feeds only the output registers, not the cores.
 - 2 DSPs per hart (4 at `st`, 8 at `smt2`). That replaces about 32 LUTs and 8 CARRY8s per hart.
 - About 400 LUTs and 400 FFs at 4 harts before the move.
 
