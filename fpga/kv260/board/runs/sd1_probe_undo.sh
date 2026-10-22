@@ -5,7 +5,8 @@
 #   - soc-2's originals kept in /usr/local/lib/sd1probe/, with the static busybox;
 #   - sd1-irq-watch.service (disabled since boot 38) and sd_read_stress.sh;
 #   - iomem=relaxed: /etc/default/u-boot back from its .tanager-pre copy, then u-boot-update;
-#   - busybox, purged (installed for the probe's devmem); its purge rebuilds the initramfs, and so does the last step.
+#   - busybox, purged (installed for the probe's devmem). Its purge rebuilds the initramfs; a second rebuild runs only if
+#     the probe is still in it.
 # Every file is named; nothing is removed by a recursive delete.
 set -u
 for f in /usr/local/sbin/sd1-irq-probe /etc/initramfs-tools/hooks/sd1-irq-probe \
@@ -21,6 +22,6 @@ if [ -e /etc/default/u-boot.tanager-pre ]; then
 fi
 grep -c iomem=relaxed /boot/extlinux/extlinux.conf | sed 's/^/extlinux lines with iomem=relaxed: /'
 DEBIAN_FRONTEND=noninteractive apt-get purge -y busybox > /tmp/purge_busybox.txt 2>&1; echo "busybox purge exit $?"
-update-initramfs -u > /tmp/uir_undo.txt 2>&1; echo "update-initramfs exit $?"
+lsinitramfs /boot/initrd.img-$(uname -r) | grep -q -E "sd1probe|sd1-irq" && { update-initramfs -u > /tmp/uir_undo.txt 2>&1; echo "update-initramfs exit $?"; }
 lsinitramfs /boot/initrd.img-$(uname -r) | grep -c -E "sd1probe|sd1-irq" | sed 's/^/initramfs entries for the probe: /'
 dpkg -l busybox 2>/dev/null | grep -c "^ii" | sed 's/^/busybox installed: /'

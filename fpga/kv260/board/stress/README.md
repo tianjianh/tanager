@@ -524,3 +524,29 @@ It meets 100 MHz at WNS +0.367 ns with 105,934 LUTs. The package is d4r1-riscv w
 - **RISC-V mode now runs at stage C's speed.** s23's memory figure (146.2) matches stage C's without the watch: s20's 142.8 with the watch's measured 2.9% taken out is 147.1, and memgap's sysbench run read 144.5–146.1.
 - cpu and threads rise less because they rarely store to memory or read the clock.
 - These are d4r2's figures in the product mode, without the watch.
+
+**Two resets while the board idled after s23 (10-21), both at the laptop's wake from hibernation.**
+- **What happened:**
+  - After s23 (09:54 UTC) Debian idled in RISC-V mode.
+  - At about 11:08 UTC the board reset with no shutdown. U-Boot's hook read riscv, trial 1 and booted Ubuntu: DR-172's fallback for an unconfirmed RISC-V boot, as designed.
+  - Ubuntu ran until about 17:00 UTC, when the board reset again with no shutdown. This time the A53's U-Boot stopped at its prompt, where the next serial session found it at 17:18 UTC.
+  - At the prompt: `version`, RESET_REASON and the mode record read first, then `boot`, which brought Ubuntu up ([`uart_COM7_uboot_found.txt`](uart_COM7_uboot_found.txt)). The record went back to riscv for the baseline ([`../d4r2/README.md`](../d4r2/README.md)).
+- **The laptop** (Windows' System log, [`laptop_power_1021.txt`](laptop_power_1021.txt)): its battery reached critical twice, and each time it hibernated.
+  - 10:37:41 to 11:08:35 UTC, with a power-source change logged at 11:08:33.
+  - 11:57:10 to 17:02:03 UTC.
+  - It is now on AC at 100%.
+- **The board's records:**
+  - **The RISC-V's journal** ([`reset_1021_riscv.txt`](reset_1021_riscv.txt)): `eth0: Lost carrier` at 3,892.9 s and `Gained carrier` at 5,701.3 s. s23's start (up 157.5 s at about 09:35:25) puts these at 10:37:41 and 11:07:50 UTC: the laptop's sleep, and its firmware starting the wake about 45 s before Windows logged it. Nothing follows, and there are no shutdown lines.
+  - **COM7** ([`uart_COM7_1021.txt`](uart_COM7_1021.txt), 08:14 to 17:18 UTC): the logger, paused with the laptop, came back after Windows' wake (11:08:35) in the middle of the A53's ARM-mode boot, at the end of U-Boot's 4.9 s read of `image.fit`. That point comes about 13 s after a reset: the hook runs about 8 s after it in the baseline's stamped boots ([`../d4r2/README.md`](../d4r2/README.md)), and the read takes 4.9 s. So the A53 reset at about 11:08:22 or a little later: after the link's return and before Windows' wake.
+  - **Ubuntu's journal** ([`reset_1021_ubuntu.txt`](reset_1021_ubuntu.txt)): its last entry is a 5-minute cron line at 20,911 s, with no shutdown lines.
+    - From that boot's start, that entry is at about 16:57 UTC, and the next cron line, due about 17:02, is missing.
+    - So the reset came between 16:57 and 17:02, or a little later (journald syncs every 5 minutes): around the laptop's wake at 17:02:03.
+  - **RESET_REASON reads `0x21`**, both at the prompt and in Ubuntu: an external POR at some point, then software resets.
+    - This U-Boot prints the register but doesn't clear it, so it can't tell these resets from Debian's reboots.
+    - No SRST, PMU, internal-POR or debug bit is set.
+- **Reading:**
+  - Both resets came during the laptop's wake, with the board idle and no warning in either journal. They are laptop events, like s21's power cut, not board faults.
+  - The first, in RISC-V mode, could be the PMOD hook. A break of 2.7–10.7 s on COM5's line resets the board as the break ends, and the laptop's USB ports may cut the adapter's power for a few seconds while the firmware wakes.
+  - But the second came in ARM mode, where the hook isn't loaded. A single cause for both would have to reach the board in either mode: the micro-USB's FTDI (COM7 and JTAG) powering up again, or the supply.
+  - The U-Boot prompt fits a stray byte from the FTDI on UART1 during the autoboot countdown.
+  - A test would tell which line does it: with the loggers on and the board idle in each mode, the laptop put to sleep and woken, or each USB cable unplugged and plugged back. That needs the user at the laptop. Until then, the laptop staying on AC avoids it.
