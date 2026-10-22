@@ -316,8 +316,21 @@ module tg_lsu
   // synthesis keeps none of the second thread's logic until two threads run (step 5).
   localparam int NT = NUM_THREADS;
   md_t md, mdn;                     // the mode and next cycle's (step 6; constants without hart 1)
-  assign md  = HART1_ON ? md_i : MD_C;
+  // The mode comes from a copy of rename's md_q kept here (the same value: md_q takes mdn every cycle, and both
+  // reset to MD_C), so its fan-out starts beside the logic it feeds, not across the core at rename (timing: the full
+  // chip's worst path started at md_q, spikes §8.18). Kept, so that synthesis does not merge it into md_q
+  (* keep = "true" *) md_t md_l_q;
+  always_ff @(posedge clk) md_l_q <= rst ? MD_C : mdn_i;
+  assign md  = HART1_ON ? md_l_q : MD_C;
   assign mdn = HART1_ON ? mdn_i : MD_C;
+`ifndef SYNTHESIS
+  logic md_rs;                      // (the copy is checked from the first reset on)
+  initial md_rs = 1'b0;
+  always @(posedge clk) if (rst) md_rs <= 1'b1;
+  always_ff @(posedge clk)
+    if (md_rs && !rst && HART1_ON)
+      assert (md_l_q == md_i) else $error("tg_lsu: the mode's copy differs from rename's md_q");
+`endif
   // The SQ pointers of each LQ half's thread (its own split, the running thread's merged): picked once a half, not
   // an entry (step 6's mode makes an entry's thread a signal)
   sqid_t [1:0] sqh_lh, sqt_lh;
