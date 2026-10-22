@@ -63,6 +63,11 @@ profiles+=("SYNTH=1")
 # DR-177's release builds, without the two latency injectors (tanager_soc LAT_INJ, a parameter), in both views
 if grep -qsw LAT_INJ "$ROOT/rtl/soc/tanager_soc.sv"; then profiles+=("LAT_INJ=0" "LAT_INJ=0 SYNTH=1")
 else echo "lint-all: tanager_soc has no LAT_INJ; skipping LAT_INJ=0"; fi
+# DR-180's release builds (tanager_soc RELEASE, a parameter, with the host DMA port), as the board's product: no
+# injectors and no trace either, in both views
+if grep -qsw RELEASE "$ROOT/rtl/soc/tanager_soc.sv"; then
+  profiles+=("RELEASE=1 LAT_INJ=0 COMMIT_TRACE=0" "RELEASE=1 LAT_INJ=0 COMMIT_TRACE=0 SYNTH=1")
+else echo "lint-all: tanager_soc has no RELEASE; skipping RELEASE=1"; fi
 # M7's test mode (SOLO_TID=1, DR-175) exists only in the SMT2 configurations (TID_W = 1)
 solo=""; if mentioned TG_SOLO_TID; then solo=1; else echo "lint-all: no RTL mentions TG_SOLO_TID; skipping SOLO_TID=1"; fi
 # ... and its split mode (SPLIT=1), alone and with SOLO_TID=1

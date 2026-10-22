@@ -10,7 +10,9 @@
  * accesses the window must deny without a transaction, an error response, a timeout and the recovery
  * after it, and a PS interrupt through the PLIC; start.S records the access faults; then the board's reset,
  * CRL_APB RESET_CTRL, denied until the doorbell has the host set BOARD_CTRL[1], then that word alone passing;
- * after TOHOST, once the host says so, reads of the window nonstop for tb_soc's PMOD reset hook test).
+ * after TOHOST, once the host says so, reads of the window nonstop for tb_soc's PMOD reset hook test); bit 3 a
+ * release build (RELEASE=1, DR-180: the PLIC's M contexts empty and 1-bit priorities, the UART's interrupt claimed
+ * on hart 0's S context; with the PS window, TTC1's line no source and UART1's claimed on the S context instead).
  * Pass: TOHOST = 1; failure: TOHOST = (code << 1) | 1. With one hart (the one-core KV260 bitstream's
  * first light, fpga/kv260/README.md) the coherence part is skipped. */
 #include <stdint.h>
@@ -30,7 +32,13 @@
 #define PS_ERR    0xFF170100ul
 #define PS_LATE   0xFF0E0200ul
 #define PS_RST    0xFF5E0218ul                 /* CRL_APB RESET_CTRL: the board's reset (the model resets nothing) */
+#define PS_U1IRQ  0xFF010040ul                 /* the PS model: bit 0 written is UART1's line, PLIC source 20 */
+#define IRQ_UART  10
+#define IRQ_UART1 20
 #define IRQ_TTC1  24
+#define P_EN(c)   (PLIC + 0x2000ul + 0x80ul * (c))      /* context c's enables, threshold, claim and complete */
+#define P_THR(c)  (PLIC + 0x200000ul + 0x1000ul * (c))
+#define P_CLAIM(c) (P_THR(c) + 4)
 #define REG64(a)  (*(volatile uint64_t *)(a))
 #define REG32(a)  (*(volatile uint32_t *)(a))
 #define REG16(a)  (*(volatile uint16_t *)(a))
@@ -87,10 +95,40 @@ int main(uint64_t hartid, uint64_t dtb) {
         if (region[i] != mix((uint64_t)i ^ 0x1234)) fail(0x100 + pass);
     puts_("memory ok\n");
 
+    uint64_t fh = REG64(HOSTCTL + 0x30);
+    int rel = (fh >> 16) == 0x7467 && (fh & 8);
+
+    /* A release build's PLIC (DR-180): context 0, hart 0's M-mode, holds nothing; priorities and thresholds keep
+     * bit 0; hart 0's S context (1) takes the UART's transmit interrupt, claimed and completed */
+    if (rel) {
+      REG32(PLIC + 4 * IRQ_UART) = 7;
+      if (REG32(PLIC + 4 * IRQ_UART) != 1) fail(0x700);
+      REG32(P_EN(0)) = 0xFFFFFFFEu;
+      REG32(P_THR(0)) = 1;
+      if (REG32(P_EN(0)) != 0 || REG32(P_THR(0)) != 0) fail(0x701);
+      REG32(P_EN(1)) = 1u << IRQ_UART;
+      REG32(P_THR(1)) = 7;
+      if (REG32(P_EN(1)) != 1u << IRQ_UART || REG32(P_THR(1)) != 1) fail(0x702);
+      UART[1] = 0x02;                                /* IER: the transmitter-empty interrupt */
+      for (volatile int i = 0; i < 50; i++) { }
+      if (REG32(PLIC + 0x1000) & (1u << IRQ_UART)) {
+        if (REG32(P_CLAIM(1)) != 0) fail(0x703);     /* pending, but under the threshold */
+      }
+      REG32(P_THR(1)) = 0;
+      while (!(REG32(PLIC + 0x1000) & (1u << IRQ_UART))) { }
+      if (REG32(P_CLAIM(0)) != 0) fail(0x704);       /* no claim through an M context */
+      if (REG32(P_CLAIM(1)) != IRQ_UART) fail(0x705);
+      UART[1] = 0x00;                                /* the line drops */
+      for (volatile int i = 0; i < 50; i++) { }
+      REG32(P_CLAIM(1)) = IRQ_UART;                  /* complete */
+      if (REG32(PLIC + 0x1000) & (1u << IRQ_UART)) fail(0x706);
+      REG32(P_EN(1)) = 0;
+      puts_("release plic ok\n");
+    }
+
     /* The forwarded virtio window (docs/spec/soc.md §8.1): the host answers a read with "virt" at
      * offset 0, else (slot << 16) | offset; a QueueNotify of slot 3 makes it set the slot's used-buffer
      * bit, PLIC source 4. InterruptStatus and InterruptACK are answered in the uncore. */
-    uint64_t fh = REG64(HOSTCTL + 0x30);
     if ((fh >> 16) == 0x7467 && (fh & 1)) {
       if (REG32(VIRTIO + 0x000) != 0x74726976) fail(0x400);
       if (REG32(VIRTIO + 0x1008) != 0x00010008) fail(0x401);
@@ -160,18 +198,39 @@ int main(uint64_t hartid, uint64_t dtb) {
       uint64_t v = 0, tries = 0;
       do { n = trap_save[3]; v = REG64(PS_SCR + 0x00); tries++; } while (trap_save[3] != n && tries < 100000);
       if (trap_save[3] != n || v != 0x0123456789ABCDEFull) fail(0x615);
-      /* a PS interrupt (TTC1's line) through the PLIC */
-      REG32(PLIC + 4 * IRQ_TTC1) = 1;                /* priority 1 */
-      REG32(PLIC + 0x2000) = 1u << IRQ_TTC1;         /* enabled for context 0, hart 0's M-mode */
-      REG32(PLIC + 0x200000) = 0;                    /* threshold */
-      if (REG32(PLIC + 0x1000) & (1u << IRQ_TTC1)) fail(0x620);
-      REG32(PS_TTC1) = 1;                            /* the model raises the line */
-      while (!(REG32(PLIC + 0x1000) & (1u << IRQ_TTC1))) { }
-      if (REG32(PLIC + 0x200004) != IRQ_TTC1) fail(0x621);   /* claim */
-      REG32(PS_TTC1) = 0;                            /* and lowers it */
-      for (volatile int i = 0; i < 50; i++) { }      /* through the synchronizer */
-      REG32(PLIC + 0x200004) = IRQ_TTC1;             /* complete */
-      if (REG32(PLIC + 0x1000) & (1u << IRQ_TTC1)) fail(0x622);
+      if (!rel) {
+        /* a PS interrupt (TTC1's line) through the PLIC */
+        REG32(PLIC + 4 * IRQ_TTC1) = 1;              /* priority 1 */
+        REG32(PLIC + 0x2000) = 1u << IRQ_TTC1;       /* enabled for context 0, hart 0's M-mode */
+        REG32(PLIC + 0x200000) = 0;                  /* threshold */
+        if (REG32(PLIC + 0x1000) & (1u << IRQ_TTC1)) fail(0x620);
+        REG32(PS_TTC1) = 1;                          /* the model raises the line */
+        while (!(REG32(PLIC + 0x1000) & (1u << IRQ_TTC1))) { }
+        if (REG32(PLIC + 0x200004) != IRQ_TTC1) fail(0x621);   /* claim */
+        REG32(PS_TTC1) = 0;                          /* and lowers it */
+        for (volatile int i = 0; i < 50; i++) { }    /* through the synchronizer */
+        REG32(PLIC + 0x200004) = IRQ_TTC1;           /* complete */
+        if (REG32(PLIC + 0x1000) & (1u << IRQ_TTC1)) fail(0x622);
+      } else {
+        /* a release build: TTC1's line is no source; UART1's is, claimed on hart 0's S context */
+        REG32(PLIC + 4 * IRQ_TTC1) = 1;
+        REG32(PS_TTC1) = 1;
+        for (volatile int i = 0; i < 200; i++) { }
+        if (REG32(PLIC + 0x1000) & (1u << IRQ_TTC1)) fail(0x640);
+        REG32(PS_TTC1) = 0;
+        REG32(PLIC + 4 * IRQ_UART1) = 1;
+        REG32(P_EN(1)) = 1u << IRQ_UART1;
+        REG32(P_THR(1)) = 0;
+        if (REG32(PLIC + 0x1000) & (1u << IRQ_UART1)) fail(0x641);
+        REG32(PS_U1IRQ) = 1;
+        while (!(REG32(PLIC + 0x1000) & (1u << IRQ_UART1))) { }
+        if (REG32(P_CLAIM(1)) != IRQ_UART1) fail(0x642);
+        REG32(PS_U1IRQ) = 0;
+        for (volatile int i = 0; i < 50; i++) { }
+        REG32(P_CLAIM(1)) = IRQ_UART1;
+        if (REG32(PLIC + 0x1000) & (1u << IRQ_UART1)) fail(0x643);
+        REG32(P_EN(1)) = 0;
+      }
       /* the board's reset (docs/spec/soc-d4-modes.md): RESET_CTRL, denied while the host's BOARD_CTRL[1] is
        * clear; with it set, that word alone passes */
       n = trap_save[3];

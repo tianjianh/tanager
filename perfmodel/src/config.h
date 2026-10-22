@@ -207,6 +207,9 @@ namespace tg {
   X(rf_share_a2, 0, "R11 (alu3): ALU2 reads through the STA and shared ports; STA and FP int reads win") \
   X(dec_full, 0, "R12: decode slots from this index on take only ALU/branch/integer load-store (0 = all)") \
   X(alu3_simple, 0, "R13 (alu3): ALU2 executes add/sub, logic, compare, LUI/AUIPC and Zba shift-adds only") \
+  X(alu_full, 0, "the RTL's ALU steering over N ports (2, or 3 with alu3; tg_rename): decode slot k's ALU op tries port k mod N, then the next in turn, and takes the first that can run it, whose rows for slot k had a free one the cycle before (iq_steer_rn) and whose bank has a free register; a mask of the ports with the shifter/rotator, the bit-manipulation and the unary ops (bit p: port p), the only ones an op needing them takes; orc.b and rev8 go to any of them as tg_alu's unary group (0: the model's own steering)") \
+  X(lsq_pa_bits, 0, "partial-address search in the LQ and SQ: loads match older stores, and stores younger loads, on the low N address bits; a load's match is confirmed with the full address before it forwards, so a false one costs it a replay or a wait (lsq_pa_wait), and a store's flushes the load as an ordering violation does (0: full addresses)") \
+  X(lsq_pa_wait, 0, "lsq_pa_bits: a load whose match on the low bits the full address doesn't confirm 0 = replays once, its next search confirming each match; 1 = waits until that store leaves the SQ") \
   X(iq_bank, 0, "each issue queue is two banks of rows that wake only on their half of the ROB; a uop takes the bank that sees its producers (two threads: its own)") \
   X(iq_bank_llt, 0, "with iq_bank: each bank also sees only half of the long-latency tags")      X(wake_tags, 0, "rows wake on a pool of this many tags for multi-cycle fixed-latency producers instead of ROB columns (0 = ROB columns)") \
   X(census, 0, "count every dispatched uop's source dependencies by wakeup kind (output only)")    \

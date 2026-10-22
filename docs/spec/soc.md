@@ -98,7 +98,7 @@ Non-project Tcl, run only through `tools/vivado_run.sh` (conventions §9):
 
 | Script | Does |
 |---|---|
-| `fpga/kv260/tcl/build.tcl <cfg> <kind> <mhz> <outdir>` | in-memory project; board part; `ps_bd.tcl`; read RTL through `tools/tcl/tg_files.tcl` (config package, `rtl/rtl.f`, `fpga/kv260/kv260.f`); XDC; `synth_design`; `opt_design`; `place_design`; `phys_opt_design`; `route_design`; reports; bitstream |
+| `fpga/kv260/tcl/build.tcl <cfg> <kind> <mhz> <outdir>` | in-memory project; board part; `ps_bd.tcl`; read RTL through `tools/tcl/tg_files.tcl` (config package, `rtl/rtl.f`, `fpga/kv260/kv260.f`); XDC; `synth_design`; the floorplan (product builds, DR-181); `opt_design`; `place_design`; `phys_opt_design`; `route_design`; reports; bitstream |
 | `fpga/kv260/xdc/kv260.xdc` | pin and I/O standard of the fan; clocks come from the PS and MMCM (derived automatically) |
 | `fpga/kv260/xdc/timing.xdc` | asynchronous clock groups between `clk_core` and `clk_host` (the host bridge's crossings are XPM macros with their own constraints) |
 | `fpga/kv260/xdc/timing_urf.xdc` | URF only (DR-174): `clk2x` stays synchronous with `clk_core`, so every path between them is timed at the real spacing of their edges, 5 ns; it is asynchronous to `clk_host`; `CLOCK_DELAY_GROUP` balances the two BUFGs' trees. The register file's own exceptions (the paths its slot plan gives a full cycle) are the core's: `rtl/core/regfile/tg_urf.xdc`, which `build.tcl` reads with `-ref tg_urf` |
@@ -106,25 +106,45 @@ Non-project Tcl, run only through `tools/vivado_run.sh` (conventions §9):
 - **Outputs kept:** `timing_summary.rpt`, `utilization.rpt` (hierarchical), `clock_utilization.rpt`, `cdc.rpt`, `drc.rpt`, the primitive-count check (`primitives.rpt`), and `tanager.bit.bin` (bootgen) for the FPGA manager (`xmutil`).
 - **Loading under Linux:** a bitstream loaded at run time does not reconfigure the PS. `fpga/kv260/dtbo/tanager.dtso` is the device-tree overlay that sets `pl_clk0`, the fabric-interface widths (`xlnx,afi-fpga`) and a UIO node for the host window. `fpga/kv260/README.md` is the build and bring-up runbook.
 - **Deleted after each run:** checkpoints, run directories and logs (conventions §9).
-- **Pblocks:** later (spike S6, plan §7.5).
+- **Pblocks (DR-181, 10-21):** product builds (kind core, two cores; `TG_FLOORPLAN`) place spikes §8.17's g4_uncore floorplan between synthesis and `opt_design`.
+  - **The pblocks:** the two L2 banks in the URAM column, and the crossbar beside them. They are spikes-2's files (`fpga/spikes/tcl/fp/g4_uncore.tcl`, with `fp_lib.tcl`'s helpers and checks), sourced where they are kept.
+  - **The result:** hp1f, at 97.2% placed, reached WNS −0.096 ns with them, against −2.098 ns without (spikes §8.18).
+  - **Soft:** the pblocks are soft, Vivado 2025.2's default, so the placer may put some of their cells just outside.
+  - **A missing cell** the floorplan names stops the build.
+  - **The checks** log `FLOORPLAN_OK`, `_WARN` or `_TIGHT` per pblock, before `opt_design` (above 105% or 115% of its LUT sites) and after placement (its own LUTs above 85% or 90%). `summary.txt`'s `floorplan=` line gives both shares and the worst grade. `TIGHT` means spikes-2 resizes that pblock before the next product build.
 
-### 2.5 Release and development builds (DR-177)
+### 2.5 Release and development builds (DR-177, DR-180)
 
 | Build | What's in it | Used for |
 |---|---|---|
-| **Release** | No latency injectors (`TG_LAT_INJ=0`) and no commit trace (`TG_COMMIT_TRACE=0`). `summary.txt` says `lat_inj=0` and lists the define | the board's RISC-V-mode product builds (D4 and D5's packages; M7 and M8's four-hart build, `h1_build.sh`); spikes-2's release-form full chips (spikes §8.18) |
-| **Development** | Both injectors (`TG_LAT_INJ` unset or 1; `summary.txt`: `lat_inj=1`), and the trace when the build is for lockstep | stage C bitstreams that test injected latency (`tanager-host --inj-rd`); board lockstep (needs the trace); the latency sweeps at 0, 120 and 250 cycles, with M8's litmus runs on four harts (DR-177's exit) |
+| **Release** (DR-180) | `TG_RELEASE=1`: `RELEASE=1` with no latency injectors, no commit trace and no virtio window. The PLIC keeps its S-mode contexts alone, with 1-bit priorities and no TTC1 source. There is no host console. The DMA port has no line counters, and no completion queue without the trace. The host bridge's crossings carry only the fields built. `summary.txt` says `release=1` and `lat_inj=0` | the board's RISC-V-mode product builds (M7 and M8's four-hart build, `h1_build.sh`; RISC-V mode's tree `tanager-kv260-riscv-rel.dtb`); spikes-2's release-form full chips from DR-180 on |
+| **DR-177's release form** | No latency injectors (`TG_LAT_INJ=0`) and no commit trace (`TG_COMMIT_TRACE=0`), with everything else as development builds have it | before DR-180: d4r1's and d4r2's packages, spikes §8.18's hu0 and hu1 |
+| **Development** | Every block: both injectors (`summary.txt`: `lat_inj=1`, `release=0`), the virtio window and the host console where configured, and the trace when the build is for lockstep | stage C bitstreams (virtio, the host console, `tanager-host --inj-rd`); board lockstep (needs the trace); the latency sweeps at 0, 120 and 250 cycles, with M8's litmus runs on four harts (DR-177's exit) |
 
 - **The release form can't:**
   - inject latency. `CAPS[1]` = 0, and `tanager-host` refuses `--inj-rd`, `--inj-wr` or `--inj-bw` above 0 before it touches the board. `--inj-rd 0` only gets a note.
   - report native read latency: every `INJ_*` register reads 0 ([host.md](host.md)).
   - run board lockstep: with the trace off, `CAPS[3]` = 0.
-- **It changes cycles, not function.** An injector stores each read burst whole before it releases it. So without the injectors each DRAM fill reaches the L2 a few cycles sooner, and release builds run memory-bound work slightly faster than development builds. A comparison across the two kinds says so.
+  - serve virtio (stage C) or give a console through the host. `CAPS[2]` and `CAPS[9]` = 0: its console is the PMOD UART alone, `tanager-host --pty` stops, and its default stdio console becomes none.
+  - count the DMA port's lines (`CAPS[10]` = 0) or record its completions (`CAPS[11]` = 0; they serve lockstep, which needs the trace). `HDMA_WR_DROPS` still counts.
+  - take a machine-mode external interrupt, or use priorities above 1 ([uncore-periph.md](uncore-periph.md) §PLIC). Nothing in RISC-V mode does: OpenSBI takes no external interrupt, and Linux writes priority 1 alone. Its device trees list each M context as absent (−1, `sw/dts` `RELEASE=1`). A release tree boots a development build too, whose M contexts nothing uses.
+  - take TTC1's interrupt (PLIC source 24, D1's test; the A53 and RISC-V mode don't use TTC1).
+- **It changes cycles, not function.** An injector stores each read burst whole before it releases it. So without the injectors each DRAM fill reaches the L2 a few cycles sooner, and release builds run memory-bound work slightly faster than development builds. A comparison across the two kinds says so. DR-180's parts change no cycle: the crossings carry the same values, and the other parts are absent or unused.
 - **The saving:**
   - **The injectors themselves,** in d4r1's routed build: 1,371 LUTs (368 of them LUTRAM), 556 flip-flops and 4 RAMB36 (their read buffers).
   - **The whole chip, synthesized** (d4r1's configuration on bdf68a1a, `TG_LAT_INJ=1` against `0`): 114,534 → 113,288 LUTs, so 1,246 fewer (878 logic, 368 LUTRAM); 61,072 → 60,150 flip-flops (922, the host bridge's injector registers and their crossings included); 122 → 118 RAMB36.
   - DR-167 estimated 1,293 LUTs and 4 BRAM36. Placement figures come with spikes' release-form chips (§8.18).
-- **Simulation and the tests** keep the injectors by default. Release forms: `tests/unit/host_bridge` and `tests/unit/soc` (`LAT_INJ=0`, both in `short`), `tests/unit/boot` `LAT_INJ=0`, and `make lint LAT_INJ=0` (lint-all runs it in both views).
+  - **DR-180's parts,** synthesized on hu1's recipe (main 7196a0bc with DR-180, b9a7ce10: `TG_RELEASE` unset against `1`; synthesis only, `AreaOptimized_high`):
+    - **The whole chip:** 125,174 → 123,391 LUTs, so 1,783 fewer (1,695 logic, 88 LUTRAM); 67,179 → 64,009 flip-flops (3,170 fewer); 6 → 4 RAMB18. The measured list estimated about 1,550 LUTs, 2,700–3,200 flip-flops and 2 RAMB18.
+    - **The host bridge:** 1,416 → 528 LUTs, 5,267 → 2,420 flip-flops, 2 → 0 RAMB18. Of that, the virtio window is 274 LUTs and 574 flip-flops. The console FIFOs, the completion queue and the trimmed crossings are the other 614 LUTs, 2,273 flip-flops and both RAMB18.
+    - **The PLIC:** 719 → 119 LUTs, 432 → 211 flip-flops.
+    - **The device bus:** 902 → 623 LUTs (the virtio slots' device).
+    - **The DMA port:** 96 flip-flops (its cycle count and line counters) and 5 LUTs.
+    - **The rest:** within noise (the crossbar −102 LUTs, the cores −26, the top level −74).
+    - **Still over the device after synthesis** (123,391 LUTs, 105.4%). hu1 lost 5,119 LUTs in `opt_design` on 071de15c (spikes §8.18), so this release chip would come to about 118.3K after it, still about 1% over: an estimate, not a run. DR-180 covers part of hu1's gap, not all of it.
+- **Simulation and the tests** keep every block by default. Release forms:
+  - DR-177's: `tests/unit/host_bridge` and `tests/unit/soc` (`LAT_INJ=0`, both in `short`), `tests/unit/boot` `LAT_INJ=0`, and `make lint LAT_INJ=0` (lint-all runs it in both views).
+  - DR-180's: `tests/unit/periph` `REL=1`, `tests/unit/host_bridge` `REL=1 HDMA=1` and `tests/unit/hdma` `REL=1` (each in `short`); `tests/unit/soc` `RELEASE=1` (trafgen, and tcore with the DMA port and the PS window, in `short`; `ipirace RELEASE=1`); `tests/unit/boot` `linux RELEASE=1` (the serial console alone); `make lint RELEASE=1` (lint-all runs it with `LAT_INJ=0 COMMIT_TRACE=0` in both views); on QEMU, `RELEASE=1 sw/qemu/boot_test.sh 2 2` and `SMP=4 RELEASE=1 IRQS=1 sw/qemu/debian_test.sh`.
 
 ## 3. Boot flow and memory layout
 
@@ -879,6 +899,8 @@ Changes that save area but move cycles or remove function. Under D18 and DR-123 
 | **Core-side request slices** (`tg_uncore` `XBAR_IN_SLICE`, 4e639d3; a timing lever, DR-135; off by default, the user's decision). Skid buffers on the cores' request channels between the core ports and the crossbar: bit 0 the caches' A (l1d, l1i), bit 1 the MMIO A, bit 2 the l1d C, bit 3 the l1d E; the uncore's side of an interface register stage | timing, not area. With compact banks (G4-FP) the core-side crossbar paths still miss by about 3 ns, mostly wire: core → A slices −2.87 ns, core → C −3.05 ns, the LSU's store queue → a B slice's clock enable −4.99 ns (14 levels, which a slice on this side does not reach). Out of context these paths start at ports with no input delay, so only a full-chip fit measures them. Cache A and C (`4'b0101`): +307 LUTs and +1,148 FFs at `st`; every channel (`4'b1111`): +499 LUTs and +1,956 FFs | one cycle on every message of a sliced channel. `4'b0101`, the 2-core Linux boot's first 20M cycles: +0.430% at `st`, +0.206% at `smt2`. `4'b1111`: +0.436% and +0.207%; the MMIO A and E slices add almost no cycles (MMIO is rare, and a GrantAck holds nothing up) for their 192 LUTs. Main's core has no DR-140 profile switches yet, so these hold for both profiles | every L1 miss, eviction and coherence response |
 
 ### Release-build candidates for RISC-V mode (10-21, measured; for the coordinator's M8 plan)
+
+**Adopted as DR-180** (10-21): the table's first six candidates are release builds' (`TG_RELEASE=1`, §2.5), and their saving on hu1's recipe is measured there. The seventh, the DMA port through a core's crossbar port, is held.
 
 Neither of spikes §8.18's product chips placed (hu0 104.1%, hu1 101.9% after `opt_design`). The product's windows measure +3,133 LUTs (hu0 − hp0, both post-synthesis). By module:
 

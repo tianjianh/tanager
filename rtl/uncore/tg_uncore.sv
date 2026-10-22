@@ -92,6 +92,15 @@ module tg_uncore
   // development builds, which inject latency on the board (host bridge INJ_*); 0 in release builds, where each
   // bank's AXI channels run straight to its window, and the INJ_* registers and CAPS[1] read 0
   parameter bit          LAT_INJ         = 1'b1,
+  // A release build (DR-180; build.tcl TG_RELEASE=1, with LAT_INJ = 0, VIRTIO_WINDOW = 0 and no trace): the PLIC keeps
+  // its S-mode contexts alone, with 1-bit priorities and no TTC1 source (PS_IRQ_TTC1); the host bridge has no
+  // console FIFOs (the console is the serial line alone: UART_SERIAL) and carries only the built features' fields
+  // across its crossings; the DMA port has no line counters, nor a completion queue without the trace. 0 (the
+  // default, development builds) keeps all of it
+  parameter bit          RELEASE         = 1'b0,
+  // The cores may be traffic generators (tanager_soc CORE_KIND "trafgen"): with RELEASE, their controls and results
+  // cross the host bridge only then
+  parameter bit          TRAFGEN         = 1'b1,
   // The PMOD reset hook (PS_WINDOW builds; docs/spec/soc-d4-modes.md): armed by BOARD_CTRL[1], a break on
   // uart_rxd_i of 2^BREAK_LOG2 to 2^(BREAK_LOG2+2) cycles (2.7 to 10.7 s at 100 MHz) makes the PS window write
   // the board's reset when it ends
@@ -257,6 +266,9 @@ module tg_uncore
   if (N_CORES < 1 || N_CORES > NUM_CORES) begin : g_bad_cores
     $error("tg_uncore: N_CORES must be 1..NUM_CORES");
   end
+  // release builds (RELEASE, DR-180): what the DMA port and the host bridge leave out
+  localparam bit HDMA_STATS = !RELEASE;               // the DMA port's line counters
+  localparam bit HDMA_CPL   = !RELEASE || TRACE;      // its completion queue: lockstep's, which needs the trace
 
   logic uncore_rst;     // from the host bridge (rst, or the host's CTRL register)
 
@@ -547,7 +559,7 @@ module tg_uncore
   logic [25:0] cpl_line;
   logic [31:0] cpl_cycle, hdma_rd_lines, hdma_wr_lines, hdma_wr_drops;
   if (HOST_DMA) begin : g_hdma
-    tg_hdma #(.ID_W (HDMA_ID_W)) u_hdma (
+    tg_hdma #(.ID_W (HDMA_ID_W), .CPL (HDMA_CPL), .STATS (HDMA_STATS)) u_hdma (
       .clk, .rst (uncore_rst),
       .s_awid (s_axi_dma_aw.id), .s_awaddr (s_axi_dma_aw.addr), .s_awlen (s_axi_dma_aw.len),
       .s_awsize (s_axi_dma_aw.size), .s_awburst (s_axi_dma_aw.burst), .s_awvalid (s_axi_dma_aw_valid),
@@ -696,9 +708,11 @@ module tg_uncore
     plic_src[IRQ_HOSTCTL] = mbox_irq;
     for (int s = 0; s < VIO_SLOTS; s++) plic_src[IRQ_VIRTIO0 + s] = vio_irq[s];
     for (int h = 0; h < NH; h++) plic_src[IRQ_MERR0 + h] = merr_i[h];
-    for (int k = 0; k < PS_IRQS; k++) plic_src[IRQ_PS0 + k] = ps_irq[k];
+    for (int k = 0; k < PS_IRQS; k++)
+      if (!(RELEASE && k == PS_IRQ_TTC1)) plic_src[IRQ_PS0 + k] = ps_irq[k];   // TTC1 is D1's test alone
   end
-  tg_plic #(.N_SRC (PLIC_NSRC), .N_CTX (2 * NH), .EDGE_SRC (EDGE_SRC)) u_plic (
+  tg_plic #(.N_SRC (PLIC_NSRC), .N_CTX (2 * NH), .PRIO_W (RELEASE ? 1 : 3), .EDGE_SRC (EDGE_SRC),
+            .S_ONLY (RELEASE)) u_plic (
     .clk, .rst (uncore_rst), .req_i (dreq), .req_valid_i (dreq_v[DEV_PLIC]), .rsp_o (drsp[DEV_PLIC]),
     .src_i (plic_src), .irq_o (plic_irq_o)
   );
@@ -812,7 +826,8 @@ module tg_uncore
     .CLK_HZ (CLK_HZ), .CFG_CODE (CFG_CODE), .N_CORES_SOC (N_CORES),
     .CORE_RST_INIT (CORE_RST_INIT), .UNCORE_RST_INIT (UNCORE_RST_INIT),
     .DRAM_BASE_INIT (DRAM_BASE_INIT), .DRAM_SIZE_INIT (DRAM_SIZE_INIT), .TRACE (TRACE), .DEBUG (DEBUG_CNT),
-    .VIRTIO (VIRTIO_WINDOW), .HDMA (HOST_DMA), .LAT_INJ (LAT_INJ)
+    .VIRTIO (VIRTIO_WINDOW), .HDMA (HOST_DMA), .LAT_INJ (LAT_INJ), .HOST_CONSOLE (!RELEASE), .HDMA_STATS (HDMA_STATS),
+    .HDMA_CPL (HDMA_CPL), .TRAFGEN (TRAFGEN), .CDC_TRIM (RELEASE)
   ) u_host (
     .clk_host, .rst_host,
     .s_awaddr (s_axil_awaddr), .s_awvalid (s_axil_awvalid), .s_awready (s_axil_awready),
