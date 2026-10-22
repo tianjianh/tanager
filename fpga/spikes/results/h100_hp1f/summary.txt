@@ -1,0 +1,87 @@
+top                      kv260_top
+cfg                      smt2
+n_cores                  2
+core_mhz                 100
+uncore_dsp               0x0000008403080000
+synth                    from /home/w/tanager-build/track-spikes-72f833/fp/h100_hp1f_synth_post_synth.dcp
+floorplan                fpga/spikes/tcl/fp/g4_uncore.tcl
+generics                 -generic FILL_TILES=0 -generic FILL_NRAM=0
+directives               place Default route Default
+pre_report               fpga/spikes/tcl/over_unc_off.tcl
+opt_directive            ExploreArea
+defines                  -verilog_define TG_COMMIT_TRACE=0
+pblocks                  3
+prim_fail_synth          0
+synth_s                  35
+synth_lut_total          121295
+synth_lut_logic          103041
+synth_lut_mem            18254
+synth_ff                 63431
+synth_bram_tile          121
+synth_uram               50
+synth_dsp                157
+opt_lut_total            116223
+opt_lut_logic            99953
+opt_lut_mem              16270
+opt_ff                   61944
+opt_bram_tile            121
+opt_uram                 50
+opt_dsp                  157
+prim_fail_opt            0
+place_s                  872
+route_s                  5231
+impl_s                   6149
+impl_lut_total           113893
+impl_lut_logic           97623
+impl_lut_mem             16270
+impl_ff                  62016
+impl_bram_tile           121
+impl_uram                50
+impl_dsp                 157
+core0_lut                49799
+core0_lutram             7408
+core0_ff                 23519
+core0_ramb36             53
+core0_ramb18             1
+core0_uram               9
+core0_dsp                63
+core1_lut                49838
+core1_lutram             7408
+core1_ff                 23606
+core1_ramb36             53
+core1_ramb18             1
+core1_uram               9
+core1_dsp                63
+uncore_lut               14011
+uncore_lutram            1424
+uncore_ff                14565
+uncore_ramb36            12
+uncore_ramb18            4
+uncore_uram              32
+uncore_dsp               30
+wns_ns                   -0.096
+worst                    -0.096 levels 26 logic 4.199 net 5.654 u_soc/g_core[0].g_tgc.u_core/u_fetch/k_s_q_reg/C -> u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[2].u_ram/RAMD/I
+whs_ns                   0.006
+uncore_seq_cells         17642
+uncore_dsp48             30
+uncore_dsp48_seq         0
+uncore_to                0.090 levels 13 logic 1.975 net 7.805 u_soc/u_uncore/u_l2/g_bank[0].u_bank/h0_hit_q_reg/C -> u_soc/u_uncore/u_l2/g_bank[0].u_bank/m_vtag_reg[12][11]/D
+uncore_dsp_in            1.185 levels 6 logic 1.893 net 6.691 u_soc/g_core[0].g_tgc.u_core/u_lsu/x_pa_q_reg[1]/C -> u_soc/u_uncore/u_xbar/g_ta_slice[3].g_s.u_s/g_dsp.u_main/g_dsp[1].u_dsp/DSP_OUTPUT_INST/ALU_OUT[42]
+uncore_internal          0.090 levels 13 logic 1.975 net 7.805 u_soc/u_uncore/u_l2/g_bank[0].u_bank/h0_hit_q_reg/C -> u_soc/u_uncore/u_l2/g_bank[0].u_bank/m_vtag_reg[12][11]/D
+core_to_uncore           0.877 levels 10 logic 1.431 net 7.482 u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dc/g_mn.es_q_reg[1][0]/C -> u_soc/u_uncore/u_xbar/g_ta_slice[0].g_s.u_s/skid_q_reg[address][15]/D
+uncore_to_core           0.251 levels 19 logic 3.224 net 6.146 u_soc/u_uncore/u_aclint/g_mti[2].u_hi/csr_res_q[7]_i_12_psdsp_1/C -> u_soc/g_core[1].g_tgc.u_core/u_rn/g_fl[2].u_fl/ccount_q_reg[1][6]/D
+ps_to_uncore             6.318 levels 1 logic 0.616 net 2.847 u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/PS8_i/SAXIGP3WCLK -> u_soc/u_uncore/g_mem[0].u_slice/g_on.u_b/g_fab.main_q_reg[id][5]/D
+uncore_to_ps             5.825 levels 0 logic 0.114 net 3.106 u_soc/u_uncore/g_mem[0].u_slice/g_on.u_b/skid_v_q_reg_inv/C -> u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/PS8_i/SAXIGP3BREADY
+owner_core0              -0.096 levels 26 logic 4.199 net 5.654 wire 57% u_soc/g_core[0].g_tgc.u_core/u_fetch/k_s_q_reg/C -> u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[2].u_ram/RAMD/I
+owner_core1              -0.096 levels 22 logic 4.219 net 5.648 wire 57% u_soc/g_core[1].g_tgc.u_core/u_fetch/g_way[1].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK -> u_soc/g_core[1].g_tgc.u_core/u_fetch/g_tage.gp_n_s_q_reg[0][0]/D
+owner_uncore             0.090 levels 13 logic 1.975 net 7.805 wire 80% u_soc/u_uncore/u_l2/g_bank[0].u_bank/h0_hit_q_reg/C -> u_soc/u_uncore/u_l2/g_bank[0].u_bank/m_vtag_reg[12][11]/D
+owner_core_uncore        0.877 levels 10 logic 1.431 net 7.482 wire 84% u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dc/g_mn.es_q_reg[1][0]/C -> u_soc/u_uncore/u_xbar/g_ta_slice[0].g_s.u_s/skid_q_reg[address][15]/D
+owner_uncore_core        0.251 levels 19 logic 3.224 net 6.146 wire 66% u_soc/u_uncore/u_aclint/g_mti[2].u_hi/csr_res_q[7]_i_12_psdsp_1/C -> u_soc/g_core[1].g_tgc.u_core/u_rn/g_fl[2].u_fl/ccount_q_reg[1][6]/D
+owner_ps_uncore          6.318 levels 1 logic 0.616 net 2.847 wire 82% u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/PS8_i/SAXIGP3WCLK -> u_soc/u_uncore/g_mem[0].u_slice/g_on.u_b/g_fab.main_q_reg[id][5]/D
+owner_uncore_ps          5.825 levels 0 logic 0.114 net 3.106 wire 96% u_soc/u_uncore/g_mem[0].u_slice/g_on.u_b/skid_v_q_reg_inv/C -> u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/PS8_i/SAXIGP3BREADY
+owner_filler             none
+tns_ns                   -1.131
+failing_endpoints        31 of 299397
+failing_by_owner         core0=14 core1=17 uncore=0 ps=0 filler=0 other=0 (of the 31 worst, at most 20,000)
+sites                    31
+total_s                  6321

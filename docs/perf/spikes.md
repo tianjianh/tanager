@@ -1547,6 +1547,36 @@ Results: `fpga/spikes/results/h100_hz0_synth/` and `h100_hu_util/` (`util_hz0.rp
 
 Results: `fpga/spikes/results/h100_hp1/` (with `near_families_hp1.txt`, `urf_chip.txt`, `congestion.rpt` and `worst_paths.txt`, from [`q_congestion.tcl`](../../fpga/spikes/tcl/query/q_congestion.tcl)) and `h100_hp1_synth/`.
 
+#### hp1f: the same netlist with §8.17's floorplan (2026-10-21)
+
+**Asked** (the coordinator): place hp1's own synthesis once more with §8.17's `g4_uncore` pblocks (the two L2 banks and the crossbar), with nothing else changed, to separate the fill from the flow.
+
+**Build:**
+- **No new synthesis:** the floorplan names only three uncore cells, and they exist under the same names in hp1's flatten-rebuilt netlist.
+- **One pblock is overfull before placement:** the floorplan check shows bank 1's pblock at 101% (6,467 LUT cells for 6,400 sites, against §8.17's 95%); flatten rebuilt moved about 360 cells into bank 1. It placed anyway.
+- **A first run was lost** to the afternoon's disk cleanup (my list had included its live run folder) and was rerun unchanged.
+
+| | hp1 (no floorplan) | hp1f (§8.17's pblocks) |
+|---|---|---|
+| Placed LUTs | 113,636 (97.0%) | 113,893 (97.2%) |
+| WNS on the core clock (ns) | −2.098 | **−0.096** |
+| TNS (ns) | −8,566 | −1.131 |
+| Failing endpoints | 14,020 (core 0 8,912, core 1 3,859, uncore 1,249) | **31** (core 0 14, core 1 17, uncore 0) |
+| WNS on `clk2x` (into / within / back, ns) | +0.72 / +1.33 / +0.60 | +1.08 / +1.87 / +1.02 |
+| WHS (ns) | +0.001 | +0.006 |
+| Endpoints within 1 ns | 25,037, in 654 families | 7,215, in 369 families |
+| Routing time | 2.5 h | 1.45 h |
+
+**Findings:**
+- **The cliff was the flow, not the fill.** The same netlist at 97.2% placed comes within 0.1 ns of 100 MHz once the L2 banks and the crossbar sit in their pblocks. The board flow (`build.tcl`, d4r2's recipe) has no floorplan, and at this fill that costs about 2.0 ns.
+- **The families shrink, they don't move.** They are the same units as hp1's, about 2 ns better:
+  - the LSU keeps the most (205 → 160 families below 1 ns), then rename (171 → 119);
+  - fetch's F2 cone (94 → 52) now holds the worst endpoints: the I$ valid-bit RAM (26 levels, −0.096), TAGE's history count and the RAS target register;
+  - the CSR file's paths, congestion detours in hp1, mostly drop out (101 → 20).
+- **So with the floorplan, M8's target is "fit plus a little",** not 96%: hu1's product chip needs to come down to about hp1f's 113.9K placed. That is the windows' +3.1K less DR-180's −1.8K, plus a little margin, roughly 2K LUTs a chip rather than 7K. A second sample (1.05 ns of over-constraint) measures the placement noise around −0.1 ns.
+
+Results: `fpga/spikes/results/h100_hp1f/` (with `near_families_hp1f.txt`, `urf_chip.txt` and `floorplan.txt`).
+
 ## 9. S1: PL → PS DDR latency and bandwidth
 
 **Status: done on the board (2026-10-14).** The bitstream meets 200 MHz (WNS +0.809 ns with the fan rule of DR-129; +0.513 before it; 4,081 LUTs, 5,133 flip-flops, one block-RAM tile), and the board session ran it at 200 MHz. The design, the A53 program and the step-by-step instructions (SD image, boot firmware, network, files, commands) are in [`fpga/spikes/s1/README.md`](../../fpga/spikes/s1/README.md).
