@@ -8,7 +8,9 @@
 #   3. On each hart alone (taskset): CoreMark A, which validates its own CRCs, and t.c's loop, which must print
 #      5007905533300608.
 #   4. On each pair of harts, on one core and across cores: the stress's mt.c (two threads on one cache line,
-#      atomic and mutex-held adds; it must print "mt ok 4000000 400000"), and memgap's pingpong time.
+#      atomic and mutex-held adds; it must print "mt ok 4000000 400000"), and memgap's pingpong time. mt runs
+#      under taskset; memgap pins its own two threads, so it is given the pair with -c (main 4fe536ec on; before
+#      that it always used CPUs 0 and 1, one core's two harts on a four-hart tree).
 #   5. All harts at once: the stress's 9-file project built N files at a time (it must print 135808003256614222),
 #      and sysbench cpu and threads on N threads.
 # Uses ~/baseline/bin (the DR-141 programs), ~/stress (t.c, mt.c, proj/) and ~/memgap/memgap; results in
@@ -47,7 +49,7 @@ for a in $cpus; do for b in $cpus; do
   [ "$a" -lt "$b" ] || continue
   r=$(taskset -c "$a,$b" ./mt 2>&1 | tail -1)
   [ "$r" = "mt ok 4000000 400000" ] && ok "mt cpu$a+cpu$b" || bad "mt cpu$a+cpu$b" "printed '$r'"
-  p=$(taskset -c "$a,$b" $H/memgap/memgap -i 0 -t 0.5 2>&1 | awk '/^MEMGAP pingpong/ { print $3 }')
+  p=$($H/memgap/memgap -c "$a,$b" -i 0 -t 0.5 2>&1 | awk '/^MEMGAP pingpong/ { print $3 }')
   echo "pingpong cpu$a+cpu$b: $p ns/round-trip"
 done; done
 echo "== all harts at once"

@@ -50,7 +50,7 @@
   - one core: 21.2 s and 59.4 s (+14% and +22%). Its two CPUs share one core, where d4r2's two harts had a core each.
   - The firmware's 12 s on the A53 doesn't scale with the clock.
 
-## Per MHz against d4r2: the same core, and one uncore difference
+## Per MHz against d4r2: the same core, and coherence across cores as d4r2's or a little faster
 
 **The DR-141 set** (one run on the four-hart boot, [`set_h0123.txt`](set_h0123.txt); cycles per operation, [`cmp_d4r2_cycles.md`](cmp_d4r2_cycles.md), [`cmp_d4r2_instret.md`](cmp_d4r2_instret.md)):
 - **The same per MHz:**
@@ -81,19 +81,32 @@
 | memgap chase16k / chase256k | 39.2 / 520.1 ns | 31.4 / 416.1 | 31.43 / 432.4 | −0.2% / −3.8% |
 | memgap chase64m (DDR) | 710.1 ns | | 695.9 | +2.0% per second |
 | memgap ev1 (one thread) | 6,782.8 ns | 5,426 | 5,409 | +0.3% |
-| **memgap pingpong** | 1,655.6 ns | 1,324.5 | 2,210 | **−40%: 132 cycles against 221** |
-| **memgap ev2local** (two threads, own blocks) | 10,702 ns | 8,562 | 5,832 | **+47%** |
-| memgap ev2shared (two threads, one block) | 10,751 ns | 8,601 | 11,097 | −22.5% |
+| **memgap pingpong, two cores** (`-c 0,2`) | 2,476.8 ns | 1,981 | 2,210 | **198 cycles against 221** (see the rebuild below) |
+| **memgap ev2local, two cores** (own blocks) | 7,326 ns | 5,861 | 5,832 | **+0.5%**; +7.4% over ev1, d4r2 +7.8% |
+| memgap ev2shared, two cores (one block) | 11,093 ns | 8,875 | 11,097 | −20% |
+| memgap pingpong, one core (`-c 0,1`) | 1,537 ns | 1,230 | | 123 cycles |
+| memgap ev2local, one core | 10,678 ns | 8,542 | | +57% over ev1: two harts sharing one core |
 
-[`pinned_h0123.txt`](pinned_h0123.txt) holds the pinned runs. `gcc` and the project aren't compared: this boot ran the stress first, so gcc's files were already cached, where the baseline's boots were fresh.
+- The two-core and one-core memgap rows are three runs each with soc-2's memgap from main 4fe536ec, which takes `-c A,B` ([`memgap_dr187b_c02_1.txt`](memgap_dr187b_c02_1.txt) and the rest).
+- The other memgap rows are the set's run, with the build d4r2's figures came from.
+- [`pinned_h0123.txt`](pinned_h0123.txt) holds the pinned sysbench runs.
+- `gcc` and the project aren't compared: this boot ran the stress first, so gcc's files were already cached, where the baseline's boots were fresh.
 
 **What it says:**
 - **The core is d4r2's per MHz.** CoreMark, Dhrystone, one-thread sysbench, memgap's one-thread tests and two threads on two cores all agree within about 1.4%, so turning on hart 1 costs a lone thread nothing.
 - **Two harts on one core** give 1.34× one thread on sysbench cpu and 1.05× on its memory test. The threads test drops to 0.56× of two cores.
-- **The uncore moves coherence differently:**
-  - A shared line's round trip (pingpong) takes 132 cycles against 221, for every pair, whether on one core or across cores.
-  - But two threads working on their own blocks (ev2local) take as long as on one shared block, 56–58% above one thread, and the same pinned to one core or to two. On d4r2, ev2local was only 8% above ev1.
-  - sysbench's memory test on two threads uses one shared buffer (its default scope), like ev2shared, and it matches d4r2 per MHz (+1.2% on two cores). Its local-scope form wasn't run. Why two threads on their own blocks now interfere is soc-2's to read.
+- **Across cores, coherence is d4r2's or a little faster.**
+  - Two threads on their own blocks (ev2local) cost 7.4% over one thread, as on d4r2 (7.8%).
+  - A shared line's round trip takes 198 cycles against 221, and the shared-block event 20% fewer cycles.
+- **Correction (10-22): the first version of this page reported a cross-core "interference" that wasn't there.**
+  - memgap pinned its two threads to CPUs 0 and 1 whatever `taskset` said, and on the four-hart tree those are one core's two harts. So every two-thread memgap figure here before the fix measured one core, the old "pinned to two cores" included.
+  - So did `hart_check.sh`'s pingpong for every pair: the same 1,651–1,662 ns, which was one core's round trip ([`hartcheck_h0123.txt`](hartcheck_h0123.txt)). Its `mt` results stand, since `mt` doesn't pin itself.
+  - The 56–58% was two harts sharing one core, which the one-core rows above show. The coordinator caught it.
+  - soc-2's memgap (main 4fe536ec) takes `-c A,B` and names each CPU's thread siblings; `hart_check.sh` now passes the pair.
+- **The rebuild moved two memgap figures, so comparisons need one binary on both sides** ([`memgap_percpu.txt`](memgap_percpu.txt), [`memgap_disasm.txt`](memgap_disasm.txt)):
+  - Main's memgap, rebuilt on the board, reads wr1k 25% lower (276 against 366 MiB/s) and `rdtime` 5% higher, on every CPU alike, while `clock` and ev1 don't move.
+  - The two builds have the same instructions, 20 bytes apart: the store loop now crosses an 8-byte boundary (0x177c–0x1783, against 0x1768–0x176f) and takes 2.2 cycles a store against 1.67. That's a front-end alignment effect worth knowing for the core.
+  - The one-core pingpong also moved 7% between the builds (132 to 123 cycles). So the cross-core round trip's gain over d4r2's 221 cycles, measured with the new build, is somewhere between about 4% and 10%.
 - **Linux's placement matters on four harts:** two threads land on one core or on two, which is why the stress's two-thread figures swing. Two-thread comparisons need pinning.
 - **OpenSBI boots on hart 1** on both trees (its lottery), so Linux's cpu0 is hart 1.
 
