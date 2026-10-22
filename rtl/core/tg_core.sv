@@ -882,4 +882,81 @@ module tg_core
     logic unused_dbg;
     assign unused_dbg = ^{dbg_sel_i, rn_dbg, lsu_dbg};
   end
+`ifndef SYNTHESIS
+  // (TG-DSLOT, simulation only; smt2_report §13.20) decode's empty slots while the other thread's queue holds
+  // instructions: the thread decode reads (rt), why its slots stay empty, and what holds the other thread's group (ro).
+  // Causes, first that applies: q = the read thread's queue under a group; a = its RN register takes one (decode-side);
+  // e = the register is empty; B = blocked (serial uop); D = DS holds a group; for a group rename works on (chosen):
+  // R/L/S its ROB/LQ/SQ half, W rows, U unit counts, T tags/LLTs, I/F int/FP registers, O other; for a group not
+  // chosen: N looks able to rename (rdy) but rename works on the other register, else R/L/S/W/U/Z (serial drain)
+  if (HART1_ON && NUM_THREADS > 1) begin : g_dslot
+    localparam int NC = 18;
+    longint unsigned n_sl, n_rt [2], n_c_rt [NC], n_c_ro [NC], n_bothfull, n_stuck;
+    function automatic int cause(input int t, input bit is_rt);
+      if (is_rt && int'(u_fetch.u_cmp.rocc) < DECODE_WIDTH) return 0;      // q
+      if (u_rn.rn_vac[t] && is_rt) return 1;                                // a (its register takes one now)
+      if (!(|u_rn.rn_v_q[t])) return 2;                                     // e
+      if (u_rn.block_q[t]) return 3;                                        // B
+      if (u_rn.sel_q == 1'(t)) begin                                        // the group rename works on
+        if (!u_rn.ds_free) return 4;                                        // D
+        if (u_rn.rn_why[0]) return 5;                                       // R
+        if (u_rn.rn_why[1]) return 6;                                       // L
+        if (u_rn.rn_why[2]) return 7;                                       // S
+        if (u_rn.rows_need && !u_rn.iq_rows) return 8;                      // W
+        if (u_rn.rn_why[4]) return 9;                                       // U
+        if (u_rn.rn_why[3]) return 10;                                      // T
+        if (u_rn.rn_why[5]) return 11;                                      // I
+        if (u_rn.rn_why[6]) return 12;                                      // F
+        if (u_rn.rn_serial && !u_rn.window_empty) return 16;                // Z
+        return 17;
+      end
+      if (u_rn.rdy[t]) return 13;                                           // N
+      if (t == 0) begin
+        if (!u_rn.rob_room_t[0][u_rn.g_rdy[0].g_on.nr]) return 5;
+        if (!u_rn.lq_room_t[0][u_rn.g_rdy[0].g_on.nl]) return 6;
+        if (!u_rn.sq_room_t[0][u_rn.g_rdy[0].g_on.ns]) return 7;
+        if (!u_rn.g_rdy[0].g_on.iq) return 8;
+        if (u_rn.g_rdy[0].g_on.ser && !u_rn.g_rdy[0].g_on.wemp) return 16;
+      end else begin
+        if (!u_rn.rob_room_t[1][u_rn.g_rdy[1].g_on.nr]) return 5;
+        if (!u_rn.lq_room_t[1][u_rn.g_rdy[1].g_on.nl]) return 6;
+        if (!u_rn.sq_room_t[1][u_rn.g_rdy[1].g_on.ns]) return 7;
+        if (!u_rn.g_rdy[1].g_on.iq) return 8;
+        if (u_rn.g_rdy[1].g_on.ser && !u_rn.g_rdy[1].g_on.wemp) return 16;
+      end
+      return 9;                                                             // U (the unit counts are the rest of rdy)
+    endfunction
+    always_ff @(posedge clk)
+      if (rst) begin
+        n_sl <= 0; n_bothfull <= 0; n_stuck <= 0;
+        for (int i = 0; i < 2; i++) n_rt[i] <= 0;
+        for (int i = 0; i < NC; i++) begin n_c_rt[i] <= 0; n_c_ro[i] <= 0; end
+      end else if (u_fetch.u_cmp.occ_t_q[u_fetch.u_cmp.ro] != '0 && !u_fetch.u_cmp.fq[u_fetch.u_cmp.ro] &&
+                   int'(u_fetch.u_cmp.take) < DECODE_WIDTH) begin
+        int es, rt, ro;
+        es = DECODE_WIDTH - int'(u_fetch.u_cmp.take);
+        rt = int'(u_fetch.u_cmp.rt_q);
+        ro = 1 - rt;
+        n_sl <= n_sl + longint'(es);
+        n_rt[rt] <= n_rt[rt] + longint'(es);
+        n_c_rt[cause(rt, 1)] <= n_c_rt[cause(rt, 1)] + longint'(es);
+        n_c_ro[cause(ro, 0)] <= n_c_ro[cause(ro, 0)] + longint'(es);
+        if (|u_rn.rn_v_q[0] && |u_rn.rn_v_q[1]) n_bothfull <= n_bothfull + longint'(es);
+        // stuck: the read thread's register holds a group that does not go, the other's is empty with instructions
+        // waiting in its queue, and rename tells the queue the read thread's register takes a group (acc_t)
+        if (!u_rn.rn_vac[rt] && !(|u_rn.rn_v_q[ro]) && u_fetch.u_cmp.acc_t[rt]) n_stuck <= n_stuck + longint'(es);
+      end
+    final begin
+      string nm [NC];
+      nm = '{"q", "a", "e", "B", "D", "R", "L", "S", "W", "U", "T", "I", "F", "N", "-", "-", "Z", "O"};
+      $fwrite(32'h8000_0002, "TG-DSLOT %m: %0d empty slots (read thread 0: %0d, 1: %0d; both RN registers full %0d; stuck on a register rename keeps choosing while the other is empty %0d)\n",
+              n_sl, n_rt[0], n_rt[1], n_bothfull, n_stuck);
+      $fwrite(32'h8000_0002, "TG-DSLOT read thread:");
+      for (int i = 0; i < NC; i++) if (n_c_rt[i] != 0) $fwrite(32'h8000_0002, " %s %0d", nm[i], n_c_rt[i]);
+      $fwrite(32'h8000_0002, "\nTG-DSLOT other thread:");
+      for (int i = 0; i < NC; i++) if (n_c_ro[i] != 0) $fwrite(32'h8000_0002, " %s %0d", nm[i], n_c_ro[i]);
+      $fwrite(32'h8000_0002, "\n");
+    end
+  end
+`endif
 endmodule
