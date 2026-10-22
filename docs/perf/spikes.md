@@ -1792,6 +1792,36 @@ Results: `fpga/spikes/results/product_wt_ns_aslh/`.
 
 Results: `fpga/spikes/results/product_wt2_dr185_aslh/` (with `pin_classes_pay_core0.txt`, `pin_classes_pay_core1.txt` and `path_cells_tage_core0.txt`).
 
+#### The area-pass forms together (0a30d99d): both clear, −2.86 ns in this placement (2026-10-22)
+
+`product_wt_a1_aslh`, "the closest to the final area-pass chip so far" (the coordinator):
+- **What's in it:** main dc2965be, DR-185 with the registered payload write (31a90443), and DR-183 at 87e74fb9 (fetch's request registers no longer read F1's late `f1_new`; `TG_PMP_FILL=1`).
+- **Flow:** `AltSpreadLogic_high` (now `build.tcl`'s own `TG_PLACE_DIRECTIVE`, DR-187).
+
+| | Registered write + DR-183 d07317a6 | **Registered write + DR-183 87e74fb9** |
+|---|---|---|
+| LUTs after `opt_design` / routed | 114,388 / 112,015 | 114,122 / 111,829 (95.5%) |
+| FFs routed, CLBs, control sets | 57,561, 14,626, 2,833 | 57,541, 14,631, 2,858 |
+| WNS after `phys_opt_design` (estimated, with 1.0 ns on) | −1.032 ns | −1.609 ns |
+| Routing | congestion level 6, no trade | level 5, no trade, 1.6 h |
+| WNS / TNS on the core clock (ns) | −2.440 / −3,544 (4,992 failing) | **−2.863 / −4,675** (6,523 failing) |
+| `clk2x`: within / into / back (ns) | +1.490 / +1.419 / +1.142 | +1.573 / +0.275 / +0.694 |
+
+- **Both area-pass forms left the near-critical set.**
+  - DR-183's fetch request paths went from 28 families and 194 endpoints to one epoch register, `g_pmpf.f1_ep_q`: 1 endpoint at −1.236 ns from `f3_s_q`, 27 levels.
+  - Nothing into the payload LUTRAM is within 1 ns. Its write register reads −1.200 ns in this placement.
+- **The worst families are the ones with fixes in progress:**
+  - the LSU's LQ state from the LQ head (192 endpoints a core, 25–27 levels, worst −2.863);
+  - fetch's `u_cmp/rt_q` from the issue queues' `dep_q` (32–33 levels, −2.83);
+  - the L2's response into the I$ valid-bit RAMs (13 families, 953 endpoints, −2.62; soc-2's registered D output);
+  - the LSU's replay pick from step 6/7's `md_l_q` (−2.54);
+  - TAGE (−2.23, fpu-2).
+  - By unit within 1 ns: the LSU 238 families, fetch 106, rename 104, the CSR files 98.
+- **Not the clock.** main's `tg_clkgen` change (DR-187's clk2x-aware VCO) leaves the core clock's uncertainty at 0.068 ns in both builds. The worse result is this placement: its estimate before routing was 0.58 ns worse.
+- **From here, configurations are judged by two placements** (TG_PR_UNC 1.0 and 1.05, `tools/launch_pair.sh`), by the better WNS and by TNS.
+
+Results: `fpga/spikes/results/product_wt_a1_aslh/`.
+
 #### The registered payload write with DR-183 (d07317a6): −2.44 ns, the payload clear (2026-10-22)
 
 `product_wt2_next_aslh`:
