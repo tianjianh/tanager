@@ -80,6 +80,11 @@ module tg_rename
   // Issue state
   input  logic [N_IQ-1:0][DISPATCH_WIDTH-1:0] iq_bank_free,
   input  logic [N_IQ-1:0][DISPATCH_WIDTH-1:0] iq_bank_free2,  // at least two rows free (STEER_LA)
+  // M7 step 7's caps (tg_issue, registered; all ones while they are off): [q][t][n-1], thread t may take n more rows
+  // of queue q (n up to 2 W: a group at DS and one at RN); [q][t][k][j-1], it may take j more rows of bank k and
+  // still not hold all of it
+  input  logic [N_IQ-1:0][NUM_THREADS-1:0][2*DISPATCH_WIDTH-1:0]    iq_room_ge,
+  input  logic [N_IQ-1:0][NUM_THREADS-1:0][DISPATCH_WIDTH-1:0][1:0] iq_bank_left,
   input  logic [NCOL-1:0] w_vec,
   input  logic [NCOL-1:0] busy,         // IDs a queued row still depends on: not reallocated
   // Register-file writes (ready bits), LLT releases, divides leaving the divider
@@ -525,11 +530,58 @@ module tg_rename
         st_free[p][k] = !STEER_LA ? iq_bank_free[p][k]
                       : iq_bank_free2[p][k] ||
                         (iq_bank_free[p][k] && !(ds_valid_q[k] && ds_ren_q[k].has_q && int'(ds_ren_q[k].q) == p));
+
+  // M7 step 7's caps (DR-175; smt2_report §13.15): R1, a thread holds at most IQ_CAP_PCT of each queue's rows; R2, it
+  // takes no row that would leave it holding all of a bank's rows while its sibling's waiting group (the sibling's RN
+  // register) needs a row in that bank (IQ_BANK_RULE 1; 2: whether or not the sibling needs it; 0: no such rule).
+  // tg_issue's flags count the rows after the last dispatch, so a thread's group at DS counts here too: cap_ok[t][q][c],
+  // thread t may take c + 1 more rows of queue q beyond its DS group's; bank_ok[t][q][k], one more row of bank k. All
+  // from registers. The flags are all ones while the caps are off (hart 1 off, or the halves merged: step 6), and so
+  // are these. A group that fails them waits in its own RN register (R3), and the steering takes an ALU queue that
+  // passes them when one does
+  logic [NT-1:0][N_IQ-1:0][W-1:0] sib_need, bank_ok;
+  logic [NT-1:0][N_IQ-1:0][W:0]   cap_ok;
+  always_comb begin
+    sib_need = '0;
+    if (CMT && IQ_BANK_RULE != 0)
+      for (int t = 0; t < NT; t++)
+        for (int k = 0; k < W; k++) begin
+          if (IQ_BANK_RULE == 2)
+            for (int q = 0; q < N_IQ; q++) sib_need[t][q][k] = 1'b1;
+          else if (rn_v_q[CMT ? (t + 1) % NT : 0][k] && !block_q[(t + 1) % NT])
+            unique case (rn_u_q[CMT ? (t + 1) % NT : 0][k].d.cls)
+              C_BR:                sib_need[t][0][k] = 1'b1;
+              C_MUL, C_DIV, C_CSR: sib_need[t][1][k] = 1'b1;
+              C_LD:                sib_need[t][Q_LD][k] = 1'b1;
+              C_ST:                sib_need[t][Q_STA][k] = 1'b1;
+              C_ALU:               for (int p = 0; p < N_ALU; p++) sib_need[t][p][k] = 1'b1;
+              C_FP:                sib_need[t][EXT_FD ? Q_FP : 0][k] = 1'b1;
+              default: ;
+            endcase
+        end
+    for (int t = 0; t < NT; t++)
+      for (int q = 0; q < N_IQ; q++) begin
+        int dn;
+        logic dk;
+        dn = 0;
+        for (int k = 0; k < W; k++) begin
+          dk = ds_valid_q[k] && t_ds == tid_t'(t) && ds_ren_q[k].has_q && int'(ds_ren_q[k].q) == q;
+          dn += int'(dk);
+          bank_ok[t][q][k] = !sib_need[t][q][k] || iq_bank_left[q][t][k][dk];
+        end
+        for (int c = 0; c <= W; c++) cap_ok[t][q][c] = dn + c < 2 * W && iq_room_ge[q][t][dn + c];
+      end
+  end
+
   logic          rn_ok;             // resources available for the whole group
+  logic          caps_ok;           // ... within the caps (step 7)
   logic [INT_BANKS-1:0][idx_w(W+1)-1:0] pops;
   always_comb begin
     int nrob, nld, nst, ndiv, nfdiv, nfpi, port, pref, p, b, fb;
     logic found;
+    logic [N_IQ-1:0][idx_w(W+1)-1:0] qn;   // the group's rows in each queue so far (the caps)
+    qn = '0;
+    caps_ok = 1'b1;
     pops = '0;
     fpops = '0;
     fown_s = '0;
@@ -552,7 +604,8 @@ module tg_rename
           found = 1'b0;
           for (int j = 0; j < N_ALU; j++) begin
             p = (pref + j) % N_ALU;
-            if (!found && st_free[p][k] && icv[p][idx_w(W)'(pops[p])]) begin   // fl_count[p] > pops[p]
+            if (!found && st_free[p][k] && icv[p][idx_w(W)'(pops[p])] &&       // fl_count[p] > pops[p]
+                cap_ok[t_rn][p][qn[p]] && bank_ok[t_rn][p][k]) begin
               port = p;
               found = 1'b1;
             end
@@ -562,6 +615,10 @@ module tg_rename
         default: begin port = 0; ren[k].has_q = 1'b0; end
       endcase
       ren[k].q = QW'(port);
+      if (rn_valid_q[k] && ren[k].has_q) begin
+        if (!cap_ok[t_rn][port][qn[port]] || !bank_ok[t_rn][port][k]) caps_ok = 1'b0;
+        qn[port] = qn[port] + 1'b1;
+      end
       // Window entries
       ren[k].rob = rob_add_t(rtail_q[t_rn], k, t_rn, md);
       ren[k].lq  = lq_add_t(ltail_q[t_rn], nld, t_rn, md);
@@ -720,7 +777,8 @@ module tg_rename
   end
   assign rows_need = CMT && |rn_v_q[CMT ? !sel_q : 1'b0];
   assign rn_fire = (|rn_valid_q) && rn_ok && ds_free && !block_q[t_rn] && !flush && ready && start &&
-                   irdy_ready && frdy_ready && (!rn_serial || window_empty) && (!rows_need || iq_rows) && !sp_hold;
+                   irdy_ready && frdy_ready && (!rn_serial || window_empty) && (!rows_need || iq_rows) && !sp_hold &&
+                   caps_ok;
   assign blk_o   = CMT ? block_q : '0;
 
   // With hart 1 (step 5d) each register's group is judged from registered state: it looks able to rename when its
@@ -743,8 +801,11 @@ module tg_rename
     if (CMT) begin : g_on
       localparam int CW1 = idx_w(W + 1);
       logic [CW1-1:0] nr, nl, ns, nd, nf, ni;
-      logic           iq, ser, wemp, r;
+      logic           iq, cq, ser, wemp, r;
+      logic [N_IQ-1:0][CW1-1:0] cn;
       always_comb begin
+        int q;
+        logic got;
         nr = CW1'($countones(rn_v_q[t]));
         nl = CW1'(ren_nld(rn_u_q[t], rn_v_q[t]));
         ns = CW1'(ren_nst(rn_u_q[t], rn_v_q[t]));
@@ -763,10 +824,42 @@ module tg_rename
               C_FP:                iq = iq && st_free[EXT_FD ? Q_FP : 0][k];
               default: ;
             endcase
+        // ... and within the caps (step 7): each uop's queue as the steering takes it, an ALU uop's the first ALU queue
+        // with a row in its bank under them
+        cq  = 1'b1;
+        cn  = '0;
+        q   = -1;
+        got = 1'b0;
+        for (int k = 0; k < W; k++)
+          if (rn_v_q[t][k]) begin
+            q = -1;
+            unique case (rn_u_q[t][k].d.cls)
+              C_BR:                q = 0;
+              C_MUL, C_DIV, C_CSR: q = 1;
+              C_LD:                q = Q_LD;
+              C_ST:                q = Q_STA;
+              C_FP:                q = EXT_FD ? Q_FP : 0;
+              C_ALU: begin
+                got = 1'b0;
+                for (int j = 0; j < N_ALU; j++)
+                  if (!got && st_free[(k + j) % N_ALU][k] && cap_ok[t][(k + j) % N_ALU][cn[(k + j) % N_ALU]] &&
+                      bank_ok[t][(k + j) % N_ALU][k]) begin
+                    q = (k + j) % N_ALU;
+                    got = 1'b1;
+                  end
+                if (!got) cq = 1'b0;
+              end
+              default: ;
+            endcase
+            if (q >= 0) begin
+              if (!cap_ok[t][q][cn[q]] || !bank_ok[t][q][k]) cq = 1'b0;
+              cn[q] = cn[q] + 1'b1;
+            end
+          end
         ser  = rn_v_q[t][0] && (rn_u_q[t][0].d.serial || rn_u_q[t][0].d.exc);
         wemp = rtail_q[t] == rob_head[t] && !(|ds_valid_q && t_ds == tid_t'(t));
         r    = |rn_v_q[t] && !block_q[t] && rob_room_t[t][nr] && lq_room_t[t][nl] && sq_room_t[t][ns] &&
-               div_room[nd] && fdiv_room[nf] && fpi_room[ni] && iq && (!ser || wemp);
+               div_room[nd] && fdiv_room[nf] && fpi_room[ni] && iq && cq && (!ser || wemp);
       end
       assign rdy[t] = r;
     end else begin : g_off
