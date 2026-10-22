@@ -6,9 +6,11 @@
    waits in WFI with MTIE enabled (mstatus.MIE stays 0, so no trap), sleeps after 64 cycles, and the halves merge for
    hart 0. Hart 0 meanwhile runs ALU work with a store and a load a round, so one of its tails (the LQ's and SQ's
    halves are 12 and 10 entries) is often within a group of its half's end when a merge waits, and rename fires as soon
-   as the hold drops. Lockstep checks every record: on 124edb9f (main 2e7b7229) every latency fails, at native, 30, 120
-   and 250 cycles, within 90K cycles. At the end hart 0 checks its sums (code 2) and hart 1's round count (code 3).
-   Without hart 1 only hart 0 runs. Added by the core track (for verif-2's review). */
+   as the hold drops. The sweep assumes tg_vsim's default --mtime-div (20 cycles a tick): a much smaller divider fires
+   the timer before hart 1 sleeps, a much larger one after the merge has settled. Lockstep checks every record: on
+   124edb9f (main 2e7b7229) every latency fails, at native, 30, 120 and 250 cycles, within 90K cycles. At the end hart 0
+   checks its sums (code 2) and hart 1's round count (code 3). Without hart 1 only hart 0 runs. Added by the core track
+   (reviewed by verif-2). */
 #include "tg_test.h"
 #define ROUNDS 1000
   .option arch, +zicsr
