@@ -59,8 +59,9 @@ module tg_uncore
   // measured in docs/spec/soc.md
   parameter logic [3:0]  XBAR_IN_SLICE   = XBAR_IN_SLICE_DEF,
   // The crossbar's own register slices (every target-side A, C and E output, every initiator-side D
-  // and B output) and the memory ports' AXI slices toward the PS. On, as built for 200 MHz; off
-  // they cost no cycle and no area: a timing study at the lower clock of DR-145
+  // and B output) and the memory ports' AXI slices toward the PS. Built for 200 MHz, off since DR-186
+  // (the user, 10-22): off, every message that went through one is a cycle shorter, and their flip-flops
+  // go. On, each is a timing lever (docs/spec/soc.md §Reserve levers)
   parameter bit          XBAR_SLICE      = XBAR_SLICE_DEF,
   parameter bit          MEM_SLICE       = MEM_SLICE_DEF,
   // The L2 MSHRs' way flip-flops one-hot (else binary): the reservations and the ProbeAck search take
