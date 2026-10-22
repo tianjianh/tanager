@@ -1605,6 +1605,122 @@ Results: `fpga/spikes/results/h100_hp1/` (with `near_families_hp1.txt`, `urf_chi
 
 Results: `fpga/spikes/results/h100_hp1f/` (with `near_families_hp1f.txt`, `urf_chip.txt`, `floorplan.txt`, `congestion.rpt` and `worst_paths.txt`; `fp_checks.txt` from [`q_fp_checks.tcl`](../../fpga/spikes/tcl/query/q_fp_checks.tcl); `pb_spill.txt` and `pb_soft.txt`, the cells outside, from [`q_pb_spill.tcl`](../../fpga/spikes/tcl/query/q_pb_spill.tcl) and [`q_pb_soft.tcl`](../../fpga/spikes/tcl/query/q_pb_soft.tcl)); main's check in `h100_ex1_synth/fp_check_g4_uncore.txt`.
 
+#### The area exploration: the LSU, rename and the PMP bound (2026-10-21)
+
+**Asked** (the coordinator): three synthesis-only measurements on main e6691d53 (DR-179's FP banks of 64), with hu1's settings: smt2, TG_HART1=1, the release form's `LAT_INJ=0`, the product windows, the URF on. Measurement only; nothing goes to main.
+1. Core 0's LSU, split by function.
+2. Core 0's rename, split by function.
+3. The upper bound of the PMP saving: the fetch and load checkers and their descriptor selects stubbed out.
+
+**The basis matters.** The board's `-flatten_hierarchy rebuilt` (ex1, 122,482 LUTs) mixes the units:
+- it dissolves the PMP checkers, putting their descriptor selects under the CSR file;
+- it files about 1.1K of the issue queues' and the LSU's cells under rename.
+
+So the breakdowns use ex1n, the same build with `-flatten_hierarchy none` (122,432 LUTs: the setting costs nothing here). On ex1n, core 0's units are:
+
+| Unit | ex1n (none) | ex1 (rebuilt, as hu1 was reported) |
+|---|---|---|
+| LSU | 13,243 | 11,563 |
+| Rename | 5,261 | 6,404 |
+| CSR file | 1,792 | 3,371 |
+
+The tables below count LUT cells. Synthesis packs about 1.24 of them into each reported LUT in the LSU and 1.36 in rename.
+
+**1. The LSU** (core 0: 13,243 LUTs, of them 1,696 LUTRAM; 14,270 LUT cells, 5,314 FFs):
+
+| Part | LUT cells | Share | FFs | What's in it |
+|---|---|---|---|---|
+| D$ control, miss entries and data selects | 3,573 | 25% | 888 | The D$'s own 2,892: data selects about 1.0K (the load's hit-way dword 468, the victim and probe data 384, port B's write data 128, the AMO read 64), the four miss entries about 0.6K, the tag, valid and state ports about 0.3K. The LSU's logic into the D$'s ports: 681. |
+| The two PMP checkers and their descriptor selects | 2,320 | 16% | 54 | Load: checker 557, select and inputs 565. Store and walker: 574 and 619. |
+| LQ state and control | 1,481 | 10% | 1,356 | The 24 entries' next state (`lq_st_q` 1,054, 44 an entry). |
+| DTLB (32 entries) | 1,120 | 8% | 284 | Plus 1,120 LUTRAM cells. The CAM match about 380, the tables' ports about 410, the valid bits 148. |
+| SQ state and control | 1,081 | 8% | 1,176 | The drain (`sq_dr_q` 412), the tags 198. |
+| Atomics and MMIO | 870 | 6% | 507 | |
+| Replay, with the ordering check's result | 855 | 6% | 7 | `rp_v_q` 681 (the ordering search with its window and state terms), the oldest select `rp_ra_q` 161. |
+| Byte overlap and forwarding data | 760 | 5% | 175 | |
+| The walker and the head's translation | 588 | 4% | 253 | `u_ptw` 451, of it the walk's PMP check of the page (`leaf_q[ph]`) 190. |
+| Forwarding's youngest select | 489 | 3% | 19 | `m2_foh_q`: the forwarding search and its carry-chain youngest select. |
+| The queues' LUTRAM fields | 246 | 2% | — | Plus 768 LUTRAM cells. |
+| Store prefetch | 61 | 0.4% | 111 | |
+| Other | 826 | 6% | — | Wakeups 100, exceptions 83, the M1 and M2 registers, the store's clash with the M1 load 60. |
+
+The address comparisons. A compare's LUTs carry the name of the register they feed, so they sit inside the rows above. q_cam_cost counts the first-level LUTs that the address flip-flops feed:
+
+| Search | Compared | Entries | Ports | First-level LUTs |
+|---|---|---|---|---|
+| Forwarding, in M1 | PA[33:3] (31 bits), plus one bit for the store's state, window and byte overlap | 20 (SQ) | 1: the M1 load | 234 (11.7 an entry) |
+| Ordering, at STA | PA[33:3] (31 bits), then the byte overlap from PA[2:0] and the size | 24 (LQ) | 1: the store address | at most 457 (19.0 an entry, counting `lq_pa_q`'s other readers) |
+
+- The reductions run on carry chains: the second level is only 14 and 1 LUTs. Every other comparison is scalar.
+- **Per-thread selects** have no family of their own; they fold into their consumers.
+  - The largest are the PMP descriptor selects, about 1.2K cells. Each picks its thread's 8 descriptors of about 70 bits.
+  - Hart 1 cost the LSU +987 LUTs a core (hz0 → hn0, above).
+
+**2. Rename** (core 0: 5,261 LUTs, of them 1,296 LUTRAM; 5,399 LUT cells, 3,284 FFs):
+
+| Part | LUT cells | Share | FFs | LUTRAM cells | What's in it |
+|---|---|---|---|---|---|
+| The free lists: three integer banks, two FP banks | 1,369 | 25% | 345 | 160 | 267–284 each: the LUTRAM's write selects 102, each thread's pointers and counts 146 (two copies), the pop index 13, init 6 |
+| The free lists' inputs and the transfers' wants | 126 | 2% | 6 | — | |
+| The two rename registers' 2:1 select, into DS | 791 | 15% | 789 | — | 572 cells of it select payload that rename never reads: imm, pc, pred_npc, br_target, insn |
+| The two rename registers | 10 | — | 1,614 | — | 1,144 of their FFs hold that payload |
+| Their choice, decode's take and each thread's room | 324 | 6% | 11 | — | `acc_o` 249, `de_take` 64 |
+| Wakeup tags and LLT allocation | 536 | 10% | 80 | — | `wid_alloc` 255, `llt_busy_q` 166, `llt_tid_q` 65 |
+| Integer map | 442 | 8% | 71 | 384 | |
+| FP map | 441 | 8% | 71 | 384 | |
+| In-group bypass and the issue queues' dependency vectors | 402 | 7% | — | — | `iq_dep` 222, `iq_mdep` 180 |
+| Rename's results into DS | 369 | 7% | 208 | — | dst, rob, wid, sq, lq, llt |
+| Ready tables | 281 | 5% | 14 | 240 | |
+| Per-thread tails, counters and blocks | 194 | 4% | 75 | — | |
+| MX row tables | 102 | 2% | — | 208 | |
+| Port and bank steering | 12 | — | — | — | Only the IQs' write enables. The choices land in DS's fields and in `acc_o`, and the room checks in the free lists' counts. |
+
+**Duplicated per thread:**
+- the two rename registers (1,614 FFs);
+- their 2:1 select (791 cells), rename's widest multiplexer;
+- the free lists' pointers and counts: two copies in each of five lists, about 730 cells;
+- each thread's room for decode (249);
+- the per-thread tails and counters (194);
+- the tags' thread owners (83).
+
+The transfers themselves are small.
+
+**3. The PMP bound** (ex2: scratch branch `claude/spikes-2-explore-pmp` at c24edecf, never merged and never simulated). It stubs the fetch and load checkers and their descriptor selects. The store-address and walker checker stays.
+
+| | ex1 (main e6691d53) | ex2 (stubbed) | Change a chip |
+|---|---|---|---|
+| LUTs after synthesis | 122,482 | 118,726 | **−3,756** |
+| LUTs after `opt_design ExploreArea` | 117,956 | 114,513 | **−3,443** |
+| FFs after synthesis | 67,258 | 67,150 | −108 |
+| Estimated WNS on the core clock after synthesis (ns) | −0.927 | −0.927 | 0 |
+| ... after `opt_design` (ns) | −0.927 | −1.235 | −0.308 |
+
+- **Where it comes from:** ex1n's fetch checker (584) and its select (592), and the load checker (557) and its select (565). That is about 2.3K cells, or about 1.9K LUTs a core at the LSU's packing.
+- **The WNS estimates can't see it.** Before placement, the worst path in both builds is the uncore PLIC's priority tree (37–38 levels), which DR-180's release PLIC removes. The −0.308 ns is opt_design remapping that tree.
+- **Placed, the PMP doesn't limit timing.** In hp1f its nearest families had +0.41 ns (fetch's `f2_pmpd_q`, 18 levels) and +0.84 ns (the CSR file's `pmpcfg`). Its lever is area.
+- **It is an upper bound by construction.** The stubs also fold the TLBs' cached-PMP paths and the access faults, which a check-at-fill design keeps.
+
+**Where the real levers are (my read):**
+- **The PMP is the largest no-IPC item found.**
+  - A core has three checkers, each with its own select of its thread's descriptors. With the CSR file's descriptor precompute (about 310), that is about 3.8K cells, or 3.1K LUTs, about 6% of a core.
+  - The walker already checks each page's PMP homogeneity, and the TLBs cache the result.
+  - A design would check at TLB fill and keep one shared checker for untranslated accesses (M-mode, bare) and pages that aren't homogeneous. The store and walker checker already serves two paths.
+  - It is bounded at 3.4K LUTs a chip after `opt_design`. A real design keeps a fallback path, so perhaps 2.5–3K.
+  - IPC: only M-mode and bare accesses (OpenSBI's) would take the slower path; Linux's are translated. This is for core-2 to design and measure.
+- **Rename's payload.** 286 bits a slot ride through both per-thread rename registers and DS: 1,144 + 572 FFs and 572 cells of the 2:1 select a core.
+  - The fix: carry the payload beside rename (decode writes it into a per-thread LUTRAM queue that DS reads), or recompute br_target (pc + imm) where it's used.
+  - It could save up to about 1.7K FFs and 0.5K LUT cells a core, less the queue's LUTRAM.
+  - The FFs count, since the chip is CLB-bound (DR-180).
+- **Worth a look, no lever yet:**
+  - the D$'s two wide data selects (the load's hit-way dword 468, the victim and probe data 384);
+  - the LQ entries' next state (1,054 cells, 44 an entry).
+- **Not levers:**
+  - the address CAMs (about 0.5–0.7K, already on carry chains);
+  - the store prefetch (61);
+  - the free lists' transfers.
+
+Results: `fpga/spikes/results/h100_ex1_synth/`, `h100_ex1n_synth/` and `h100_ex2_synth/`; the queries' outputs in `explore/` there (cell groups, per-unit utilization, CAM cost, the A/B), from [`q_cell_groups.tcl`](../../fpga/spikes/tcl/query/q_cell_groups.tcl), [`q_util_hier.tcl`](../../fpga/spikes/tcl/query/q_util_hier.tcl), [`q_cam_cost.tcl`](../../fpga/spikes/tcl/query/q_cam_cost.tcl) and [`q_explore_ab.tcl`](../../fpga/spikes/tcl/query/q_explore_ab.tcl); categories by [`unit_categories.py`](../../fpga/spikes/scripts/unit_categories.py) with `lsu_categories.json` and `rn_categories.json`.
+
 ## 9. S1: PL → PS DDR latency and bandwidth
 
 **Status: done on the board (2026-10-14).** The bitstream meets 200 MHz (WNS +0.809 ns with the fan rule of DR-129; +0.513 before it; 4,081 LUTs, 5,133 flip-flops, one block-RAM tile), and the board session ran it at 200 MHz. The design, the A53 program and the step-by-step instructions (SD image, boot firmware, network, files, commands) are in [`fpga/spikes/s1/README.md`](../../fpga/spikes/s1/README.md).

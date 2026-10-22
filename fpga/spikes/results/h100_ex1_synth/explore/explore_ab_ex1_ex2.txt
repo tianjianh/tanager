@@ -1,0 +1,28 @@
+== ex1: /home/w/tanager-build/track-spikes-72f833/fp/h100_ex1_synth_post_synth.dcp
+  synthesis: CLB LUTs 122482 (logic 105194, memory 17288), registers  67258; est. WNS c0 -0.927, c1 5.783, c2x 3.155
+  core 0's LUT cells: u_fetch 8454, u_fetch/u_pmp -, u_lsu 11771, u_lsu/u_pmp_ld -, u_lsu/u_pmp_st -, u_lsu/u_ptw 1079, u_lsu/u_dtlb 2158
+     -0.927  37  u_uncore/u_plic/prio_q_reg[24][0]/C                                    -> u_uncore/u_plic/pend_q_reg[24]/D
+     -0.890  37  u_uncore/u_plic/prio_q_reg[24][0]/C                                    -> u_uncore/u_plic/busy_q_reg[24]/D
+     -0.859  37  u_uncore/u_plic/prio_q_reg[24][0]/C                                    -> u_uncore/u_plic/busy_q_reg[21]/D
+     -0.859  37  u_uncore/u_plic/prio_q_reg[24][0]/C                                    -> u_uncore/u_plic/busy_q_reg[22]/D
+     -0.859  37  u_uncore/u_plic/prio_q_reg[24][0]/C                                    -> u_uncore/u_plic/busy_q_reg[23]/D
+  opt_design ExploreArea: CLB LUTs 117956 (logic 102364, memory 15592), registers  65990; est. WNS c0 -0.927, c1 5.803, c2x 3.155
+     -0.927  37  u_uncore/u_plic/prio_q_reg[24][0]/C                                    -> u_uncore/u_plic/pend_q_reg[24]/D
+     -0.890  37  u_uncore/u_plic/prio_q_reg[24][0]/C                                    -> u_uncore/u_plic/busy_q_reg[24]/D
+     -0.859  37  u_uncore/u_plic/prio_q_reg[24][0]/C                                    -> u_uncore/u_plic/busy_q_reg[21]/D
+     -0.859  37  u_uncore/u_plic/prio_q_reg[24][0]/C                                    -> u_uncore/u_plic/busy_q_reg[22]/D
+     -0.859  37  u_uncore/u_plic/prio_q_reg[24][0]/C                                    -> u_uncore/u_plic/busy_q_reg[23]/D
+== ex2: /home/w/tanager-build/track-spikes-72f833/fp/h100_ex2_synth_post_synth.dcp
+  synthesis: CLB LUTs 118726 (logic 101438, memory 17288), registers  67150; est. WNS c0 -0.927, c1 5.783, c2x 3.155
+  core 0's LUT cells: u_fetch 8148, u_fetch/u_pmp -, u_lsu 11758, u_lsu/u_pmp_ld -, u_lsu/u_pmp_st -, u_lsu/u_ptw 1111, u_lsu/u_dtlb 2149
+     -0.927  37  u_uncore/u_plic/prio_q_reg[24][0]/C                                    -> u_uncore/u_plic/pend_q_reg[24]/D
+     -0.890  37  u_uncore/u_plic/prio_q_reg[24][0]/C                                    -> u_uncore/u_plic/busy_q_reg[24]/D
+     -0.859  37  u_uncore/u_plic/prio_q_reg[24][0]/C                                    -> u_uncore/u_plic/busy_q_reg[21]/D
+     -0.859  37  u_uncore/u_plic/prio_q_reg[24][0]/C                                    -> u_uncore/u_plic/busy_q_reg[22]/D
+     -0.859  37  u_uncore/u_plic/prio_q_reg[24][0]/C                                    -> u_uncore/u_plic/busy_q_reg[23]/D
+  opt_design ExploreArea: CLB LUTs 114513 (logic  98921, memory 15592), registers  65882; est. WNS c0 -1.235, c1 5.803, c2x 3.155
+     -1.235  38  u_uncore/u_plic/prio_q_reg[24][0]/C                                    -> u_uncore/u_plic/pend_q_reg[24]/D
+     -1.198  38  u_uncore/u_plic/prio_q_reg[24][0]/C                                    -> u_uncore/u_plic/busy_q_reg[24]/D
+     -1.167  38  u_uncore/u_plic/prio_q_reg[24][0]/C                                    -> u_uncore/u_plic/busy_q_reg[21]/D
+     -1.167  38  u_uncore/u_plic/prio_q_reg[24][0]/C                                    -> u_uncore/u_plic/busy_q_reg[22]/D
+     -1.167  38  u_uncore/u_plic/prio_q_reg[24][0]/C                                    -> u_uncore/u_plic/busy_q_reg[23]/D

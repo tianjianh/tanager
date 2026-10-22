@@ -1,0 +1,2 @@
+lq_pa_q  24 entries x 34 bits (816 registers): first level  457 LUTs (19.0 an entry), second level   14
+sq_pa_q  20 entries x 31 bits (620 registers): first level  234 LUTs (11.7 an entry), second level    1
