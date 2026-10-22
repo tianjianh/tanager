@@ -59,6 +59,8 @@ if mentioned TG_STORE_PF_MAX; then  # the count other than the package's default
             "$ROOT/rtl/core/tg_core_pkg.sv")
   profiles+=("STORE_PF_MAX=$([ "$spm_def" = 3 ] && echo 2 || echo 3)")
 else echo "lint-all: no RTL mentions TG_STORE_PF_MAX; skipping STORE_PF_MAX"; fi
+# DR-183: PMP checks at TLB fill, in both views
+if mentioned TG_PMP_FILL; then profiles+=("PMP_FILL=1" "PMP_FILL=1 SYNTH=1"); else echo "lint-all: no RTL mentions TG_PMP_FILL; skipping PMP_FILL=1"; fi
 profiles+=("SYNTH=1")
 # DR-177's release builds, without the two latency injectors (tanager_soc LAT_INJ, a parameter), in both views
 if grep -qsw LAT_INJ "$ROOT/rtl/soc/tanager_soc.sv"; then profiles+=("LAT_INJ=0" "LAT_INJ=0 SYNTH=1")

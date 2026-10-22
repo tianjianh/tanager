@@ -210,6 +210,15 @@ package tg_core_pkg;
 `else
   localparam int PMP_ENTRIES = 8;
 `endif
+  // PMP checks at TLB fill (DR-183, docs/spec/pmp-at-fill.md): translated S/U accesses take the TLBs' cached
+  // per-page result alone; M-mode needs no check while no entry of its hart is locked; one shared checker in the
+  // LSU serves the rest (bare S/U accesses, pages a region boundary splits, PTE reads, M-mode with a locked entry),
+  // in place of fetch's and the load port's checkers. Off by default: the three checkers, cycle for cycle
+`ifdef TG_PMP_FILL
+  localparam bit PMP_FILL = `TG_PMP_FILL;
+`else
+  localparam bit PMP_FILL = 1'b0;
+`endif
   // I$ next-line prefetch (area_recovery.md §6.11-6.12): a demand miss of line L also fetches L+1 (same page)
   // through a second Get into an invalid way, validated by its own demand miss (core-pipeline.md §3.1). On by
   // default; TG_IPF=0 turns it off, cycle for cycle.

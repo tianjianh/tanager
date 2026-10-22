@@ -94,6 +94,20 @@ module tg_fetch
   input  priv_e  [NUM_THREADS-1:0] priv_h,
   input  pmp_d_t [NUM_THREADS-1:0][PMP_ENTRIES-1:0] pmp_d_h,
   input  logic        pmp_busy,       // PMP descriptors being recomputed: F1 waits
+  input  logic [NUM_THREADS-1:0] pmp_lk_h,   // DR-183: each hart's active locked entries
+  // DR-183 (PMP_FILL): the LSU's shared checker, a registered request held until its tagged response: a page (its S/U
+  // result, and whether a region boundary lies inside it at 4 KiB) or one 4-byte word
+  output logic        pfc_req,
+  output logic        pfc_page,
+  output logic        pfc_tag,
+  output tid_t        pfc_tid,
+  output logic [PA_W-1:0] pfc_pa,
+  output logic        pfc_m,          // a word under M's rules (M-mode with a locked entry)
+  input  logic        pfc_rsp_v,
+  input  logic        pfc_rsp_tag,
+  input  logic        pfc_rsp_ok,
+  input  logic        pfc_rsp_nh,
+  input  logic        pfc_rsp_x,
   input  logic [NUM_THREADS-1:0] rn_block,   // MT: a thread behind a serial uop at rename until its flush (tg_rename)
   input  logic [NUM_THREADS-1:0] rn_acc,     // MT (step 5d): a thread's RN register takes a group next cycle (tg_rename)
   input  logic        tlb_flush,
@@ -287,11 +301,158 @@ module tg_fetch
   logic [2:0]         pmp_rwx_u;
   logic               pw_q, f1_pwait;
   logic [PA_W-1:4]    pw_pa_q;                // fpc_q's translated block address, while pw_q
-  assign f1_pwait = xl_i && it_hit[0] && !it_pte[0].ph && !pw_q;
-  tg_pmp #(.S(2)) u_pmp (.pa(xl_i ? {pw_pa_q, 4'b0} : fpc_q[PA_W-1:0]), .dbl(1'b0), .acc(ACC_X),
-                         .m_mode(priv == PRIV_M), .d(pmp_d), .ok(pmp_okw), .hit(pmp_hit_u),
-                         .rwx(pmp_rwx_u));
-  assign f1_pmpd = (xl_i && it_pte[0].ph) ? {NW{!it_pte[0].px}} : ~pmp_okw;
+  logic               f1_cwait;               // DR-183 (PMP_FILL): F1 waits for the shared checker
+  logic               f1_base, f1_live, ivs_done;   // (F1's state, below)
+  logic               f1_new;                 // F1's block changes (DR-183: the shared checker's work for it ends)
+  if (!PMP_FILL) begin : g_pmp
+    assign f1_pwait = xl_i && it_hit[0] && !it_pte[0].ph && !pw_q;
+    tg_pmp #(.S(2)) u_pmp (.pa(xl_i ? {pw_pa_q, 4'b0} : fpc_q[PA_W-1:0]), .dbl(1'b0), .acc(ACC_X),
+                           .m_mode(priv == PRIV_M), .d(pmp_d), .ok(pmp_okw), .hit(pmp_hit_u),
+                           .rwx(pmp_rwx_u));
+    assign f1_pmpd  = (xl_i && it_pte[0].ph) ? {NW{!it_pte[0].px}} : ~pmp_okw;
+    assign f1_cwait = 1'b0;
+    assign pfc_req  = 1'b0;
+    assign pfc_page = 1'b0;
+    assign pfc_tag  = 1'b0;
+    assign pfc_tid  = '0;
+    assign pfc_pa   = '0;
+    assign pfc_m    = 1'b0;
+    logic unused_pfc;
+    assign unused_pfc = ^{pmp_lk_h, pfc_rsp_v, pfc_rsp_tag, pfc_rsp_ok, pfc_rsp_nh, pfc_rsp_x, f1_new};
+  end else begin : g_pmpf
+    // DR-183: no checker here. A block decides by one of:
+    //   - a translated page that is PMP-homogeneous: the ITLB's cached x (ph), as before;
+    //   - M-mode while its hart has no locked entry: no check (only locked entries bind M);
+    //   - bare S/U: the hart's last-page entry, the S/U result of the page F1 last fetched from in bare mode, filled
+    //     by a page request to the shared checker and kept until the hart's next TLB flush (PMP writes flush them);
+    //   - else word checks: a page with a region boundary inside (translated, or the entry's), or M-mode with a
+    //     locked entry. One word at a time from the block's first, stopping at the first denied word: the block ends
+    //     before it, or is a fault block at its first instruction, as F2 takes f1_pmpd.
+    // Each request goes out from flip-flops, held until its response comes back, tagged; any change of F1's block
+    // (f1_new) ends the work and a response still on its way is dropped.
+    typedef enum logic [1:0] { C_IDLE, C_PAGE, C_WORD } cst_e;
+    cst_e                     cs_q;
+    logic [NUM_THREADS-1:0]   lp_v_q, lp_nh_q, lp_x_q;
+    logic [NUM_THREADS-1:0][PA_W-13:0] lp_pg_q;
+    logic                     cr_v_q;          // the word checks' result holds for F1's block
+    logic [NW-1:0]            cr_den_q;        // ... the denied words
+    logic [1:0]               cw_q;            // the word in check
+    logic                     rq_v_q, rq_page_q, rq_tag_q, rq_m_q;
+    tid_t                     rq_tid_q;
+    logic [PA_W-1:0]          rq_pa_q;
+    logic f1_m, f1_bare, lp_hit, c_page, c_word, rsp, w_last;
+    assign f1_m    = priv == PRIV_M;
+    assign f1_bare = !xl_i && !f1_m;
+    assign lp_hit  = lp_v_q[f1_tid] && lp_pg_q[f1_tid] == fpc_q[PA_W-1:12];
+    assign c_page  = f1_bare && !lp_hit;
+    assign c_word  = (xl_i && it_hit[0] && !it_pte[0].ph) || (f1_bare && lp_hit && lp_nh_q[f1_tid]) ||
+                     (f1_m && pmp_lk_h[f1_tid]);
+    assign f1_pwait = 1'b0;
+    assign f1_cwait = c_page || (c_word && !cr_v_q);
+    assign f1_pmpd  = (xl_i && it_pte[0].ph)                    ? {NW{!it_pte[0].px}} :
+                      (f1_m && !pmp_lk_h[f1_tid])               ? '0 :
+                      (f1_bare && lp_hit && !lp_nh_q[f1_tid])   ? {NW{!lp_x_q[f1_tid]}} : cr_den_q;
+    assign rsp     = pfc_rsp_v && pfc_rsp_tag == rq_tag_q && rq_v_q;
+    assign w_last  = cw_q == 2'd3;
+    always_ff @(posedge clk) begin
+      if (rst || f1_new) begin
+        cs_q   <= C_IDLE;
+        rq_v_q <= 1'b0;
+        cr_v_q <= 1'b0;
+      end else begin
+        unique case (cs_q)
+          C_IDLE: if (f1_base && !pmp_busy && (c_page || (c_word && !cr_v_q))) begin
+            rq_v_q    <= 1'b1;
+            rq_tag_q  <= !rq_tag_q;
+            rq_tid_q  <= f1_tid;
+            rq_page_q <= c_page;
+            rq_m_q    <= f1_m;
+            rq_pa_q   <= c_page ? {f1_pa[PA_W-1:12], 12'b0} : {f1_pa[PA_W-1:4], fpc_q[3:2], 2'b00};
+            cw_q      <= fpc_q[3:2];
+            cr_den_q  <= '0;
+            cs_q      <= c_page ? C_PAGE : C_WORD;
+          end
+          C_PAGE: if (rsp) begin
+            rq_v_q <= 1'b0;
+            cs_q   <= C_IDLE;
+          end
+          C_WORD: if (rsp) begin
+            if (!pfc_rsp_ok || w_last) begin
+              rq_v_q <= 1'b0;
+              cr_v_q <= 1'b1;
+              cs_q   <= C_IDLE;
+              if (!pfc_rsp_ok) for (int w = 0; w < NW; w++) if (w >= int'(cw_q)) cr_den_q[w] <= 1'b1;
+            end else begin
+              rq_tag_q <= !rq_tag_q;
+              cw_q     <= cw_q + 2'd1;
+              rq_pa_q  <= {rq_pa_q[PA_W-1:4], cw_q + 2'd1, 2'b00};
+            end
+          end
+          default: cs_q <= C_IDLE;
+        endcase
+      end
+      // The last-page entries: a page response fills its hart's (not after F1's block changed: f1_new); a TLB flush of
+      // the hart (PMP writes, satp writes, SFENCE.VMA) empties it, after the fill in the same cycle
+      if (rst) lp_v_q <= '0;
+      else begin
+        if (cs_q == C_PAGE && rsp && !f1_new) begin
+          lp_v_q[rq_tid_q]  <= 1'b1;
+          lp_pg_q[rq_tid_q] <= rq_pa_q[PA_W-1:12];
+          lp_nh_q[rq_tid_q] <= pfc_rsp_nh;
+          lp_x_q[rq_tid_q]  <= pfc_rsp_x;
+        end
+        if (tlb_flush) lp_v_q[tlb_flush_tid] <= 1'b0;
+      end
+    end
+    assign pfc_req  = rq_v_q;
+    assign pfc_page = rq_page_q;
+    assign pfc_tag  = rq_tag_q;
+    assign pfc_tid  = rq_tid_q;
+    assign pfc_pa   = rq_pa_q;
+    assign pfc_m    = rq_m_q;
+    assign pmp_okw   = '1;
+    assign pmp_hit_u = 1'b0;
+    assign pmp_rwx_u = '0;
+    logic unused_pw;
+    assign unused_pw = ^{pw_pa_q, pw_q, pmp_okw, pmp_hit_u, pmp_rwx_u};
+`ifndef SYNTHESIS
+    // (DR-183) Shadow checks, simulation only, against a full check of F1's block as it moves on: the last-page
+    // entry's x on every word, M-mode's skip under M's rules, and the word checks' result up to its first denied word
+    logic [NW-1:0] shf_okw, shm_okw, cx_den;
+    logic          shf_hit, shm_hit;
+    logic [2:0]    shf_rwx, shm_rwx;
+    tg_pmp #(.S(2)) u_pmp_shf (.pa(f1_pa), .dbl(1'b0), .acc(ACC_X), .m_mode(1'b0), .d(pmp_d), .ok(shf_okw),
+                               .hit(shf_hit), .rwx(shf_rwx));
+    tg_pmp #(.S(2)) u_pmp_shm (.pa(f1_pa), .dbl(1'b0), .acc(ACC_X), .m_mode(1'b1), .d(pmp_d), .ok(shm_okw),
+                               .hit(shm_hit), .rwx(shm_rwx));
+    logic unused_shf;
+    assign unused_shf = ^{shf_hit, shf_rwx, shm_hit, shm_rwx};
+    always_comb begin
+      logic d;
+      d = 1'b0;
+      cx_den = '0;
+      for (int w = 0; w < NW; w++)
+        if (w >= int'(fpc_q[3:2])) begin
+          d = d || !(f1_m ? shm_okw[w] : shf_okw[w]);
+          cx_den[w] = d;
+        end
+    end
+    always_ff @(posedge clk)
+      if (!rst && f1_live) begin
+        if (f1_bare && lp_hit && !lp_nh_q[f1_tid])
+          assert (shf_okw == {NW{lp_x_q[f1_tid]}})
+            else $error("tg_fetch: the last-page entry's x (%b) differs from the full check (%b) at PA %h", lp_x_q[f1_tid],
+                        shf_okw, f1_pa);
+        if (f1_m && !pmp_lk_h[f1_tid])
+          assert (&shm_okw) else $error("tg_fetch: M-mode skipped PMP (no locked entry), but a full check denies %b at PA %h",
+                                        ~shm_okw, f1_pa);
+        if (c_word)
+          assert (cr_den_q == cx_den)
+            else $error("tg_fetch: the word checks' denials (%b) differ from the full check's (%b) at PA %h", cr_den_q, cx_den,
+                        f1_pa);
+      end
+`endif
+  end
 `ifndef SYNTHESIS
   // (DR-182) Shadow PMP check, simulation only: a translated block that takes the ITLB's cached result (ph) is checked
   // in full on its own physical address too, every word, and the two must agree
@@ -1043,10 +1204,9 @@ module tg_fetch
   assign f2_hold    = f2v && (!f3_accept || ft_full || f2_qfull);
   // F1 moves on when F2 is free (or delivers) and fetch is not parked, stopped or waiting for the
   // PMP descriptors, the valid-bit sweep or its own PMP check (f1_pwait).
-  logic f1_base, f1_live, ivs_done;
   assign f1_base = f1_valid_q && !miss_s_q[ft_q] && !wk_s_q[ft_q] && !qw_s_q[ft_q] && !stop_q && ready && !pmp_busy &&
                    ivs_done;
-  assign f1_live = f1_base && !f1_pwait;
+  assign f1_live = f1_base && !f1_pwait && !f1_cwait;
   assign f2_go   = !f2_hold && !redirect;
   // (in F2's action's cycle F2 takes nothing from F1: with MT it may keep the other stream's block, whose I$ data and
   // TAGE reads must stay; without MT F2 holds nothing then, so the reads were unused)
@@ -1720,7 +1880,7 @@ module tg_fetch
     logic o, f1r;
     o     = 1'b0;
     f1r   = 1'b0;
-    f1v_n = f1_valid_q; ft_n = ft_q; fpc_n = fpc_q; pw_n = pw_q;
+    f1v_n = f1_valid_q; ft_n = ft_q; fpc_n = fpc_q; pw_n = pw_q; f1_new = 1'b0;
     sv_n  = sv_s_q;     spc_n = spc_s_q;
     // F1 waits a cycle for its PMP check; any change of fpc_q below ends the wait
     if (f1_base && f1_pwait) pw_n = 1'b1;
@@ -1730,7 +1890,7 @@ module tg_fetch
         sv_n[k_s_q] = 1'b0;
       end else if (!k_stop_q) begin                   // refetch stream k (its later blocks go)
         if (!MT || !f1_valid_q || ft_q == k_s_q) begin
-          f1v_n = 1'b1; fpc_n = kref_pc; ft_n = k_s_q; pw_n = 1'b0;
+          f1v_n = 1'b1; fpc_n = kref_pc; ft_n = k_s_q; pw_n = 1'b0; f1_new = 1'b1;
           sv_n[k_s_q] = 1'b0;
         end else begin
           sv_n[k_s_q] = 1'b1; spc_n[k_s_q] = kref_pc;
@@ -1746,13 +1906,13 @@ module tg_fetch
         // its stream and drops the block behind it, so the next block's address is never used)
         fpc_n = pred_hit ? pred_tgt : seq_pc;
       end
-      pw_n = 1'b0;
+      pw_n = 1'b0; f1_new = 1'b1;
     end
     // Restarts after a refill or a walk
     for (int t = 0; t < NS; t++) begin
       if (rs_ref[t] || rs_walk[t] || rs_room[t]) begin
         if (!MT || !f1v_n) begin
-          f1v_n = 1'b1; fpc_n = rs_pc[t]; ft_n = 1'(t); pw_n = 1'b0;
+          f1v_n = 1'b1; fpc_n = rs_pc[t]; ft_n = 1'(t); pw_n = 1'b0; f1_new = 1'b1;
         end else begin
           sv_n[t] = 1'b1; spc_n[t] = rs_pc[t];
         end
@@ -1762,9 +1922,9 @@ module tg_fetch
     if (MT && (!f1v_n || stop_s_q[ft_n] || blk_s[ft_n])) begin
       o = !ft_n;
       if (sv_n[o] && !blk_s[o]) begin
-        f1v_n = 1'b1; fpc_n = spc_n[o]; ft_n = o; sv_n[o] = 1'b0; pw_n = 1'b0;
+        f1v_n = 1'b1; fpc_n = spc_n[o]; ft_n = o; sv_n[o] = 1'b0; pw_n = 1'b0; f1_new = 1'b1;
       end else if (!f1v_n && sv_n[ft_n] && !blk_s[ft_n]) begin
-        f1v_n = 1'b1; fpc_n = spc_n[ft_n]; sv_n[ft_n] = 1'b0; pw_n = 1'b0;
+        f1v_n = 1'b1; fpc_n = spc_n[ft_n]; sv_n[ft_n] = 1'b0; pw_n = 1'b0; f1_new = 1'b1;
       end
     end
     // The redirects: each redirected stream's next block is its redirect's PC (its blocks in F1, F2 and F3 go,
@@ -1775,7 +1935,7 @@ module tg_fetch
       if (red_s[t]) begin
         if (!(MT && fl_slp && fl_s[t]) &&
             (!MT || !f1v_n || (!f1r && (ft_n == 1'(t) || stop_s_q[ft_n] || blk_s[ft_n] || red_s[ft_n])))) begin
-          f1v_n = 1'b1; fpc_n = red_pc_s[t]; ft_n = 1'(t); pw_n = 1'b0; f1r = 1'b1;
+          f1v_n = 1'b1; fpc_n = red_pc_s[t]; ft_n = 1'(t); pw_n = 1'b0; f1_new = 1'b1; f1r = 1'b1;
           sv_n[t] = 1'b0;
         end else begin
           // (step 6) a sleep's redirect always waits here, in its stream's slot, which a blocked stream never leaves,
