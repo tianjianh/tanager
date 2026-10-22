@@ -17,14 +17,19 @@ ends first runs again until the other's first region is done. smt2-study's metho
   run_pair.py --replay <tg_replay> --images DIR   Spike against Spike: the images' own check (IPC is 1 there)
 The basis (--basis, required with --sim, printed and kept in the JSON) is what the alone runs had: half, a
 program on its half of a split window (hart 1 on, before step 6 merges the window when the sibling sleeps), or
-merged, the whole window (step 6's merge, or a build with hart 1 off: --alone-sim). Exit 2 is judged on merged;
-half-window alone runs read memory pairs high (smt2_report §13.14).
+merged, the whole window: from step 6 the pairs' own build with hart 1 asleep in WFI, exit 2's basis (DR-184), or
+a build with hart 1 off (--alone-sim). Half-window alone runs read memory pairs high (smt2_report §13.14).
 The alone runs go first. A pair's cycle limit (tg_vsim --cycles) is --cap times its two programs' whole alone runs:
 a pair that reaches it is a hang, reported with the slot that never finished its first region (one hart starved
-while the other runs; tg_vsim's own HANG is no commit on any hart). A pair that hangs or fails is left out of the
-means, and the report names it. The JSON has the basis, each run's region figures per slot (ipc, cycles, instret
-and runs, the restarts; alone runs also total, the whole run's cycles), each pair's WS, the pairs left out (and
-the hangs among them), and the group and overall figures per latency."""
+while the other runs; tg_vsim's own HANG is no commit on any hart).
+Exit 2's conditions (DR-184) come last: every hang (a cycle-limit hit), failed run and pair without alone figures
+is a failure. Such a pair is left out of the means, and its latency's line reads FAIL with how many pairs the means
+cover. With --off-alone, the alone figures of a build with hart 1 off (an earlier --only alone run on the same
+images), each program's IPC alone here is divided by its IPC there: a ratio under 1 (--loss-tol) is a loss, since
+one thread alone must lose no speed against the hart-1-off core. The JSON has the basis, each run's region figures
+per slot (ipc, cycles, instret and runs, the restarts; alone runs also total, the whole run's cycles), each pair's
+WS, the pairs left out (and the hangs among them), the group and overall figures per latency, the ratios against
+hart 1 off (no_loss) and exit 2's failures (exit2)."""
 import argparse
 import concurrent.futures as cf
 import json
@@ -76,6 +81,12 @@ def geomean(xs):
     return math.exp(sum(math.log(x) for x in xs) / len(xs)) if xs else float("nan")
 
 
+def brief(why):
+    """A left-out pair's reason, short: a hang with its limit and the slot that never finished its first region."""
+    m = re.match(r"hang: no end within ([\d,]+) cycles: (?:slot \d finished its first region, slot (\d) did not|(.*))", why)
+    return (f"hang at {m[1]} cycles, " + (f"slot {m[2]} unfinished" if m[2] else m[3])) if m else why[:60]
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--sim", help="tg_vsim built for smt2")
@@ -90,6 +101,11 @@ def main():
                     "hart 1 off gives the merged basis before step 6")
     ap.add_argument("--pairs-from", default="", help="with --only pairs and --alone: no runs; the pairs of an earlier "
                     "run's JSON (same images), scored against --alone's figures and basis")
+    ap.add_argument("--off-alone", default="", help="the single-thread no-loss check (DR-184): the alone figures of a "
+                    "build with hart 1 off, from an earlier --only alone JSON on the same images; each program's IPC "
+                    "alone here is compared with them")
+    ap.add_argument("--loss-tol", type=float, default=0.0, help="with --off-alone: a ratio under 1 - this is a loss "
+                    "(default 0: any)")
     ap.add_argument("--cap", type=float, default=3.0, help="a pair's cycle limit: this many times its two programs' "
                     f"whole alone runs (at least {CAP_MIN:,}; tg_vsim's 50M default without alone figures)")
     ap.add_argument("--max-cycles", type=int, default=0, help="a fixed cycle limit for every pair run instead")
@@ -139,6 +155,16 @@ def main():
         for k, v in aj["alone"].items():
             p, s, lat = k.split("@")
             alone[(p, int(s[1:]), int(lat))] = v
+    off, off_sim = {}, ""
+    if a.off_alone:
+        if not os.path.exists(a.off_alone):
+            ap.error(f"--off-alone: no {a.off_alone} (--only alone on the hart-1-off build, the same images)")
+        oj = json.load(open(a.off_alone))
+        off_sim = oj.get("basis", {}).get("alone_sim", "(not named)")
+        for k, v in oj["alone"].items():
+            p, s, lat = k.split("@")
+            off[(p, int(s[1:]), int(lat))] = v
+        print(f"run_pair: no-loss check against {a.off_alone} ({off_sim})", flush=True)
     print(f"run_pair: basis {basis['name']}: {basis['label']} ({basis['alone_sim']})", flush=True)
     if a.pairs_from:   # an earlier run's pairs: their figures, hangs and failures; no simulation
         pj = json.load(open(a.pairs_from))
@@ -177,7 +203,8 @@ def main():
             if "TIMEOUT: cycle limit" in out:
                 hang = True
                 why = f"no end within {cap or 50_000_000:,} cycles: " + \
-                      (f"slot {stopped[0]} finished its first region, slot {1 - stopped[0]} did not" if stopped
+                      ("its first region did not finish" if kind == "alone" else
+                       f"slot {stopped[0]} finished its first region, slot {1 - stopped[0]} did not" if stopped
                        else "neither slot finished its first region")
             else:
                 why = next((l.strip() for l in reversed(out.splitlines()) if l.strip()), "no output")[:200]
@@ -191,12 +218,13 @@ def main():
         return (f"{what} slot {slot}" if kind == "alone" else f"{what[1]}+{what[2]}") + f" lat {lat}"
 
     t0 = time.time()
-    results = []
+    results, alone_failed = [], []
     if a.only in ("alone", "all"):
         results += run_all([("alone", p, s, lat, 0) for p in progs for s in (0, 1) for lat in lats])
         for (kind, what, slot, lat, _), res, total, why, hang, cmd, dt in results:
             if why:
                 fails.append(f"  FAIL {label(kind, what, slot, lat)}: {why}\n       repro: {cmd}")
+                alone_failed.append(label(kind, what, slot, lat) + (" (cycle limit)" if hang else ""))
                 continue
             c, i, r = res[slot]
             alone[(what, slot, lat)] = {"ipc": i / c, "cycles": c, "instret": i, "runs": r, "total": total}
@@ -227,7 +255,41 @@ def main():
         for p in progs:
             row = "".join(f"  {ipc(alone.get((p, 0, lat))):6.3f}/{ipc(alone.get((p, 1, lat))):6.3f}       " for lat in lats)
             print(f"{p:24s}{row}")
-    if a.only in ("pairs", "all") and pair:
+    losses, unchecked = [], []
+    if off:   # DR-184: one thread alone loses no speed against the hart-1-off core
+        print(f"single thread against hart 1 off: IPC alone here / on {off_sim} (a loss under {1 - a.loss_tol:.4f})")
+        print(f"{'program':24s}" + "".join(f"  ratio s0/s1 lat {lat:<3d}" for lat in lats))
+        ratios = {}
+        for p in progs:
+            row = ""
+            for lat in lats:
+                cell = []
+                for s in (0, 1):
+                    h, o = alone.get((p, s, lat)), off.get((p, s, lat))
+                    if not h or not o or h["instret"] != o["instret"]:   # a region's instructions: the same images
+                        unchecked.append(f"{p} slot {s} lat {lat}" + (": region instructions differ, other images?"
+                                                                      if h and o else ""))
+                        cell.append("   -  ")
+                        continue
+                    r = ratios[(p, s, lat)] = h["ipc"] / o["ipc"]
+                    if r < 1 - a.loss_tol:
+                        losses.append({"prog": p, "slot": s, "lat": lat, "ratio": r, "cycles": h["cycles"],
+                                       "off_cycles": o["cycles"]})
+                    cell.append(f"{r:6.4f}")
+                row += f"  {'/'.join(cell):13s}      "
+            print(f"{p:24s}{row}")
+        losses.sort(key=lambda e: e["ratio"])
+        worst = min(ratios, key=ratios.get) if ratios else None
+        print(f"no loss alone: {len(ratios) - len(losses)} of {len(ratios)} runs at least as fast as with hart 1 off" +
+              (f", the slowest {ratios[worst]:.4f} ({worst[0]} slot {worst[1]} lat {worst[2]})" if worst else "") +
+              "".join(f"\n  LOSS {e['prog']} slot {e['slot']} lat {e['lat']}: {e['ratio']:.4f} ({e['cycles']:,} cycles "
+                      f"against {e['off_cycles']:,})" for e in losses[:10]) +
+              (f"\n  ... and {len(losses) - 10} more (the table)" if len(losses) > 10 else "") +
+              "".join(f"\n  NOT COMPARED {u}" for u in unchecked))
+        report["no_loss"] = {"off_alone": a.off_alone, "off_sim": off_sim, "tol": a.loss_tol,
+                             "ratios": {f"{p}@s{s}@{lat}": r for (p, s, lat), r in ratios.items()},
+                             "losses": losses, "unchecked": unchecked}
+    if a.only in ("pairs", "all") and (pair or pair_why):
         print(f"{'pair':40s} {'group':16s}" + "".join(f"  WS lat {lat:<4d}" for lat in lats))
         groups = {}
         for g, x, y in pairs:
@@ -241,7 +303,7 @@ def main():
                                                **({"slots": pr} if pr and "hang" not in pr else {})})
                     if pr and "hang" in pr:
                         report["hangs"].append({"group": g, "a": x, "b": y, "lat": lat, "why": pr["hang"]})
-                    ws_row.append("hang" if pr and "hang" in pr else "left out")
+                    ws_row.append("HANG" if pr and "hang" in pr else "FAIL" if why.startswith("failed: ") else "no alone")
                     continue
                 ws = pr[0]["ipc"] / ax["ipc"] + pr[1]["ipc"] / ay["ipc"]
                 ws_row.append(ws)
@@ -256,18 +318,38 @@ def main():
             report["overall"][lat] = float("nan") if empty else geomean(list(gm.values()))
             out = [e for e in report["excluded"] if e["lat"] == lat]
             n = sum(len(groups.get((g, lat), [])) for g in GROUPS)
-            print(f"lat {lat}: " + ", ".join(f"{g} {v:.3f}" for g, v in gm.items()) +
-                  f"; overall {report['overall'][lat]:.3f} over {n} pairs" +
-                  (f" (no pairs in {', '.join(g for g in GROUPS if not groups.get((g, lat)))})"
-                   if any(not groups.get((g, lat)) for g in GROUPS) else "") +
-                  (f"; left out: {'; '.join(e['a'] + '+' + e['b'] + ' (' + e['why'][:60] + ')' for e in out)}" if out else ""))
+            print(f"lat {lat}: " + ("FAIL, " if out else "") + ", ".join(f"{g} {v:.3f}" for g, v in gm.items()) +
+                  f"; overall {report['overall'][lat]:.3f} over {n} of {len(pairs)} pairs" +
+                  (f" (no pairs in {', '.join(empty)})" if empty else "") +
+                  (f"; failed: {'; '.join(e['a'] + '+' + e['b'] + ' (' + brief(e['why']) + ')' for e in out)}" if out else ""))
         print(f"basis: {basis['name']}, {basis['label']}")
+    # Exit 2's conditions (DR-184): no hang (a cycle-limit hit), failed run or pair without alone figures, and no loss
+    # for one thread alone against hart 1 off. A failure is named, never a missing value in the means.
+    def some(xs, n=6):
+        return ", ".join(xs[:n]) + (f" and {len(xs) - n} more" if len(xs) > n else "")
+    failures = []
+    for kind, es in (("hangs (cycle limit)", report["hangs"]),
+                     ("failed pair runs", [e for e in report["excluded"] if e["why"].startswith("failed: ")]),
+                     ("pairs without alone figures", [e for e in report["excluded"] if e["why"].startswith("no alone")])):
+        if es:
+            failures.append(f"{len(es)} {kind}: " + some([f"{e['a']}+{e['b']} at {e['lat']}" for e in es]))
+    if alone_failed:
+        failures.append(f"{len(alone_failed)} failed alone runs: " + some(alone_failed))
+    if losses:
+        failures.append(f"{len(losses)} alone runs slower than with hart 1 off: " +
+                        some([f"{e['prog']} slot {e['slot']} at {e['lat']} {e['ratio']:.4f}" for e in losses]))
+    if unchecked:
+        failures.append(f"{len(unchecked)} alone runs not compared with hart 1 off")
+    report["exit2"] = {"failures": failures, "no_loss_checked": bool(off)}
+    print("exit 2's conditions (DR-184): " + ("FAIL: " + "; ".join(failures) if failures else
+          "no hang, cycle-limit hit or failed run" + ("; no loss alone against hart 1 off" if off else
+                                                      "; the no-loss check not run (--off-alone)")))
     if a.json:
         with open(a.json, "w") as f:
             json.dump(report, f, indent=1)
     print(f"run_pair: {len(results) - len(fails) - len(hangs)} of {len(results)} runs"
           f"{f', {len(hangs)} hangs' if hangs else ''}, {time.time() - t0:.0f} s")
-    return 1 if fails or hangs else 0
+    return 1 if fails or hangs or failures else 0
 
 
 if __name__ == "__main__":
