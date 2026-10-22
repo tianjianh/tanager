@@ -594,7 +594,8 @@ The steps:
 6. runs the riscv-tests and directed tests again with `--trace-stall=50` (§2.9); with `ARCH=1`, the core's ACT4 configuration (§6.1: `tcore-rv64im` or `core-m2-rv64im`, or `ACTCFG=`); off by default until the coordinator makes it part of the core's merge gate (§9);
 7. runs the checker self-test (§3.8; `SELFTEST=0` skips it) and 50 random F/D programs Spike against Spike (§6.2; `RANDFD=N`, 0 skips them);
 8. for `CORE=core`, runs 12 random programs with a probe at every GrantAck (§2.4, `--probe-grant=100`: each store and atomic must use its line before it gives it up; `PGN=N`, 0 skips them), and 20 coherence programs on the two-core SoC (§6.5: every mode, AMOs, lotteries, LR/SC loops and plain-load message passing on shared lines from the same cycle, lockstep for every hart; `COHN=N`, 0 skips them). The latter builds `tb_boot` with `CORES=2` for the configuration, a few minutes the first time;
-9. prints one summary and exits non-zero if anything failed; logs of failing steps stay in `$TANAGER_BUILD/<worktree>/regress/<cfg>-<core>/`.
+9. with `HART1=1`, once the RTL has `+xwake` (M7's step 6 fix), runs the directed tests and `RANDN` random programs (timer interrupts on) again with `+xwake=20`: hart 1, parked in WFI, wakes at random, so every program runs across merges and splits of the window (§6.2);
+10. prints one summary and exits non-zero if anything failed; logs of failing steps stay in `$TANAGER_BUILD/<worktree>/regress/<cfg>-<core>/`.
 
 The core track runs it for `st` and `st_w3` before each merge request (conventions §6), widening `SUITES` and `MARCH` as features land. It takes about as long as the slowest test, since tests run 8 at a time.
 
