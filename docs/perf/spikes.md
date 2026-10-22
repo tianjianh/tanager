@@ -1669,6 +1669,29 @@ The floorplan checks all graded OK:
   - fpu-2's −580 LUTs a chip are on main; step 6 adds about +770.
 - **Flow levers cost no LUTs:** a congestion-directed placement (`place_design -directive AltSpreadLogic_high`), which `build.tcl` doesn't offer yet, is untested here.
 
+**Where the flip-flops grew since hp1** (the coordinator, 10-22). Each step is the difference of two builds with the board's synthesis. Flip-flops keep their RTL names under `-flatten rebuilt`, so their units are reliable.
+
+| Step | Builds compared | FFs after synthesis | FFs after `opt_design` | Where (after synthesis) |
+|---|---|---|---|---|
+| The product windows | hu0 − hp0 (both 071de15c, URF off); hu1 − hp1 | +1,966 | +2,179 | All in the uncore: the host bridge +1,074, the host DMA and the PS window about +640 together, the crossbar +275 |
+| 5d, 5e and DR-179 | ex1 − hu1 | +1,867 | +1,867 | Each core: rename +790 (5d's second rename register), the LSU +90, fetch +61 |
+| 5f, DR-180 and the board's flow | product − ex1 | −3,175 | −2,150 | The uncore: the host bridge −2,847, the PLIC −221, the host DMA −96; the cores unchanged |
+| **Total** | product − hp1 | **+652** | **+1,896** | |
+
+- **DR-180's −3,170 flip-flops are −2,150 after `opt_design`.** About 1,025 of those it trims at synthesis were flip-flops that `opt_design` swept anyway: it removes 1,487 from hp1, 1,268 from hu1 and ex1, and only 243 from the product.
+- **After `opt_design` the uncore nets out near zero** (the windows' +2,179 against DR-180's −2,150). The placed flip-flop growth is, to first order, 5d's second rename register (+1,580 a chip), with the LSU's and fetch's +300.
+- **Control sets** (2,799 placed in hp1, 2,849 in the product, +50) wait for a per-unit query on the next run's synthesis checkpoint ([`q_ctrl_sets.tcl`](../../fpga/spikes/tcl/query/q_ctrl_sets.tcl)).
+- **So the design lever that matches the growth is rename's payload beside rename.**
+  - It takes about 3.4K flip-flops and 1K LUT cells out of the same two registers and the DS register that 5d doubled.
+  - The PMP at TLB fill (2.5–3K LUTs) answers the LUTs.
+
+**Flow levers lined up** (no LUT cost), by what the AltSpreadLogic_high run (`product_asl_high`) shows:
+- **If it still doesn't route:** the same with `route_design -directive AlternateCLBRouting`, the router's documented congestion directive, keeping the spread placement.
+  - Next after that: `opt_design -control_set_merge -merge_equivalent_drivers`, which merges equivalent control and driver nets without adding LUTs.
+  - Not `-control_set_opt_threshold`: it moves enables and resets into LUTs, and LUTs are this chip's binding resource.
+- **If it routes but misses timing:** `AltSpreadLogic_medium`, which spreads less and so gives back less timing.
+- **If it routes near closure:** a second sample at 1.05 ns, for the noise (hp1f's two differed by 0.33 ns).
+
 Results: `fpga/spikes/results/product_c0030303/` (the utilization after synthesis, `opt_design` and placement; the floorplan's reports; `run_excerpt.txt`, the build's FLOORPLAN, timing and congestion lines).
 
 #### The area exploration: the LSU, rename and the PMP bound (2026-10-21)
