@@ -3,7 +3,7 @@
 # constrained-random programs on the real core, every M3 switch on, in st, st_w3, smt2 and smt2_w3
 # at once, with memory stress (latency 30-250), timer interrupts and trace back-pressure, then, once
 # main has tests/coherence, coherence programs on the two-core SoC (verification.md §6.5). In the rounds
-# with the timing cuts on, M7's test modes on smt2 (SOLO_TID=1, and SPLIT=1 SOLO_TID=1) take the w3
+# with the timing cuts on, M7's test modes on smt2 (hart 1 on with random wakes, and SOLO_TID=1) take the w3
 # configurations' places; those keep their rounds without the cuts (v2's reserve). Findings
 # go to a triage list, $TANAGER_BUILD/soak/summary.md; they never gate merges.
 # Strictly background: nice 19 and idle I/O, at most 8 simulations, no Vivado, no checkout touched
@@ -37,9 +37,11 @@ M3FD_ISA=rv64imafdc_zicsr_zifencei_zicntr_zihpm_zba_zbb_zbs_zicond_zihintpause_s
 # Spike's PMP regions are the core's PMP entries, which tg_vsim and tanager-lockstep take from the RTL (DR-167).
 spike_args() { echo "--isa=$(cat "$SOAK/spike_isa" 2>/dev/null) --priv=MSU"; }
 KEEP_FAILS=100          # failure directories kept (oldest go first)
-# M7's test modes (DR-175; verification.md §4.4), name:make variables (commas for spaces): smt2 builds with the
-# timing cuts on, run in those rounds in the w3 configurations' places, once main has the switches
-M7_MODES="solo1:SOLO_TID=1 solo1-sp1:SPLIT=1,SOLO_TID=1"
+# M7's test modes (DR-175; verification.md §4.4), name:make variables[:tg_vsim arguments] (commas for spaces): smt2
+# builds with the timing cuts on, run in those rounds in the w3 configurations' places, once main has the switches
+# and its RTL reads the plusargs. h1x: hart 1 on, parked in WFI by the programs' entry code, and woken at random
+# (+xwake=20: 2% a cycle asleep, simulation only), so the window merges and splits under hart 0's program (step 6)
+M7_MODES="h1x:HART1=1:+xwake=20 solo1:SOLO_TID=1"
 COH_CFGS="st smt2"      # coherence rounds: two cores, harts 0 and 1, or 0 and 2 (thread 0 of each smt2 core)
 COH_SEEDS=20            # coherence programs per configuration per round (about 30 s)
 COH_MODES=lottery,amo,mix,lrsc,lottery-lrsc,mp,race   # every mode: LR/SC since the L1D holds a young reservation;
@@ -99,11 +101,15 @@ prepare() {
   local tcs=""
   if grep -q "TG_TIMING_CUTS" "$pkg" && [ -f "$src/sim/profile.mk" ]; then tcs="0 1"; fi
   # M7's test modes that main's core package and sim/profile.mk have (they need the timing-cut rounds)
-  local m7="" m mvar ok
+  local m7="" m mvar ok mname mv msim pa
   for m in $M7_MODES; do
     ok=${tcs:+1}
-    for mvar in $(echo "${m#*:}" | tr ',' ' '); do
+    IFS=: read -r mname mv msim <<< "$m"
+    for mvar in $(echo "$mv" | tr ',' ' '); do
       grep -q "TG_${mvar%%=*}" "$pkg" && grep -q "^${mvar%%=*} ?=" "$src/sim/profile.mk" || ok=""
+    done
+    for pa in $(echo "$msim" | tr ',' ' '); do   # a plusarg (+name=value) that main's RTL reads
+      case "$pa" in +*=*) pa=${pa#+}; grep -rqF "\"${pa%%=*}=" "$src/rtl" || ok="" ;; esac
     done
     [ -n "$ok" ] && m7="$m7 $m"
   done
@@ -123,14 +129,16 @@ prepare() {
         keep "$tmp" "sim/$cfg-core$([ "$tc" != default ] && echo "-tc$tc")" || exit 1
       done
     done
-    : > "$SOAK/m7_modes.new"   # name, build directory, make variables
+    : > "$SOAK/m7_modes.new"   # name, build directory, make variables, tg_vsim arguments
     for m in $m7; do
-      vars="TIMING_CUTS=1 $(echo "${m#*:}" | tr ',' ' ')"
+      IFS=: read -r mname mv msim <<< "$m"
+      vars="TIMING_CUTS=1 $(echo "$mv" | tr ',' ' ')"
       make -s -C "$src/sim" CFG=smt2 CORE=core JOBS="$BUILD_JOBS" TANAGER_BUILD="$tmp" ISA="$isa" PRIV=MSU $vars build ||
         exit 1
       dir=$(make -s --no-print-directory -C "$src/sim" CFG=smt2 CORE=core TANAGER_BUILD="$tmp" $vars print-build)
       keep "$tmp" "${dir#"$tmp"/tanager/}" || exit 1
-      printf '%s\t%s\t%s\n' "${m%%:*}" "${dir#"$tmp"/tanager/}" "$vars" >> "$SOAK/m7_modes.new"
+      printf '%s\t%s\t%s\t%s\n' "$mname" "${dir#"$tmp"/tanager/}" "$vars" "$(echo "$msim" | tr ',' ' ')" \
+        >> "$SOAK/m7_modes.new"
     done
     make -s -C "$src/sim" TANAGER_BUILD="$tmp" replay || exit 1
     keep "$tmp" sim/replay || exit 1
@@ -193,9 +201,10 @@ prepare() {
 }
 
 # One configuration's campaign; failures keep the program, the end of the log and a repro line.
-#   campaign <commit> <cfg> <seed> <irq> <day> [<tc> [<miss> [<M7 mode> <its build directory> <its make variables>]]]
+#   campaign <commit> <cfg> <seed> <irq> <day> [<tc> [<miss> [<M7 mode> <its build directory> <its make variables>
+#            [<its tg_vsim arguments>]]]]
 campaign() {
-  local commit=$1 cfg=$2 seed=$3 irq=$4 day=$5 tc=${6:-} miss=${7:-} mode=${8:-} mdir=${9:-} mvars=${10:-}
+  local commit=$1 cfg=$2 seed=$3 irq=$4 day=$5 tc=${6:-} miss=${7:-} mode=${8:-} mdir=${9:-} mvars=${10:-} msim=${11:-}
   local label="$cfg${tc:+-tc$tc}${mode:+-$mode}" prof="${mvars:-${tc:+TIMING_CUTS=$tc}}"
   local sim="$SOAK/build/tanager/${mdir:-sim/$cfg-core${tc:+-tc$tc}}/tg_vsim" work="$SOAK/work/$label"
   rm -rf "$work"
@@ -206,7 +215,7 @@ campaign() {
       --irq "$irq" --length 400 --stress $(cat "$SOAK/trace_stall") $(cat "$SOAK/mem_gate" 2>/dev/null) \
       $(cat "$SOAK/vm" 2>/dev/null) ${miss:+--miss $miss} \
       --jobs "$JOBS" --timeout 1200 --workdir "$work" \
-      --name "soak $label" -- $(spike_args) ) > "$work/out.txt" 2>&1
+      --name "soak $label" -- $(spike_args) $msim ) > "$work/out.txt" 2>&1
   local res pass fail gen
   res=$(grep "passed, " "$work/out.txt" | tail -1)
   if [ -z "$res" ]; then  # the runner itself failed: a harness error, not a result
@@ -407,8 +416,8 @@ run() {
     done
     local m
     for m in "${modes[@]}"; do
-      IFS=$'\t' read -r mode mdir mvars <<< "$m"
-      campaign "$commit" smt2 $((seed + i * SEEDS)) "$irq" "$day" "$tc" "$miss" "$mode" "$mdir" "$mvars" &
+      IFS=$'\t' read -r mode mdir mvars msim <<< "$m"
+      campaign "$commit" smt2 $((seed + i * SEEDS)) "$irq" "$day" "$tc" "$miss" "$mode" "$mdir" "$mvars" "$msim" &
       i=$((i + 1))
     done
     wait
