@@ -195,7 +195,8 @@ module tg_core
   logic [SLOT_W-1:0] upd_slot;
   logic [DECODE_WIDTH-1:0]   iq_valid;
   fe_insn_t [DECODE_WIDTH-1:0] iq_insn;
-  logic [idx_w(DECODE_WIDTH + 1)-1:0] iq_take;
+  logic [idx_w(DECODE_WIDTH + 1)-1:0] iq_take, iq_take_t, iq_take_n;
+  logic                    de_take;                   // (declared ahead of fetch, which reads it)
   // Fetch's own copy of the privilege and of whether it translates, a cycle behind tg_csr's: they
   // change only as a trap, an xRET or a serialising CSR write commits, and the flush that follows
   // is the next cycle, so fetch resumes after the copy has caught up (timing, DR-145: the CSR's
@@ -285,7 +286,7 @@ module tg_core
     .ras_push(fras_push), .ras_pop(fras_pop), .ras_link(fras_link),
     .ras_rv(fras_rv), .ras_rwr(fras_rwr), .ras_rtos(fras_rtos), .ras_rcnt(fras_rcnt), .ras_rtop(fras_rtop),
     .upd_valid, .upd_way, .upd_pc, .upd_slot, .upd_target, .upd_inval, .upd_tid,
-    .iq_valid, .iq_insn, .iq_take,
+    .iq_valid, .iq_insn, .iq_take, .iq_take_t, .iq_take_n, .de_take,
     .xl_h(xl_f_q), .dst(de_state_h), .priv_h(priv_f_q), .pmp_d_h, .pmp_busy, .rn_block(rn_blk), .rn_acc,
     .tlb_flush, .tlb_flush_tid,
     .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte, .it_fill_tid,
@@ -295,10 +296,9 @@ module tg_core
   // ---- Decode ----
   logic [DECODE_WIDTH-1:0] de_valid;
   uop_t [DECODE_WIDTH-1:0] de_uop;
-  logic                    de_take;
   tg_decode_stage u_de (
     .clk, .rst, .flush, .dst_h(de_state_h),
-    .iq_valid, .iq_insn, .iq_take, .de_valid, .de_uop, .de_take,
+    .iq_valid, .iq_insn, .iq_take, .iq_take_t, .iq_take_n, .de_valid, .de_uop, .de_take,
     .dred, .dred_tid, .dred_pc, .dred_ftq, .dred_slot, .dred_rop, .dred_rlink, .ras_v, .ras_top, .ras_push, .ras_pop,
     .ras_link);
   if (RAS_ON) begin : g_ras

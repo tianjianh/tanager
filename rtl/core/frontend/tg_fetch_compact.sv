@@ -64,6 +64,9 @@ module tg_fetch_compact
   output logic [RD-1:0]           out_valid,
   output logic [RD-1:0][IB_W-1:0] out_insn,
   input  logic [idx_w(RD + 1)-1:0] take,       // instructions decode takes this cycle (out_tid's)
+  input  logic [idx_w(RD + 1)-1:0] take_t,     // ... if rename takes decode's group (tk), and if not: take is the
+  input  logic [idx_w(RD + 1)-1:0] take_n,     // choice (asserted). The counts and the head run on both beside
+  input  logic                     tk,         // rename's decision, which picks last (timing)
   output logic [NUM_THREADS-1:0][idx_w(DEPTH):0] occ_o   // MT (5e): each thread's entries, registered (fetch's room)
 );
   localparam bit MT = HART1_ON && NUM_THREADS > 1;   // a queue per thread (two threads)
@@ -237,10 +240,20 @@ module tg_fetch_compact
   logic [NQ-1:0][QW:0] occ_n;
   logic ro;                                          // the other thread's queue (MT)
   assign ro = MT && !rt_q;
+  // The reader's next count and head after decode's take, with rename taking decode's group and without, then picked
+  // by rename's decision (tk, de_take): the same values. Kept, so that synthesis does not share one subtractor behind
+  // a select by tk (timing: de_take, the end of rename's checks, reached the counts through the subtraction; the
+  // product chip's occ_t_q family, -1.756 ns from the issue queues' dep_q)
+  (* keep = "true" *) logic [NQ-1:0][QW:0]   occ_tt, occ_tn;
+  (* keep = "true" *) logic [NQ-1:0][QW-1:0] head_tt, head_tn;
   always_comb
-    for (int q = 0; q < NQ; q++)
-      occ_n[q] = fq[q] ? '0
-               : occ_t_q[q] + ((wq == 1'(q)) ? w : '0) - ((rq == 1'(q)) ? (QW + 1)'(take) : '0);
+    for (int q = 0; q < NQ; q++) begin
+      occ_tt[q]  = occ_t_q[q] + ((wq == 1'(q)) ? w : '0) - ((rq == 1'(q)) ? (QW + 1)'(take_t) : '0);
+      occ_tn[q]  = occ_t_q[q] + ((wq == 1'(q)) ? w : '0) - ((rq == 1'(q)) ? (QW + 1)'(take_n) : '0);
+      head_tt[q] = head_t_q[q] + QW'(take_t);
+      head_tn[q] = head_t_q[q] + QW'(take_n);
+      occ_n[q]   = fq[q] ? '0 : tk ? occ_tt[q] : occ_tn[q];
+    end
   // decode's next thread (MT): the other one after a take from this one, or when this one's queue is empty, if the
   // other's holds instructions; only one whose RN register takes a group next cycle (step 5d), so the other one also
   // when this one's register will not. Both counts are read without decode's take, which waits for rename's
@@ -253,7 +266,9 @@ module tg_fetch_compact
   logic        rt_n;
   assign occ_wr = occ_t_q[rq] + ((wq == rq) ? w : '0);
   assign occ_wo = occ_t_q[ro] + ((wq == ro) ? w : '0);
-  assign rt_n   = (MT && !fq[ro] && occ_wo != '0 && acc_t[ro] && (take != '0 || fq[rq] || occ_wr == '0 || !acc_t[rq]))
+  logic        tz;                                  // decode takes from the reader: by rename's decision, picked last
+  assign tz     = tk ? take_t != '0 : take_n != '0;
+  assign rt_n   = (MT && !fq[ro] && occ_wo != '0 && acc_t[ro] && (tz || fq[rq] || occ_wr == '0 || !acc_t[rq]))
                   ? ro : rt_q;
   always_ff @(posedge clk) begin
     for (int q = 0; q < NQ; q++) begin
@@ -264,7 +279,7 @@ module tg_fetch_compact
         hv_q[q]     <= 1'b0;
       end else begin
         occ_t_q[q] <= occ_n[q];
-        if (rq == 1'(q)) head_t_q[q] <= head_t_q[q] + QW'(take);
+        if (rq == 1'(q)) head_t_q[q] <= tk ? head_tt[q] : head_tn[q];
         if (wq == 1'(q)) begin
           tail_t_q[q] <= tail_t_q[q] + QW'(w);
           if (blk_ready) hv_q[q] <= carry_out;
@@ -289,6 +304,7 @@ module tg_fetch_compact
   always_ff @(posedge clk) begin
     if (!rst && !fq[rq]) assert (int'(take) <= RD && (QW + 1)'(take) <= rocc)
       else $error("tg_fetch_compact: take beyond the valid entries");
+    if (!rst) assert (take == (tk ? take_t : take_n)) else $error("tg_fetch_compact: decode's take is not its choice by tk");
     // the switch as it was written before, from the next counts
     if (!rst) assert (rt_n == ((MT && occ_n[ro] != '0 && acc_t[ro] && (take != '0 || occ_n[rq] == '0 || !acc_t[rq])) ? ro
                                                                                                                  : rt_q))
