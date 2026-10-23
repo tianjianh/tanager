@@ -109,6 +109,8 @@ struct pending_wb_t {
     uint8_t mask = 0, nw[8] = {};
   } late[4];
   unsigned nlate = 0;
+  // For each byte, the values a read past could return at its record (hw_accept's search then), up to 6
+  uint8_t past[8][6] = {}, npast[8] = {};
   // A deferred AMO's (amo): its operand, its store data (wdata, under wmask), which what it read must give, and the
   // read its record settled on (decided: Spike's, or hw_amo_x0's from the store data)
   bool amo = false;
@@ -1101,17 +1103,38 @@ class lockstep_impl_t {
     pw.id_end = hw_id_;
     pw.nrec = h.nrec;
     pw.step = h.steps;
-    view_late(pw);
+    view_snapshot(h, pw);
   }
 
-  // The late landers on a deferred read's doubleword at its record, newest first (pending_wb_t::late)
-  void view_late(pending_wb_t& pw) {
-    auto it = late_.find(pw.pa & ~7ull);
-    if (it == late_.end()) return;
-    for (auto c = it->second.rbegin(); c != it->second.rend() && pw.nlate < 4; ++c) {
-      pw.late[pw.nlate].mask = c->mask;
-      memcpy(pw.late[pw.nlate].nw, c->nw, 8);
-      pw.nlate++;
+  // What a deferred read's view keeps of the history at its record, for its writeback: the late landers on its
+  // doubleword (newest first, pending_wb_t::late), and for each byte the values a read past could return then
+  // (hw_accept's search, pending_wb_t::past). A later write may end a late lander, and a write moved behind a later
+  // atomic leaves its slot empty (seed 465101 of the coordinator's stress check, 10-23: a deferred ld read past an sd
+  // that a later AMO of its hart then moved, so its writeback's own search no longer found the sd).
+  void view_snapshot(hart_state_t& h, pending_wb_t& pw) {
+    if (auto it = late_.find(pw.pa & ~7ull); it != late_.end())
+      for (auto c = it->second.rbegin(); c != it->second.rend() && pw.nlate < 4; ++c) {
+        pw.late[pw.nlate].mask = c->mask;
+        memcpy(pw.late[pw.nlate].nw, c->nw, 8);
+        pw.nlate++;
+      }
+    const size_t hi = size_t(&h - harts_.data());
+    for (unsigned i = 0; i < pw.n; i++) {
+      const uint64_t b = pw.pa + i;
+      auto put = [&](uint8_t v) {
+        for (unsigned j = 0; j < pw.npast[i]; j++)
+          if (pw.past[i][j] == v) return;
+        if (pw.npast[i] < 6) pw.past[i][pw.npast[i]++] = v;
+      };
+      for (size_t k = hw_.size(); k-- > 0;) {
+        const hart_write_t& e = hw_[k];
+        if (b < e.pa || b >= e.pa + e.len) continue;
+        if (e.hart == hi || pw.nrec - e.base[hi] >= cfg_.hart_window ||
+            (pw.atomic && e.atomic && e.cycle + ATOMIC_EARLY <= pw.cycle))
+          break;
+        put(e.old[b - e.pa]);
+        if (e.alt_mask >> (b - e.pa) & 1) put(e.alt[b - e.pa]);
+      }
     }
   }
 
@@ -1134,14 +1157,15 @@ class lockstep_impl_t {
     pw.rs2 = rs2;
     pw.wmask = size_mask(r.mem_size);
     pw.wdata = r.mem_wdata & pw.wmask;
-    view_late(pw);
+    view_snapshot(h, pw);
   }
 
   // A deferred load's bytes that its view and the windows do not explain together (§3.7). It may have read
   // later than its record, so each byte may also be: one hw_accept takes on its own; that of a late lander from
   // before its record that a read has since shown landed, or one there at its record that a later write has ended
-  // since (p.late); or that of atomics of other harts recorded after it (by up to ATOMIC_EARLY cycles), which
-  // performed before they retired (its view with their writes on top, oldest first).
+  // since (p.late), or one a read past could return at its record (p.past); or that of atomics of other harts
+  // recorded after it (by up to ATOMIC_EARLY cycles), which performed before they retired (its view with their writes
+  // on top, oldest first).
   bool hw_wb_more(size_t hi, const pending_wb_t& p, const uint8_t* got) {
     bool ok[8] = {};
     uint8_t b[8];
@@ -1151,6 +1175,7 @@ class lockstep_impl_t {
       ok[i] = hw_accept(hi, p.pa + i, 1, got + i, p.mem + i, p.atomic, p.cycle, p.seq, p.nrec, &seq, &late, p.id_end);
       const unsigned at = unsigned((p.pa + i) & 7);
       for (unsigned k = 0; k < p.nlate && !ok[i]; k++) ok[i] = (p.late[k].mask >> at & 1) && p.late[k].nw[at] == got[i];
+      for (unsigned j = 0; j < p.npast[i] && !ok[i]; j++) ok[i] = p.past[i][j] == got[i];
     }
     for (uint64_t q = hw_base_; q < hw_next(); q++) {
       const hart_write_t& e = hw_[q - hw_base_];
