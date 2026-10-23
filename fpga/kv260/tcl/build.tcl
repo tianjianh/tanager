@@ -325,11 +325,15 @@ if {$fp_on} {
   tg_fp_check_placed
   file copy -force util_pblocks.rpt $rep/util_pblocks.rpt
 }
-stamp "phys_opt_design"
-phys_opt_design
+# TG_PHYS_DIRECTIVE / TG_ROUTE_DIRECTIVE: phys_opt_design's and route_design's directives (spikes-2's measurement copy
+# only, spikes §8.18: the release trials, 10-23); unset gives each command's default, as on main
+set phys_dir [expr {[info exists ::env(TG_PHYS_DIRECTIVE)] ? $::env(TG_PHYS_DIRECTIVE) : "Default"}]
+set route_dir [expr {[info exists ::env(TG_ROUTE_DIRECTIVE)] ? $::env(TG_ROUTE_DIRECTIVE) : "Default"}]
+stamp "phys_opt_design ($phys_dir)"
+phys_opt_design -directive $phys_dir
 if {$ckpt} { stamp "write_checkpoint post_place"; write_checkpoint -force ./post_place.dcp }
-stamp "route_design"
-route_design
+stamp "route_design ($route_dir)"
+route_design -directive $route_dir
 if {$pr_unc > 0} { set_clock_uncertainty -setup 0 $core_clk }   ;# the reports at the real period
 write_checkpoint -force routed.dcp   ;# spikes-2's measurement copy only: for later queries
 stamp "reports"
@@ -385,6 +389,7 @@ puts $fh "profile=$profile defines=[expr {$defines eq {} ? {-} : $defines}] synt
 puts $fh "pr_unc=$pr_unc (ns of setup uncertainty on clk_core for placement and routing, taken back before the reports)$pr_unc_note"
 puts $fh "opt=$opt_dir (opt_design's directive, DR-166)"
 puts $fh "place=$place_dir (place_design's directive, DR-187)"
+puts $fh "phys_opt=$phys_dir route=$route_dir (their directives: spikes-2's measurement copy only)"
 if {$urf} { puts $fh "urf=1 (DR-174: the integer register file in UltraRAM, clk2x at [expr {2 * $core_mhz}] MHz)" }
 puts $fh "uncore=[expr {$unc_set eq {} ? {-} : $unc_set}]"
 if {[info exists ::env(TG_LAT_INJ)] && !$::env(TG_LAT_INJ)} {
