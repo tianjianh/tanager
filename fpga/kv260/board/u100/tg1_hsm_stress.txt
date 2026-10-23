@@ -1,0 +1,37 @@
+0
+HSMSTRESS-BEGIN rounds=30 gap=8s online=0-3 04:15:57
+round 1: HSM-END fails=0 trouble-lines=0 known=0 online=0-3 04:16:30
+round 2: HSM-END fails=0 trouble-lines=0 known=0 online=0-3 04:16:54
+round 3: HSM-END fails=0 trouble-lines=0 known=0 online=0-3 04:17:19
+round 4: HSM-END fails=0 trouble-lines=0 known=0 online=0-3 04:17:44
+round 5: HSM-END fails=0 trouble-lines=0 known=0 online=0-3 04:18:08
+round 6: HSM-END fails=0 trouble-lines=0 known=0 online=0-3 04:18:32
+round 7: HSM-END fails=0 trouble-lines=0 known=0 online=0-3 04:18:57
+round 8: HSM-END fails=0 trouble-lines=0 known=0 online=0-3 04:19:19
+round 9: HSM-END fails=0 trouble-lines=0 known=0 online=0-3 04:19:45
+round 10: HSM-END fails=0 trouble-lines=0 known=0 online=0-3 04:20:09
+round 11: HSM-END fails=0 trouble-lines=0 known=0 online=0-3 04:20:35
+round 12: HSM-END fails=0 trouble-lines=0 known=0 online=0-3 04:20:59
+round 13: HSM-END fails=0 trouble-lines=0 known=0 online=0-3 04:21:24
+round 14: HSM-END fails=0 trouble-lines=0 known=0 online=0-3 04:21:48
+round 15: HSM-END fails=0 trouble-lines=0 known=0 online=0-3 04:22:10
+round 16: HSM-END fails=0 trouble-lines=0 known=0 online=0-3 04:22:34
+round 17: HSM-END fails=0 trouble-lines=0 known=0 online=0-3 04:23:00
+round 18: HSM-END fails=0 trouble-lines=0 known=0 online=0-3 04:23:24
+round 19: HSM-END fails=0 trouble-lines=0 known=0 online=0-3 04:23:49
+round 20: HSM-END fails=0 trouble-lines=0 known=0 online=0-3 04:24:13
+round 21: HSM-END fails=0 trouble-lines=0 known=0 online=0-3 04:24:38
+round 22: HSM-END fails=0 trouble-lines=0 known=0 online=0-3 04:25:03
+round 23: HSM-END fails=0 trouble-lines=0 known=0 online=0-3 04:25:26
+round 24: HSM-END fails=0 trouble-lines=0 known=0 online=0-3 04:25:50
+round 25: HSM-END fails=0 trouble-lines=0 known=0 online=0-3 04:26:15
+round 26: HSM-END fails=0 trouble-lines=0 known=0 online=0-3 04:26:40
+round 27: HSM-END fails=0 trouble-lines=0 known=0 online=0-3 04:27:05
+round 28: HSM-END fails=0 trouble-lines=0 known=0 online=0-3 04:27:30
+round 29: HSM-END fails=0 trouble-lines=0 known=0 online=0-3 04:27:55
+round 30: HSM-END fails=0 trouble-lines=0 known=0 online=0-3 04:28:20
+stress passes beside the rounds: 7 ok, 0 failing
+failed remote fences in the window: 0
+the window's other kernel lines (CPUn: off left out):
+[  807.716785] hrtimer: interrupt took 11940800 ns
+HSMSTRESS-END online=0-3 04:30:24
