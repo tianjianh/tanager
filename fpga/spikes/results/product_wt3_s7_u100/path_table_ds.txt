@@ -1,0 +1,36 @@
+lvl loc            type    net in   cell      at   fo  input pin -> output net
+  1 SLICE_X27Y43   LUT4     0.137  0.222   5.559   11  c0:u_rn/i___788_i_2__0/I2 -> c0:u_rn/g_fl[2].u_fl/rwo_q[1]_i_26__0_0
+  2 SLICE_X26Y43   LUT5     0.273  0.150   5.982    1  c0:u_rn/g_fl[2].u_fl/tg_freelist__pa1_LUT5_12/I4 -> c0:u_rn/g_fl[2].u_fl/tg_freelist__pa1_net_44
+  3 SLICE_X26Y43   LUT6     0.070  0.224   6.276    4  c0:u_rn/g_fl[2].u_fl/tg_freelist__pa1_LUT6_33/I5 -> c0:u_rn/g_fl[2].u_fl/tg_freelist__pa1_net_114
+  4 SLICE_X26Y41   LUT3     0.131  0.217   6.624    2  c0:u_rn/g_fl[2].u_fl/ds_ren_q[1][sq][0]_i_6__0/I0 -> c0:u_rn/g_fl[1].u_fl/ds_ren_q[1][sq][0]_i_3__0
+  5 SLICE_X25Y39   LUT5     0.198  0.138   6.960    1  c0:u_rn/g_fl[1].u_fl/tg_freelist__pa_LUT5_2/I0 -> c0:u_rn/g_fl[0].u_fl/ds_ren_q[0][q][0]_i_2__0_3
+  6 SLICE_X26Y39   LUT6     0.208  0.081   7.249    5  c0:u_rn/g_fl[0].u_fl/tg_freelist_90_LUT6/I2 -> c0:u_rn/g_fl[0].u_fl/tg_freelist_90_net
+  7 SLICE_X27Y39   LUT2     0.273  0.081   7.603    5  c0:u_rn/g_fl[0].u_fl/ds_ren_q[0][q][0]_i_2__0/I1 -> c0:u_rn/g_fl[0].u_fl/ds_ren_q[0][q][0]_i_2__0_0[0]
+  8 SLICE_X27Y39   LUT3     0.061  0.137   7.801    9  c0:u_rn/g_fl[0].u_fl/tg_freelist_90_LUT3/I1 -> c0:u_rn/g_fl[0].u_fl/tg_freelist_90_net_29
+  9 SLICE_X27Y38   LUT3     0.133  0.186   8.120    4  c0:u_rn/g_fl[0].u_fl/head_q[0][1]_i_4__3/I2 -> c0:u_rn/g_fl[1].u_fl/ds_ren_q_reg[1][q][0]_1
+ 10 SLICE_X28Y38   LUT5     0.120  0.149   8.389    1  c0:u_rn/g_fl[1].u_fl/tg_freelist__pa_LUT5_1/I2 -> c0:u_rn/g_fl[0].u_fl/ds_ren_q_reg[1][q][0]_1
+ 11 SLICE_X28Y38   LUT6     0.073  0.225   8.687    1  c0:u_rn/g_fl[0].u_fl/tg_freelist_90_LUT6_2/I2 -> c0:u_rn/g_fl[0].u_fl/tg_freelist_90_net_2
+ 12 SLICE_X27Y38   LUT5     0.102  0.082   8.871    6  c0:u_rn/g_fl[0].u_fl/tg_freelist_90_LUT5_1/I4 -> c0:u_rn/g_fl[0].u_fl/tg_freelist_90_net_3
+ 13 SLICE_X27Y38   LUT2     0.129  0.221   9.221    5  c0:u_rn/g_fl[0].u_fl/g_ms[1].u_map_i_9__0/I1 -> c0:u_rn/g_fl[0].u_fl/g_ms[1].u_map_i_9__0_n_0
+ 14 SLICE_X27Y36   LUT5     0.144  0.222   9.587    2  c0:u_rn/g_fl[0].u_fl/head_q[0][1]_i_5__3/I2 -> c0:u_rn/g_fl[0].u_fl/head_q[0][1]_i_5__3_n_0
+ 15 SLICE_X27Y38   LUT3     0.237  0.137   9.961   12  c0:u_rn/g_fl[0].u_fl/head_q[0][1]_i_2__5/I1 -> c0:u_rn/g_fl[1].u_fl/p_9_in[0]
+ 16 SLICE_X28Y38   LUT4     0.122  0.193  10.276    1  c0:u_rn/g_fl[1].u_fl/g_one.w_q[15]_i_42__0/I1 -> c0:u_rn/g_fl[0].u_fl/g_one.w_q[15]_i_22__0_2
+ 17 SLICE_X28Y41   LUT5     0.205  0.080  10.561    1  c0:u_rn/g_fl[0].u_fl/tg_freelist_90_LUT5_21/I1 -> c0:u_rn/g_fl[0].u_fl/tg_freelist_90_net_44
+ 18 SLICE_X28Y43   LUT6     0.119  0.084  10.764    1  c0:u_rn/g_fl[0].u_fl/tg_freelist_90_LUT6_33/I4 -> c0:u_rn/g_fl[0].u_fl/tg_freelist_90_net_46
+ 19 SLICE_X28Y46   LUT3     0.161  0.083  11.008    1  c0:u_rn/g_fl[0].u_fl/tg_freelist_90_LUT3_11/I2 -> c0:u_rn/g_fl[0].u_fl/tg_freelist_90_net_47
+ 20 SLICE_X27Y46   LUT6     0.108  0.137  11.253    1  c0:u_rn/g_fl[0].u_fl/tg_freelist_90_LUT6_34/I5 -> c0:u_rn/g_fl[0].u_fl/tg_freelist_90_net_49
+ 21 SLICE_X27Y45   LUT6     0.126  0.138  11.517    1  c0:u_rn/g_fl[0].u_fl/tg_freelist_90_LUT6_35/I5 -> c0:u_rn/g_fl[0].u_fl/tg_freelist_90_net_51
+ 22 SLICE_X28Y43   LUT5     0.160  0.056  11.733    1  c0:u_rn/g_fl[0].u_fl/tg_freelist_90_LUT5_22/I4 -> c0:u_rn/g_fl[0].u_fl/tg_freelist_90_net_59
+ 23 SLICE_X28Y41   LUT6     0.216  0.056  12.005    1  c0:u_rn/g_fl[0].u_fl/tg_freelist_90_LUT6_40/I4 -> c0:u_rn/g_fl[0].u_fl/tg_freelist_90_net_62
+ 24 SLICE_X28Y39   LUT5     0.104  0.056  12.165    1  c0:u_rn/g_fl[0].u_fl/tg_freelist_90_LUT5_23/I4 -> c0:u_rn/g_fl[0].u_fl/tg_freelist_90_net_64
+ 25 SLICE_X28Y37   LUT6     0.205  0.080  12.450    1  c0:u_rn/g_fl[0].u_fl/tg_freelist_90_LUT6_43/I3 -> c0:u_rn/g_ffl.g_b[0].u_fl/g_one.w_q[15]_i_2__0_1
+ 26 SLICE_X28Y37   LUT6     0.111  0.185  12.746    1  c0:u_rn/g_ffl.g_b[0].u_fl/tg_freelist_88_LUT6_1/I1 -> c0:u_rn/g_ffl.g_b[0].u_fl/tg_freelist_88_net_4
+ 27 SLICE_X28Y39   LUT6     0.109  0.154  13.009  201  c0:u_rn/g_ffl.g_b[0].u_fl/tg_freelist_88_LUT6_3/I4 -> c0:u_rn/g_ffl.g_b[0].u_fl/tg_freelist_88_net_6
+ 28 SLICE_X27Y39   LUT2     0.155  0.187  13.350    8  c0:u_rn/g_ffl.g_b[0].u_fl/ltail_q[1][5]_i_4__0/I1 -> c0:u_rn/g_ffl.g_b[0].u_fl/ltail_q[1][5]_i_4__0_n_0
+ 29 SLICE_X26Y40   LUT6     0.263  0.187  13.801    6  c0:u_rn/g_ffl.g_b[0].u_fl/tg_freelist_88_LUT6_8/I5 -> c0:u_rn/g_ffl.g_b[0].u_fl/tg_freelist_88_net_10
+ 30 SLICE_X25Y40   LUT5     0.105  0.057  13.962   25  c0:u_rn/g_ffl.g_b[0].u_fl/tg_freelist_88_LUT5_5/I4 -> c0:u_de/de_take
+ 31 SLICE_X22Y45   LUT6     0.630  0.221  14.814  112  c0:u_de/tg_decode_stage_LUT6_2/I1 -> c0:u_de/tg_decode_stage_net_187
+ 32 SLICE_X21Y44   LUT6     0.198  0.138  15.150  113  c0:u_de/tg_decode_stage_LUT6_194/I5 -> c0:u_de/tg_decode_stage_net_213
+end: c0:u_de/dred_pc_reg[46]/CE (net in 0.658)
+Data Path Delay:        10.722ns  (logic 4.679ns (43.638%)  route 6.043ns (56.362%))
+Clock Path Skew:        0.063ns
