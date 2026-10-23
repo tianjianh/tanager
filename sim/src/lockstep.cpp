@@ -1359,6 +1359,34 @@ class lockstep_impl_t {
     memcpy(w.read, h.lr_val + (w.pa - h.lr_pa), w.len);
   }
 
+  // Whether atomic later[k] (of harts_[ai]) could have performed before the read early_atomic applies: each byte it
+  // read is memory's now, one a read past or a late lander explains, or one a write of its hart queued before it
+  // reaches. One that shows no read (an SC, an AMO with rd = x0) could, and so could any while external writes are
+  // in a window (§3.10). Seed 423607 of the 10-23 random campaign: an LR read the bytes of a late lander and of an
+  // AMO recorded 37 cycles after it; the AMO went first, and its own read showed the SC after that LR.
+  bool could_go_first(const std::vector<const tr_rec_t*>& later, size_t k, size_t ai) {
+    const tr_rec_t& a = *later[k];
+    hart_state_t& ha = harts_[ai];
+    const unsigned n = 1u << a.mem_size;
+    uint64_t pa = 0;
+    if ((a.insn >> 27) == 3 || !a.rd_we || a.rd_deferred || adopts_value(a) || !ext_.empty() ||
+        !hw_paddr(ha, a.mem_vaddr, n, pa))
+      return true;
+    uint8_t got[8] = {}, mem[8];
+    for (unsigned i = 0; i < n; i++) got[i] = uint8_t(a.rd_value >> (8 * i));
+    memcpy(mem, mem_at(pa), n);
+    for (size_t j = 0; j < k; j++) {
+      const tr_rec_t& s = *later[j];
+      const unsigned sn = 1u << s.mem_size;
+      uint64_t spa = 0;
+      if (s.hart != a.hart || !hw_paddr(ha, s.mem_vaddr, sn, spa)) continue;
+      for (unsigned i = 0; i < n; i++)
+        if (pa + i >= spa && pa + i < spa + sn) mem[i] = got[i];
+    }
+    uint64_t seq[8], late[8];
+    return hw_accept(ai, pa, n, got, mem, true, a.cycle, hw_next(), ha.nrec, seq, late);
+  }
+
  public:
   // §3.7, early atomics (lockstep.h)
   int early_atomic(const tr_rec_t& r, const std::vector<const tr_rec_t*>& later) {
@@ -1400,7 +1428,9 @@ class lockstep_impl_t {
     if (fits(m)) return -1;
     uint64_t seq[8], late[8];
     if (!x0 && hw_accept(hi, pa, n, got, m, amo, r.cycle, hw_next(), h.nrec, seq)) return -1;  // a read past
-    // A late lander may explain it as well; an atomic goes first all the same, which settles nothing
+    // A late lander may explain it as well; an atomic goes first all the same, which settles nothing, unless what
+    // the atomic read could not be there yet (could_go_first)
+    const bool by_late = !x0 && hw_accept(hi, pa, n, got, m, amo, r.cycle, hw_next(), h.nrec, seq, late);
     for (size_t k = 0; k < later.size(); k++) {
       const tr_rec_t& a = *later[k];
       auto ia = by_id_.find(a.hart);
@@ -1414,9 +1444,9 @@ class lockstep_impl_t {
       memcpy(b, m, n);
       for (unsigned i = 0; i < n; i++)
         if (pa + i >= apa && pa + i < apa + an) b[i] = uint8_t(a.mem_wdata >> (8 * (pa + i - apa)));
-      if (fits(b)) return int(k);
+      if (fits(b) && (!by_late || could_go_first(later, k, ia->second))) return int(k);
     }
-    return !x0 && hw_accept(hi, pa, n, got, m, amo, r.cycle, hw_next(), h.nrec, seq, late) ? -1 : -2;
+    return by_late ? -1 : -2;
   }
 
   int early_atomic(const tr_wb_t& w, const std::vector<const tr_rec_t*>& later) {
