@@ -1960,6 +1960,52 @@ Results: `fpga/spikes/results/product_wt_s7d_u105/` holds the reports and the fa
 
 The routed checkpoint is `~/tanager-build/track-spikes-72f833/vivado/product_wt_s7d_u105/routed.dcp`.
 
+#### The near-final release with step 7 closes 100 MHz (2026-10-23)
+
+**Asked** (the coordinator, 10-23): "Go for a pair now ... the near-final release with step 7, every fix and the memory-ordering fix". The product form, `AltSpreadLogic_high`, 1.0 and 1.05 ns, and a passing placement's bitstream. "Report: the usual, plus whether any family starts or ends in the CoRR marking logic, and LUT and FF totals against s7d."
+- **Snapshot:** `snap/product_wt3` 9dbbad723e3f, pinned by `claude/spikes-2-board-rc2`. It is main 28d28d8a plus:
+  - fpu-2's step-7 cut f1d79a86 (b3c78865, 6fb83dcf, and 2557cb00, which takes `rn_need_q` back out);
+  - soc-2's ckm2 02da289b (the store's checker request from a register, and the head's MMIO request without `lq_pck_q`);
+  - core-2's marg3 813b6743 (core-2 confirmed the head);
+  - core-2's CoRR snoop marking b51bbbf6;
+  - the measurement commit.
+- **Checks before launch:** the four merges are clean, Verilator lint passes in the product's view (smt2, hart 1, release, URF, with and without SYNTH), and fwdref is clean.
+- **Not in it:** core-2's FENCE.I sweep fix (icsweep 379ca1ef, `tg_fetch` only). It merges cleanly on the snapshot and goes through its own MR.
+- **Run order:** at the 50 GB budget (`.locks/vivado.budget` since 04:31) two 26 GB builds don't fit together, so the 1.0 ns placement runs after the 1.05 ns one.
+
+| | **`rc2_u105` (1.05 ns)** | for comparison: `s7d_u105` |
+|---|---|---|
+| LUTs after synthesis / `opt_design` / routed | 119,066 / 114,885 / 112,315 (95.9%) | 118,148 / 114,325 / 112,019 |
+| FFs routed, CLBs, control sets, DSPs | 57,981, 14,639, 2,872, 140 | 57,908, 14,640, 2,929, 140 |
+| WNS after placement (estimated, with the uncertainty on) | +0.464 ns (`phys_opt_design` had nothing to do) | +0.006 |
+| Routing | level 5, no trade, 1.4 h | level 6, no trade, 1.0 h |
+| **WNS / TNS on the core clock (ns)** | **+0.188 / 0.000** (0 failing) | −0.422 / −73.1 (490 failing) |
+| WHS (ns) | +0.011 | +0.008 |
+| `clk2x`: within / into / back (ns) | +1.820 / +1.088 / +1.079 | +2.035 / +1.167 / +1.131 |
+| Endpoints within 1 ns | 2,552 in 164 families | 6,651 in 281 families |
+
+- **The 1.05 ns placement closes 100 MHz.** It is the first product chip with step 7 to do so, and the first with the memory-ordering fix. Nothing fails; the closest endpoint has +0.188 ns.
+- **No CoRR family is near-critical.** The worst paths that start or end in the marking logic:
+  - into `ev1_tm_q` and `ev1_l_q` (the event capture): +0.718 and +0.740 ns, 13–15 levels, from the store queue head's `sqh_q.pa` and the AMO FSM;
+  - from the report registers `snp_v_q` and `snp_lq_q`: +1.380 (16 levels, into rename's free list);
+  - into them, the oldest select from `lq_snp_q`: +2.203;
+  - into `lq_snp_q` (the E+2 compare): +1.953, 11 levels;
+  - from `ev1_*`/`ev2_*`: +3.894.
+- **Area against s7d:** +918 LUTs after synthesis, +560 after `opt_design`, +296 routed, +73 FFs. This combines the CoRR marking (core-2: about 300 LUTs a core), marg3, ckm2 and fpu-2's revert of `rn_need_q`. One pair can't split it.
+- **The worst families, all met:**
+  - core 1's fetch `rt_b_q` from the issue queues' `dep_q` (+0.188, 21 levels);
+  - core 1's `lq_st_q` from the checker's `pfc_rsp_v_q` (+0.218);
+  - core 1's D$ valid and meta RAMs from `sqh_q` and the miss entry (+0.23, +0.25);
+  - rename's RN register from `dep_q` (+0.25);
+  - `m2_dword_q` from the DTLB's CAM (+0.25).
+- **The floorplan is OK:** l2b0 99%/75%, **L2 bank 1 102%/79%**, xbar 30%/24%.
+- **The board image** was written from this placement's checkpoint by `build.tcl`'s bitstream stage (`run_bit_now.sh`, so as not to wait for the other placement):
+  - `tanager.bit` md5 db175ba8…, `tanager.bit.bin` md5 6bfcffca…, sent to soc-2;
+  - `timing_bit.rpt`: "All user specified timing constraints are met".
+  - It is a preview: none of the four branches is on main yet.
+
+Results: `fpga/spikes/results/product_wt3_rc2_u105/`, with the CoRR queries in `report_timing_corr_*.txt` (`snpf`/`snpt`: from/into `lq_snp_q`; `srf`/`srt`: the report registers; `evf`/`evt`: the event registers). The image and checkpoint are in `~/tanager-build/track-spikes-72f833/vivado/product_wt3_rc2_u105/`.
+
 #### core-2's A/B: the read thread with and without per-bank copies (2026-10-22)
 
 The fixes preview's base with core-2's newer heads (`snap/product_wt` and `snap/product_wt3`): e5b304cd, TAGE 8cf8e262, DR-183 ecfcc8a5, and core-2's walker fix a6abdc5d. The walker fix registers the head lookup's VPN, so DTLB port 2 starts at one register. Then:
