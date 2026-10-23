@@ -41,7 +41,7 @@ rtl_link "$OUT/tk_bigcode.elf" -O2 -DPASSES=4 -- "$OUT/inc/bigcode.c"
 if [ "${M9:-0}" = 1 ]; then
   for b in wikisort cubic picojpeg; do
     d="$TP/embench-iot/src/$b/"
-    rtl_link "$OUT/embench_$b.elf" -O2 -DCPU_MHZ=1 -DWARMUP_HEAT=1 -I"$TP/embench-iot/support" -w -- \
+    rtl_link "$OUT/embench_$b.elf" -O2 -std=gnu17 -DCPU_MHZ=1 -DWARMUP_HEAT=1 -I"$TP/embench-iot/support" -w -- \
       "$d"*.c "$TP/embench-iot/support/main.c" "$TP/embench-iot/support/beebsc.c" "$R/bench/embench/boardsupport.c"
   done
   rtl_link "$OUT/m9_interp_switch.elf" -O2 -I"$ms" -DTHREADED=0 -- "$R/bench/m9/interp.c"

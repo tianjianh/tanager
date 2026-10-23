@@ -171,9 +171,9 @@ def main():
                   "model_misp_k": mo["today"][p].get("mp_target", 0) * 1000 / max(1, mo["today"][p]["instr"]),
                   "stream64": s64, "stream128": s128}
         rows.append(p)
-    print("\n**The suite and the interpreters on the RTL (smt2, one hart, 30 cycles) beside tgsim** (IPC today; with (b) "
-          "the micro-BTB at 128, measured on the RTL; with (a) the 256-entry table, estimated from the RTL's own "
-          "stream and modelled; indirect jumps and their mispredicts per 1,000 instructions, RTL / model)\n")
+    print("\n**The suite and the interpreters on the RTL (smt2, one hart, 30 cycles) beside tgsim** (IPC today; "
+          "with (b) the micro-BTB at 128, measured on the RTL; with (a) the 256-entry table, estimated from the RTL's "
+          "own stream and modelled; indirect jumps and their mispredicts per 1,000 instructions, RTL / model)\n")
     print("| Program | IPC: RTL / model | (b): RTL measured / model | (a): RTL estimate / model | Indirect jumps / 1K |"
           " Their mispredicts / 1K: today, with (a) |\n|---|---|---|---|---|---|")
     for p in sorted(rows, key=lambda p: -out[p]["rtl_ijmp_k"]):
@@ -227,9 +227,10 @@ def main():
             s = replay(recs64.get((0, 0), []), until=20_000_000)
             busy = w["cycles"] - w["wfi"]
             boot["first20M"] = {**w, "stream": s, "a_est": s["saved"] / max(1, busy - s["saved"])}
+            ki = w["instret"] / 1000
             print(f"First 20M cycles, core 0 (§6.11's window): {w['instret']:,} instructions, indirect jumps "
-                  f"{s['ijmp'] * 1000 / w['instret']:.2f} / 1K, their mispredicts {s['misp'] * 1000 / w['instret']:.2f}"
-                  f" / 1K of all {w['misp'] * 1000 / w['instret']:.2f}; (a)'s estimate {pct(boot['first20M']['a_est'])}")
+                  f"{s['ijmp'] / ki:.2f} / 1K, their mispredicts {s['misp'] / ki:.2f} / 1K of all "
+                  f"{w['misp'] / ki:.2f}; (a)'s estimate {pct(boot['first20M']['a_est'])}")
         res["boot"] = boot
     OUT.write_text(json.dumps(res, indent=1) + "\n")
 

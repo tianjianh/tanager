@@ -97,7 +97,7 @@ module smt2_prof_itt
 endmodule
 
 bind tg_core smt2_prof_itt #(.CW(COMMIT_WIDTH), .DW(DISPATCH_WIDTH), .CID(CORE_ID)) u_smt2_prof_itt (
-  .clk, .rst, .ds_v(u_rn.ds_valid), .ds_rob({u_rn.ds_uop[1].rob, u_rn.ds_uop[0].rob}),
+  .clk, .rst, .ds_v(u_rn.ds_valid), .ds_rob({u_rn.ds_ren[1].rob, u_rn.ds_ren[0].rob}),
   .ds_hit({u_rn.ds_uop[1].ubtb_hit, u_rn.ds_uop[0].ubtb_hit}), .tcm(u_rob.t_cm),
   .ret(u_rob.ret), .mf(u_rob.mf & ~u_rob.hold_le), .hid(u_rob.hid),
   .rpc({u_rob.hp[1].pc, u_rob.hp[0].pc}), .rinsn({u_rob.hp[1].insn, u_rob.hp[0].insn}),
