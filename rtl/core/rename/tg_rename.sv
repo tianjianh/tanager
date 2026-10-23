@@ -1091,6 +1091,15 @@ module tg_rename
   // serial uop, resources, fire, DS busy, and ready && start
   assign dbg_o = {ready && start, |ds_valid_q, rn_fire, rn_ok, block_q[t_rn], window_empty, rn_serial,
                   rn_valid_q[0]};
+`ifndef SYNTHESIS
+  // (DR-185) Simulation only: each group's whole uop rides in shadows beside the RN and DS registers, loaded with them,
+  // and DS's group as rejoined from the LUTRAM must equal it in every valid slot (any row reused too early shows)
+  uop_t [NRN-1:0][W-1:0] rn_sh_q;
+  uop_t [W-1:0]          ds_sh_q;
+  logic                  pay_rs;                     // (checked from the first reset on)
+  initial pay_rs = 1'b0;
+  always @(posedge clk) if (rst) pay_rs <= 1'b1;
+`endif
   // DR-185's payload LUTRAM (above): decode's thread's free row is the first that neither its RN register's group nor
   // its group at DS holds, from registers; the write goes there every cycle, taken or not, so a taken group's row
   // holds it and an untaken one is written again next cycle. A dropped or flushed group's row is simply free. The read
@@ -1102,7 +1111,7 @@ module tg_rename
     td    = CMT ? t_de : tid_t'(0);
     rv    = |rn_v_q[CMT ? td[0] : 1'b0];
     rr    = rn_s_q[CMT ? td[0] : 1'b0];
-    dv    = |ds_valid_q && t_ds == td;
+    dv    = |ds_valid_q && (!CMT || t_ds == td);    // (one register without hart 1: DS's group is the thread's)
     pay_s = 2'd0;
     for (int i = 2; i >= 0; i--)
       if (!(rv && rr == 2'(i)) && !(dv && ds_s_q == 2'(i))) pay_s = 2'(i);
@@ -1418,6 +1427,9 @@ module tg_rename
           rn_v_q[CMT ? t_de[0] : 1'b0] <= de_valid;
           for (int k = 0; k < W; k++) rn_u_q[CMT ? t_de[0] : 1'b0][k] <= ren_of(de_uop[k]);
           rn_s_q[CMT ? t_de[0] : 1'b0] <= pay_s;     // the row this cycle's write fills
+`ifndef SYNTHESIS
+          rn_sh_q[CMT ? t_de[0] : 1'b0] <= de_uop;
+`endif
         end
       end
       // Step 6: a wake unblocks its thread; a split with the running thread's window empty moves its tails to its
@@ -1541,8 +1553,18 @@ module tg_rename
       ds_uop_q <= rn_uop_q;
       ds_ren_q <= ren;
       ds_s_q   <= rn_s_q[CMT ? sel_q : 1'b0];
+`ifndef SYNTHESIS
+      ds_sh_q  <= rn_sh_q[CMT ? sel_q : 1'b0];
+`endif
     end
   end
+`ifndef SYNTHESIS
+  always_ff @(posedge clk)
+    if (pay_rs && !rst)
+      for (int k = 0; k < W; k++)
+        if (ds_valid_q[k]) assert (ds_full[k] == ds_sh_q[k])
+          else $error("tg_rename: DS's slot %0d rejoined from the payload LUTRAM differs from its group (DR-185)", k);
+`endif
 
   function automatic int ren_nld(input uop_t [W-1:0] u, input logic [W-1:0] v);
     int n;
