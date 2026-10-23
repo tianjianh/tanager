@@ -149,8 +149,19 @@ COMMIT_TRACE ?=
 ifneq ($(filter-out 0 1,$(COMMIT_TRACE)),)
   $(error COMMIT_TRACE must be 0, 1 or unset (got "$(COMMIT_TRACE)"))
 endif
+# TAGE-lite's sizes (tg_core_pkg's TG_TAGE_NT, _LI, _TW and _BI; DR-170 built two tagged tables of 2K): other sizes
+# for lint only, as a bigger chip's four tables of 4K (TAGE_NT=4 TAGE_LI=12, area_switches.md)
+TAGE_NT ?=
+TAGE_LI ?=
+TAGE_TW ?=
+TAGE_BI ?=
+ifneq ($(filter-out 1 2 3 4,$(TAGE_NT)),)
+  $(error TAGE_NT must be 1 to 4 or unset (got "$(TAGE_NT)"))
+endif
+TAGE_SET := $(foreach v,NT LI TW BI,$(if $(TAGE_$(v)),TAGE_$(v)=$(TAGE_$(v))))
 # The lint-only switches together, for the lint targets; a build that runs programs refuses them.
 LINT_ONLY_DEF := $(DE_DEF) $(if $(ROB_STORE_REPORT_LATE),+define+TG_ROB_STORE_REPORT_LATE=$(ROB_STORE_REPORT_LATE)) \
-                 $(if $(COMMIT_TRACE),+define+TG_COMMIT_TRACE=$(COMMIT_TRACE))
+                 $(if $(COMMIT_TRACE),+define+TG_COMMIT_TRACE=$(COMMIT_TRACE)) \
+                 $(foreach v,NT LI TW BI,$(if $(TAGE_$(v)),+define+TG_TAGE_$(v)=$(TAGE_$(v))))
 LINT_ONLY_SET := $(if $(DE_STAGE),DE_STAGE=$(DE_STAGE)) $(if $(ROB_STORE_REPORT_LATE),ROB_STORE_REPORT_LATE=$(ROB_STORE_REPORT_LATE)) \
-                 $(if $(filter 0,$(COMMIT_TRACE)),COMMIT_TRACE=0)
+                 $(if $(filter 0,$(COMMIT_TRACE)),COMMIT_TRACE=0) $(TAGE_SET)
