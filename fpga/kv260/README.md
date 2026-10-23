@@ -201,6 +201,8 @@ Our KV260, set up on 2026-10-14 by the board track (DR-126, stage A).
   - **When:** only around hotplug.
   - **Until it's fixed:** treat the line in a hotplug round as expected. A data error in the same window still counts as a failure.
   - **The fix:** our own OpenSBI patch before M8's 72-hour run.
+  - **The fix on the board** (10-23): soc-2's tg1 (`fw_jump.bin` `62349a65…`), installed on u100, gave no failed fence in 36 rounds of hart stop and start, 30 of them under the stress ([`board/u100/README.md`](board/u100/README.md)).
+  - **Still affected:** the kept images (`tanager-dr187b-80/`, `tanager-d4r2-100/`) and `fw_jump.bin.b0094d23` still hold OpenSBI 1.9.
 
 ### A53 OS changes (change log)
 

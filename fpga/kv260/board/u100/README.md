@@ -82,11 +82,14 @@
   - **Slower:** DDR write streaming, wr16m 156.3 MiB/s against 182.4 (−14%). It's the second row for soc-2, beside the page-fault test.
   - That build pins its two-thread tests to CPUs 0 and 1, one core here, so its two-thread rows don't compare.
 
-## The board now: the four-hart soak on u100
+## The four-hart soak on u100: 33 rounds, one refused remote fence
 
-The board is on u100 with the four-hart tree. The four-hart soak ([`../runs/soak4.sh`](../runs/soak4.sh), as on dr187b) runs there in its own folder (`~/soak4-u100`), with the laptop's stamped loggers and a 12-hour watch.
+The four-hart soak ([`../runs/soak4.sh`](../runs/soak4.sh), as on dr187b) ran on u100 in its own folder (`~/soak4-u100`), with the laptop's stamped loggers and a watch every 10 minutes ([`soak4.log`](soak4.log)).
+- **The run:** 08:11 to 14:03 UTC on 10-23, about 5 h 50 min in three runs. It was restarted twice to fix its checks, then stopped for soc-2's OpenSBI fix.
+- **33 rounds:** 106 stress passes, 106 DR-141 sets, 33 `hart_check`s and 33 rounds of hart stop and start passed, with COM5 quiet between the boots.
+- **One event:** the refused remote fence below, in the first run's round 5. The 27 rounds after the restarts were clean.
 
-**One refused remote fence, in round 5's hart stop (09:02 UTC)** ([`soak4_first.log`](soak4_first.log), [`soak_r5_E_hsm.txt`](soak_r5_E_hsm.txt); the same line on COM5 at 09:01:59.557, [`uart_COM5_boots2.txt`](uart_COM5_boots2.txt)):
+**One refused remote fence, in round 5's hart stop (09:02 UTC)** ([`soak4.log`](soak4.log), [`soak_r5_E_hsm.txt`](soak_r5_E_hsm.txt); the same line on COM5 at 09:01:59.557, [`uart_COM5_boots2.txt`](uart_COM5_boots2.txt)):
 
     [ 3188.384705] CPU3: off
     [ 3188.393451] __sbi_rfence_v02_call: hbase = [1] hmask = [0x5] failed (error [-22])
@@ -106,4 +109,32 @@ The board is on u100 with the four-hart tree. The four-hart soak ([`../runs/soak
 - **Until then, this line in a hotplug round is expected.** The soak logs it as a known note, not a FAIL; a data error in the same window still counts as a failure.
 - **The checks:** the soak's own kernel check didn't watch for SBI errors; `hsm_rounds.sh` caught the line. Then `hart_check.sh`, which read the whole boot's log, failed on it in round 6.
   - Both are fixed: the soak watches for SBI and HSM errors except this known line, and `hart_check.sh` reads only its own step's lines there.
-  - The soak restarted at 09:14 UTC after 6 rounds, then again with the known-line note. dr187b stays on p1 in `tanager-dr187b-80/` and the two-core 100 MHz image in `tanager-d4r2-100/`. To go back to dr187b, in ARM mode: `FH_BACKUP=tanager-dr187b-80 bash ~/tanager/runs/fh_p1.sh back`.
+  - The soak restarted at 09:14 UTC after 6 rounds, then again with the known-line note.
+
+## soc-2's OpenSBI fence fix (tg1) on u100: no failed fence in 36 rounds of hart stop and start
+
+**What it is:** OpenSBI 1.9 with Tanager's patch set tg1 (soc-2's commit fad99ab8; [`tg1_package_README.txt`](tg1_package_README.txt)). A remote fence or IPI whose mask names a stopped hart now reaches the started harts and succeeds, where 1.9 failed the whole call. A hart that doesn't exist is still an error.
+
+**The install** ([`tg1_install.txt`](tg1_install.txt), the change log in [`../../README.md`](../../README.md)):
+- after soc-2's go, its simulated four-hart Linux boot under lockstep having passed;
+- only `p1:/tanager/fw_jump.bin` changed, to `62349a65…`; the old one is kept as `fw_jump.bin.b0094d23`.
+
+**The round:**
+- **The boot:** the four-hart tree came up clean, with OpenSBI v1.9, HART Count 4 and `/init` at 18.58 s. Hart 0 won the boot lottery this time.
+- **30 rounds of hart stop and start, 8 s apart, with the stress running beside them** ([`../runs/hsm_stress.sh`](../runs/hsm_stress.sh), [`tg1_hsm_stress.txt`](tg1_hsm_stress.txt)):
+  - all 30 came back to `0-3` with no trouble lines;
+  - 7 stress passes ran beside them, with no failure;
+  - **0 failed remote fences.**
+  - The window's one other kernel line was a one-time `hrtimer: interrupt took 11940800 ns`: one timer interrupt handled 12 ms late while harts stopped and started under load.
+- **`hart_check.sh` after it, 0 fails** ([`tg1_hartcheck.txt`](tg1_hartcheck.txt)): CoreMark validated and `t` right on all four harts, `mt` on all six pairs, and pingpong 1,216–1,225 ns on one core and 1,963–1,968 ns across cores.
+- **The soak, its hotplug rounds included,** from 14:29 UTC ([`tg1_soak4.log`](tg1_soak4.log)):
+  - 6 rounds to 15:37 UTC: 19 stress passes, 19 DR-141 sets, 6 rounds of hart stop and start and 5 `hart_check`s passed, with **no failed remote fence**;
+  - its one FAIL was CoreMark's 10 s rule inside `hart_check` (round 4, hart 3 alone, after a slow calibration; the CRCs were right). `hart_check.sh` now treats that as a note, as the soak's DR-141 check does, and the soak was restarted with it.
+- **In all:** 36 rounds of hart stop and start with no failed fence, against 1.9's one in its first 9 on u100. No oops, data error or trap line.
+
+## The board now
+
+The board is on u100 with tg1's `fw_jump.bin`, and the four-hart soak keeps running there (`~/soak4-tg1`) with a 12-hour watch.
+- dr187b stays on p1 in `tanager-dr187b-80/`, and the two-core 100 MHz image in `tanager-d4r2-100/`. Both still hold `fw_jump.bin` `b0094d23…`.
+- To go back to dr187b, in ARM mode: `FH_BACKUP=tanager-dr187b-80 bash ~/tanager/runs/fh_p1.sh back`.
+- To go back to OpenSBI 1.9 on u100: `sudo cp /boot/firmware/tanager/fw_jump.bin.b0094d23 /boot/firmware/tanager/fw_jump.bin && sync`.
