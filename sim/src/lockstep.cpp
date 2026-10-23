@@ -769,13 +769,25 @@ class lockstep_impl_t {
   // there (hw_fits): if one did not, the result is false. For a successful SC (`lenient`; lr: the bytes its LR
   // read, at lr_pa, or null), an atomic goes on top only if its write changed bytes the LR read (it came after the
   // LR, so after the SC) and it fits; any other stays where it is, as do late landers a read has placed.
+  // A plain store that goes back on top is followed by its hart's younger plain stores to its bytes, beyond the
+  // access too: a hart's stores reach memory in order (core-2's case, 10-23: an sd on top without the sh after it
+  // to bytes the AMO did not touch put the sd's stale bytes over the sh's).
   bool hw_reapply_plan(size_t hi, uint64_t pa, unsigned n, uint64_t from, const uint64_t* seq, uint64_t cycle,
                        bool lenient, uint8_t* sim, std::vector<uint64_t>& qs, const uint8_t* lr = nullptr,
                        uint64_t lr_pa = 0, unsigned lr_n = 0) {
     const uint64_t dw = pa & ~7ull;
+    std::vector<uint8_t> follow(harts_.size(), 0);  // per hart: the bytes of its plain stores back on top
     for (uint64_t q = std::max(from, hw_base_); q < hw_next(); q++) {
       const hart_write_t& e = hw_[q - hw_base_];
-      if (!e.len || e.hart == hi || e.pa >= pa + n || e.pa + e.len <= pa || (lenient && e.settled)) continue;
+      if (!e.len || e.hart == hi || (lenient && e.settled)) continue;
+      if (e.pa >= pa + n || e.pa + e.len <= pa) {   // beyond the access: only as a follower
+        if (!e.atomic && (e.pa & ~7ull) == dw && (dw_mask(e.pa, e.len) & follow[e.hart])) {
+          memcpy(sim + (e.pa - dw), e.nw, e.len);
+          qs.push_back(q);
+          follow[e.hart] |= dw_mask(e.pa, e.len);
+        }
+        continue;
+      }
       if (e.atomic) {
         bool past = !seq;
         for (unsigned i = 0; i < n && !past; i++)
@@ -801,6 +813,7 @@ class lockstep_impl_t {
       }
       memcpy(sim + (e.pa - dw), e.nw, e.len);
       qs.push_back(q);
+      if (!e.atomic) follow[e.hart] |= dw_mask(e.pa, e.len);
     }
     return true;
   }
@@ -1120,7 +1133,9 @@ class lockstep_impl_t {
   // replaced may, while their window for its hart is open, unless it read them (an AMO, or an SC through its
   // LR, that returned a store's new bytes came after it). So may their atomics recorded less than ATOMIC_EARLY
   // cycles before w if w is an atomic (it may have performed before them) and they read what w wrote. An atomic
-  // that read past stores is followed by them instead (hw_reapply).
+  // that read past stores is followed by them instead (hw_reapply): they are the last writers of their bytes, and
+  // the older stores under them stay candidates as above (core-2's case, 10-23: an sd whose bytes equal what was
+  // there before it may have landed after the AMO whose read showed them, as its hart's younger sw did).
   void late_write(hart_write_t& w) {
     const uint64_t dw = w.pa & ~7ull, nh = harts_[w.hart].nrec;
     const uint8_t wm = dw_mask(w.pa, w.len);
@@ -1138,7 +1153,6 @@ class lockstep_impl_t {
       }
       late_prune(it);
     }
-    if (!hw_moved_.empty()) return;
     uint8_t left = wm;  // bytes whose last writer is still to be found
     for (size_t k = hw_.size(); k-- > 0 && left;) {
       const hart_write_t& e = hw_[k];
@@ -1148,6 +1162,9 @@ class lockstep_impl_t {
       const uint8_t mine = dw_mask(e.pa, e.len) & left;
       if (!mine) continue;
       left &= uint8_t(~mine);
+      // back on top behind w (hw_reapply), so not a late lander: the last writer of its bytes
+      if (!hw_moved_.empty() && std::find(hw_moved_.begin(), hw_moved_.end(), uint64_t(k) + hw_base_) != hw_moved_.end())
+        continue;
       if (e.hart == w.hart || !open) continue;
       if (e.atomic) {
         if (!w.atomic || e.cycle + ATOMIC_EARLY <= w.cycle) continue;
