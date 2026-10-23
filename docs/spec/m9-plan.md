@@ -297,8 +297,7 @@ are paid by:
 
 | Source | LUTs a chip | Cost | Owner |
 |---|---|---|---|
-| FP divide/sqrt operand formation in the DSP tiles' input selects (parked) | −0.4 to −0.8K | none (same cycles) | fpu |
-| P4's bypass selects as one encoded select per bit (parked) | −0.2 to −0.4K | none | fpu |
+| The divide/sqrt's remaining fabric arithmetic in DSP tiles: F2's pack adders (63 and 31 bits) in DSP ALUs, and the S2 and F1 shifts' fine levels | −0.3 to −0.5K | none (same cycles); the shifts carry a timing risk | fpu |
 | Unary ops on ALU1 only (DR-185's reserve) | −0.36K | ≤ 0.04% | fpu/core |
 | CSR enables into cold LUTRAM (spikes §8.18) | −0.2K | none | core |
 | Fetch's next-PC select (spikes §8.18) | −0.4 to −0.6K | none | core |
@@ -306,8 +305,13 @@ are paid by:
 | The DMA port through a core's crossbar port (held) | −0.2 to −0.3K | none | soc |
 | The L2's same-set rule (soc.md's reserve levers; reverted in fc1031e) | −0.52K | ≈ 0: 4 bubbles in the boot's first 60M cycles | soc |
 
-- The first two are mine and no-IPC; together −0.6 to −1.2K. With the unary-ops move they cover the low end of M9's
-  additions. The next three cover the high end.
+- **Correction (10-23):** this draft first listed the divide/sqrt's operand formation in the DSPs' input selects and P4's
+  bypass selects at −0.6 to −1.2K a chip, from the area pass's early estimates.
+  - The RTL already has both selects as one encoded 4:1 per bit (fpga_friendly.md T7): the ring's x1/y1/x2/y2, RF's
+    rf_val and EX0's bypass. A DSP's A/D split with INMODE still takes one LUT a bit, so neither saves anything.
+  - What remains is the fpu row above, about −0.3 to −0.5K.
+- The fpu row and the unary-ops move together give −0.66 to −0.86K, short of M9's low end (1.0K). The core and soc
+  rows below cover the rest. So §1 and §6 need about two of them, decided by their owners.
 - Taking the sources before the additions keeps the chip's fill at or below rc2's 95.9%. The timing margin, not the
   LUT count, is the binding limit.
 - The debug module lives in development builds, which need their own room check.
