@@ -17,7 +17,7 @@
 H=/home/tanager; S=${SOAK_DIR:-$H/soak4}; B=$H/baseline/bin
 mkdir -p "$S" && cd "$S" || exit 1
 L=$S/soak.log
-BAD='Oops|BUG:|Kernel panic|rcu_.*stall|rcu: INFO|watchdog: BUG|soft lockup|hard LOCKUP|segfault|Unable to handle|blocked for more than'
+BAD='Oops|BUG:|Kernel panic|rcu_.*stall|rcu: INFO|watchdog: BUG|soft lockup|hard LOCKUP|segfault|Unable to handle|blocked for more than|sbi.*(fail|error)|hsm.*(fail|error)|failed to (start|come online)|CPU[0-9]+: failed'
 log() { echo "$(date -u +%FT%TZ) up=$(cut -d' ' -f1 /proc/uptime) $*" >> "$L"; }
 mark=$(dmesg | wc -l)
 kcheck() {
@@ -51,7 +51,7 @@ while [ ! -e "$S/stop" ]; do
   pair A 0,1 2,3; [ -e "$S/stop" ] && break
   pair B 2,3 0,1; [ -e "$S/stop" ] && break
   pair C "" ""; [ -e "$S/stop" ] && break
-  bash "$H/hart_check.sh" "soak-r$r" > "$S/r${r}_D.hartcheck" 2>&1
+  HC_DMESG_FROM=$(dmesg | wc -l) bash "$H/hart_check.sh" "soak-r$r" > "$S/r${r}_D.hartcheck" 2>&1   # its own lines only
   f=$(grep -o "fails=[0-9]*" "$S/r${r}_D.hartcheck" | tail -1)
   if [ "$f" = fails=0 ]; then log "r$r D hart_check PASS"; else log "r$r D hart_check FAIL ($f)"; grep FAIL "$S/r${r}_D.hartcheck" | head -5 >> "$L"; fi
   bash "$H/hsm_rounds.sh" 1 > "$S/r${r}_E.hsm" 2>&1
