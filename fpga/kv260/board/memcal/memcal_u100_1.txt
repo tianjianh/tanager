@@ -1,0 +1,9 @@
+# COM5, the release build's console, from 20:52:56.819 UTC on 2026-10-23 (tanager-host's own output: run_memcal_u100.txt)
+MEMCAL-BEGIN
+MEMCAL memset-16M bytes=67108864 cycles=40234836
+MEMCAL memcpy-8M bytes=33554432 cycles=23461665
+MEMCAL memset-1M bytes=33554432 cycles=15729121
+MEMCAL memcpy-1M bytes=33554432 cycles=23499195
+MEMCAL read-8M bytes=8388608 cycles=1585179
+MEMCAL chase-4M bytes=80000 cycles=4186778
+MEMCAL-END

@@ -1,15 +1,16 @@
 #!/bin/sh
-# store_rows.sh: the coordinator's rerun of the two store-heavy DR-141 rows (10-23), on the RISC-V's Debian as root,
+# store_rows.sh [CPUS]: the coordinator's rerun of the two store-heavy DR-141 rows (10-23), on the RISC-V's Debian as root,
 # with nothing else running. rc2's one set had memset 1 MiB +9.3% and the page-fault test +4.7% against u100; soc-2
 # found no RTL cause, and in simulation only a busy sibling hart slows them. So each row runs 5 times, pinned to CPU 0
 # and then to CPU 2 (one hart of each core, its sibling idle):
 #   tg-lbench memset -n 5 1048576     tg-lbench pagefault -n 5 64
+# CPUS (default "0 2") lists the CPUs to pin to in turn: "0 1 2 3" tells whether a slow CPU is its core or its hart.
 # The TGLB lines carry the cycle counts (tagged with the CPU); the last lines give each row's median cycles per
 # operation per CPU, with the range over the five runs.
-B=/home/tanager/baseline/bin; T=$(mktemp)
+B=/home/tanager/baseline/bin; T=$(mktemp); CPUS=${1:-0 2}
 pua=$(cat /proc/sys/kernel/perf_user_access); echo 2 > /proc/sys/kernel/perf_user_access
 echo "STOREROWS-BEGIN $(date -u +%FT%TZ) $(uname -r) online=$(cat /sys/devices/system/cpu/online) load=$(cut -d' ' -f1-3 /proc/loadavg)"
-for c in 0 2; do
+for c in $CPUS; do
   taskset -c "$c" "$B/tg-lbench" memset -n 5 1048576 | sed "s/^TGLB /TGLB cpu$c /" | tee -a "$T"
   taskset -c "$c" "$B/tg-lbench" pagefault -n 5 64 | sed "s/^TGLB /TGLB cpu$c /" | tee -a "$T"
 done

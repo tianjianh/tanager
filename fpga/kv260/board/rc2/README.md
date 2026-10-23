@@ -44,7 +44,7 @@ The FENCE.I gap didn't show in this workload.
 - **The stress:** 10 of 10 passes clean (`STRESS stop after pass 10, fails=0`), at 113–117 s each.
 - **tg1 under the stress** ([`hsm_stress.txt`](hsm_stress.txt)): 30 rounds of hart stop and start, 8 s apart, all back to `0-3`. The 7 stress passes beside them were clean, with **0 failed remote fences** and no other kernel line.
 
-## Per MHz: rc2 is u100, with two store-heavy rows slower
+## Per MHz: rc2 is u100 (its two slow store rows were one set's luck)
 
 **The DR-141 set** ([`set_h0123.txt`](set_h0123.txt); cycles per operation against d4r2's baseline, [`cmp_rc2_cycles.md`](cmp_rc2_cycles.md), [`cmp_rc2_instret.md`](cmp_rc2_instret.md)):
 
@@ -59,7 +59,19 @@ The FENCE.I gap didn't show in this workload.
 | **page fault** (2 MiB huge pages cleared) | **+13.9%** | +8.8% | 0.5% |
 
 - Against u100 directly, every other row is within 1.2%: CoreMark A +1.0%, B +0.2%, Dhrystone +0.1%, and syscall, fork+exec, the 64 B and 4 KiB copies, tmpfs, gzip and sha256sum.
-- **Two store-heavy rows got slower against u100,** both beyond the 0.3–0.5% spread: memset 1 MiB +9.3% and the page-fault test +4.7%. They are for soc-2 and core-2: step 7 changes the two threads' queues, and both rows are long runs of stores.
+- **Two store-heavy rows looked slower against u100,** both beyond the 0.3–0.5% spread: memset 1 MiB +9.3% and the page-fault test +4.7%.
+  - **Later (10-23): they aren't.** Every soak round kept its three DR-141 sets ([`soak_store_rows.txt`](soak_store_rows.txt), [`../runs/soak_rows.sh`](../runs/soak_rows.sh)).
+  - With the same pinning, rc2's medians match u100's within 1% (cycles per operation, and the number of sets):
+
+    | | rc2 | u100, OpenSBI 1.9 | u100, tg1 |
+    |---|---|---|---|
+    | memset 1 MiB, the set on CPUs 2–3 beside the stress | 579,089 (16) | 578,632 (15) | 579,596 (7) |
+    | memset 1 MiB, the set on CPUs 0–1 | 579,896 (16) | 580,562 (15) | 579,853 (7) |
+    | page fault, the set on CPUs 2–3 | 4,897 | 4,933 | 4,970 |
+    | page fault, the set on CPUs 0–1 | 4,930 | 4,956 | 4,985 |
+
+  - In the unpinned step rc2 was faster (memset 582k against 617k and 626k).
+  - memset 1 MiB's speed moves from process to process, between about 534k and 573k on an idle u100 ([`../u100/README.md`](../u100/README.md)). A single set, like rc2's DR-141 set at the top of this section, can land anywhere in that range.
 - **Per second at the same clock,** rc2 matches d4r2 and u100: `./t` 2.88 s, sysbench cpu 47.06 and 94.50 events/s, memory 84.03 and 145.68 MiB/s.
 
 **memgap** (main 4fe536ec's build with `-c`, three runs each; in ns):
@@ -119,7 +131,11 @@ The four-hart soak ([`soak4.log`](soak4.log)) ran on rc2 from 17:30 UTC on its s
 
 ## The board now
 
-u100 with the four-hart tree and tg1, idle. rc2's package stays on the A53 (`~/tanager/rc2u100-riscv-pkg/`) for a rerun:
+u100 with the four-hart tree and tg1.
+- **It ran the rc3 swap's measurements** ([`../u100/README.md`](../u100/README.md)): the store rows pinned, soc-2's sibling check, and memcal in ARM mode.
+- **It soaks from 21:03 UTC** (`soak4-u100b`) while rc3 builds.
+
+rc2's package stays on the A53 (`~/tanager/rc2u100-riscv-pkg/`) for a rerun:
 - **rc2 again,** in ARM mode: `FH_BACKUP=tanager-u100 bash ~/tanager/runs/fh_p1.sh install ~/tanager/rc2u100-riscv-pkg/rc2u100-riscv`;
 - **dr187b:** `FH_BACKUP=tanager-dr187b-80 bash ~/tanager/runs/fh_p1.sh back`;
 - **the two-core 100 MHz image:** `bash ~/tanager/runs/fh_p1.sh back`.
