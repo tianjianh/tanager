@@ -67,7 +67,8 @@
 //
 // SMT2: per-thread caps (M7 step 7; rename applies them). For next cycle, registered off the
 // select loop: room_ge_q[t][n-1], thread t may allocate n more rows under its cap CAP (n up to
-// 2 DW: a group in DS and one at RN), all ones while cap_on is low; bank_nfree_q[k], bank k's free
+// 2 DW: a group in DS and one at RN), all ones while cap_on is low, and constant ones with CAP >= ROWS
+// (no per-thread cap, step 7's form: the cap's logic compiles out); bank_nfree_q[k], bank k's free
 // rows (at most 3); occ_q[t], thread t's rows; with BANK_CAP, bank_left_q[t][k][j-1], thread t may
 // take j more rows of bank k and still leave one of its rows to the sibling ("never a whole bank").
 // Kill: flush_valid with flush_tid kills that thread's rows younger than flush_rob (index
@@ -510,9 +511,12 @@ module tg_iq
       cnt = 0;
       for (int r = 0; r < ROWS; r++) cnt += int'(valid_d[r] && tid_d[r] == tid_t'(t));
     end
-    always_ff @(posedge clk) begin
-      occ_q[t] <= rst ? '0 : OCW'(cnt);
-      for (int n = 1; n <= RMAX; n++) room_ge_q[t][n-1] <= rst || !cap_on || cnt + n <= CAP;
+    always_ff @(posedge clk) occ_q[t] <= rst ? '0 : OCW'(cnt);
+    if (CAP >= ROWS) begin : g_nocap
+      assign room_ge_q[t] = '1;
+    end else begin : g_cap
+      always_ff @(posedge clk)
+        for (int n = 1; n <= RMAX; n++) room_ge_q[t][n-1] <= rst || !cap_on || cnt + n <= CAP;
     end
     if (BANK_CAP) begin : g_bcap
       for (genvar k = 0; k < DW; k++) begin : g_k

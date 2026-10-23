@@ -32,7 +32,7 @@ package tg_cfg_pkg;
 `ifdef TG_IQ_CAP_PCT
   localparam int IQ_CAP_PCT = `TG_IQ_CAP_PCT;   // per-thread cap (§6.5; M7 step 7)
 `else
-  localparam int IQ_CAP_PCT = 50;    // per-thread cap (§6.5; M7 step 7: 50%, smt2_report §13.12)
+  localparam int IQ_CAP_PCT = 100;   // per-thread cap (§6.5): none, step 7's form is the bank rule (core-pipeline §5.4)
 `endif
 
   // Registers: one integer bank per writer (N_ALU ALU banks + the load bank), two FP banks

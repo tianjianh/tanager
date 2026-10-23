@@ -257,14 +257,15 @@ package tg_core_pkg;
   localparam bit SPLIT = HART1_ON;
 `endif
   // M7's step 7 (DR-175): the issue-queue caps, with hart 1 (tg_issue's flags, rename's check; smt2_report §13.4,
-  // §13.12, §13.15). A thread holds at most IQ_CAP_PCT of each queue's rows (tg_cfg: 50%; TG_IQ_CAP_PCT=75 for the
-  // A/B), and the bank rule TG_IQ_BANK_RULE: 1 (the default), a thread does not take a row that would leave it
-  // holding all of a bank's rows while its sibling's waiting group needs a row in that bank; 2, it never does; 0,
-  // none. Neither applies while the halves are merged (step 6)
+  // §13.12, §13.15; core-pipeline §5.4). The bank rule TG_IQ_BANK_RULE: 2 (step 7's form, the default), a thread
+  // never takes a row that would leave it holding all of a bank's rows, so its sibling always finds one in every bank;
+  // 1, only while its sibling's group would fire given a row in that bank (rename's rwo); 0, none. And R1, a thread
+  // holds at most IQ_CAP_PCT of each queue's rows (tg_cfg: 100, none, the cap's logic compiled out; TG_IQ_CAP_PCT=50
+  // for R1). Neither applies while the halves are merged (step 6)
 `ifdef TG_IQ_BANK_RULE
   localparam int IQ_BANK_RULE = `TG_IQ_BANK_RULE;
 `else
-  localparam int IQ_BANK_RULE = 1;
+  localparam int IQ_BANK_RULE = 2;
 `endif
   // M7's step 6 (D2): with hart 1 the split is a mode set at run time (md_t, tg_rename's md_q). Split: the halves.
   // Merged: thread run owns every entry while its sibling sleeps with an empty window (threading.md). Without hart 1
