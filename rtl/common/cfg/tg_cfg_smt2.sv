@@ -39,7 +39,13 @@ package tg_cfg_pkg;
   localparam int INT_PREGS_PER_BANK = 64;
   // FP banks of 64 with hart 1 too (DR-179, replacing DR-175's 96): an FP op whose own bank has no register left for
   // its hart renames into the other bank
+`ifdef TG_FP_BANK96
+  // TG_FP_BANK96=1: DR-175's banks of 96, each holding both harts' 32 and their spares, with no renaming across banks
+  // (tg_rename's FXB): the way back from DR-179 for a bigger chip (docs/spec/area_switches.md)
+  localparam int FP_PREGS_PER_BANK  = (`TG_FP_BANK96) ? 96 : 64;
+`else
   localparam int FP_PREGS_PER_BANK  = 64;
+`endif
 
   // Front end
   localparam int UBTB_ENTRIES = 64;  // 2-way LUTRAM

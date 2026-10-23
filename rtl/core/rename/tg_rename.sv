@@ -339,7 +339,7 @@ module tg_rename
   // ---- FP free lists (EXT_FD): F0 starts with indices 32-63 (f0-f31 map to F0 0-31), F1 0-63; with hart 1 (step 5)
   // its f0-f31 are F1's 0-31 and each bank's rest (32-63) is divided between the harts. With hart 1 an FP destination
   // whose own bank (P4's results F0, FP loads F1) has no register left for its thread takes the other's (DR-179)
-  localparam bit FXB = EXT_FD && HART1_ON;
+  localparam bit FXB = FP_XBANK;
   logic [1:0] fown_s;               // (FXB) a destination found its own bank short for its thread (it crossed)
   logic       fgl;                  // (FXB) the FP lists' giver (want_t_q's sibling) is blocked: it gives its last
   assign fgl = FXB && block_q[CMT ? !want_t_q : 1'b0];
@@ -1794,6 +1794,17 @@ module tg_rename
       end
       assert (ls == llt_short && ts == tag_short) else $error("tg_rename: the picks' shortage flags");
     end
+  end
+`endif
+`ifndef SYNTHESIS
+  // (TG_FP_BANK96: banks of 96, no crossing) every FP destination comes from its own bank: P4's F0, FP loads' F1
+  if (EXT_FD && !FP_XBANK) begin : g_nox
+    always_ff @(posedge clk)
+      if (!rst && rn_fire)
+        for (int k = 0; k < W; k++)
+          if (rn_valid_q[k] && rn_uop_q[k].d.rd_en && rn_uop_q[k].d.rd_fp)
+            assert (int'(fpreg_bank(ren[k].dst)) == ((rn_uop_q[k].d.cls == C_LD) ? FPB_F1 : FPB_F0))
+              else $error("tg_rename: an FP destination crossed banks with banks of 96");
   end
 `endif
 endmodule

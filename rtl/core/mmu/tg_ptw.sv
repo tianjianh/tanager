@@ -31,6 +31,7 @@ module tg_ptw
                                                                  // a 1G / 2M / 4K page
   // PMP checks on a shared checker (S mode, ACC_R)
   output logic [PA_W-1:0]   chk_pa,
+  output logic [1:0]        chk_lvl,      // DR-183 (PMP_FILL): the leaf's level, for the LSU's page test in W_PMP
   output logic              chk_dbl,      // an 8-byte access (the PTE), else one granule
   output tid_t              chk_tid,      // the hart whose PMP applies
   output logic              chk_req,      // a check is wanted this cycle (used if granted)
@@ -38,6 +39,7 @@ module tg_ptw
   input  logic              chk_ok,
   input  logic              chk_hit,
   input  logic [2:0]        chk_rwx,
+  input  logic              chk_nh,       // DR-183 (PMP_FILL): the LSU's page test (a boundary inside the leaf)
   // Requests, held until ack
   input  logic [2:0]        req,
   input  logic [2:0][63:0]  req_va,
@@ -124,6 +126,7 @@ module tg_ptw
   localparam logic [PMP_GW-1:0] AL2M = PMP_GW'((64'd1 << 19) - 1);
   localparam logic [PMP_GW-1:0] AL1G = PMP_GW'((64'd1 << 28) - 1);
   logic leaf_nh;
+  assign chk_lvl = lvl_q;
 `ifndef SYNTHESIS
   // The fills by leaf size (4K, 2M, 1G) and how many of them cache their PMP result, on stderr at
   // the end
@@ -137,6 +140,15 @@ module tg_ptw
   final $fwrite(32'h8000_0002, "TG-PMPH %m: fills 4K %0d (%0d cache PMP), 2M %0d (%0d), 1G %0d (%0d)\n",
                 n_fill[0], n_fpc[0], n_fill[1], n_fpc[1], n_fill[2], n_fpc[2]);
 `endif
+  // DR-183 (PMP_FILL): the test sits beside the LSU's shared checker, which fetch's page requests share; its
+  // answer comes in the granted cycle, with the check
+  if (PMP_FILL) begin : g_nhf
+    assign leaf_nh = chk_nh;
+    logic unused_pd;
+    assign unused_pd = ^{pmp_d, pmp_pal};
+  end else begin : g_nh
+  logic unused_nh;
+  assign unused_nh = chk_nh;
   always_comb begin
     logic [PMP_GW-1:0] pg, alm;
     logic              in_pg, sub_pg, bound, msk;
@@ -152,6 +164,7 @@ module tg_ptw
                !pmp_pal[wt][i][lvl_q];
       if (in_pg && (sub_pg || bound)) leaf_nh = 1'b1;
     end
+  end
   end
   assign pt_pa  = pte_pa[PA_W-1:0];
 
