@@ -201,6 +201,7 @@ module tg_core
   logic [DECODE_WIDTH-1:0]   iq_valid;
   fe_insn_t [DECODE_WIDTH-1:0] iq_insn;
   logic [idx_w(DECODE_WIDTH + 1)-1:0] iq_take, iq_take_t, iq_take_n;
+  logic                               iq_tnz_t, iq_tnz_n;    // decode's takes are nonzero (the queue's read thread)
   logic                    de_take;                   // (declared ahead of fetch, which reads it)
   // Fetch's own copy of the privilege and of whether it translates, a cycle behind tg_csr's: they
   // change only as a trap, an xRET or a serialising CSR write commits, and the flush that follows
@@ -291,7 +292,7 @@ module tg_core
     .ras_push(fras_push), .ras_pop(fras_pop), .ras_link(fras_link),
     .ras_rv(fras_rv), .ras_rwr(fras_rwr), .ras_rtos(fras_rtos), .ras_rcnt(fras_rcnt), .ras_rtop(fras_rtop),
     .upd_valid, .upd_way, .upd_pc, .upd_slot, .upd_target, .upd_inval, .upd_tid,
-    .iq_valid, .iq_insn, .iq_take, .iq_take_t, .iq_take_n, .de_take,
+    .iq_valid, .iq_insn, .iq_take, .iq_take_t, .iq_take_n, .iq_tnz_t, .iq_tnz_n, .de_take,
     .xl_h(xl_f_q), .dst(de_state_h), .priv_h(priv_f_q), .pmp_d_h, .pmp_busy, .rn_block(rn_blk), .rn_acc,
     .pmp_lk_h, .pfc_req, .pfc_page, .pfc_tag, .pfc_tid, .pfc_pa, .pfc_m, .pfc_rsp_v, .pfc_rsp_tag, .pfc_rsp_ok, .pfc_rsp_nh,
     .pfc_rsp_x,
@@ -302,10 +303,11 @@ module tg_core
 
   // ---- Decode ----
   logic [DECODE_WIDTH-1:0] de_valid;
+  logic                    de_nz;          // |de_valid, made without decode's group rules (rename's choices)
   uop_t [DECODE_WIDTH-1:0] de_uop;
   tg_decode_stage u_de (
     .clk, .rst, .flush, .dst_h(de_state_h),
-    .iq_valid, .iq_insn, .iq_take, .iq_take_t, .iq_take_n, .de_valid, .de_uop, .de_take,
+    .iq_valid, .iq_insn, .iq_take, .iq_take_t, .iq_take_n, .iq_tnz_t, .iq_tnz_n, .de_valid, .de_nz, .de_uop, .de_take,
     .dred, .dred_tid, .dred_pc, .dred_ftq, .dred_slot, .dred_rop, .dred_rlink, .ras_v, .ras_top, .ras_push, .ras_pop,
     .ras_link);
   if (RAS_ON) begin : g_ras
@@ -446,7 +448,7 @@ module tg_core
   logic                             rn_ready;
   tg_rename u_rn (
     .clk, .rst, .ready(rn_ready), .start(init_done && fe_ready && lsu_ready), .flush, .flush_tid,
-    .de_valid, .de_uop, .de_take, .blk_o(rn_blk), .acc_o(rn_acc),
+    .de_valid, .de_nz, .de_uop, .de_take, .blk_o(rn_blk), .acc_o(rn_acc),
     .rob_head(rob_head_t), .lq_head(lq_head_t), .sq_head(sq_head_t), .sq_cmt(sq_cmt_t), .iq_bank_free,
     .iq_bank_free2, .iq_room_ge, .iq_bank_left, .w_vec, .busy(iq_busy),
     .rf_we, .rf_widx, .llt_rel, .tag_free, .div_done, .div_done_tid,

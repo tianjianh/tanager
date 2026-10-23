@@ -553,6 +553,19 @@ module tg_rob
   // ---- Commit decision ----
   int cnt;
   assign cnt = rob_cnt_t(tail_q[t_cm], head_q[t_cm], md);
+  // Whether the window holds the head's slot j (cnt > j), from the registered head window: the tail is neither the
+  // head nor an entry after it up to j. Timing: the count's subtraction from head_q had started every commit path
+  // (spikes 8.18's near-final chip, placement 2: rename's free-list counts and RAMs and the ROB's hw_q from head_q,
+  // -0.58 to -0.33 ns); cnt stays for the WFI state and the checks
+  logic [CW-1:0] has_h;
+  always_comb begin
+    logic in;
+    in = 1'b1;
+    for (int j = 0; j < CW; j++) begin
+      in = in && tail_q[t_cm] != hid[j];
+      has_h[j] = in;
+    end
+  end
   logic [CW-1:0] ret;               // retiring slots
   logic          do_flush, do_trap, do_irq, do_icinv, do_csr, do_mret, do_sret, do_sfence, use_tt, tlbx;
   logic [63:0]   nf_pc;
@@ -667,7 +680,7 @@ module tg_rob
     stop = 1'b0;
     pushed = 1'b0;
     mf = '0;
-    if (!flush && ready && !(MT && csr_hold) && cnt > 0) begin
+    if (!flush && ready && !(MT && csr_hold) && has_h[0]) begin
       if (irq_take && (MT || t_cm == RUN_TID) && hp[0].sys != SYS_WFI && !mmio_busy) begin   // (t_cm's)
         do_irq = 1'b1;
         do_flush = 1'b1;
@@ -719,7 +732,7 @@ module tg_rob
         pushed = 1'b0;
         for (int j = 0; j < CW; j++) begin
           if (!stop) begin
-            if (j < cnt && cmp_h[j] && !exc_h[j] && !hp[j].serial && !rpl_h[j] && !(pushed && hp[j].ras_push)) begin
+            if (has_h[j] && cmp_h[j] && !exc_h[j] && !hp[j].serial && !rpl_h[j] && !(pushed && hp[j].ras_push)) begin
               ret[j] = 1'b1;
               if (hp[j].ras_push) pushed = 1'b1;
               if (misp_h[j]) begin
@@ -999,8 +1012,11 @@ module tg_rob
   initial rs_q = 1'b0;
   always @(posedge clk) if (rst) rs_q <= 1'b1;
   always_ff @(posedge clk) begin
-    if (rs_q && !rst)
+    if (rs_q && !rst) begin
       assert (hw_q == hwin(head_q[t_cm], 0, t_cm, md)) else $error("tg_rob: the registered head window differs from the head");
+      for (int j = 0; j < CW; j++)
+        assert (has_h[j] == (j < cnt)) else $error("tg_rob: the head window's slot %0d flag is not the count's", j);
+    end
   end
   always_ff @(posedge clk) begin
     if (!rst && (do_mret || do_sret))

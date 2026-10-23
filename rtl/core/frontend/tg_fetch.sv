@@ -90,6 +90,8 @@ module tg_fetch
   input  logic [TKW-1:0]            iq_take,
   input  logic [TKW-1:0]            iq_take_t,  // ... decode's take if rename takes its group, and if not
   input  logic [TKW-1:0]            iq_take_n,
+  input  logic                      iq_tnz_t,   // ... whether each is nonzero (decode's, for the read thread's choice)
+  input  logic                      iq_tnz_n,
   input  logic                      de_take,    // rename takes decode's group (iq_take is the choice)
   // Translation and PMP (M3)
   input  logic [NUM_THREADS-1:0] xl_h,   // per hart (F1's block's thread's is used): fetch translates: S or U, Sv39
@@ -1217,6 +1219,7 @@ module tg_fetch
     .blk_valid(f3_valid_q), .blk_tid(f3_tid), .parcel(f3_parcel), .start(f3_start_q), .marks(f3_marks_q),
     .carry_out(f3_carry_q), .meta(f3_mq),
     .blk_ready, .out_tid(cq_tid), .out_valid(cq_valid), .out_insn(cq_insn), .take(iq_take), .take_t(iq_take_t), .take_n(iq_take_n), .tk(de_take),
+    .tz_t(iq_tnz_t), .tz_n(iq_tnz_n),
     .occ_o(q_occ));
 
   // ---- Pipeline control ----
