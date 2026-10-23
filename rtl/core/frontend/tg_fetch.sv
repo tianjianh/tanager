@@ -88,6 +88,9 @@ module tg_fetch
   output logic [DECODE_WIDTH-1:0]   iq_valid,
   output fe_insn_t [DECODE_WIDTH-1:0] iq_insn,
   input  logic [TKW-1:0]            iq_take,
+  input  logic [TKW-1:0]            iq_take_t,  // ... decode's take if rename takes its group, and if not
+  input  logic [TKW-1:0]            iq_take_n,
+  input  logic                      de_take,    // rename takes decode's group (iq_take is the choice)
   // Translation and PMP (M3)
   input  logic [NUM_THREADS-1:0] xl_h,   // per hart (F1's block's thread's is used): fetch translates: S or U, Sv39
   input  dec_state_t [NUM_THREADS-1:0] dst,   // each hart's decode state, for the queue's decode bits
@@ -1213,7 +1216,8 @@ module tg_fetch
     .clk, .rst, .flush_q(red_q), .drop_t(MT ? rn_block : '0), .acc_t(MT ? rn_acc : '1), .dst,
     .blk_valid(f3_valid_q), .blk_tid(f3_tid), .parcel(f3_parcel), .start(f3_start_q), .marks(f3_marks_q),
     .carry_out(f3_carry_q), .meta(f3_mq),
-    .blk_ready, .out_tid(cq_tid), .out_valid(cq_valid), .out_insn(cq_insn), .take(iq_take), .occ_o(q_occ));
+    .blk_ready, .out_tid(cq_tid), .out_valid(cq_valid), .out_insn(cq_insn), .take(iq_take), .take_t(iq_take_t), .take_n(iq_take_n), .tk(de_take),
+    .occ_o(q_occ));
 
   // ---- Pipeline control ----
   // F2 delivers when it is valid, not missing, and F3 can take the block. It holds while F3

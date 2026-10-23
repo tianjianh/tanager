@@ -13,7 +13,9 @@
 # synthesized logic reads but only simulation-only code drives is an error). With hart 1, smt2 also elaborates the
 # product's combination (URF=1 and the release form, in both views) and a bigger chip's, every area measure that has a
 # switch off together (PMP_ENTRIES=16, four TAGE tables of 4K, the uncore's slices, a window of ROB 96, LQ 32, SQ 24:
-# WIN=, a copy of the configuration's file; both views; docs/spec/area_switches.md). They run JOBS at a time
+# WIN=, a copy of the configuration's file; lever 2's LUT form, IQ_CC=0; FP banks of 96, FP_BANK96=1; both views;
+# docs/spec/area_switches.md), and with hart 1 the other forms of DR-185 (PAY_WREG=0, IQ_CC=0 and 3) and the FP banks
+# of 96 alone (both views). They run JOBS at a time
 # (Verilator's lint is one thread and about 0.6 GB).
 # An elaboration whose define no RTL file mentions is the default's, so it is skipped.
 # With them, the forward-reference check (tools/ci/fwdref.sh: Verilator's JSON dump of the synthesis
@@ -91,10 +93,16 @@ if [ -n "$hart1" ]; then
   else echo "lint-all: no TG_URF or tanager_soc RELEASE; skipping the product's combination"; fi
   if mentioned TG_PMP_ENTRIES && mentioned TG_TAGE_NT && grep -qsw MEM_SLICE "$ROOT/rtl/soc/tanager_soc.sv"; then
     big="HART1=1 PMP_ENTRIES=16 TAGE_NT=4 TAGE_LI=12 XBAR_SLICE=1 MEM_SLICE=1 WIN=96,32,24"
+    mentioned TG_IQ_CC && big+=" IQ_CC=0"
+    mentioned TG_FP_BANK96 && big+=" FP_BANK96=1"
     area+=("$big" "$big SYNTH=1")
   else echo "lint-all: no TG_PMP_ENTRIES, TG_TAGE_NT or tanager_soc MEM_SLICE; skipping the bigger chip's combination"; fi
   # DR-185's direct payload write with hart 1 (its rows are per thread), as synthesis reads it
   if mentioned TG_PAY_WREG; then area+=("HART1=1 PAY_WREG=0 SYNTH=1"); fi
+  # Lever 2's LUT form, and its chains in the select too (CARRY8 instances only in synthesis)
+  if mentioned TG_IQ_CC; then area+=("HART1=1 IQ_CC=0" "HART1=1 IQ_CC=3 SYNTH=1"); fi
+  # DR-175's FP banks of 96 without DR-179's crossing, in both views
+  if mentioned TG_FP_BANK96; then area+=("HART1=1 FP_BANK96=1" "HART1=1 FP_BANK96=1 SYNTH=1"); fi
 fi
 tasks=()
 for c in $CFGS; do

@@ -64,6 +64,9 @@ module tg_fetch_compact
   output logic [RD-1:0]           out_valid,
   output logic [RD-1:0][IB_W-1:0] out_insn,
   input  logic [idx_w(RD + 1)-1:0] take,       // instructions decode takes this cycle (out_tid's)
+  input  logic [idx_w(RD + 1)-1:0] take_t,     // ... if rename takes decode's group (tk), and if not: take is the
+  input  logic [idx_w(RD + 1)-1:0] take_n,     // choice (asserted). The counts and the head run on both beside
+  input  logic                     tk,         // rename's decision, which picks last (timing)
   output logic [NUM_THREADS-1:0][idx_w(DEPTH):0] occ_o   // MT (5e): each thread's entries, registered (fetch's room)
 );
   localparam bit MT = HART1_ON && NUM_THREADS > 1;   // a queue per thread (two threads)
@@ -73,6 +76,11 @@ module tg_fetch_compact
   tid_t wt;
   logic wq, rq;
   logic rt_q;                                        // the thread decode reads (MT)
+  // Each bank's read address takes its own copy of rt_q, and picks its own head and row from it (timing: on the
+  // product chip, rt_q's fan-out of about 800, the head's pick and a bank's row index were 1.6 ns of wire before the
+  // LUTRAM, at the head of the paths into rename's payload write, pay_wd_q). Kept, so that synthesis does not merge
+  // the copies into rt_q
+  (* keep = "true" *) logic [WR-1:0] rt_b_q;
   assign wt  = MT ? blk_tid : RUN_TID;
   assign wq  = MT && blk_tid[0];
   assign rq  = MT && rt_q;
@@ -118,12 +126,13 @@ module tg_fetch_compact
   logic [NQ-1:0][QW:0]   occ_t_q;
   logic [NQ-1:0][QW-1:0] head_t_q, tail_t_q;
   logic [QW:0]   occ_q, rocc;                // the block's thread's count; the reader's
-  logic [QW-1:0] head_q, tail_q;             // the reader's head; the block's thread's tail
+  logic [QW-1:0] tail_q;                     // the block's thread's tail
+  logic [BW-1:0] head_q;                     // the reader's head's bank (the slots' rotation; each bank reads its own)
   assign occ_q  = occ_t_q[wq];
   always_comb for (int q = 0; q < NUM_THREADS; q++) occ_o[q] = (q < NQ) ? occ_t_q[q < NQ ? q : 0] : '0;
   assign tail_q = tail_t_q[wq];
   assign rocc   = occ_t_q[rq];
-  assign head_q = head_t_q[rq];
+  assign head_q = head_t_q[rq][BW-1:0];
   logic [CW-1:0] done_q;                 // instructions of this block already written
   logic [CW-1:0] left, nwr;
   assign left = count - done_q;
@@ -209,8 +218,12 @@ module tg_fetch_compact
   logic [WR-1:0][IB_W-1:0] brdata;
   for (genvar b = 0; b < WR; b++) begin : g_bank
     logic [QW-1:0] idx;
-    assign idx = head_q + QW'(BW'(BW'(b) - head_q[BW-1:0]));
-    assign braddr[b] = (RW + TW)'({rq, idx[QW-1:BW]});
+    logic          rqb;                // the reader, from this bank's copy
+    logic [QW-1:0] hb;
+    assign rqb = MT && rt_b_q[b];
+    assign hb  = head_t_q[rqb];
+    assign idx = hb + QW'(BW'(BW'(b) - hb[BW-1:0]));
+    assign braddr[b] = (RW + TW)'({rqb, idx[QW-1:BW]});
     logic unused;
     assign unused = ^idx[BW-1:0];   // equals b
     logic [0:0][RW+TW-1:0] ra;
@@ -237,10 +250,36 @@ module tg_fetch_compact
   logic [NQ-1:0][QW:0] occ_n;
   logic ro;                                          // the other thread's queue (MT)
   assign ro = MT && !rt_q;
+  // The reader's next count and head after decode's take, with rename taking decode's group and without, then picked
+  // by rename's decision (tk, de_take): the same values. Kept, so that synthesis does not share one subtractor behind
+  // a select by tk (timing: de_take, the end of rename's checks, reached the counts through the subtraction; the
+  // product chip's occ_t_q family, -1.756 ns from the issue queues' dep_q)
+  (* keep = "true" *) logic [NQ-1:0][QW:0]   occ_tt, occ_tn;
+  (* keep = "true" *) logic [NQ-1:0][QW-1:0] head_tt, head_tn;
   always_comb
-    for (int q = 0; q < NQ; q++)
-      occ_n[q] = fq[q] ? '0
-               : occ_t_q[q] + ((wq == 1'(q)) ? w : '0) - ((rq == 1'(q)) ? (QW + 1)'(take) : '0);
+    for (int q = 0; q < NQ; q++) begin
+      occ_tt[q]  = occ_t_q[q] + ((wq == 1'(q)) ? w : '0) - ((rq == 1'(q)) ? (QW + 1)'(take_t) : '0);
+      occ_tn[q]  = occ_t_q[q] + ((wq == 1'(q)) ? w : '0) - ((rq == 1'(q)) ? (QW + 1)'(take_n) : '0);
+      head_tt[q] = head_t_q[q] + QW'(take_t);
+      head_tn[q] = head_t_q[q] + QW'(take_n);
+      occ_n[q]   = fq[q] ? '0 : tk ? occ_tt[q] : occ_tn[q];
+    end
+  // decode's next thread (MT): the other one after a take from this one, or when this one's queue is empty, if the
+  // other's holds instructions; only one whose RN register takes a group next cycle (step 5d), so the other one also
+  // when this one's register will not. Both counts are read without decode's take, which waits for rename's
+  // decision: the other queue's next count is its count with this cycle's writes (decode takes only from this one),
+  // and "this one empties" needs no take either: with a take the other one is due anyway, and without one the next
+  // count is the count with the writes (or 0 when the queue empties). So the take reaches rt_q through an OR of its
+  // bits, not through the counts' arithmetic (timing: the product chip's worst paths ended at rt_q, -1.108 ns from the
+  // LQ's head and -1.025 ns from DS, both through rename's de_take, then 2.7 ns of the counts)
+  logic [QW:0] occ_wr, occ_wo;                       // the reader's and the other's counts with this cycle's writes
+  logic        rt_n;
+  assign occ_wr = occ_t_q[rq] + ((wq == rq) ? w : '0);
+  assign occ_wo = occ_t_q[ro] + ((wq == ro) ? w : '0);
+  logic        tz;                                  // decode takes from the reader: by rename's decision, picked last
+  assign tz     = tk ? take_t != '0 : take_n != '0;
+  assign rt_n   = (MT && !fq[ro] && occ_wo != '0 && acc_t[ro] && (tz || fq[rq] || occ_wr == '0 || !acc_t[rq]))
+                  ? ro : rt_q;
   always_ff @(posedge clk) begin
     for (int q = 0; q < NQ; q++) begin
       if (rst || fq[q]) begin
@@ -250,7 +289,7 @@ module tg_fetch_compact
         hv_q[q]     <= 1'b0;
       end else begin
         occ_t_q[q] <= occ_n[q];
-        if (rq == 1'(q)) head_t_q[q] <= head_t_q[q] + QW'(take);
+        if (rq == 1'(q)) head_t_q[q] <= tk ? head_tt[q] : head_tn[q];
         if (wq == 1'(q)) begin
           tail_t_q[q] <= tail_t_q[q] + QW'(w);
           if (blk_ready) hv_q[q] <= carry_out;
@@ -268,17 +307,24 @@ module tg_fetch_compact
       hp_q[wq] <= parcel[NP-1];
       hm_q[wq] <= marks[NP-1];
     end
-    // decode's next thread (MT): the other one after a take from this one, or when this one's queue is empty, if
-    // the other's holds instructions; only one whose RN register takes a group next cycle (step 5d), so the other
-    // one also when this one's register will not
-    if (rst) rt_q <= MT && RUN_TID[0];
-    else if (MT && occ_n[ro] != '0 && acc_t[ro] && (take != '0 || occ_n[rq] == '0 || !acc_t[rq])) rt_q <= ro;
+    rt_q   <= rst ? (MT && RUN_TID[0]) : rt_n;
+    rt_b_q <= rst ? {WR{MT && RUN_TID[0]}} : {WR{rt_n}};
   end
 
 `ifndef SYNTHESIS
+  logic rt_rs;                                       // (the copies are checked from the first reset on)
+  initial rt_rs = 1'b0;
+  always @(posedge clk) if (rst) rt_rs <= 1'b1;
+  always_ff @(posedge clk)
+    if (rt_rs && !rst) assert (rt_b_q == {WR{rt_q}}) else $error("tg_fetch_compact: a bank's copy of rt_q differs from it");
   always_ff @(posedge clk) begin
     if (!rst && !fq[rq]) assert (int'(take) <= RD && (QW + 1)'(take) <= rocc)
       else $error("tg_fetch_compact: take beyond the valid entries");
+    if (!rst) assert (take == (tk ? take_t : take_n)) else $error("tg_fetch_compact: decode's take is not its choice by tk");
+    // the switch as it was written before, from the next counts
+    if (!rst) assert (rt_n == ((MT && occ_n[ro] != '0 && acc_t[ro] && (take != '0 || occ_n[rq] == '0 || !acc_t[rq])) ? ro
+                                                                                                                 : rt_q))
+      else $error("tg_fetch_compact: the read thread's switch differs from the next counts'");
   end
   // (MT) decode slots left empty while the other thread's queue held instructions (the one-thread-a-group rule), and of
   // them those in cycles the read thread had under a group; on stderr at the end with hart 1
