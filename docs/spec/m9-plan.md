@@ -1,6 +1,7 @@
 # M9 plan: hardening and the v1 release
 
-Status: draft — fpu-2 (for the coordinator) — 2026-10-23
+Status: approved by the user on 2026-10-23 as recommended below (DR-190), including Sscofpmf up to 1.4K LUTs a chip
+and the debug module in development builds only — fpu-2 (for the coordinator)
 
 ## Purpose
 M9's row in the plan (architecture_plan.md §11) reads "Sscofpmf/perf, Svpbmt, Zicbo*, misaligned hardware, store sets,
