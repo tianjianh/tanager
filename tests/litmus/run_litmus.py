@@ -7,8 +7,11 @@ harts interleave one instruction at a time, so every state is allowed. Tests wit
 drops a hart's reservation when another hart stores into its line (Spike alone keeps it through other harts'
 stores, so its SC could succeed where the checker's must fail).
   run_litmus.py --suite DIR --replay <tg_replay> --harts 0,1 --workdir DIR [--family SAFE,CO] [--sample N]
-  run_litmus.py --suite DIR --tb <tb_boot> --harts 0,1 --workdir DIR [--lat fixed|jitter|board|default]
-  run_litmus.py --suite DIR --vsim <tg_vsim> --harts 0,1 --workdir DIR
+  run_litmus.py --suite DIR --tb <tb_boot> --harts 0,1 --workdir DIR [--lat fixed|jitter|board|board+N|default]
+  run_litmus.py --suite DIR --vsim <tg_vsim> --harts 0,1 --workdir DIR [--lat N]
+The latency injector's 0, 120 and 250 cycles (the plan's §9, the M7 plan's exit 4) are the DDR model's board timing
+plus N in tb_boot (--lat board+N: 22+N fixed and 18+N to 26+N jittered, by batch), and tg_vsim's memory latency
+(--lat N, its --lat).
 Failing batches are kept in WORKDIR/failures with their program, log and a command that reruns them; every test's
 LIT line goes to WORKDIR/results.txt."""
 import argparse
@@ -76,7 +79,9 @@ def main():
     ap.add_argument("--iters", type=int, default=200)
     ap.add_argument("--batch", type=int, default=40, help="tests a program")
     ap.add_argument("--lat", default="default", help="tb_boot's DDR timing: default, fixed (22), jitter (18-26), "
-                                                     "board (fixed and jitter by batch), slow (120)")
+                                                     "board (fixed and jitter by batch), board+N (the same, N cycles "
+                                                     "later: the latency injector's N), slow (120); tg_vsim's: a number "
+                                                     "(its --lat), else its default")
     ap.add_argument("--max-mcycles", type=int, default=400)
     ap.add_argument("--jobs", type=int, default=6)
     ap.add_argument("--timeout", type=int, default=7200)
@@ -120,10 +125,18 @@ def main():
     spike = harness == "replay"
     isa = "rv64imac_zicsr_zicntr_zifencei"
 
+    m = re.fullmatch(r"board\+(\d+)", a.lat)
+    inj = int(m[1]) if m else 0
+    if harness == "tb" and a.lat not in ("fixed", "jitter", "board", "slow", "default") and not m:
+        ap.error(f"--lat {a.lat}: tb_boot takes default, fixed, jitter, board, board+N or slow")
+    if harness == "vsim" and a.lat != "default" and not a.lat.isdigit():
+        ap.error(f"--lat {a.lat}: tg_vsim takes a number (its memory latency) or default")
+
     def timing(k):
-        kind = a.lat if a.lat != "board" else ("fixed", "jitter")[k % 2]
-        return {"fixed": ["+mem_lat_min=22", "+mem_lat_max=22", "+mem_ready_pct=100", "+mem_r_pct=100", "+mem_ooo=0"],
-                "jitter": ["+mem_lat_min=18", "+mem_lat_max=26"],
+        kind = a.lat if a.lat not in ("board",) and not m else ("fixed", "jitter")[k % 2]
+        return {"fixed": [f"+mem_lat_min={22 + inj}", f"+mem_lat_max={22 + inj}", "+mem_ready_pct=100", "+mem_r_pct=100",
+                          "+mem_ooo=0"],
+                "jitter": [f"+mem_lat_min={18 + inj}", f"+mem_lat_max={26 + inj}"],
                 "slow": ["+mem_lat_min=120", "+mem_lat_max=120"], "default": []}[kind]
 
     def one(k):
@@ -146,7 +159,8 @@ def main():
             cmd = [a.replay, f"--isa={isa}", "--priv=MU", f"--harts={max(harts) + 1}", "--max-steps=400000000",
                    stem + ".elf"]
         elif harness == "vsim":
-            cmd = [a.vsim, "--no-lockstep", f"--cycles={a.max_mcycles * 1000000}", stem + ".elf"]
+            cmd = [a.vsim, "--no-lockstep", f"--cycles={a.max_mcycles * 1000000}"] + \
+                  ([f"--lat={a.lat}"] if a.lat.isdigit() else []) + [stem + ".elf"]
         else:
             cmd = [a.tb, f"+fw={stem}.bin", "+expect=LIT-END", f"+max_mcycles={a.max_mcycles}", "+mem_zero"] + timing(k)
         rc, out = run(cmd, a.timeout)
@@ -218,7 +232,7 @@ def main():
           (f", {nstale} with stale herd results left out (stale.txt)" if nstale else "") +
           (f", {nlar} with load-acquire or store-release forms left out" if nlar else "") +
           f" ({len(paths)} tests in {len(batches)} programs, harts {a.harts}, {a.iters} iterations each, {harness}"
-          f"{', ' + a.lat if harness == 'tb' and a.lat != 'default' else ''}); allowed states seen {seen} of {allowed}; "
+          f"{', ' + a.lat if harness in ('tb', 'vsim') and a.lat != 'default' else ''}); allowed states seen {seen} of {allowed}; "
           f"{time.time() - t0:.0f} s")
     return 1 if nbad or nmiss or any(r[3] for r in results) else 0
 
