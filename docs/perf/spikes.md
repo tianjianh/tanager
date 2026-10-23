@@ -1792,6 +1792,43 @@ Results: `fpga/spikes/results/product_wt_ns_aslh/`.
 
 Results: `fpga/spikes/results/product_wt2_dr185_aslh/` (with `pin_classes_pay_core0.txt`, `pin_classes_pay_core1.txt` and `path_cells_tage_core0.txt`).
 
+#### The near-final chip closes 100 MHz in one of two placements (2026-10-22)
+
+**Asked** (the coordinator: "the near-final chip, and if it closes, that's 100 MHz"): a pair of placements of `snap/product_wt2` ca66235f564b, with `TG_PMP_FILL=1` and `AltSpreadLogic_high`, at 1.0 and 1.05 ns. The snapshot is main e88f2b98 (TAGE, the L2 bank's registered D output, lever 2, DR-185) plus the forms about to land:
+- soc-2's LQ-head fix (mhreg 6da660ec), which carries DR-183 773ebd38;
+- core-2's LSU branch (lsutid c06aa48a: the thread carried down the pipe and the walker's registered VPN), merged over DR-183's `tg_lsu` as before; core-2's side of that hunk is `t_lck` alone;
+- core-2's `rt_q` with per-bank copies (rtq3c a74817fe, "B").
+
+Step 7 is not in it. The two merge conflicts were resolved in the snapshot only: the known `tg_lsu` hunk, and `tools/ci/lint_all.sh` taken from main's side, which the build doesn't read.
+
+| | **Placement 1** (`fin1_u100`, 1.0 ns) | Placement 2 (`fin1_u105`, 1.05 ns) |
+|---|---|---|
+| LUTs after `opt_design` / routed | 113,640 / 111,359 (95.1%) | 113,640 / 111,096 |
+| FFs routed, CLBs, control sets, DSPs | 57,748, 14,621, 2,830, 140 | 57,757, 14,634, 2,845, 140 |
+| WNS after `phys_opt_design` (estimated, with the uncertainty on) | −0.743 ns | −0.642 ns |
+| Routing | level 5, no trade, 2.2 h | level 5, no trade, 3.2 h |
+| **WNS / TNS on the core clock (ns)** | **+0.257 / 0.000** (0 failing endpoints) | −0.720 / −502.1 (2,112 failing) |
+| WHS (ns) | +0.010 | +0.005 |
+| `clk2x`: within / into / back (ns) | +1.736 / +1.002 / +0.914 | +1.630 / +1.104 / +0.852 |
+| Endpoints within 1 ns | 4,880 in 250 families | 13,434 in 487 families |
+
+- **The pair's verdict: it closes.** The better placement meets 100 MHz with +0.257 ns of slack and nothing failing. The other misses by 0.72 ns, the placement spread seen all day.
+- **This is the first product chip that meets 100 MHz.** It is hart 1 real, the release form, the URF, the product windows and the floorplan, at 95.1% of the LUTs.
+- **The LQ-head family is gone.** No path from `lq_head_q` is within 1 ns in either placement (the previous preview: 1,111 endpoints at −0.79 ns).
+  - The LQ state's endpoints are still near-critical from other starts.
+  - In placement 1 all are met: `lq_st_q` +0.274, `fh_data_q` +0.367, `lx_valid_q` +0.371.
+  - In placement 2 they come from core 0's `priv_dl_q` (−0.698 ns, 187 endpoints, 23 levels) and core 1's `mh_lq_q` (−0.578).
+- **Placement 1's worst endpoints (all met):** core 1's D$ miss entry `g_mn.rl_q` (+0.257), the L2's response into core 0's I$ valid bits (+0.261), and the LSU's `r_data_q`, `lq_sq_q` and `lq_size_q` (+0.27).
+- **Placement 2's worst, beyond `priv_dl_q`'s:**
+  - fetch's `rt_b_q` from `head_t_q` (−0.720);
+  - the L2's response into the I$ valid bits (−0.704);
+  - M2's data from the DTLB's CAM (−0.67);
+  - the RAS pop from the I$ data and TAGE (−0.61);
+  - the decode and rename families from the issue queues' `dep_q` and the ROB's head (about −0.53).
+- **The floorplan is OK:** 99/103/37% before `opt_design` and 76/79/32% own after placement. L2 bank 1 is near its 105% warning before `opt_design`, so it is the pblock to watch as step 7 lands.
+
+Results: `fpga/spikes/results/product_wt2_fin1_u100/` and `product_wt2_fin1_u105/`. Placement 1's routed checkpoint is `~/tanager-build/track-spikes-72f833/vivado/product_wt2_fin1_u100/routed.dcp`.
+
 #### core-2's A/B: the read thread with and without per-bank copies (2026-10-22)
 
 The fixes preview's base with core-2's newer heads (`snap/product_wt` and `snap/product_wt3`): e5b304cd, TAGE 8cf8e262, DR-183 ecfcc8a5, and core-2's walker fix a6abdc5d. The walker fix registers the head lookup's VPN, so DTLB port 2 starts at one register. Then:
