@@ -961,6 +961,18 @@ M7's exit 2 (m7-smt2-plan §1): weighted throughput against single-thread at 30,
   - The print lock moved the code, and single programs moved with it: stream alone fell 26% at 30 cycles on the RTL, because its loop's branch now straddles a 16-byte fetch block (2.41 cycles an iteration on the RTL, 0.75 in the model). minver's straddler went away (+17%).
   - The set stays frozen, since any layout has straddlers. If the front end changes how it handles them, the alone runs are repeated with the pairs on one build.
 - **The pairs** run once hart 1 fetches (M7's step 5c). The alone runs are repeated on that build (the half basis until step 6), and on the merged basis for exit 2: after step 6 on the same build, with the no-loss check against a build with hart 1 off, or before step 6 on a build with hart 1 off.
+- **Exit 2 on step 7** (main 002ea157, 2026-10-23; DR-184): `run_pair.py` with `HART1=1`, `--basis merged --band 5,10`, the pairs and every program alone with hart 1 parked, lockstep on, 516 of 516 runs in 6,415 s; then `--off-alone` against A0:
+
+  | | 30 cycles | 120 | 250 |
+  |---|---|---|---|
+  | memory + memory | 1.248 | 1.214 | 1.177 |
+  | compute + compute | 1.132 | 1.131 | 1.131 |
+  | mixed | 1.305 | 1.313 | 1.271 |
+  | **overall (42 of 42 pairs)** | **1.226** | **1.217** | **1.192** |
+
+  - **The conditions:** no pair hung or reached its cycle limit, none failed; stride with Dhrystone and with hashprobe, which hung on 5d/5e at 120 and 250, read 1.302 / 1.208 / 1.118 and 1.381 / 1.263 / 1.201. One thread alone loses nothing against the hart-1-off build (A0: its 390 alone runs on e2570c7c, which step 7's hart-1-off build reproduces cycle for cycle on a 12-run sample): the counters show 1 merge, 0 splits, 0 wakes and no split drain in 390 of 390 alone runs; the band means' geometric means are +0.06 / +0.05 / +0.03%, and no program's exceeds +0.5% (hashprobe at 250 the largest, +0.45%, its single latencies +0.07 to +1.00%).
+  - **A small steady cost:** minver (+0.13 to +0.19%) and matmult-int (+0.08 to +0.16%) run slower with hart 1 parked at every latency band, where a compute program's cycles don't move with latency: within the limits, but not limit-cycle noise.
+  - The figures match fpu-2's screening of the same commit (1.226 / 1.217 / 1.192). The JSON and logs are `ws-exit2-s7-002ea157.json` and `exit2-s7-scored-002ea157.log` in verif-2's run folder.
 
 ## 5. The test core (`tg_tcore`)
 

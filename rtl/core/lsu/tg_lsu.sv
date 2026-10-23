@@ -708,6 +708,8 @@ module tg_lsu
   logic [PA_W-1:0] lck_pa;                        // the checker's access: a registered PA and size
   logic        lck_dbl;
   tid_t        t_lck;                             // ... and its load's thread
+  logic        ck_ms, ck_ml;                      // M-mode (the data privilege's) for the checkers: the store at its
+                                                  // decision, the load in its check (registered with the split: below)
   logic        mm_hold_p;                         // the head's MMIO issue held by the profile's check (below)
   logic        lmc_v;                             // DR-183 (PMP_FILL): a parked MMIO load's check this cycle ...
   logic [LIW-1:0] lmc_lq;                         // ... its entry
@@ -732,7 +734,7 @@ module tg_lsu
   logic [0:0] sa_chk;
   if (!PMP_FILL) begin : g_pmp_ld
     tg_pmp #(.S(1)) u_pmp_ld (.pa(lck_pa), .dbl(lck_dbl), .acc(ACC_R),
-                              .m_mode(priv_d[t_lck] == PRIV_M), .d(pmp_d[t_lck]), .ok(nl_chk), .hit(pmp_hit_ld),
+                              .m_mode(ck_ml), .d(pmp_d[t_lck]), .ok(nl_chk), .hit(pmp_hit_ld),
                               .rwx(pmp_rwx_ld));
   end else begin : g_pmp_ldf
     assign nl_chk     = sa_chk;
@@ -853,6 +855,7 @@ module tg_lsu
   logic              m2_v_q, m2_clash_q, m2_hit_q, m2_fhit_q, m2_fcov_q, m2_fdat_q, m2_pt_q;
   logic [LIW-1:0]    m2_lq_q;
   tid_t              m2_t_q;                         // M2's load's thread, carried from M1
+  logic              m2_m_q;                         // ... its data privilege is M (the split's check, ck_ml)
   logic              ma3_v_q, ma4_v_q;           // DR-149: a load's miss, carried to the D$'s answer
   logic [LIW-1:0]    ma3_lq_q, ma4_lq_q;
   logic [PA_W-1:0]   m2_pa_q;
@@ -1472,7 +1475,7 @@ module tg_lsu
     tg_pmp #(.S(1)) u_pmp_st (.pa(bst ? sn_va[PA_W-1:0] : w_use ? pc_pa : s2_pa_q),
                               .dbl(bst ? sn_size == 2'd3 : w_use ? pc_dbl : s2_dbl_q),
                               .acc(bst ? sa_at : w_use ? ACC_R : s2_at_q),
-                              .m_mode(bst ? priv_d[t_sn] == PRIV_M : !w_use && s2_m_q),
+                              .m_mode(bst ? ck_ms : !w_use && s2_m_q),
                               .d(pmp_d[t_pst]), .ok(sa_chk), .hit(pmp_hit_st), .rwx(pmp_rwx_st));
     logic unused_mh;                               // (the head's MMIO check is PMP_FILL's)
     assign unused_mh = ^{mh_pa_q, mh_dbl_q, mh_m_q};
@@ -1482,7 +1485,7 @@ module tg_lsu
     acc_e            ck_acc;
     always_comb begin
       if (bst) begin
-        ck_pa = sn_va[PA_W-1:0]; ck_dbl = sn_size == 2'd3; ck_acc = sa_at; ck_m = priv_d[t_sn] == PRIV_M;
+        ck_pa = sn_va[PA_W-1:0]; ck_dbl = sn_size == 2'd3; ck_acc = sa_at; ck_m = ck_ms;
       end else if (w_use) begin
         ck_pa = pc_pa; ck_dbl = pc_dbl; ck_acc = ACC_R; ck_m = 1'b0;
       end else if (s2_go) begin
@@ -1490,7 +1493,7 @@ module tg_lsu
       end else if (mh_req) begin
         ck_pa = mh_pa_q; ck_dbl = mh_dbl_q; ck_acc = ACC_R; ck_m = mh_m_q;
       end else if (l_ask && !(pfc_ask && pfc_pri)) begin
-        ck_pa = lck_pa; ck_dbl = lck_dbl; ck_acc = ACC_R; ck_m = priv_d[t_lck] == PRIV_M;
+        ck_pa = lck_pa; ck_dbl = lck_dbl; ck_acc = ACC_R; ck_m = ck_ml;
       end else begin
         ck_pa = pfc_pa; ck_dbl = 1'b0; ck_acc = ACC_X; ck_m = pfc_m && !pfc_page;
       end
@@ -1620,6 +1623,11 @@ module tg_lsu
   logic rs_q;                       // the core has been reset: the checks wait for it (tg_rob)
   initial rs_q = 1'b0;
   always @(posedge clk) if (rst) rs_q <= 1'b1;
+  // The store's M-mode flag for the checkers (ck_ms: registered with the split) is the data privilege's at its
+  // decision whenever its thread's flush doesn't squash it (the load's: in g_split)
+  always_ff @(posedge clk)
+    if (rs_q && !rst && sn_v && !kill_t[t_sn])
+      assert (ck_ms == (priv_d[t_sn] == PRIV_M)) else $error("tg_lsu: the store's M-mode flag differs from priv_d");
   // (DR-183, core-2's check) The head's MMIO check request is the head's of a cycle ago, re-derived every cycle (a
   // flush ends it the cycle after): at its grant its entry is still that MMIO load, waiting for its check, as the
   // request captured it
@@ -2216,6 +2224,7 @@ module tg_lsu
       ma4_lq_q    <= ma3_lq_q;
       m2_lq_q     <= m1_lq_q;
       m2_t_q      <= m1_t_q;
+      m2_m_q      <= priv_d[m1_t_q] == PRIV_M;
       m2_pa_q     <= m1pa;
       m2_clash_q  <= m1_clash;
       m2_hit_q    <= dc_hit;
@@ -2402,6 +2411,7 @@ module tg_lsu
     logic [1:0]  ln_size_q, sn_size_q;
     logic [SIW-1:0] sn_sq_q;               // (the index; the wrap bit is not read)
     tid_t        sn_t_q;
+    logic        sn_m_q;                   // its data privilege is M (ck_ms)
     logic        cl_v_q;                   // a store wrote the D$ in the AG cycle of M1's op ...
     logic [PA_W-1:4] cl_row_q;             // ... this row
     logic        cl2_v_q;                  // #11: ... or a cycle before it (the RAM is written a cycle late)
@@ -2418,6 +2428,7 @@ module tg_lsu
       sn_size_q <= sta_ag_pl.mem_size;
       sn_sq_q   <= sta_ag_pl.sq[SIW-1:0];
       sn_t_q    <= sta_ag_pl.tid;
+      sn_m_q    <= priv_d[sta_ag_pl.tid] == PRIV_M;
       cl_row_q  <= st_pa[PA_W-1:4];
       cl2_v_q   <= !rst && DC_PORTB_WREG && cl_v_q;
       cl2_row_q <= cl_row_q;
@@ -2458,6 +2469,17 @@ module tg_lsu
     assign lck_pa  = m2_pa_q;
     assign lck_dbl = m2_dbl_q;
     assign t_lck   = m2_t_q;
+    // The checkers' M-mode from registers, a stage ahead (timing: priv_dl_q selected by the thread had headed the
+    // shared checker's M-mode compares, into the LQ state's enable; core-2's suggestion). Exact: the data privilege
+    // changes only as a trap, an xRET or a serialising CSR write commits, and the flush the next cycle squashes the
+    // access caught in between (asserted)
+    assign ck_ms   = sn_m_q;
+    assign ck_ml   = m2_m_q;
+`ifndef SYNTHESIS
+    always_ff @(posedge clk)
+      if (rs_q && !rst && (m2_pck_q || m2_mck_q || (m2_rck_q && m2_v_q)) && !kill_t[t_lck])
+        assert (ck_ml == (priv_d[t_lck] == PRIV_M)) else $error("tg_lsu: the load check's M-mode flag differs from priv_d");
+`endif
     // DR-183 (PMP_FILL): on the shared checker, in a cycle it grants (l_gnt); a replay whose check is pending asks
     // too. Not granted: the load does not complete (l_nok), an MMIO load keeps its check pending (lmc_*)
     assign l_ask   = PMP_FILL && (m2_pck_q || m2_mck_q || (m2_rck_q && m2_v_q));
@@ -2582,12 +2604,14 @@ module tg_lsu
     assign l_ask   = PMP_FILL && (m1_pck_q || m1_mck_q || (m1_rck_q && m1_v_q));
     assign l_nok   = m2_lng_q;
     logic unused_rck;                              // (the check is in M1 here)
-    assign unused_rck = m2_rck_q;
+    assign unused_rck = ^{m2_rck_q, m2_m_q};
     assign lmc_v   = PMP_FILL && m1_mck_q;
     assign lmc_lq  = m1_lq_q;
     assign lck_pa  = m1_pa_q;
     assign lck_dbl = lq_size_q[m1_lq_q] == 2'd3;
     assign t_lck   = m1_t_q;
+    assign ck_ms   = priv_d[t_sn] == PRIV_M;
+    assign ck_ml   = priv_d[t_lck] == PRIV_M;
     assign l_den   = m2_lden_q;
     assign lm_den  = m2_mden_q;
     assign lm_st   = m2_mden_q;
