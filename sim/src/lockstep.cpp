@@ -932,13 +932,28 @@ class lockstep_impl_t {
     if (!multi() || (n != 4 && n != 8)) return false;
     const size_t hi = size_t(&h - harts_.data());
     const uint64_t m = size_mask(r.mem_size), dw = w.pa & ~7ull;
-    std::vector<size_t> past;  // newest first
+    // newest first, each with the bytes of the access it may be read past on: as in hw_accept, a write of its own
+    // hart, or another hart's atomic recorded ATOMIC_EARLY cycles or more before it, closes only its own bytes to
+    // the older writes (seed 453487 of the 10-23 checks: an amominu.w of its own on the upper word hid the other
+    // hart's sw on the lower word, which both were still in its store queue). A plain store of another hart on
+    // closed bytes only ends the list: what follows the AMO is every such store from the oldest it read past.
+    std::vector<size_t> past;
+    std::vector<uint8_t> pmask;
+    uint8_t closed = 0;
     for (size_t k = hw_.size(); k-- > 0 && past.size() < 8;) {
       const hart_write_t& e = hw_[k];
       if (!e.len || e.pa + e.len <= w.pa || e.pa >= w.pa + n) continue;
-      if (e.hart == hi || h.nrec - e.base[hi] >= cfg_.hart_window || (e.atomic && e.cycle + ATOMIC_EARLY <= r.cycle))
-        break;
+      if (h.nrec - e.base[hi] >= cfg_.hart_window) break;
+      uint8_t em = 0;
+      for (unsigned b = 0; b < e.len; b++)
+        if (e.pa + b >= w.pa && e.pa + b < w.pa + n) em |= uint8_t(1u << (e.pa + b - w.pa));
+      if (e.hart == hi || (e.atomic && e.cycle + ATOMIC_EARLY <= r.cycle)) {
+        closed |= em;
+        continue;
+      }
+      if (!(em & ~closed)) break;
       past.push_back(k);
+      pmask.push_back(em & ~closed);
     }
     auto lit = late_.find(dw);
     const std::vector<late_t> cands = lit == late_.end() ? std::vector<late_t>() : lit->second;
@@ -965,6 +980,7 @@ class lockstep_impl_t {
           for (unsigned b = 0; b < e.len; b++) {
             if (e.pa + b < w.pa || e.pa + b >= w.pa + n) continue;
             const unsigned i = unsigned(e.pa + b - w.pa);
+            if (!(pmask[j] >> i & 1)) continue;
             opts[i].assign(1, {e.old[b], HW_NONE});  // the oldest passed write that reaches it decides
             if (e.alt_mask >> b & 1) opts[i].push_back({e.alt[b], HW_NONE});
             cover |= uint8_t(1u << i);
