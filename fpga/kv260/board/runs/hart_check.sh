@@ -40,9 +40,14 @@ echo "== each hart alone"
 printf '%s\n' '#include <stdio.h>' 'int main(void){unsigned long s=0;for(unsigned long i=0;i<100000000UL;i++)s+=i^(i>>3);printf("%lu\n",s);return 0;}' > t.c
 gcc -O2 -o t t.c && cp $H/stress/mt.c . && gcc -O2 -pthread -o mt mt.c || bad "build" "t.c or mt.c does not build"
 while read -r c h; do
-  out=$(taskset -c "$c" $H/baseline/bin/coremark-a 0 1 2>&1)
+  out=$(taskset -c "$c" $H/baseline/bin/coremark-a 0 1 2>&1); echo "$out" > "coremark_cpu$c.txt"
   ips=$(echo "$out" | awk -F': *' '/Iterations\/Sec/ { print $2 }')
-  echo "$out" | grep -q "Correct operation validated" && ok "coremark-a cpu$c (hart $h)" "$ips iterations/s" || bad "coremark-a cpu$c (hart $h)" "$(echo "$out" | grep -i -E "error|valid" | head -3 | tr '\n' ' ')"
+  # A CRC error ("[0]ERROR! list crc ...") is a wrong result. "Must execute for at least 10 secs" alone is CoreMark's
+  # timing rule: its sizing picked too few iterations after a slow calibration, so it is a note, not a failure.
+  if echo "$out" | grep -q "Correct operation validated"; then ok "coremark-a cpu$c (hart $h)" "$ips iterations/s"
+  elif echo "$out" | grep -q "Must execute for at least 10 secs" && ! echo "$out" | grep -q -E "ERROR! *(seed|list|matrix|state)|\]ERROR"; then
+    ok "coremark-a cpu$c (hart $h)" "$ips iterations/s (note: under 10 s, CoreMark's timing rule; CRCs right)"
+  else bad "coremark-a cpu$c (hart $h)" "$(echo "$out" | grep -i -E "error|valid" | head -3 | tr '\n' ' ')"; fi
   s=$(date +%s.%N); r=$(taskset -c "$c" ./t); e=$(awk -v a="$s" -v b="$(date +%s.%N)" 'BEGIN { printf "%.2f", b - a }')
   [ "$r" = 5007905533300608 ] && ok "t cpu$c (hart $h)" "$e s" || bad "t cpu$c (hart $h)" "printed $r"
 done < harts.txt
