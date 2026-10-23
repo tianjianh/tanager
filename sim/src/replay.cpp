@@ -198,9 +198,10 @@ bool may_read(uint32_t bits, unsigned r) {
          r == 2;
 }
 
-// An instruction that orders the hart's memory accesses: an AMO, LR or SC, FENCE or FENCE.I
+// An instruction that orders the hart's memory accesses: an AMO, LR or SC, FENCE or FENCE.I, or SFENCE.VMA, which
+// orders its stores to page tables before the walks after it (a record's fetch reads memory without the buffer)
 bool orders_memory(uint32_t bits) {
-  return (bits & 3) == 3 && (is_amo_insn(bits) || (bits & 0x7f) == 0x0f);
+  return (bits & 3) == 3 && (is_amo_insn(bits) || (bits & 0x7f) == 0x0f || (bits & 0xfe007fff) == 0x12000073);
 }
 
 struct pending_t {
