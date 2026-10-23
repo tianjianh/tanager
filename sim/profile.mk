@@ -159,9 +159,16 @@ ifneq ($(filter-out 1 2 3 4,$(TAGE_NT)),)
   $(error TAGE_NT must be 1 to 4 or unset (got "$(TAGE_NT)"))
 endif
 TAGE_SET := $(foreach v,NT LI TW BI,$(if $(TAGE_$(v)),TAGE_$(v)=$(TAGE_$(v))))
+# DR-185's rename payload LUTRAM written through a register (tg_core_pkg's TG_PAY_WREG, 1 by default) or directly
+# (PAY_WREG=0: about 770 flip-flops a core fewer, if decode's paths close): the other form for lint only
+PAY_WREG ?=
+ifneq ($(filter-out 0 1,$(PAY_WREG)),)
+  $(error PAY_WREG must be 0, 1 or unset (got "$(PAY_WREG)"))
+endif
 # The lint-only switches together, for the lint targets; a build that runs programs refuses them.
 LINT_ONLY_DEF := $(DE_DEF) $(if $(ROB_STORE_REPORT_LATE),+define+TG_ROB_STORE_REPORT_LATE=$(ROB_STORE_REPORT_LATE)) \
                  $(if $(COMMIT_TRACE),+define+TG_COMMIT_TRACE=$(COMMIT_TRACE)) \
-                 $(foreach v,NT LI TW BI,$(if $(TAGE_$(v)),+define+TG_TAGE_$(v)=$(TAGE_$(v))))
+                 $(foreach v,NT LI TW BI,$(if $(TAGE_$(v)),+define+TG_TAGE_$(v)=$(TAGE_$(v)))) \
+                 $(if $(PAY_WREG),+define+TG_PAY_WREG=$(PAY_WREG))
 LINT_ONLY_SET := $(if $(DE_STAGE),DE_STAGE=$(DE_STAGE)) $(if $(ROB_STORE_REPORT_LATE),ROB_STORE_REPORT_LATE=$(ROB_STORE_REPORT_LATE)) \
-                 $(if $(filter 0,$(COMMIT_TRACE)),COMMIT_TRACE=0) $(TAGE_SET)
+                 $(if $(filter 0,$(COMMIT_TRACE)),COMMIT_TRACE=0) $(TAGE_SET) $(if $(PAY_WREG),PAY_WREG=$(PAY_WREG))
