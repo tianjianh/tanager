@@ -17,8 +17,8 @@
 // one request every two cycles; a full queue drops a request. The update: the provider's counter moves toward the
 // outcome; its useful bits move when its direction differed from the next match's (or the
 // base's); without a provider the base counter moves. A wrong fetch-time direction allocates one
-// sub-entry, invalid or not useful, in a longer table than the provider, else every candidate's
-// useful bits age.
+// sub-entry in a longer table than the provider (the shortest with a candidate: an invalid way first,
+// else one not useful; way 0 before way 1), else every candidate's useful bits age.
 module tg_tage
   import tg_pkg::*;
 #(
@@ -50,7 +50,10 @@ module tg_tage
   input  logic [CW-1:0]        t_pred,
   output logic                 q_v,
   output logic [FW-1:0]        q_ftq,
-  input  logic [NT*(LI+TW)+BI-1:0] q_ix
+  input  logic [NT*(LI+TW)+BI-1:0] q_ix,
+  // every queued request's FTQ entry, oldest first, and how many (each thread's oldest is the FTQ's to keep, M7)
+  output logic [3:0][FW-1:0]   q_all,
+  output logic [2:0]           q_n
 );
   localparam int IXW = NT * (LI + TW) + BI;
   // history lengths, geometric to 40 bits: by table count (the M6 size study's first pass)
@@ -165,6 +168,10 @@ module tg_tage
   end
   assign q_v   = qn_q != '0;
   assign q_ftq = q_q[0].ftq;
+  for (genvar k = 0; k < QN; k++) begin : g_qall
+    assign q_all[k] = q_q[k].ftq;
+  end
+  assign q_n = 3'(qn_q);
 
   // ---- Memories: port A predicts, port B trains ----
   ent_t [NT-1:0]        ra, rb, wb;
@@ -174,7 +181,8 @@ module tg_tage
   assign b_we = t2_v_q;
   for (genvar t = 0; t < NT; t++) begin : g_tab
     logic [EW-1:0] da, db;
-    tg_ram_tdp #(.DEPTH(1 << LI), .WIDTH(EW)) u_mem (
+    // (F, spikes.md §7.1: no depth cascade, the two RAMB36 side by side: 1.19 ns clock-to-out, not 1.73)
+    tg_ram_tdp #(.DEPTH(1 << LI), .WIDTH(EW), .CASCADE_HEIGHT(1)) u_mem (
       .clk, .en_a(re), .we_a(1'b0), .addr_a(ix_idx(ix_f1, t)), .wdata_a('0), .rdata_a(da),
       .en_b(b_en), .we_b(b_we), .addr_b(t2_v_q ? ix_idx(t2_q.ix, t) : ix_idx(q_ix, t)),
       .wdata_b(wb[t]), .rdata_b(db));
@@ -242,14 +250,14 @@ module tg_tage
 
   // ---- T2: the update ----
   always_comb begin
-    int  pt, pw, at, aw;
+    int  pt, pw, at, aw, nw;
     logic pdir, adir, done;
     logic [SW-1:0] s;
     done = 1'b0;
     s  = t2_q.slot;
     wb = rb;
     bwb = brb;
-    pt = -1; pw = 0; at = -1; aw = 0;
+    pt = -1; pw = 0; at = -1; aw = 0; nw = -1;
     for (int t = NT - 1; t >= 0; t--)
       for (int w = 0; w < 2; w++)
         if (rb[t][w].v && rb[t][w].tag == ix_tag(t2_q.ix, t) && rb[t][w].slot == s) begin
@@ -270,13 +278,21 @@ module tg_tage
       if (!t2_q.taken && brb[s] != 2'd0) bwb[s] = brb[s] - 1'b1;
     end
     if (t2_q.pred != t2_q.taken && pt < NT - 1) begin
+      // An invalid way before a not-useful one: taking way 0 whenever it was either, two branches sharing an entry
+      // evicted each other's fresh way-0 sub-entry for ever while way 1 stayed invalid (ud's loop exits; smt2-study,
+      // area_recovery §6.16)
       for (int t = 0; t < NT; t++)
-        if (t > pt && !done)
-          for (int w = 0; w < 2; w++)
-            if (!done && (!rb[t][w].v || rb[t][w].u == 2'd0)) begin
-              wb[t][w] = '{v: 1'b1, slot: s, tag: ix_tag(t2_q.ix, t), ctr: t2_q.taken ? 3'd4 : 3'd3, u: 2'd0};
-              done = 1'b1;
-            end
+        if (t > pt && !done) begin
+          if      (!rb[t][0].v)        nw = 0;
+          else if (!rb[t][1].v)        nw = 1;
+          else if (rb[t][0].u == 2'd0) nw = 0;
+          else if (rb[t][1].u == 2'd0) nw = 1;
+          else                         nw = -1;
+          if (nw >= 0) begin
+            wb[t][nw] = '{v: 1'b1, slot: s, tag: ix_tag(t2_q.ix, t), ctr: t2_q.taken ? 3'd4 : 3'd3, u: 2'd0};
+            done = 1'b1;
+          end
+        end
       if (!done)
         for (int t = 0; t < NT; t++)
           if (t > pt)

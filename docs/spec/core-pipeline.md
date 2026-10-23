@@ -97,7 +97,7 @@ M2 is the plan's "conservative out-of-order" core. It must pass riscv-tests (`rv
   - **Straddlers:** a 32-bit instruction that straddles in from the previous block is its next block's first instruction, its last parcel at slot 0. F2 keeps its first half from the previous block and decodes it from both halves; it is a candidate like the others (a branch with TAGE's slot-0 direction, a JAL, a JALR the stack or the micro-BTB predicts), to the block's address − 2 + imm. As the exit, the block delivers only it. Its history bit, stack operation and FTQ slot follow from slot 0.
   - **History:** one bit per conditional branch, in program order. The speculative history takes each delivered block's branches as predicted; commit's takes each retiring branch's outcome (the same branches, on the right path). A flush copies commit's into it. Decode's redirect rebuilds it from the redirecting instruction's FTQ entry, with one shift of 0, 1 or 2 (a block holds at most two branches). A delivered block's bits go in a cycle later (timing): the lookup and the FTQ take the history with them applied, so they see what they saw before (asserted).
   - **FTQ** (`FTQ_ENTRIES`, 32, LUTRAM): one entry per delivered block, with the history before the block, its branches' slots and directions, and the indices and tags it read TAGE with; and (`RAS_FE`) the stack's pointer, count and top before the block. Each instruction carries its block's entry to the ROB. Decode's redirect drops the later entries; commit frees the earlier ones, but none the training queue still names; a flush drops every block but keeps those (its pointers go to the head's next entry). F2 holds while it is full.
-  - **Training at commit:** each retiring conditional branch (a straddler at slot 0 of the block its last parcel is in) sends its outcome, its fetch-time direction and its block's FTQ entry to a queue in `tg_tage`; the head's indices and tags are read from the FTQ as it leaves the queue. Port B reads the entries and writes them back a cycle later (one update every two cycles; a full queue drops one). The provider's counter moves toward the outcome, its useful bits when it disagreed with the next match; without a provider, the base counter moves. A wrong fetch-time direction allocates a sub-entry (invalid or not useful) in a longer table, else ages the candidates.
+  - **Training at commit:** each retiring conditional branch (a straddler at slot 0 of the block its last parcel is in) sends its outcome, its fetch-time direction and its block's FTQ entry to a queue in `tg_tage`; the head's indices and tags are read from the FTQ as it leaves the queue. Port B reads the entries and writes them back a cycle later (one update every two cycles; a full queue drops one). The provider's counter moves toward the outcome, its useful bits when it disagreed with the next match; without a provider, the base counter moves. A wrong fetch-time direction allocates a sub-entry in a longer table (the shortest with a candidate: an invalid way first, else one not useful), else ages the candidates.
   - **Not yet:** a periodic reset of the useful bits; per-hart histories (M7).
 - **Direction:** a 2-bit counter table, 512 entries in LUTRAM, indexed by PC[10:2].
   - **It is not reset, by design:** LUTRAM is never reset (`tg_ram_lut`), and clearing 512 entries through one write port takes 512 cycles (§10).
@@ -133,6 +133,63 @@ The redirecting instruction stays in the group; younger slots are dropped. Its `
   - DE1 decodes the queue head into registers. DE2 forms the group and checks the predictions from them.
   - The queue's take then counts a group as ending only at the instructions that go alone.
   - Every redirect costs one more front-end cycle: bench +2.5% / +2.3% (st / smt2).
+
+### 3.5 Per thread (M7's step 5b, DR-175; docs/spec/threading.md)
+With hart 1 (`HART1_ON`) the front end runs a **stream** per thread; without it every stream index is 0 and nothing
+below changes a cycle.
+- **F1, F2, the registered action and F3** each hold one block and its stream. Per stream: its next block when F1 holds
+  the other's (a waiting PC), its park state (an I$ miss, an ITLB walk) with the parked block's PC and PA, its stop after
+  a fault block, its faulting page, its straddler. **F1 picks** the other stream's waiting block when its own block moves
+  on (round robin, D7; ICOUNT comes with step 7's caps), and an empty or stopped F1 takes a waiting block; the select is
+  at fpc_q's input, the F1 loop that fix G (below) cleared. F1's ITLB lookup, privilege, Sv39 mode and PMP descriptors
+  are its block's hart's; the micro-BTB is looked up with F1's thread and trained with the trained branch's
+  (`upd_tid`); TAGE reads with F1's stream's history and takes the stream as the block address's top bit.
+- **A full queue parks its stream at F2 (5e, smt2_report §13.16):** a block whose thread's queue cannot take it waited
+  in F3, and F3, F2 and F1 with it, so the other thread's fetch waited for this one's decode. Now, while the other
+  stream waits for the pipe (its block in F1, or its next one waiting), F2 passes a block on only if it fits its
+  thread's queue beside that thread's block in F3, each counted at a bound from registers (the parcels from its entry
+  and a straddler's completion; the queue's counts, `tg_fetch_compact`'s `occ_o`). A block that does not fit parks its
+  stream as an I$ miss does, undelivered (no FTQ entry, its later blocks dropped), and the stream restarts at it once
+  its queue has the room. It parks only when decode has not read that thread's queue for 2 cycles while the queue held
+  instructions (`QP_WAIT`: its RN register holds a stalled group); a queue that drains is read every other cycle, and
+  its block waits in F3 a cycle or two as before, which costs less than a refetch. At 30 cycles: 1.293 with no
+  starving pair, against 5d's 1.248 with three (memory pairs 1.296 → 1.348, mixed 1.252 → 1.356, compute 1.198 →
+  1.191). TG-FQPARK counts the parks.
+- **Redirects per stream:** a flush and decode's redirect may come in one cycle for different threads and both apply;
+  for one stream the flush wins. A redirect kills only its stream's blocks in F1, F2 and F3 and its pending action; F2's
+  action likewise drops only its stream's later blocks (the other stream's block in F2 waits a cycle, and the I$ data
+  and TAGE are read only when F2 takes F1's block, `f2_ld`).
+- **Shared:** the I$, its refill and prefetch engines (one Get each), the valid sweep and generations, the micro-BTB,
+  TAGE's tables, the ITLB. The refill engine serves a stream already parked before one parking now, and a refill's
+  end restarts the streams parked on its line; one fetch walk at a time, a waiting stream's first.
+- **The histories and the FTQ** per stream: the speculative and committed histories, the FTQ's pointers, its LUTRAMs
+  with the stream as an address bit; each stream keeps every entry TAGE's training queue names for it. **A
+  return-address stack per thread** (two `tg_ras`). **The instruction queue** per thread at `{tid, row}` (16 entries
+  each), with its own straddler; decode reads one thread's queue a cycle, the other's after a take, an empty one
+  skipped (D7). With hart 1 (5d) only a thread whose RN register takes a group next cycle (rename's `acc_o`, §5.4)
+  is read, so decode never waits on a register holding a stalled group. **Decode** reads its group's hart's state
+  (misa, FS, frm, the mode, TVM/TW/TSR).
+- **Measured for step 7** (the coordinator): cycles an F2 hold stalls another stream's fetch, and cycles a group at
+  rename holds the other thread's group in decode (`TG-STALL2` on stderr).
+- **Timing fixes** (spikes.md §7.1, approved, exact): G, f1_fault out of the next-PC select (a faulting block's stream
+  stops, so its next address is never used); A, `krt_q` the stack's top; B and E, the exit's target and `tsrc` selected
+  after F3's register; C, the stack's late operations without the flush gate (asserted never together); D, the FTQ
+  entry's branch bits written a cycle late (decode reads an entry three cycles after delivery at the earliest); F,
+  TAGE's tagged tables without the depth cascade.
+- **Hart 1 runs (5c):** both streams start at the boot PC. A thread that renamed a serial uop waits at rename for
+  its flush, which drops whatever it fetches meanwhile (`blk_o`, §5.4): F1 treats its stream as stopped, F2 passes
+  its blocks on without an FTQ entry (its FTQ may be full of the older instructions' blocks), and the queue empties
+  and takes them without writing them (`drop_t`), so it holds none of the shared stages. In another stream's
+  redirect cycle F2's block goes on to F3 with its FTQ entry (only its own stream's redirect stops it), so the
+  stack's operation of that block and decode's repair of the other stream may come in one cycle: each goes to its
+  thread's stack (`ras_tid`, `ras_rtid`). Two streams missing one line: the tags are compared in F1, a cycle and
+  more before F2's action parks the stream, so a refill or a held line's validation ending in between left it
+  parking on a line already valid; the last line made valid (three cycles) restarts it at once and no second
+  refill fills another way. A simulation check: every instruction the queue hands decode names an FTQ entry its
+  stream holds.
+- **Checks:** `tests/unit/fetch` runs two harts' streams under random flushes and decode redirects (both at once too),
+  FENCE.I, misses and memory delays, and checks every instruction decode takes against its thread's stream; it found
+  the two bugs above (the reads, the engine's starvation) before hart 1 ran.
 
 ## 4. Decode (`tg_decode`)
 
@@ -186,6 +243,14 @@ The redirecting instruction stays in the group; younger slots are dropped. Its `
 ### 5.3 DS stage (also in `tg_rename`)
 - Writes the ROB entries (§8.1), the issue-queue rows (`tg_iq` dispatch port *k* = group slot *k*) and the LQ/SQ entries.
 - **The DS payload** (`ds_uop_q`, `ds_ren_q`) loads RN's group whenever DS is free (c02be92), not only when RN fires, so its enable does not wait for rn_fire, the end of rename's longest path. `ds_valid_q` says whether RN fired; every reader of the payload is gated by a valid slot or `ds_fire`.
+- **The fields rename never reads wait in a LUTRAM (DR-185).** These are the PC, the instruction bits, the prediction state, the immediate, the branch target and the units' controls (`pay_t`, about 385 bits a slot).
+  - **Where they go:** a LUTRAM beside rename (`u_pay`), not the RN and DS registers. Those keep the fields rename reads (`ren_of`: the thread, the class, the register fields and their enables, the serial, exception, AMO and FP flags) and the group's row (`rn_s_q`, `ds_s_q`). DS reads its group's row and rejoins the two (`with_pay`, `ds_full`) for the queues and the ROB.
+  - **Rows:** a thread has at most two groups between decode and dispatch (its RN register's and DS's), so with three rows a thread (`{thread, row}`) one is always free.
+  - **The write:** decode writes its group every cycle into its thread's free row, taken or not. The row is chosen from registers alone, so the write port waits for no fire, and an untaken group is written again next cycle.
+  - **No recovery:** a dropped or flushed group's row is simply free again; there are no pointers to restore.
+  - **`PAY_WREG` (`TG_PAY_WREG`, on by default):** the write goes through a register and lands a cycle later, so decode's paths end at flip-flops beside decode, not at the LUTRAM's inputs. A group taken in cycle c is written at the end of c + 1 and read at DS at c + 2 at the earliest. `PAY_WREG=0` writes directly, about 770 flip-flops a core fewer, for when those paths close.
+  - **Check:** a simulation-only assertion checks that the split loses no field (`with_pay(ren_of(u), pay_of(u)) == u` for every group decode writes).
+  - **Why:** the payload rode through both threads' RN registers (5d) and DS, with the RN registers' select on every bit. Taking it out removed about 4.3K flip-flops from the product chip (spikes-2's preview, before the registered write), and the decode → RN payload paths among the chip's worst (the immediate −1.69 ns, the branch target −1.67).
 - **MX row destinations** (`rowdst`, the destination of the op each ALU-queue row holds) are LUTRAM, one bank per DS slot. A row's value is the XOR of the banks: each slot writes only its own bank, at the row it takes (917189a).
 - **Dependency vector** = one-hot of the pending sources' columns **AND NOT W**. A store's data register (its rs2) is not a source of its IQ-STA row (`STA_BASE`, on by default, DR-169): the address op reads rs1 alone, and the SQ entry captures the data when its register is written (core-lsu.md, Stores). `STA_BASE=0` makes the row wait for both. A column is only reallocated after its producer has set its W bit and written the register file (a tag 2 cycles after the write, an LLT when released), so a W bit seen at DS still belongs to the producer RN saw; dropping it closes the window between RN and DS that the stale-dependency rule does not cover.
 - **Allocation (AR-1):** RN gives out tags with the LLTs, from a free pool, and clears their W bits (`wid_alloc`).
@@ -197,9 +262,11 @@ The redirecting instruction stays in the group; younger slots are dropped. Its `
 - **Maps:** every RAT and CRAT bank holds a map per thread at {tid, register} (RAM form, 64 deep; plan §6.2 rule 12). Reads and RN writes use `t_rn`, CRAT writes the commit thread. The renamed-since-flush bits are per thread, and a flush clears its thread's. The reset sweep writes the running thread's map (`RUN_TID`).
 - **Free lists (D3):** each bank's lists in RAM form, at {tid, row} in the same interleaved LUTRAMs. Each thread has a speculative head, a committed head, a tail and the two counts. Pops come from `t_rn`'s list; pushes and the commit count go to the commit thread's; a flush recovers its thread's list. A register goes back to the list of the thread that frees it, which is the one that allocated it, so each thread keeps its registers. In merged mode (the only mode until step 3b adds the split) the running thread's lists are the lists of §5.2 and the other thread's are empty. `tests/unit/freelist` checks the lists against a model of each thread's list, in both modes.
 - **Window allocation:** the ROB, LQ and SQ tails, their room flags and the serialisation block are per thread. Each thread's room flags are computed from its registers and the group's thread picks them at the end, so the compares stay off the steering.
-- **A flush** recovers its thread's tails, lists and map, returns the tags and LLTs that thread holds (each records its thread when given out), and clears the RN and DS stages only when they hold that thread's group. The divide and FP counts stay shared until two threads run (step 5).
+- **A flush** recovers its thread's tails, lists and map, returns the tags and LLTs that thread holds (each records its thread when given out), and clears the RN and DS stages only when they hold that thread's group. The divide count and the FP counts not yet issued are shared totals, so each room check reads one register; with hart 1 each thread's share is kept beside them (`div_done_tid`, the FP issue's tid) and a flush takes only its thread's share off (5c).
 - **Split mode (`SPLIT`, D1):** the tails wrap in the thread's halves and the room checks count against the halves' sizes. The registers are not split: the running thread keeps the lists and homes above.
-- **Two threads (step 5):** the lists divide (`SPLIT_L`, `FIRST_S`) and thread 1 gets its homes (D4: bank 1's indices 0–31 and F1's, x0 staying bank 0's register 0; `tg_rmap`'s `HSPLIT`, a 64-cycle sweep). A static division alone deadlocks: the banks are writer-sharded, so a thread can need all its architectural registers plus one in one bank (B1 through MUL/DIV, B2 through loads, F1 through FP loads, F0 through FP ops). Every bank must hold both threads' architectural registers plus one, and a starved thread must be able to take the sibling's spare registers (smt2-study's model, smt2_report §13). The integer banks of 64 hold that; the FP banks of 64 do not (32 + 32 + 1). D3's revision is the coordinator's call (threading.md).
+- **Hart 1 (step 5, `HART1_ON`):** the lists divide (`SPLIT_L`, `FIRST_S`) and thread 1 gets its homes (D4, refined under DR-154: x1–x16 at bank 1's indices 0–15, x17–x31 at the load bank's 0–14, f0–f31 at F1's 0–31, x0 staying bank 0's register 0; `tg_rmap`'s `HSPLIT`, a 64-cycle sweep; `tg_core_pkg` `H1_*`). Each bank's registers above the homes are divided, the lower half thread 0's: bank 0 16/16, bank 1 24/24, the load bank 24/25, F0 and F1 16/16. A static division alone deadlocks: the banks are writer-sharded, so a thread can need all its architectural registers plus one in one bank (B1 through MUL/DIV, B2 through loads, F1 through FP loads, F0 through FP ops). So (D3 revised) a starved thread takes its sibling's spare registers by **transfers**: when the rename group's thread needs more of a bank's registers than its list holds (registered, `want`), the bank's list moves its sibling's last entry (tail − 1, free both speculatively and after any flush) to the taker's tail as a committed push, one a cycle, in a cycle with no push to the bank and no flush; the sibling keeps 1 in the FP lists (but while it is blocked, below) and, from 5d, gives even its last in the integer lists (`give_last`): a two-wide group can need two registers in a bank that both harts' 62 architectural registers fill to two short of full (a trap return restores every register with loads, into the load bank), and keeping 1 there left each hart one short for good (soc-2's one-core two-thread Linux boot, stopped after both harts' OpenSBI mret); a second read port per sub-bank reads it. A sibling asleep in WFI gives up its spares this way. **FP renaming across the banks (DR-179, replacing 5a's FP banks of 96):** two harts' 32 f registers can fill a bank of 64, and so can one hart's beside its parked sibling's, so with hart 1 rename picks each FP destination's bank, in slot order: its own (P4's results F0, FP loads F1) while its thread's list there has one left after the group's earlier slots (the count flags `fcv`, registers), else the other. A crossed register frees to its bank's list (the name carries the bank); either bank's write port takes P4's result or a load's (`tg_fprf`), P4 first, and a load meeting P4's write in its bank waits in the LSU (core-lsu.md, FP loads). rn_ok's check is per bank as before, so a group fits when its FP destinations fit both lists together. A group short in both banks asks both for a transfer. While the sibling is blocked (parked in WFI, or behind a serial uop), a destination that crosses also asks its own bank for one, and the blocked sibling gives its last FP spare too (`give_last`): a lone hart then takes the sleeping sibling's spares rather than crossing into the bank P4 writes, where its loads wait for P4, and its FP restores run as with FP 96. Between two running harts a crossing takes nothing (taking would only move the shortage). Hart 1 off: no crossing (cycle-identical). With hart 1 on and hart 0 alone (5a), hart 0 takes about 20 registers on CoreMark (banks 1 and 2) and runs it 0.03% slower than the split window alone. `tests/unit/freelist` checks the transfers against its model every cycle. With hart 1 running (5c) regress transfers in every bank (about 2,800 in bank 0, 6,100 in bank 1, 5,800 in the load bank a run).
+- **A thread behind a serial uop** (`block_q`, until its flush) with hart 1 (5c): its later group at RN can never fire before the flush that kills it, so RN drops it and takes decode's next group (the other thread's), and fetch and the queue drop its later instructions (`blk_o`, §3.5). Without this a hart parked in WFI held RN, F2 and the queue for the WFI's whole wait.
+- **An RN register per thread** with hart 1 (5d, DR-178 as amended; smt2_report §13.14's option C): decode's group goes into its thread's register (`rn_v_q`, `rn_u_q`), and rename works on one register a cycle (`sel_q`), so a group that cannot rename waits in its own register and never holds the other thread's. The select is a register, chosen a cycle ahead from registered state: the other thread's register when its group looks able to rename (its ROB, LQ and SQ halves and the unit counts have room for it, its queues' banks have rows, a serial uop's window has drained; a group just taken from decode counts as able), else the current one while it holds a group; two able threads alternate. The free registers and the tags are left to the attempt itself (no pair run held a group for them). Its multiplexer sits after the RN registers, so decode's path into them is unchanged. With hart 1 a group also renames only when its queues' banks have rows for it (`st_free`, STEER_LA's flags a group ahead), so a group short of rows waits in its RN register instead of at DS, the one stage both threads pass. A thread behind a serial uop has its group dropped from its register. `acc_o` tells decode which registers take a group next cycle (§3.5). Without hart 1 one register, as before.
 
 ## 6. Issue (`tg_iq`, `tg_wake`; spike S2 RTL)
 
@@ -221,6 +288,8 @@ The redirecting instruction stays in the group; younger slots are dropped. Its `
   - kills `tg_exec`'s RF and EX stages on every integer port (no write-back, branch, MUL, DIV, CSR or AG).
 
   The load then replays from the LQ and wakes its LLT when it completes.
+
+  **Its filter (`SPEC_WAKE_FILT`, on by default):** a 2-bit count per PC hash (32 entries, `pc[15:1]` folded to 5 bits) goes up by one when a tracked load does not complete in M2 and down by one when it does. From 2, that PC's loads do not wake their dependants speculatively and so never cancel: their dependants wait for the result. They still pass through the tracker, which trains the count. With `SPEC_WAKE_FILT=2` a load that misses the D$ in M2 leaves its count alone (`tg_lsu`'s `ld_m2_miss`): a streaming loop's loads, which miss every time, keep their wakeups, and their cancels pace the loop's misses as before the filter. `SPEC_WAKE_FILT=0` lets every tracked load speculate, cycle for cycle as before the filter.
 
   Rename and IQ-FP see only confirmed W bits: rename drops a source's dependency when its bit is set, and P4 reads integer sources from the register file. With `SPEC_WAKE=0`, loads wake their LLT when their result is written, as DIV does.
 
@@ -292,7 +361,7 @@ Up to `COMMIT_WIDTH` complete entries in order per cycle. Per retirement: CRAT u
 - **Mispredict:** the branch retires (in any slot); the group ends there; flush and redirect to the oldest-mispredict target.
 - **Exception:** TR_TRAP, trap entry (§9.3), flush, redirect to `mtvec` base.
 - **Replay** (ordering violation): nothing retires; flush and refetch at the entry's PC. A replay marked `tlb` waits for the LSU instead: refetch once the DTLB translates the entry, or trap if the deciding walk faults (core-mmu.md).
-- **Serialising:** CSR (apply the CSR write, §9.2), MRET (§9.3), FENCE and FENCE.I (wait until the SQ has drained; FENCE.I also invalidates the I$), WFI (wait until `mip & mie` is nonzero, or 4096 cycles: the ISA lets WFI complete at any time) retire alone, then flush and refetch at the next PC (MRET: at `mepc`).
+- **Serialising:** CSR (apply the CSR write, §9.2), MRET (§9.3), FENCE and FENCE.I (wait until the SQ has drained; FENCE.I also invalidates the I$), WFI (wait until `mip & mie` is nonzero, or 4096 cycles: the ISA lets WFI complete at any time; with hart 1, after 64 cycles while the sibling is awake, it sleeps: §8.5) retire alone, then flush and refetch at the next PC (MRET: at `mepc`).
 - **Interrupts** (§9.4) are checked before the head retires.
 - **Commit holds** (§8.1): the group stops before a store the LSU holds while its PMP denial may still come, and before a load whose ordering replay mark is on its way.
 - **Return-address stack** (§3.2): each retiring instruction's stack operation goes to the committed copy. A second push in a group ends the group before it, so the copy has one write port.
@@ -305,8 +374,61 @@ Up to `COMMIT_WIDTH` complete entries in order per cycle. Per retirement: CRAT u
 ### 8.4 Per thread (M7's step 3, DR-175; docs/spec/threading.md)
 - Each thread has a head, a tail and the xRET-in-flight bits. A dispatch group is one thread's and advances its tail. A flush recovers the flushing instruction's thread (`flush_tid`, the head's tid): its tail goes back to its head. The heads go to rename per thread.
 - Commit serves one thread a cycle: in merged mode the running thread. The oldest-exception and oldest-mispredict registers and the WFI counter are per thread; a report goes to its entry's thread (`rob_tid`).
-- **Split mode (`SPLIT`, D1):** thread t owns entries [40t, 40t + 40) in smt2, and its pointers wrap there (`rob_add_t`, `rob_cnt_t`, `rob_start` in `tg_core_pkg`). The commit thread is chosen a cycle ahead (`ct_q`), so the head window is still read from flip-flops: the other thread whenever it has entries, so two busy threads alternate and an empty one is not served. The LSU's head checks, its MMIO load, `sq_drained` and `mmio_busy` follow the commit thread (`hd_tid_o`, step 4; core-lsu.md). Whether a commit group should also take the slots the served thread leaves (D7) is open: one thread per group is the cheap form, and the model is to price the other before step 5.
+- **Split mode (`SPLIT`, D1):** thread t owns entries [40t, 40t + 40) in smt2, and its pointers wrap there (`rob_add_t`, `rob_cnt_t`, `rob_start` in `tg_core_pkg`). The commit thread is chosen a cycle ahead (`ct_q`), so the head window is still read from flip-flops: the other thread whenever it has entries, so two busy threads alternate and an empty one is not served. With hart 1 (5d) a thread keeps the turn while it commits and the other thread's head is not actionable: the other thread's turn comes next cycle when its head is actionable (complete, marked for a replay or a TLB miss, or an MMIO load to issue: its flags read at its head through one more port on the flag tables, and its dispatch parities from a two-bit copy of the payload's), when this thread committed nothing, or after `RUN_K` = 4 turns in a row. `RUN_K` bounds the wait of the head operations the LSU runs only in their thread's turns (MMIO loads, atomics, walks at the head), asserted in simulation (a thread with entries, not parked in WFI, waits at most `RUN_K` cycles for a turn; `tests/isa/directed/turn_wait`). A thread that waited every other cycle beside a sibling whose head was not ready now commits every cycle; the turns' rule as built before 5d is in reports/commit-turns.md of the core track. The LSU's head checks, its MMIO load, `sq_drained` and `mmio_busy` follow the commit thread (`hd_tid_o`, step 4; core-lsu.md). Whether a commit group should also take the slots the served thread leaves (D7) is open: one thread per group is the cheap form, and the model is to price the other before step 5.
 - The payload and the flag tables stay indexed by entry: in the split mode a thread's entries are a range of them, of whole bank rows.
+- **Hart 1 runs (5c):** an interrupt is taken at either thread's head (tg_csr gives the head thread's, `hd_tid_o`). A report (completion, exception, mispredict, MMIO, replay) in a flush's cycle is dropped only when its entry is the flushed thread's (`rdrop`; every report while one thread runs), and the other thread's oldest-exception and oldest-mispredict registers take theirs: before, hart 0's flushes lost hart 1's completions and hart 1's head never completed. Commit waits while a trap's three cold-CSR writes run (tg_csr's `cold_busy`: one LUTRAM write port, and the other thread no longer waits behind the trap's flush). A thread whose head is a WFI still waiting at its last turn takes no commit turns until an interrupt is pending for it (registered) or its count ends; the count then runs every cycle, so a parked hart costs its sibling no commit bandwidth.
+
+### 8.5 Sleep, merge and split (M7's step 6, D2; threading.md)
+With hart 1 a thread that waits in WFI while its sibling runs lends its half of the window to the sibling.
+- **Sleep:**
+  - A WFI that has waited `SLP_WAIT` (64) cycles at its thread's head while the sibling is awake retires (`tg_rob`'s
+    `slp_q`), as WFI may complete at any time.
+  - Its flush (`flush_slp`) keeps the thread blocked at rename (`block_q`), so decode drops its groups and fetch holds
+    its stream at the next PC. A blocked stream's F1 PC waits in its slot (`sv_s_q`) when the other stream takes F1.
+- **Merge:**
+  - Once the sleeper's window is empty (its committed stores drained), a merge waits (`mg_pend`): the runner's tails
+    may not wrap in its half (rename's room flags).
+  - The runner's window stops wrapping as its heads move on, and the halves merge around it: the mode (`md_t` in
+    `tg_core_pkg`, `tg_rename`'s `md_q`) gives the runner every ROB, LQ and SQ entry.
+  - The mode is decided from registered pointers and announced a cycle ahead (`mdn_q`, then `md_q`) to the ROB and the
+    LSU. Its tails still cannot wrap while it travels, so no pointer crosses its half's end before every module
+    has it. `mg_pend` holds them through that cycle even when the sleeper asks to wake in it: a tail that wrapped
+    then would leave the sleeper's stale half inside the merged window (found by `+xwake` below; a
+    simulation-only assertion checks the runner's windows at every merge).
+  - The partition helpers (`x_add_t`, `x_cnt_t`, `x_start`, `x_tid`, `x_part`, `x_own`) take the mode.
+- **Wake:**
+  - A sleeper wakes on a locally enabled interrupt (its next instruction takes it if globally enabled), or after
+    2^24 cycles asleep while it has one enabled (`mie` ≠ 0; the time-out only guards a wake that never comes). With
+    none enabled it sleeps until reset, as WFI may: a parked hart (`wfi; j park`) then costs its sibling nothing.
+    Until the fix after 124edb9f every sleeper also woke every 65,536 cycles, and each wake split the window: one
+    thread alone lost 0.06% to a parked hart 1 (verif-2: chase8 at 250 cycles, 178 wakes in 11.86M cycles), which
+    DR-184's exit forbids. Nothing relies on the periodic wake: park loops never leave, OpenSBI's and Linux's waits
+    enable their interrupts, and the random programs' WFIs come only with their timer interrupt (`--irq`).
+  - While merged the wake waits for the split: the runner renames nothing until its window lies in its half without
+    wrapping (`win_fits`), or is empty. An empty window's pointers then go back to its half's start (`mrs`, in rename,
+    the ROB and the LSU, which also rereads the drain head's entry).
+  - The sleeper's fetch restarts at its next PC with the split.
+  - While the split waits, the runner's own WFI completes, so its window drains.
+  - `+xwake=N` (simulation only, `tg_rob`): a sleeper also asks to wake with probability N per mille a cycle, as WFI
+    may complete at any time, so merges and splits come at random points (about 200 a directed test at N = 20,
+    against about 30). Without it no random number is drawn. `hart1_off.S` assumes hart 1 is asleep when HART1_OFF
+    is set, so it cannot run with it.
+- **Merged, a lone thread runs as without hart 1:**
+  - The D$'s store reservation for two threads (core-lsu.md) is off.
+  - The LSU's flush masks take a thread's own entries, so a sleeper owns none.
+  - The registers need nothing new: D3's transfers lend the sleeper's free registers.
+- **`mtgsmt` (0x7C0, M-mode, one per core with hart 1; else illegal):** bit 0 HART1_OFF keeps hart 1 asleep once it
+  sleeps (SMT off).
+  - A running hart 1 is not stopped: firmware parks it first.
+  - Firmware leaves the bit at 0 for now (soc-2). Whoever sets it keeps it consistent with the device tree: set it
+    only where hart 1 is not in the tree, or have OpenSBI's hart_start clear it before the wake IPI. Otherwise Linux's
+    HSM start of hart 1 waits forever.
+  - Spike models it exactly: shared by a core's two harts, bit 0 writable, reads compared (verif-2).
+  - Tanager's custom M-mode CSRs number upward from 0x7C0 with an `mtg` prefix.
+- **Simulation only:** TG-SMT counts the merges, the splits (and those with the window empty), the cycles merged,
+  the cycles a split waited and the wakes.
+- **Without hart 1:** the mode is the constant `MD_C` (merged with `RUN_TID`, or `TG_SPLIT`'s test mode): the core
+  before step 6.
 
 ## 9. CSRs and traps (`tg_csr`)
 
@@ -327,6 +449,7 @@ Up to `COMMIT_WIDTH` complete entries in order per cycle. Per retirement: CRAT u
 | `mhpmcounter3–31`, `mhpmevent3–31` | read 0, writes ignored (counter reads `nondet`) |
 | `tselect`, `tdata1–3`, `tinfo` | read 0, writes ignored |
 | `mcontext` | 13 bits read/write |
+| `mtgsmt` (0x7C0, custom) | with hart 1 only (§8.5): bit 0 HART1_OFF, hart 1 kept asleep; one per core; else illegal |
 | `pmpcfg0, 2, …, 14`, `pmpaddr0–63` | entries 0–7 implemented (`PMP_ENTRIES`, DR-167; 0–15 with `TG_PMP_ENTRIES=16`; Spike's WARL rules: lock, R=0/W=1 dropped, 54-bit addresses); the others read 0 and ignore writes (Spike with `--pmpregions` at the same count). Reset: entry 0 = NAPOT RWX over the whole space, as Spike. Checked by `tg_pmp` (core-mmu.md) |
 
 Everything else is illegal (cause 2, `tval` = the instruction bits), as is a write to a read-only CSR. `csrrs/csrrc` with rs1 = x0 and the immediate forms with uimm = 0 do not write.
@@ -363,13 +486,13 @@ Pending = `mip & mie`; taken when `mstatus.MIE` is set, priority MEI, MSI, MTI. 
 ### 9.6 Per hart (M7's step 2, DR-175)
 - **State:** each hart has its own hot state (`h_q`, one `csr_hart_t` a thread: privilege, the mstatus fields, misa, mie, the software pending bits, delegation, counter enables, envcfg, satp, the contexts and pmpcfg), its own rows of `u_cold` and `u_pmpaddr` (the tid is the top address bit; 32 deep fits the same RAM32M16 as 16), PMP descriptors, `stimecmp` and STIP, pending CSR write, and `mcycle`/`minstret` DSP pairs (R1).
 - **Writes** go to the committing thread: slot 0's tid (`cm_tid[0]`), since CSR instructions, traps, MRET and SRET retire alone in slot 0. The retiring count goes to that thread's `minstret`. A flush drops the flushed thread's pending write (`flush_tid`).
-- **Reads and outputs** are the running thread's (`RUN_TID`) until step 5 runs two threads: the CSR read in EX; privilege and status to fetch and decode; satp to fetch; fetch's PMP descriptors; the interrupt choice and `wfi_wake`. From then each consumer selects by its own thread. The LSU and the walker already take each hart's privilege, data privilege, SUM, MXR, satp and PMP state (`*_h`, step 4, D6) and select by each access's thread (core-lsu.md, core-mmu.md).
+- **Reads and outputs:** fetch and decode take each hart's privilege, status, satp and PMP state by their own thread (5b), the LSU and the walker by each access's (`*_h`, step 4, D6; core-lsu.md, core-mmu.md). With hart 1 (5c) the CSR read in EX is the executing thread's (`ex_pl.tid`: its state, counters, `mhartid`, cold rows and `pmpaddr`, and tg_fcsr's flags and mode), and the interrupt choice, `wfi_wake` and an xRET's xepc are the commit head's thread's (`hd_tid`, the ROB's registered choice). The xepc read moves to `u_cold`'s port 1, so port 0 serves either thread's CSR read: a legal xRET is serial and alone at its thread's head, so no exception there needs port 1's vector meanwhile. Each hart's counters load from its own pending write (the DSP load lands a cycle late, when the committing thread may be the other). The scalar outputs stay the running thread's, for the merged-mode checks.
 - **Harts:** `mhartid` and the trace's hart field are `CORE_ID`·`NUM_THREADS` + (tid ^ `SOLO_TID`), and thread t takes the interrupt lines of that hart. So under `SOLO_TID` the one thread, tid 1 inside the core, is hart 0 to software and to the SoC.
-- **Reset:** the 16-cycle sweep writes the running thread's rows, and only its descriptors are computed after it, so reset takes the cycles it did. The other thread's rows are swept once two threads run (step 5, `HART1_ON`).
+- **Reset:** the 16-cycle sweep writes the running thread's rows, and only its descriptors are computed after it, so reset takes the cycles it did. With hart 1 the sweep writes both harts' rows (32 cycles) and both harts' descriptors are computed (5c).
 - **Without SMT** (`TID_W` = 0) the commit and flush threads are the constant 0, so the st core has no selects.
 
 ## 10. Reset sequence
-After `rst`, an init counter runs for 64 cycles before fetch starts: it fills the free lists, writes zero into bank 0 indices 0–31, and invalidates the micro-BTB.
+After `rst`, an init counter runs for 64 cycles before fetch starts: it fills the free lists, writes zero into bank 0 indices 0–31, and invalidates the micro-BTB. With hart 1 the same 32 cycles zero its homes (5c): x1–x16 in bank 1 through tg_exec's port 1 (`res_q[1]` held at zero), x17–x31 in the load bank and f0–f31 in F1 through the LSU's result register (zero from reset to the first load, so no multiplexer on the data).
 - **Other tables have their own sweeps, run alongside:**
   - the I$ valid bits (§3.1);
   - the D$ state (core-lsu);
@@ -394,6 +517,7 @@ All widths come from `tg_pkg` (`DECODE_WIDTH`, `N_ALU`, `ROB_BANKS`, `FL_BANKS`,
 - `TG_TAGE` (`TAGE_ON`, on): TAGE-lite and the FTQ, with F2's prediction of straddlers and (with `TG_RAS`) returns (§3.2).
 - `TG_TAGE_NT`, `TG_TAGE_LI`, `TG_TAGE_TW`, `TG_TAGE_BI`: TAGE-lite's sizes (§3.2; two tables of 2K, DR-170).
 - `TG_SPEC_WAKE` (`SPEC_WAKE`, on, DR-154): speculative load wakeup with a shadow cancel (plan §4.6; §6; the FPU track's `tg_issue` and `tg_exec`, with `spec_cancel` from one to the other). `TG_SPEC_WAKE=0` wakes loads' dependants on the confirmed result, cycle for cycle as before.
+- `TG_SPEC_WAKE_FILT` (`SPEC_WAKE_FILT`, 1): the speculative wakeup's filter (§6): a load whose PC's loads keep failing to complete in M2 does not wake its dependants speculatively. `TG_SPEC_WAKE_FILT=2`: D$ misses do not count as failures. `TG_SPEC_WAKE_FILT=0` lets every tracked load wake its dependants, cycle for cycle as before the filter.
 - `TG_PMP_ENTRIES` (`PMP_ENTRIES`, 8; DR-167): PMP entries, 8 or 16 (core-mmu.md, PMP; §9.1).
 - `TG_URF` (`URF`, off; DR-174): the issue-time integer register reads in double-pumped UltraRAM (§7.1). The core then takes `clk2x`; at 0 the port is unused.
 - `TG_SOLO_TID` (`SOLO_TID`, off; DR-175): M7's test mode, smt2 builds only. The core's one thread runs as tid 1 inside the core while it stays hart 0 to software, so the tests exercise the per-thread paths (threading.md).

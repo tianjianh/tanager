@@ -1986,11 +1986,18 @@ The CPU-time rows use §6.12's accounting, the one §6.13 predicted in. Correcte
 | Embench huffbench | 1,861,661 | 1,735,889 | **−6.8%** | −2.1% / −2.1% |
 | Embench minver | 291,795 | 276,494 | **−5.2%** | −15.1% / −10.4% |
 | CoreMark A/B, rv64gc and rv64im | | | −0.1% to −0.6% | |
-| The other 11 | | | within ±0.05% | |
+| Hash lookups, 0.5 MiB (ws_hash) | 4,173,706 | 4,175,976 | **+0.05%** (slower) | |
+| The other 10 | | | within ±0.04% | |
 | **Mean model error, 18 programs** | | | | **6.78% / 5.93%** |
 
-- **No program is slower.**
-- **Cost:** a two-way priority per tagged table, a few LUTs, and no new state.
+- **Slower, all small** (fpu-2's branch, 10-20; the coordinator took them under DR-154):
+  - ws_hash +0.05% (above);
+  - in make perf, Dhrystone rv64gc +0.02% (st) and +0.25% (smt2), while CoreMark B gains 0.6–0.7%;
+  - in cycle-identical, the smt2 boot retires 0.041% fewer records in 20M cycles and st's random suite takes 0.059% more
+    cycles (the st boot 0.011% more records, the bench suite −0.55% / −0.62% cycles).
+  - The board-memory boots are faster: 0.058% (c1 st) and 0.002% (c2 smt2) more instructions retired in 20M cycles.
+- **Cost:** a two-way priority per tagged table and no new state; measured, the core is 23 LUTs smaller (budget flow,
+  tg_core smt2).
 - **The model follows:** with the same rule (`btage_alloc` 1), huffbench gains −6.8% as the RTL does, and ud's error drops to −6.8%.
 - **For fpu-2 or core-2** (the coordinator's routing, as with crc32): the change is in `tg_tage.sv`'s allocation loop, which today takes way 0 whenever it is invalid or not useful. The scratch patch is `~/tanager-build/smt2-study/tage-ud-1020-155920/alloc_patch.py`, in the worktree `rtlexp`.
 
@@ -2065,8 +2072,48 @@ The CPU-time rows use §6.12's accounting, the one §6.13 predicted in. Correcte
 - With the allocation: revision 9 is `btage_alloc = 1` in `rtl_m2` (`config.cpp`) and `PRESET_REV` 9 (`dse.py`), with this table rerun on main's build.
 - If B lands alone first, the preset stays at revision 8, since B changes no model rule. The middle column is the check.
 
+**On main (10-20 evening): both changes in, revision 9 committed (222b16fc).**
+- **What landed:**
+  - B as 1f63d5aa, in main's own form (a shared next-cycle data-valid vector, not a compare per load-queue entry);
+  - the allocation as c06345bf, with c1c21281's `tg_tage.sv` unchanged.
+- **Main's smt2 build gives the scratch builds' region cycles exactly,** on all 36 runs each time: B alone (1f63d5aa), then B with the allocation (c06345bf).
+- **The preset at revision 9 gives the cycles of `--set btage_alloc=1` exactly,** so the table above is main's.
+
+*The 18 programs on main c06345bf's RTL (smt2) against revision 9 (`results/rtlcal_c06345bf_rev9.json`), at 30 and 120 cycles, with §6.15's errors beside them. A positive error is the model slower.*
+
+| Program | RTL IPC (30 / 120) | Model IPC (30 / 120) | Error, revision 9 | Before: revision 8 on c6676bd5 |
+|---|---|---|---|---|
+| CoreMark A, rv64gc | 1.516 / 1.506 | 1.542 / 1.537 | −1.7 / −2.0% | −1.7 / −1.8% |
+| CoreMark A, rv64im | 1.542 / 1.538 | 1.562 / 1.556 | −1.3 / −1.2% | −1.5 / −1.6% |
+| CoreMark B, rv64gc | 1.511 / 1.506 | 1.530 / 1.525 | −1.2 / −1.3% | −1.5 / −1.5% |
+| CoreMark B, rv64im | 1.508 / 1.502 | 1.526 / 1.521 | −1.2 / −1.3% | −1.6 / −1.7% |
+| Dhrystone, rv64gc | 1.591 / 1.575 | 1.387 / 1.377 | **+14.7 / +14.4%** | +7.7 / **+12.5%** |
+| Dhrystone, rv64im | 1.415 / 1.396 | 1.517 / 1.499 | −6.8 / −6.8% | −8.6 / −8.6% |
+| Embench crc32 | 1.351 / 1.366 | 1.274 / 1.274 | +6.0 / +7.2% | **−17.0 / −17.0%** |
+| Embench edn | 1.676 / 1.676 | 1.777 / 1.777 | −5.7 / −5.7% | −5.8 / −5.8% |
+| Embench huffbench | 1.243 / 1.245 | 1.274 / 1.274 | −2.4 / −2.3% | −2.2 / −2.3% |
+| Embench matmult-int | 1.967 / 1.967 | 1.968 / 1.968 | −0.1 / −0.1% | −0.1 / −0.1% |
+| Embench minver | 1.788 / 1.788 | 1.801 / 1.801 | −0.7 / −0.7% | **−10.1 / −10.1%** |
+| Embench nsichneu | 1.375 / 1.375 | 1.373 / 1.373 | +0.2 / +0.2% | +0.2 / +0.2% |
+| Embench statemate | 1.063 / 1.062 | 1.085 / 1.085 | −2.1 / −2.1% | −2.1 / −2.1% |
+| Embench ud | 1.825 / 1.825 | 1.919 / 1.919 | −4.9 / −4.9% | **−16.9 / −16.9%** |
+| tk_bigcode | 0.496 / 0.166 | 0.514 / 0.195 | −3.6 / **−14.9%** | −3.6 / **−14.9%** |
+| Pointer chase, 1 chain, 0.5 MiB | 0.064 / 0.022 | 0.063 / 0.022 | +2.1 / +0.7% | +2.1 / +0.7% |
+| memcpy, 0.5 MiB | 0.524 / 0.228 | 0.656 / 0.239 | **−20.1** / −4.5% | **−20.1** / −4.5% |
+| Hash lookups, 0.5 MiB | 0.451 / 0.265 | 0.392 / 0.200 | **+15.1 / +32.6%** | **+15.0 / +32.0%** |
+| **Mean error (absolute)** | | | **4.99% / 5.71%** | 6.54% / 7.46% |
+| **Outside 10%** | | | 3 / 3 | 5 / 6 |
+
+- **crc32 and ud are inside 10% now.** crc32 runs in 2,835,248 / 2,804,879 region cycles on the RTL against the model's 3,006,282; ud in 1,297,457 against 1,233,605.
+- **Outside 10%, all known:**
+  - Dhrystone rv64gc: the model gap B uncovered (above);
+  - memcpy at 30: the ownership prefetch's port;
+  - the hash lookups: the RTL's wrong-path misses;
+  - tk_bigcode at 120: the model's simpler I$ prefetch (§6.15).
+- **Exit 2's blind prediction moves on revision 9:** −0.025 to −0.032, from minver in the pair set's build (smt2_report §13.12).
+
 **Decisions:**
-- **Revision 9 = revision 8 + `btage_alloc` 1,** committed once c1c21281, or core-2's form of it, is on main. That is my call (the model as built); the RTL change is fpu-2's.
+- **Revision 9 = revision 8 + `btage_alloc` 1,** committed once c1c21281, or core-2's form of it, is on main (done: 222b16fc, on c06345bf). That is my call (the model as built); the RTL change is fpu-2's.
 - **`ld_fwd_wait` stays 8 with B:** the calibration set can't tell 7 from 8.
 
 **Learned:**
@@ -2109,8 +2156,115 @@ time improves by 1% or more against one Release, with nothing else regressing; o
   - The prototype stays on fpu-2's scratch branch (`claude/track-fpu-395911-rel2`, 46bb6df5): the D$ +53 LUTs and +58
     FFs a core, WNS +0.936 ns at 100 MHz, `DC_RELS=1` cycle-identical to its base. `DC_RELS` is not on main.
 
+**The store prefetch starved by loads' misses, seen again (10-20, the speculative wakeup's filter, `SPEC_WAKE_FILT`).**
+Parked with the rest (tuning comes last, DR-155); the numbers for when it is taken up:
+- With the filter, a streaming copy's loads stop cancelling and run ahead. In smt2's window their misses keep the D$'s
+  controller port and spare entries from the ownership prefetch.
+- ws_copy smt2 at native latency (the D$'s +stpf profile, filter off → on):
+  - prefetches 32,841 → 27,624;
+  - stores allocating their own line 8,183 → 13,394;
+  - their waits 341,911 → 585,205 cycles;
+  - the prefetch waiting behind a load's miss request 224,542 → 301,045 cycles.
+- The filter's cost on ws_copy smt2 is +1.27% at latency 22, +4.94% at native and +5.97% at 120. ws_copy st gains
+  11.5% at 22.
+- Round 2's variant ab (a load leaves an entry to a pending prefetch) addresses it. It was measured only with two
+  Releases.
+
 **Learned:** a lever that shortens the cycles to /init can still lose the board's measure. Check where the saved cycles
 fall against the kernel's clock before reporting a boot gain.
+
+### 6.19 rtl_m2 revision 10: filter C on main f9600313, and the pair set's alone runs (2026-10-21)
+
+*The coordinator asked (10-20): the alone-run differences §13.14 found (minver 1.346 on the RTL against 1.738 in the model, Dhrystone 1.548 against 1.420) belong in rtl_m2's calibration. Main had also gained fpu-2's filter C (bc379636) and core-2's steps 5a and 5b behind HART1.*
+
+*Method:*
+- *Main f9600313's smt2 tg_vsim: one thread, the whole window, HART1 off.*
+- *The 18 calibration ELFs at native and 120 (`scripts/rtlcal.py`), and the final pair set's 26 alone images at 30.*
+- *Builds of 61a1f8de (5a, before filter C) and bc379636 (filter C, before 5b), to split the changes.*
+- *Commit-trace refills against the model's mispredicts (`scripts/rtl_mpcmp.py`).*
+
+**What moved on main since revision 9's check (c06345bf):**
+- **5a and 5b,** behind HART1 and off here: cycle-identical on all 36 runs.
+- **Filter C:**
+  - crc32 −7.8 / −6.8%;
+  - memcpy **+4.9 / +6.0%**, slower on the smt2 build (fpu-2 measured −1.65% on st);
+  - ud −1.1%, minver −1.3%, the rest within 0.6%.
+- **So revision 9 drifted:** crc32 went to +15.0%, memcpy to −23.9 / −9.9%, and the mean to 5.61% / 6.31%.
+
+**Revision 10 is revision 9 plus the filter** (`spec_filter` 1: a 2-bit count per hash of an integer load's PC, as `tg_issue`'s, trained on each load's outcome in M2):
+
+| Program | RTL IPC (30 / 120) | Model IPC (30 / 120) | Error, revision 10 | Revision 9 on f9600313 |
+|---|---|---|---|---|
+| CoreMark A, rv64gc | 1.517 / 1.507 | 1.542 / 1.538 | −1.6 / −2.0% | −1.6 / −1.9% |
+| CoreMark A, rv64im | 1.542 / 1.538 | 1.563 / 1.557 | −1.3 / −1.3% | −1.3 / −1.2% |
+| CoreMark B, rv64gc | 1.515 / 1.510 | 1.532 / 1.528 | −1.1 / −1.2% | −1.0 / −1.0% |
+| CoreMark B, rv64im | 1.514 / 1.508 | 1.527 / 1.522 | −0.9 / −1.0% | −0.8 / −0.9% |
+| Dhrystone, rv64gc | 1.593 / 1.577 | 1.591 / 1.579 | +0.1 / −0.1% | **+14.9 / +14.5%** |
+| Dhrystone, rv64im | 1.414 / 1.396 | 1.517 / 1.499 | −6.8 / −6.9% | −6.8 / −6.9% |
+| Embench crc32 | 1.465 / 1.465 | 1.593 / 1.593 | −8.0 / −8.0% | **+15.0 / +15.0%** |
+| Embench edn | 1.676 / 1.676 | 1.777 / 1.777 | −5.7 / −5.7% | −5.7 / −5.7% |
+| Embench huffbench | 1.246 / 1.242 | 1.274 / 1.274 | −2.2 / −2.4% | −2.2 / −2.4% |
+| Embench matmult-int | 1.967 / 1.967 | 1.968 / 1.968 | −0.1 / −0.1% | −0.1 / −0.1% |
+| Embench minver | 1.812 / 1.812 | 1.815 / 1.815 | −0.2 / −0.2% | +0.6 / +0.6% |
+| Embench nsichneu | 1.375 / 1.375 | 1.373 / 1.373 | +0.2 / +0.2% | +0.2 / +0.2% |
+| Embench statemate | 1.068 / 1.067 | 1.085 / 1.085 | −1.6 / −1.6% | −1.6 / −1.6% |
+| Embench ud | 1.845 / 1.845 | 1.913 / 1.913 | −3.5 / −3.5% | −3.9 / −3.9% |
+| tk_bigcode | 0.496 / 0.166 | 0.514 / 0.195 | −3.6 / **−14.9%** | −3.6 / **−14.9%** |
+| Pointer chase, 1 chain, 0.5 MiB | 0.064 / 0.022 | 0.063 / 0.022 | +2.1 / +0.7% | +2.1 / +0.7% |
+| memcpy, 0.5 MiB | 0.499 / 0.215 | 0.686 / 0.267 | **−27.3 / −19.3%** | **−23.9** / −9.9% |
+| Hash lookups, 0.5 MiB | 0.454 / 0.265 | 0.393 / 0.201 | **+15.5 / +32.1%** | **+15.9 / +32.3%** |
+| **Mean error (absolute)** | | | **4.54% / 5.61%** | 5.61% / 6.31% |
+| **Outside 10%** | | | 2 / 3 | 4 / 4 |
+
+*A positive error is the model slower. Revision 10 from the preset gives the cycles of `--set spec_filter=1` exactly (36 of 36). With the switch off, tgsim is identical to 8ad0acc0's (15 runs on tanager_v1, rtl_m2 and step-5 pairs).*
+
+**What it shows:**
+- **Dhrystone rv64gc's 14% gap was the model's cancel cost.**
+  - The filter barely moved the RTL's Dhrystone (−0.2%), but it moves the model's by 12.9%, after which the two match (+0.1%).
+  - The model's shadow cancel kills every integer issue for three cycles, and that overcharged Dhrystone's store-wait loads against the RTL's own cancels. The filter, now in both, stops those cancels.
+- **crc32 crosses over, inside 10%:** from +15.0% to −8.0%.
+- **memcpy moves the wrong way.** The filter makes the RTL's copy 5–6% slower and the model's 4–10% faster, so memcpy at 120 joins 30 outside 10% (−19.3%). It joins §6.15's watch list beside copy at short latency.
+
+**minver's pair-set build: an RTL front-end pathology at a straddling branch.**
+- **The two builds diverge only in the RTL.** On the whole window it runs the pair set's minver (linked at slot 0) at 1.528, against 1.788 for the calibration build of the same code. The model runs both at 1.81–1.88.
+  - At step 5's half window the RTL's run falls to 1.346, against the model's 1.738. The half costs the RTL 12% and the model 6%.
+- **The RTL's commit trace shows 1,236 refills, where the model has 19 mispredicts.** Two branches take 1,120 of them:
+  - **`beq a4, a5` at 0x801003de** is 4 bytes at the last halfword of its 16-byte fetch block, so it straddles into the next. A third of its outcomes are taken, and 559 of those 1,668 refill.
+  - **`c.beqz a1` at 0x801003ea,** in that next block, is the inner loop's exit. Every not-taken outcome refills: 556 of 556.
+  - **In the calibration build** the same branches don't straddle and refill 9 and 2 times.
+- **The likely cause:** the front end's handling of a straddling branch in a block that holds another branch, perhaps the history bit or the slot the straddler trains TAGE-lite with.
+  - The ~1,100 extra refills at about 12.5 cycles each come to ~14K of the build's 45K extra cycles. The rest is not yet explained.
+  - **For core-2** (the front end): the reproducer is the final set's `img/alone-embench_minver-s0.elf` on main's smt2 build, PCs 0x801003de and 0x801003ea.
+
+**The pair set's other alone runs** (30 cycles, IPC, slot 0: main's RTL on the whole window against revision 10 on the merged window):
+
+| Program | RTL | Model | | Program | RTL | Model |
+|---|---|---|---|---|---|---|
+| ms_gather | 0.533 | 0.537 | | coremark_A | 1.478 | 1.503 |
+| ms_stride | 0.529 | 0.508 | | dhrystone | **1.656** | **1.452** |
+| ms_spmv | 0.709 | 0.737 | | embench_nsichneu | 1.313 | 1.307 |
+| ms_hashprobe | 0.414 | 0.352 | | embench_huffbench | 1.203 | 1.256 |
+| ms_chase8 | 0.116 | 0.116 | | embench_minver | **1.528** | **1.878** |
+| ms_stream | 1.290 | 1.599 | | embench_matmult-int | 1.963 | 1.971 |
+| ms_copy | 0.499 | 0.686 | | | | |
+
+- **copy, stream and hashprobe** are §6.15's known items (copy and stream at short latency, hashprobe's wrong-path misses).
+- **minver** is the straddler above.
+- **The pair set's Dhrystone is a separate gap.** Its model runs 12% slow, while the calibration build now matches (+0.1%), so the filter doesn't explain this one.
+  - **Not the replays:** ordering replays cost both sides about the same, the model 25.3K cycles over 4,218 replays and the RTL about 25.5K in commit gaps after ordinary instructions.
+  - **Not the mispredicts:** the model mispredicts one return 254 times in 3,000, which the RTL never does, but that is only about 4K cycles.
+  - **What's left (about 47K cycles):** the model's dispatch waits on an empty decode queue (0.042 cycles an instruction against the calibration build's 0.019) and on issue-queue slot banks (0.086 against 0.065).
+  - The RTL's logs carry no counters for those, so this waits for RTL front-end and dispatch counters (core-2's new ones, or `scripts/rtlprof`'s probes in a scratch build).
+  - **Closed on verif-2's second final set (10-21, smt2_report.md §13.12):** it was the model's response to that build's layout.
+    - In the first set the model met 4,218 memory-ordering violations and 15,000 straddle overrides. In the second it meets 738 and 3, and runs Dhrystone 3.1% over the RTL.
+    - The RTL moved 2%.
+    - In the second set stream's loop branch straddles instead, and the RTL loses three times what the model does there.
+
+**Decisions:** revision 10 is mine (the model as built). The straddler case is core-2's to take or leave, through the coordinator.
+
+**Learned:**
+- **A layout-specific predictor pathology shows only in the binary that has the layout.** The pair set's slot builds were a second layout of the calibration programs, and that is how this one surfaced. Calibration should run more than one layout of a program.
+- **A model mechanism can be wrong and still match once both sides turn it off.** The model's speculative-wakeup cancel overcharged Dhrystone by 13% until the filter removed those cancels in both.
 
 ---
 
@@ -2453,6 +2607,7 @@ python3 perfmodel/scripts/area_fit.py --cfg smt2_w3 --uncore-cfg smt2 --core <ru
 | 2 | **Release builds without the latency injectors** (a pass-through instead of `tg_axi_lat_inj` per L2 bank) | uncore (SoC) | **1,293** (measured in the chip), and 556 FFs and 4 BRAM36 | none at native latency: a miss is a few cycles faster without the injector's buffering (so not cycle-identical). Release builds lose latency emulation and its native-latency counts; development builds keep them, as with DR-121's trace | low: a build switch | low | user (function) |
 | 3 | The D$ tags in block RAM (T3), read with the virtual index at AG | LSU (core-2) | ≈1,280 (640 LUTRAM a core) | none, with a bypass for a tag written between AG and M1 | high: three read ports, so copies, ≈15 BRAM36 a chip of the 23 free | medium | coordinator |
 | 4 | Execute's operand ports in URAM (DR-133, revived) | execute (FPU track) | ≈1,190 (−597 a core, measured then), +24 URAM | none | medium: the switch is on `claude/track-fpu-395911-dr133-gate3` | **high:** at 200 MHz its issue → URAM path measured ≈9.8 ns, 7–8 ns of it wire to the single URAM column. At 100 MHz with the 1 ns over-constraint it would still miss | — (not proposed) |
+| 4a | The second return-address stack (M7's step 5b) as one LUTRAM with the tid as an address bit, the two pointer sets kept (tuning phase, DR-155; the coordinator, 10-20) | fetch (core-2) | ≈400 (≈0.2K a core: step 5b's second `tg_ras` measured 309 with hart 1) | none: fetch makes one push or pop a cycle (one block's exit), commit's go to the committing thread | low | low | coordinator |
 | | **2. Function, or small IPC** | | | | | | |
 | 5 | **PMP with 8 entries instead of 16:** entries 8–15 are read-only zero (every PMP CSR field is WARL and may be read-only zero; software probes the count), Spike runs with `--pmpregions=8` | fetch, LSU, CSRs (core-2) | **2,710 now** (3 checkers a core, measured), 1,152 FFs (the descriptor registers), **and ≈1.7K of hart 1's area at M7**: its per-hart descriptor select halves too (≈0.86K a core of [hart1_ram_form.md](hart1_ram_form.md)'s 1.7K) | IPC none. Function: 8 PMP regions. Our boot uses 6: OpenSBI's Domain0 has firmware RW, firmware RX, UART, ACLINT, PLIC and the all-memory region (`Region00`–`05`); Linux uses none | low: a parameter, the CSR's read-only-zero entries, the harness's Spike flag | low | user (function, > 1,200) |
 | 6 | One checker for the LD and STA pipes (DR-139 gave STA's checker to the walker already). The DTLB's cached result (`ph`) covers translated pages, and M-mode with no locked entry needs no check, so on Linux the checker is almost never wanted twice in a cycle | LSU (core-2) | 1,780 (one 891 checker a core), or 900 after #5 | ≈0 on Linux: a wait only for untranslated S/U accesses, pages crossing a PMP boundary and M-mode with locked entries. Not cycle-identical | medium: an arbiter and the bypass | medium | user (> 1,200) or coordinator (after #5) |
@@ -2482,6 +2637,247 @@ Together they come to ≈5.3K a chip, at no IPC cost. The next ones are the queu
 - **Shrunk since they were priced:** radix-4 saved 1,036 a core in DR-118, before the FPU's passes, and saves 625 now. AR-6's queue trims were model estimates (≈0.17K a queue a core with tags) and measure 399 a core for both.
 - **Gone:** R10 (no checkpoints left to share).
 - **Rejected and not revived:** DR-133's URAM ports (timing, above). PMP compares in DSPs (T6) were considered too: they need a register in front of each checker, so the PA from the TLB would arrive a cycle late. That is not cycle-identical, so it is not in the table.
+
+### 7.9 The user's area ideas, the IPC side: asymmetric ALU ports and partial-address LQ/SQ search (model, 2026-10-21)
+
+*The user wants four area ideas explored. The coordinator asked smt2-study for the IPC side of two of them; spikes-2 measures the LUTs, and the coordinator will put them beside these numbers.*
+- *Model only: `scripts/area_ipc.py`; presets unchanged; new switches off by default.*
+- *Every other setting is identical: 19 of 19 runs against the earlier `tgsim`, the old third-ALU path and R13 among them.*
+- *All runs were on home-wsl, in a fixed run folder.*
+
+*Which core.*
+- **Today's chip has two ALU ports** (`st`, `smt2`): P0 with the branch unit, P1 with multiply, divide and CSR. Each writes its own register bank, and loads write a third.
+- **Three ALU ports exist only in the w3 builds** (`st_w3`, `smt2_w3`): DR-056's 3-ALU core, v2's 3-wide reserve. There, decode slot k's ALU op prefers port k mod 3.
+- **What was run:** the variants as asked, on that 3-wide core; and, beside them, one simple port on today's 2-wide core.
+
+**1. Asymmetric ALU ports**
+
+*The model (`alu_full`, a mask of the ports with the full ALU).*
+- **A simple port runs** add/sub, logic, compares and LUI/AUIPC: R13's set less the Zba shift-adds.
+- **Only full ports take:**
+  - shifts and rotates;
+  - Zba, Zbb, Zbs and Zicond;
+  - the unary ops: sext, zext, orc.b, rev8, bext.
+- **Unchanged:** clz, ctz and cpop stay on P1's second-cycle unit, as built.
+- **Steering is `tg_rename`'s for any `N_ALU`.** Slot k's op tries port k mod N, then the next in turn. It takes the first port that:
+  - can run it;
+  - had a free row in its slot-k bank the cycle before;
+  - has a register in its bank.
+- **With both ports full on the 2-wide core, this reproduces the model's own steering to the cycle**, on every suite program on both ISAs.
+- **The 3-wide core** (`decode_width` 3, `alu3`) is `st_w3`: ALU2 has a 10-row queue and its own bank, and every size is `st`'s.
+  - Split three ways by decode slot, its queues leave few rows a slot: IQ-STA 2/1/1, IQ-LD 2/2/2.
+  - So it is also run with every queue ×1.5. That has no RTL counterpart; it shows the results don't hang on the split.
+
+*Workloads.*
+- **The suite** (33 programs), alone at 30 cycles, on rv64gc and on rv64gcb (Zba, Zbb, Zbs, Zicond).
+- **The 42 pairs** at 30 / 120 / 250 cycles: step 7 as decided, with 5f.
+  - WS is against each program alone on the all-full core of the same width, over the pairs every configuration completes.
+- **No early-Linux-boot window:** the model runs the correct path only and does not boot Linux. The boot numbers in §6.11 are RTL measurements.
+
+*The suite's score* (single thread, 30 cycles; change against all ports full):
+
+| Core | ISA | 2 full + 1 simple (P2) | 1 full + 2 simple, P0 full | 1 full + 2 simple, P1 full |
+|---|---|---|---|---|
+| 3-wide, `st_w3`'s queues | rv64gc | −1.60% | −6.84% | −4.17% |
+| | rv64gcb | −0.52% | −3.59% | −3.06% |
+| 3-wide, queues ×1.5 | rv64gc | **−0.80%** | −5.07% | −5.00% |
+| | rv64gcb | **−0.96%** | −3.43% | −3.39% |
+| **Today's 2-wide** (one simple port: P1, or P0) | rv64gc | | **−1.69%** (P0 full) | −1.52% (P1 full) |
+| | rv64gcb | | **−1.54%** (P0 full) | −1.61% (P1 full) |
+
+*The 42 pairs* (WS change against all full at 30 / 120 / 250 cycles, over the pairs every configuration completes):
+
+| Core (pairs compared) | 2 full + 1 simple (P2) | 1 full + 2 simple, P0 full | 1 full + 2 simple, P1 full |
+|---|---|---|---|
+| 3-wide, `st_w3`'s queues (35 / 34 / 33) | −1.1% / −1.0% / −0.8% | −7.1% / −3.8% / −3.6% | −1.3% / −1.2% / −0.9% |
+| 3-wide, queues ×1.5 (40 / 39 / 39) | **−0.5% / −0.5% / −0.7%** | −5.9% / −5.2% / −5.2% | −1.3% / −1.1% / −1.4% |
+| **Today's 2-wide** (all 42) | | **−0.3% / +0.3% / +0.2%** (P0 full) | −1.7% / −2.0% / −2.5% (P1 full) |
+
+*Per program* (the shift- and bit-manipulation-heavy ones; 3-wide with queues ×1.5, rv64gc / rv64gcb; the share of instructions that need a full port first):
+
+| Program | Full-only | 2 full + 1 simple | 1 full + 2 simple, P0 full | 1 full + 2 simple, P1 full |
+|---|---|---|---|---|
+| nettle-sha256 | 33% / 27% | −5.0% / −2.9% | −25.4% / −17.4% | −23.4% / −15.8% |
+| nettle-aes | 29% / 33% | −1.2% / −5.2% | −15.5% / −19.7% | −14.0% / −17.5% |
+| aha-mont64 | 38% | −2.8% | −22.7% | −5.5% |
+| cubic | 27% | −1.3% | −9.2% | −6.3% |
+| CoreMark A | 19% / 15% | −1.6% / −1.7% | −7.6% / −4.8% | −10.8% / −8.4% |
+| picojpeg | 17% / 13% | −3.5% / −2.1% | −8.8% / −5.3% | −6.6% / −7.1% |
+| huffbench | 9% / 11% | −1.0% / −0.8% | −3.5% / −2.8% | +0.5% / +0.7% |
+| ms_gather | 25% / 27% | **−17.3%** / −5.2% | −43.7% / −9.9% | −41.7% / −19.0% |
+| crc32 | 21% / 22% | +7.1% / −7.4% | −4.6% / +4.2% | +8.1% / +4.2% |
+
+- **Programs with no full-only ops don't move.** Those with under 5% move with the timing, not the ALUs:
+  - by up to ±3% with the queues ×1.5 (Dhrystone +3.0%);
+  - by up to ±10% on `st_w3`'s queues (Dhrystone −9.6%, ud +6.1% with P0 full).
+- **crc32's swings aren't the ALUs either.** Its stores forward to its loads, and how often a load finds its store's data not yet ready changes with the timing (358K forwarding waits on the 3-wide core against 3.5K on the 2-wide). Read it as noise of ±8%.
+
+*Where it costs.*
+- **Throughput.** Above about a quarter of instructions needing the full port, one full port of three is the bottleneck: sha256 and aes lose 14–25% with one full port, and aha-mont64 23% when it's P0 (5.5% with P1, which also runs its multiplies).
+  - With two full ports of three, they lose 1–5%.
+- **The queue's room for waiting ops.** An op that needs a full port and waits on a cache miss holds a full port's row.
+  - ms_gather's index shifts wait on their index loads. With P2 simple only two queues can hold them, fewer loads get in flight, and it loses 17%.
+  - With Zba (rv64gcb) the shift becomes sh3add, still full-only, and the loss is 5%.
+- **P0 against P1 as the full port.** P0 also takes every branch.
+  - With P0 the only full port on the 3-wide core, the memory pairs lose 13% (1.240 → 1.077).
+  - With P1 it's 1%.
+
+*The register banks' pressure.*
+- **Single thread:** no variant stalls dispatch for a register (64 a bank).
+- **Steering moves ops off their slot's port** for want of the unit. On the 3-wide core that is 51–69 per 1,000 ALU ops with P2 simple, and 100–165 with one full port; on the 2-wide core, 87–125. The full ports' banks take more of the results:
+  - 3-wide ALU ops by port (the pairs, queues ×1.5): 34/38/28% all full; 39/38/23% with P2 simple; 44/35/22% with P0 full.
+- **With two harts** (each hart has half of each bank):
+  - the 3-wide core stays at ≈0 register stalls;
+  - today's 2-wide core stalls dispatch for a register 0.24 times per 1,000 instructions all full, 0.13 with P0 full, and **1.17 with P1 full**. P1's bank then takes every shift besides MUL, DIV and CSR. That is why P1 full costs today's core 1.7–2.5% in pairs, against ≈0 for P0 full.
+
+*Recommendation (the IPC side; LUTs from spikes-2).*
+- **On the 3-wide core, make P2 the simple port.** 2 full + 1 simple costs 0.5–1.6% single thread and 0.5–1.1% in pairs.
+  - 1 full + 2 simple costs 3–7% single thread. If it is taken anyway, keep P1 full: pairs then lose 0.9–1.4% instead of 3.6–7.1%.
+- **On today's 2-wide core, keep P0 full and make P1 simple.** That costs 1.5–1.7% single thread (sha256 7%, aes 2–7%, aha-mont64 16%) and ≈0 in pairs.
+  - P1 full costs about the same single thread (aha-mont64 only 1%), but 1.7–2.5% in pairs.
+- **Who decides (DR-154):** below 1% and 1,200 LUTs a chip, the coordinator; otherwise the user.
+  - 3-wide, 2 full + 1 simple: under 1% with the queues ×1.5 (0.8–1.0%), 1.6% on `st_w3`'s queues.
+  - Every 2-wide and 1-full variant is above 1% single thread, so all of them go to the user.
+
+*Side finding for v2.* The 3-wide SMT2 core under M7's policies hangs pairs in the model even with every port full: 4–8 of the 42 on `st_w3`'s queues, 0–3 with them ×1.5.
+- The hung pairs: chase8 with copy or with itself, huffbench + minver, minver + CoreMark, and gather with huffbench or CoreMark.
+- A thread's head load or store never gets a row in its one- or two-row slot bank.
+- v2 needs its own queue sizes and a deadlock pass before its pair runs.
+
+**2. Partial-address search in the LQ and SQ**
+
+*The model (`lsq_pa_bits` N, `lsq_pa_wait`).*
+- **Loads search older stores, and stores' addresses search younger loads, on the low N address bits.**
+- **A load's match is confirmed with the full physical address before it forwards.** When the confirmation fails, one of two designs:
+  - (a) the load replays once, its second search confirming every match;
+  - (b) the load waits until that store leaves the SQ.
+- **A store's low-bit match on a younger, executed load flushes the load,** as a true ordering violation does. The match is a superset, so no true one is missed.
+- **Runs:** N = 20, 16 and 12, on today's core alone on its merged window (LQ 24, SQ 20), at 30 and 120 cycles.
+- **Workloads:** the suite, the working-set kernels, and `bench/build_area.sh`'s page copies and clears.
+  - Those use page-aligned buffers, with the destination 0 or 64 bytes past its page boundary.
+  - They are written word by word, or with newlib's memcpy.
+
+*Results* (IPC change against full addresses at 30 cycles, 120 in brackets where it differs; false matches per 1,000 loads):
+
+| Program | False matches | N = 20, replay | N = 16, replay | N = 12, replay | N = 12, wait |
+|---|---|---|---|---|---|
+| Page copy, page-aligned (`pa_copy0`, `pa_memcpy0`); page clear (`pa_clear`) | 0 at every N | 0 | 0 | 0 | 0 |
+| Page copy, destination 64 bytes off (`pa_copy64`) | 1,000 at N = 12 | 0 | 0 | −22.2% (−9.2%) | −55.3% (−53.9%) |
+| The same with newlib's memcpy (`pa_memcpy64`) | 984 at N = 12 | 0 | 0 | −1.4% (−1.3%) | −57.2% (−52.2%) |
+| Working-set copy, 256–512 KiB halves (`ws_copy_512`, `_1024`) | ≈975 at N ≤ 16 | 0 | −10.4 to −11.0% (−7.7 to −11.5%) | the same | −56.7 to −57.3% (−51.9 to −54.2%) |
+| Working-set copy, 1–2 MiB halves (`ws_copy_2048`, `_4096`); memsuite's copy (4 MiB) | ≈973 at **every N** | **−11.0% (−11.6%)** | −11.0% | −11.0% | −57.3% (−54.2%) |
+| Random access and compute (hash kernels, gather, spmv, CoreMark, Dhrystone, crc32, huffbench) | ≤ 0.3 | 0 | 0 | ≤ −0.01% | ≤ −0.10% |
+| **The suite's score** | | **−0.35%** (−0.37%) | −0.35% | −0.35% | −2.55% (−2.34%) |
+
+- **No store's search raised a false ordering flush anywhere.** A store's address issues on its base early (DR-169's STA_BASE), before the younger loads it might meet.
+- **What a false match costs:**
+  - a replay costs up to 1.2 cycles a false match (newlib's memcpy hides it almost entirely);
+  - a wait costs 6 cycles at 30 cycles of memory latency and 14–15 at 120, while the store drains to a missing line.
+
+*Why N alone doesn't decide it.*
+- **When a forward copy's load meets an older store:** the load at src + j meets the older store at dst + i on the low bits when j − i ≡ (dst − src) mod 2^N.
+- **How far apart those can be:** j − i is at most the store queue's span, here ≈160 bytes.
+- **So it breaks exactly when (dst − src) mod 2^N is a small positive number.**
+- **Page copies and clears never break.** dst − src ≡ 0 mod 4 KiB, so a load meets only its own iteration's store, which is younger. That is the case expected most likely to break N = 12, and it is the one that never does.
+- **A copy whose destination is a few lines behind its source modulo 2^N breaks on nearly every load.**
+- **Larger N doesn't protect heap buffers.** Buffers allocated back to back, a power of two of at least 2^N in size plus malloc's header apart, alias at that N: memsuite's 4 MiB copy breaks at N = 20.
+
+*Recommendation (the IPC side).*
+- **If built, the confirmation must replay at most once.** Waiting for the store costs aliasing copies half their throughput, and the suite 2.3–2.5%, all of it memsuite's copy.
+- **With one replay** the suite costs 0.35–0.37% at any N, also all memsuite's copy. The aliasing copies lose 1–22% depending on the code: newlib's memcpy 1.4%, the working-set copies 8–12%, the word copy 22%.
+- **N matters less than the confirmation's cost.** 12 bits break on more copies than 20, and 20 still breaks on large power-of-two buffers.
+- **Below DR-154's 1% on the suite with a replay,** so the coordinator decides once spikes-2's LUTs are in.
+- **The aliasing copies' 11–22% are the risk to weigh.** Under Linux, copy_page and clear_page are immune; how often user and kernel copies meet small offsets modulo 2^N isn't measured here.
+
+**Model beside measured.**
+- **The product's one simple ALU, measured.** fpu-2 measured the only product variant on the RTL: one of `smt2`'s two ALUs simple. CoreMark lost 2.6–6.1% (the coordinator, 10-21).
+  - The model on the same 2-wide core: CoreMark A and B lose 2.5–3.4% with ALU1 simple and 3.8–6.5% with ALU0 simple (rv64gc); 2.0–3.6% and 5.2–5.9% on rv64gcb.
+  - The same range. (The 3-ALU layout above is `smt2_w3`, not the product.)
+- **The baselines.** Today's core is §6.19's `rtl_m2` revision 10, against the RTL's own runs: mean error 4.5% at 30 cycles and 5.6% at 120, on 18 programs.
+- **No variant has an RTL counterpart yet.** The 3-wide core has no RTL run in the model's calibration, so its absolute IPC is the model's alone. Its changes between variants are what this section offers.
+
+**Decisions:** none here. The LUTs come from spikes-2, and the coordinator brings both to the user.
+
+**Learned:**
+- An ALU port's capability limits more than its throughput: ops that wait on misses need a capable port's rows, so a memory kernel with index shifts (gather) loses 17% with one simple port in three.
+- Partial-address aliasing depends on the buffers' distance modulo 2^N, not on N. Page-aligned copies are immune, and large power-of-two buffers alias even at 20 bits.
+
+### 7.10 Partial-address LQ/SQ search, deeper: the band, the store-side search and the product's pairs (model, 2026-10-21)
+
+*The coordinator's correction:*
+- *The product (`smt2`) has two ALUs, and fpu-2 has measured its one-simple-ALU variant on the RTL (§7.9).*
+- *So the time goes to the partial-address search, as asked: N = 12, 16 and 20, the false-match rates, the replays and the IPC, with the copies and streaming workloads first.*
+
+*This adds, on §7.9's model (`area_ipc.py --pa2`; `bench/build_area.sh`'s `pa2.jsonl`):*
+- **64 KiB copies a set distance apart in one buffer** (`copydist.c`), word by word or with newlib's memcpy.
+  - 17 pages plus 0–4,032 bytes: only the low 12 bits come close.
+  - 16 pages plus 64: the low 12 and 16 bits.
+  - 256 pages plus 64: all three widths.
+- **Counter updates scattered over 4 KiB, 256 KiB and 4 MiB tables** (`scatter.c`). Each store's address comes from a load, so it resolves late, and younger loads can meet it on the low bits. That is the store-side search, whose false matches are flushes.
+- **The 42 pairs on the product:** step 7 as decided, with 5f, at 30 / 120 / 250 cycles. Each hart searches its own half of the LQ and SQ.
+
+**1. The band where 12 bits break** (a word copy, the destination 17 pages + o bytes past its source; today's core alone, 30 cycles; IPC change against full addresses; false matches per 1,000 loads):
+
+| o (bytes) | False matches | N = 12, one replay | N = 12, wait for the store |
+|---|---|---|---|
+| 0 | 0 | 0 | 0 |
+| 8 | 120 | −8.5% | −12.2% |
+| 32 | 499 | −17.5% | −46.8% |
+| 64 | 1,000 | **−24.4%** | **−56.7%** |
+| 128 | 874 | −24.4% | −39.0% |
+| 160 | 746 | −0.0% | −11.6% |
+| 192, 256, 512, 2,048, 4,032 | 0 | 0 | 0 |
+
+- **The band is 8–160 bytes:** the store queue's 20 entries of 8 bytes.
+  - A load meets an older store only while that store is still in the queue, j − i ≤ ≈160 bytes behind it.
+  - A smaller queue narrows the band, and a larger one widens it.
+- **The width moves the band, not its size.** At N = 16 it is the same 8–160 bytes modulo 64 KiB; at N = 20, modulo 1 MiB:
+
+| Copy (64 bytes off) | N = 20, replay | N = 16, replay | N = 12, replay | N = 12, wait |
+|---|---|---|---|---|
+| Word copy, 17 pages apart | 0 | 0 | −24.4% | −56.7% |
+| Word copy, 16 pages (64 KiB) apart | 0 | −24.4% | −24.4% | −56.7% |
+| Word copy, 256 pages (1 MiB) apart | −24.4% | −24.4% | −24.4% | −56.7% |
+| newlib's memcpy, 16 pages apart | 0 | −0.07% | −0.07% | −55.6% |
+| newlib's memcpy, 256 pages apart | −0.07% | −0.07% | −0.07% | −55.6% |
+
+- **How likely a copy is to land in the band:**
+  - For buffers placed at random, the chance is about 160 / 2^N: 3.9% at N = 12, 0.24% at 16, 0.015% at 20.
+  - Allocators don't place at random. Equal power-of-two blocks and page-aligned buffers with small headers put copies in or next to the band far more often. The heap copies of §7.9 hit it at every N.
+- **What one replay costs depends on the code.**
+  - newlib's memcpy keeps enough independent loads behind the replayed one to hide it: −0.07%.
+  - The eight-loads-then-eight-stores word copy doesn't: −24.4%.
+  - Waiting for the store costs either one about 56%.
+
+**2. The store-side search.**
+- **The scattered updates raise few false flushes:** 0.2–0.4 per 1,000 loads at N = 12, and none at 16 or 20. Their IPC moves by under ±0.3% (within run noise).
+- **The false matches on known stores are rare too:** 1–3 per 1,000 loads at N = 12.
+- **True ordering flushes were 0 with full addresses.** The keys rarely repeat within the window.
+- **Even when a store's address comes from a load,** it resolves before most of the younger loads it could meet have run.
+
+**3. The product's 42 pairs** (WS change against full addresses at 30 / 120 / 250 cycles; false matches and false flushes per 1,000 loads over both harts):
+
+| N, one replay | WS change | False matches | False flushes | Hung |
+|---|---|---|---|---|
+| 20 | −0.61% / −0.03% / +0.02% | 27 / 27 / 27 | 0.74 / 0.40 / 0.33 | 0 |
+| 16 | −0.61% / −0.04% / 0.00% | 27 / 27 / 27 | 0.74 / 0.40 / 0.33 | 0 |
+| 12 | −0.72% / −0.01% / +0.05% | 27 / 27 / 27 | 0.75 / 0.34 / 0.33 | 0 |
+
+- **The false matches are memsuite's copy's,** in the pairs it is in. Its 4 MiB buffers alias at every N (§7.9), so the rate doesn't fall with N.
+- **The cost is at 30 cycles,** where the copy is fastest: −0.6 to −0.7%. At 120 and 250 the misses hide the replays.
+
+*The partial-address search, in sum (the IPC side; LUTs from spikes-2):*
+- **The replay form costs ≈0.4% of the suite and ≈0–0.7% of the product's pairs, at any N.**
+- **The risk is copies that land in the band:**
+  - a word copy loses up to 24% there (newlib's memcpy 0.07%);
+  - the wait form loses 56% there.
+- **N = 20 shrinks the band's chance for randomly placed buffers 256-fold against N = 12,** but not for buffers a power of two of 1 MiB or more apart.
+
+**Decisions:** none here. The coordinator decides with spikes-2's LUTs (DR-154: under 1% of the suite with the replay form).
+
+**Learned:**
+- The band where partial matching breaks is set by the store queue's span: 8–160 bytes here, behind the load, modulo 2^N.
+- The search's width only moves that band, and the replay's cost depends on whether the code has independent loads to hide it behind.
 
 ---
 

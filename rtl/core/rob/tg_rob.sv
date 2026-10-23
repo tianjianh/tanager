@@ -129,9 +129,12 @@ module tg_rob
   output logic                         xret_s,       // ... and it is SRET: tg_csr reads its xepc
   input  logic [63:0]                  xepc,
   input  priv_e                        priv,
-  input  logic                         irq_take,
+  input  logic                         irq_take,     // the head thread's (t_cm: tg_csr reads hd_tid_o)
   input  logic [5:0]                   irq_code,
   input  logic                         wfi_wake,
+  input  logic [NUM_THREADS-1:0]       wfi_wake_h,   // each hart's (with hart 1: a parked WFI's turns)
+  input  logic [NUM_THREADS-1:0]       wfi_arm_h,    // each hart has an interrupt enabled (a sleeper's time-out)
+  input  logic                         csr_hold,     // with hart 1: a trap's cold-CSR writes run (tg_csr), no commit
   // Flush and redirect (registered)
   output logic                         flush,
   output tid_t                         flush_tid,
@@ -139,7 +142,17 @@ module tg_rob
   output logic                         icinv,
   // Commit trace
   output tr_rec_t [CW-1:0]             trace_o,
-  output logic [CW-1:0]                trace_valid_o
+  output logic [CW-1:0]                trace_valid_o,
+  // Step 6 (D2, threading.md), with hart 1: a thread that waits in WFI while its sibling runs goes to sleep
+  input  md_t                          md_i,          // the mode (tg_rename)
+  input  md_t                          mdn_i,         // ... next cycle's
+  input  logic                         mrs_i,         // the split moves md_i.run's empty window to its half's start
+  input  logic [NUM_THREADS-1:0]       wk_i,          // each sleeping thread wakes
+  input  logic                         sph_i,         // a wake waits for the split: md_i.run's WFI retires
+  input  logic                         h1off_i,       // mtgsmt.HART1_OFF (tg_csr): hart 1 does not wake
+  output logic                         flush_slp,     // the flush follows a WFI gone to sleep (registered, with flush)
+  output logic [NUM_THREADS-1:0]       slp_o,         // each thread asleep
+  output logic [NUM_THREADS-1:0]       wkr_o          // ... and asking to wake
 );
   if (NB < DISPATCH_WIDTH || NB < CW || (ROB_ENTRIES % NB) != 0) begin : g_bad
     $error("tg_rob: ROB_BANKS must cover the widths and divide ROB_ENTRIES");
@@ -149,6 +162,10 @@ module tg_rob
   end
 
   localparam int NT = NUM_THREADS;
+  md_t md, mdn;                     // the mode and next cycle's (step 6; constants without hart 1)
+  assign md  = HART1_ON ? md_i : MD_C;
+  assign mdn = HART1_ON ? mdn_i : MD_C;
+  localparam bit MT = HART1_ON && NT > 1;      // hart 1 runs (M7's step 5c): interrupts at either thread's head
   // The threads: the dispatch group's (its slot 0's tid), the committing one (the running thread until the split
   // mode) and the flushed one; without SMT thread 0, whatever the tid bits hold
   tid_t t_ds, t_cm, t_fl;
@@ -156,6 +173,11 @@ module tg_rob
   assign t_ds = (NT > 1) ? ds_uop[0].tid : tid_t'(0);
   assign t_cm = (SPLIT && NT > 1) ? ct_q : RUN_TID;
   assign t_fl = (NT > 1) ? flush_tid : tid_t'(0);
+  // A report (completion, exception, mispredict, MMIO, replay) in a flush's cycle is dropped when its entry is the
+  // flushed thread's: every report while one thread runs; with hart 1 (MT) the other thread's reports stand
+  function automatic logic rdrop(input robid_t e, input logic fl, input tid_t ft);
+    return fl && (!MT || rob_tid(e, md) == ft);
+  endfunction
   robid_t [NT-1:0] head_q, tail_q;
   assign head_o   = head_q;
   assign hd_tid_o = t_cm;
@@ -237,11 +259,11 @@ module tg_rob
     logic [CW-1:0][BKW-1:0]         bk;
     logic [NB-1:0][idx_w(ROWS)-1:0] pa;
   } hwin_t;
-  function automatic hwin_t hwin(input robid_t h, input int k, input tid_t t);   // the window at thread t's h + k
+  function automatic hwin_t hwin(input robid_t h, input int k, input tid_t t, input md_t m);  // thread t's h + k
     hwin_t w;
     w = '0;
     for (int j = 0; j < CW; j++) begin
-      w.hid[j] = rob_add_t(h, k + j, t);
+      w.hid[j] = rob_add_t(h, k + j, t, m);
       w.bk[j]  = BKW'(bank_of(w.hid[j][RIW-1:0]));
       w.pa[bank_of(w.hid[j][RIW-1:0])] = idx_w(ROWS)'(row_of(w.hid[j][RIW-1:0]));
     end
@@ -249,7 +271,7 @@ module tg_rob
   endfunction
   hwin_t [CW:0] hw_n;               // after committing k
   hwin_t        hw_q;
-  always_comb for (int k = 0; k <= CW; k++) hw_n[k] = hwin(head_q[t_cm], k, t_cm);
+  always_comb for (int k = 0; k <= CW; k++) hw_n[k] = hwin(head_q[t_cm], k, t_cm, mdn);   // (next cycle's window)
   robid_t [CW-1:0]  hid;              // head + j
   rob_pl_t [CW-1:0] hp;
   logic [NB-1:0][idx_w(ROWS)-1:0] pr_a;
@@ -295,8 +317,8 @@ module tg_rob
   // at dispatch (that parity then, XOR the flag's initial value), so dispatch writes none of the
   // tables, and their contents need no reset. This holds while every live entry gets at most
   // one report per flag per lap and none as it is dispatched (asserted); reports in a flush
-  // cycle are dropped, as the flip-flop flags dropped them, and later ones for squashed entries
-  // come before those entries are dispatched again.
+  // cycle for the flushed thread's entries are dropped (rdrop), as the flip-flop flags dropped them,
+  // and later ones for squashed entries come before those entries are dispatched again.
   // Read ports per table: the commit slots' entries, the dispatched entries, and its own write
   // entry (the toggle).
   localparam int NCP = N_ALU + 9;                // completion ports
@@ -344,7 +366,7 @@ module tg_rob
   robid_t [1:0]     sp_e_q;
   always_ff @(posedge clk) begin
     for (int i = 0; i < 2; i++) begin
-      sp_v_q[i] <= st_cmp[i] && !flush && !rst;
+      sp_v_q[i] <= st_cmp[i] && !rdrop(st_rob[i], flush, t_fl) && !rst;
       sp_e_q[i] <= st_rob[i];
     end
   end
@@ -352,7 +374,7 @@ module tg_rob
   robid_t [NFT-1:0] fw_e;
   always_comb begin
     for (int t = 0; t < NFT; t++) begin
-      fw_v[t] = ft_v[t] && !flush && !rst;
+      fw_v[t] = ft_v[t] && !rdrop(ft_e[t], flush, t_fl) && !rst;
       fw_e[t] = ft_e[t];
     end
     for (int i = 0; i < 2; i++) begin
@@ -361,8 +383,19 @@ module tg_rob
     end
   end
   logic [NFT-1:0][NFR-1:0] ft_rd;
+  // (MT, step 5d) one more read port, at the other thread's head (oh, below), for the commit turn; synthesis keeps it
+  // on the completion and MMIO tables only
+  localparam int NFRX = NFR + (MT ? 1 : 0);
+  robid_t         oh;               // the other thread's head entry
+  logic [NFT-1:0] ft_ro;            // each table there
+  if (MT) begin : g_oh
+    assign oh = head_q[~t_cm];
+  end else begin : g_noh
+    assign oh = head_q[t_cm];
+  end
   for (genvar t = 0; t < NFT; t++) begin : g_ft
-    logic [NFR-1:0][RIW-1:0] ra;
+    logic [NFRX-1:0][RIW-1:0] ra;
+    logic [NFRX-1:0]          rd;
     for (genvar j = 0; j < CW; j++) begin : g_rh
       assign ra[j] = hid[j][RIW-1:0];
     end
@@ -370,9 +403,16 @@ module tg_rob
       assign ra[CW + k] = ds_ren[k].rob[RIW-1:0];
     end
     assign ra[NFR-1] = fw_e[t][RIW-1:0];
-    tg_ram_lut #(.DEPTH(ROB_ENTRIES), .WIDTH(1), .NR(NFR)) u_ft (
+    if (MT) begin : g_ro
+      assign ra[NFRX-1] = oh[RIW-1:0];
+      assign ft_ro[t]   = rd[NFRX-1];
+    end else begin : g_nro
+      assign ft_ro[t]   = 1'b0;
+    end
+    tg_ram_lut #(.DEPTH(ROB_ENTRIES), .WIDTH(1), .NR(NFRX)) u_ft (
       .clk, .we(fw_v[t]), .waddr(fw_e[t][RIW-1:0]), .wdata(!ft_rd[t][NFR-1]),
-      .raddr(ra), .rdata(ft_rd[t]));
+      .raddr(ra), .rdata(rd));
+    assign ft_rd[t] = rd[NFR-1:0];
   end
   // The completion and exception parities at each read port
   logic [NFR-1:0] par_c, par_x;
@@ -425,21 +465,32 @@ module tg_rob
       rw_d[k] = 1'b0;
     end
   end
+  localparam int NRRX = NRR + (MT ? 1 : 0);
+  logic [NRW-1:0] rw_ro;            // (MT) each table at the other thread's head
   for (genvar b = 0; b < NRW; b++) begin : g_rw
-    logic [NRR-1:0][RIW-1:0] ra;
+    logic [NRRX-1:0][RIW-1:0] ra;
+    logic [NRRX-1:0]          rd;
     for (genvar p = 0; p < NRW - 1; p++) begin : g_ro
       assign ra[p] = rw_a[(p < b) ? p : p + 1];
     end
     for (genvar j = 0; j < CW; j++) begin : g_rh
       assign ra[NRW - 1 + j] = hid[j][RIW-1:0];
     end
+    if (MT) begin : g_oh
+      assign ra[NRRX-1] = oh[RIW-1:0];
+      assign rw_ro[b]   = rd[NRRX-1];
+    end else begin : g_noh
+      assign rw_ro[b]   = 1'b0;
+    end
     logic wd;
     always_comb begin
       wd = rw_d[b];
       for (int w = 0; w < NRW; w++) if (w != b) wd ^= rw_rd[w][(b < w) ? b : b - 1];
     end
-    tg_ram_lut #(.DEPTH(ROB_ENTRIES), .WIDTH(1), .NR(NRR)) u_rw (
-      .clk, .we(rw_v[b] && !flush && !rst), .waddr(rw_a[b]), .wdata(wd), .raddr(ra), .rdata(rw_rd[b]));
+    tg_ram_lut #(.DEPTH(ROB_ENTRIES), .WIDTH(1), .NR(NRRX)) u_rw (
+      .clk, .we(rw_v[b] && !rdrop(robid_t'(rw_a[b]), flush, t_fl) && !rst), .waddr(rw_a[b]), .wdata(wd), .raddr(ra),
+      .rdata(rd));
+    assign rw_rd[b] = rd[NRR-1:0];
   end
   logic [CW-1:0] rpl_h;                          // the flag of each commit slot's entry
   always_comb begin
@@ -449,9 +500,44 @@ module tg_rob
     end
   end
 
+  // (MT, step 5d) the other thread's head entry is actionable: complete, marked for a replay (or a TLB miss), or an MMIO
+  // load waiting to issue at the head. Its flags as the commit slots' (the tables' extra port above, the store
+  // tables' pending toggles, and its dispatch parities from a two-bit copy of the payload's, per bank)
+  logic o_act;
+  if (MT) begin : g_oact
+    logic [NB-1:0][1:0] po_rd;      // {f_cmp, f_mmio} at the other head's row, per bank
+    for (genvar b = 0; b < NB; b++) begin : g_po
+      logic [0:0][idx_w(ROWS)-1:0] ra;
+      logic [0:0][1:0]             rd;
+      rob_pl_t                     w;
+      assign w     = rob_pl_t'(pw_d[b]);
+      assign ra[0] = idx_w(ROWS)'(row_of(oh[RIW-1:0]));
+      tg_ram_lut #(.DEPTH(ROWS), .WIDTH(2), .NR(1)) u_po (
+        .clk, .we(pw_we[b]), .waddr(pw_a[b]), .wdata({w.f_cmp, w.f_mmio}), .raddr(ra), .rdata(rd));
+      assign po_rd[b] = rd[0];
+      logic unused_w;               // (the payload's other fields)
+      assign unused_w = ^w;
+    end
+    logic unused_oh;                // (the index's thread bit: the tables are read by entry)
+    assign unused_oh = oh[ROBW-1];
+    logic o_cmp, o_mmio, o_rpl;
+    always_comb begin
+      o_cmp = po_rd[bank_of(oh[RIW-1:0])][1];
+      for (int t = 0; t < NCP; t++) o_cmp ^= ft_ro[t];
+      for (int i = 0; i < 2; i++) o_cmp ^= sp_v_q[i] && sp_e_q[i][RIW-1:0] == oh[RIW-1:0];
+      o_mmio = po_rd[bank_of(oh[RIW-1:0])][0] ^ ft_ro[NFT-1];
+      o_rpl  = ^rw_ro;
+      o_act  = o_cmp || o_rpl || o_mmio;
+    end
+  end else begin : g_noact
+    assign o_act = 1'b0;
+    logic unused_ro;
+    assign unused_ro = ^{ft_ro, rw_ro, oh};
+  end
+
   // ---- Commit decision ----
   int cnt;
-  assign cnt = rob_cnt_t(tail_q[t_cm], head_q[t_cm]);
+  assign cnt = rob_cnt_t(tail_q[t_cm], head_q[t_cm], md);
   logic [CW-1:0] ret;               // retiring slots
   logic          do_flush, do_trap, do_irq, do_icinv, do_csr, do_mret, do_sret, do_sfence, use_tt, tlbx;
   logic [63:0]   nf_pc;
@@ -475,21 +561,79 @@ module tg_rob
   // WFI retires when a locally enabled interrupt is pending, or after WFI_MAX cycles (the ISA
   // lets WFI complete at any time; Spike treats it as a no-op), so it never hangs the hart.
   localparam int WFI_MAX = 4096;
-  logic [NT-1:0][idx_w(WFI_MAX + 1)-1:0] wfi_cnt_q;
+  // Step 6 (D2), with hart 1: a WFI that has waited SLP_WAIT cycles while the sibling is awake retires and its thread
+  // sleeps (slp_q): its flush keeps it blocked at rename, and its half can go to the sibling (tg_rename merges them).
+  // It wakes on a locally enabled interrupt (its next instruction takes it), or after SLP_MAX cycles asleep while it
+  // has one enabled (WFI may complete at any time; the time-out only guards a wake that never comes). With none
+  // enabled it sleeps until reset: a parked hart then costs its sibling nothing (DR-184). mtgsmt.HART1_OFF keeps
+  // hart 1 asleep.
+  localparam int SLP_WAIT = 64;
+  localparam int SLP_MAX  = HART1_ON ? (1 << 24) : WFI_MAX;
+  logic [NT-1:0][idx_w(SLP_MAX + 1)-1:0] wfi_cnt_q;   // a WFI's wait at the head, then a sleeping thread's
+  logic [NT-1:0] slp_q, slp_rdy;
+  logic          slp_now, sl_ret;
+  always_comb
+    for (int t = 0; t < NT; t++)       // thread t's WFI may go to sleep (the sibling awake, no merge or split moving)
+      slp_rdy[t] = HART1_ON && NT > 1 && int'(wfi_cnt_q[t]) >= SLP_WAIT && !slp_q[NT - 1 - t] && md.split &&
+                   mdn.split && !sph_i;
+  // With hart 1 a thread whose head is a WFI still waiting at its last turn (wfp_q) takes no commit turns while no
+  // interrupt is pending for it (registered: wkh_q) and its count runs, which then runs every cycle; without it
+  // the turns alternate as before
+  logic [NT-1:0] wfp_q, wkh_q;
   logic go;
   always_comb begin
+    slp_now = slp_rdy[t_cm] && !wfi_wake;
     unique case (hp[0].sys)
       SYS_FENCE, SYS_FENCEI, SYS_SFENCE: go = sq_drained;    // later walks see the stores
-      SYS_WFI:               go = wfi_wake || int'(wfi_cnt_q[t_cm]) == WFI_MAX;
+      SYS_WFI:               go = wfi_wake || int'(wfi_cnt_q[t_cm]) == WFI_MAX || slp_now || (HART1_ON && sph_i);
       default:               go = !(hp[0].is_csr && hp[0].insn[31:20] == 12'h180) || sq_drained;  // satp
     endcase
   end
   always_ff @(posedge clk) begin
     if (rst) wfi_cnt_q <= '0;
     else if (flush) wfi_cnt_q[t_fl] <= '0;
+    else if (HART1_ON && slp_q[t_cm]) ;                      // (a sleeper's count runs below)
     else if (cnt == 0 || hp[0].sys != SYS_WFI) wfi_cnt_q[t_cm] <= '0;
     else if (int'(wfi_cnt_q[t_cm]) != WFI_MAX) wfi_cnt_q[t_cm] <= wfi_cnt_q[t_cm] + 1'b1;
+    if (MT && !rst)
+      for (int t = 0; t < NT; t++) begin
+        if (tid_t'(t) != t_cm && wfp_q[t] && !(flush && t_fl == tid_t'(t)) && int'(wfi_cnt_q[t]) != WFI_MAX)
+          wfi_cnt_q[t] <= wfi_cnt_q[t] + 1'b1;
+        if (HART1_ON && slp_q[t] && int'(wfi_cnt_q[t]) != SLP_MAX) wfi_cnt_q[t] <= wfi_cnt_q[t] + 1'b1;
+        if (HART1_ON && wk_i[t]) wfi_cnt_q[t] <= '0;
+      end
+    wkh_q <= MT ? wfi_wake_h : '0;
+    if (rst || !MT) wfp_q <= '0;
+    else begin
+      if (!flush) wfp_q[t_cm] <= cnt > 0 && hp[0].sys == SYS_WFI && !ret[0];
+      if (flush) wfp_q[t_fl] <= 1'b0;
+    end
+    if (rst || !HART1_ON) slp_q <= '0;
+    else begin
+      if (sl_ret) slp_q[t_cm] <= 1'b1;
+      for (int t = 0; t < NT; t++) if (wk_i[t]) slp_q[t] <= 1'b0;
+    end
   end
+  // a sleeping thread asks to wake: a locally enabled interrupt, or SLP_MAX cycles with one enabled; hart 1 not while
+  // it is held off.
+  // (Simulation only, +xwake=N) it also asks with probability N per mille a cycle (WFI may complete at any time), so
+  // step 6's merges and splits come at random points; without it no random number is drawn, so other random streams
+  // stay as they are
+  logic [NT-1:0] xw_q;
+`ifndef SYNTHESIS
+  int unsigned xw_pm;
+  initial if (!$value$plusargs("xwake=%d", xw_pm)) xw_pm = 0;
+  always_ff @(posedge clk)
+    if (xw_pm != 0) for (int t = 0; t < NT; t++) xw_q[t] <= !rst && ($urandom % 1000) < xw_pm;
+    else xw_q <= '0;
+`else
+  assign xw_q = '0;
+`endif
+  always_comb
+    for (int t = 0; t < NT; t++)
+      wkr_o[t] = HART1_ON && slp_q[t] && (wkh_q[t] || (wfi_arm_h[t] && int'(wfi_cnt_q[t]) == SLP_MAX) || xw_q[t]) &&
+                 !(h1off_i && tid_t'(t) == ~RUN_TID);
+  assign slp_o = slp_q;
   // One adder on the head's PC: a serial instruction's next PC (+2 or +4), or a fetch fault's
   // tval (+2 when only the second half of a 32-bit instruction faults). The second is a decode
   // exception, which traps, so one instruction never needs both.
@@ -499,6 +643,7 @@ module tg_rob
     ret = '0;
     do_flush = 1'b0; do_trap = 1'b0; do_irq = 1'b0; do_icinv = 1'b0; do_csr = 1'b0; do_mret = 1'b0;
     do_sret = 1'b0; do_sfence = 1'b0;
+    sl_ret = 1'b0;
     use_tt = 1'b0;
     tlbx = 1'b0;
     nf_pc = '0;
@@ -507,8 +652,8 @@ module tg_rob
     stop = 1'b0;
     pushed = 1'b0;
     mf = '0;
-    if (!flush && ready && cnt > 0) begin
-      if (irq_take && t_cm == RUN_TID && hp[0].sys != SYS_WFI && !mmio_busy) begin   // (the running thread's)
+    if (!flush && ready && !(MT && csr_hold) && cnt > 0) begin
+      if (irq_take && (MT || t_cm == RUN_TID) && hp[0].sys != SYS_WFI && !mmio_busy) begin   // (t_cm's)
         do_irq = 1'b1;
         do_flush = 1'b1;
         use_tt = 1'b1;
@@ -552,6 +697,7 @@ module tg_rob
           do_sret  = hp[0].sys == SYS_SRET;
           do_sfence = hp[0].sys == SYS_SFENCE;
           nf_pc    = (do_mret || do_sret) ? xepc : hd_pc_inc;
+          sl_ret   = hp[0].sys == SYS_WFI && slp_now;
         end
       end else begin
         stop = 1'b0;
@@ -705,7 +851,7 @@ module tg_rob
       xc_v = {spx_valid, lx_valid, br_valid && br_exc, oth_cmp && oth_exc, exr_v_q[t]};
       xc_r = {spx_rob, lx_rob, br_rob, oth_rob, exr_rob_q[t]};
       xc_c = {4'(EXC_SACCESS), lx_cause, 4'(EXC_IMISALIGN), 4'(EXC_ILLEGAL), exr_cause_q[t]};
-      for (int i = 1; i < NEX; i++) if (rob_tid(xc_r[i]) != tid_t'(t)) xc_v[i] = 1'b0;
+      for (int i = 1; i < NEX; i++) if (rob_tid(xc_r[i], md) != tid_t'(t)) xc_v[i] = 1'b0;
       for (int i = 0; i < NEX; i++)
         for (int j = 0; j < NEX; j++) xc_o[i][j] = rob_older(xc_r[i], xc_r[j]);
       for (int i = 0; i < NEX; i++) begin
@@ -735,11 +881,24 @@ module tg_rob
   end
 
   // The commit thread (split mode), chosen a cycle ahead so the head window still comes from flip-flops: the other
-  // thread whenever it has entries, so two busy threads alternate and an empty one is not served
+  // thread whenever it has entries, so two busy threads alternate and an empty one is not served. With hart 1 (step
+  // 5d) a thread keeps the turn while it commits and the other's head is not actionable, up to RUN_K turns in a row
+  // (the LSU's head operations, MMIO loads, atomics and walks at the head, go only in their thread's turns): the
+  // other thread's turn comes next cycle when its head is actionable, this thread committed nothing, or RUN_K
+  logic o_park;                     // (MT) the other thread waits in WFI: no turn for it yet
+  logic o_has;                      // ... it has entries
+  localparam int RUN_K = 4;
+  logic [1:0] run_q;                // (MT) this thread's turns in a row before this one, while the other waits
   always_comb begin
     ct_n = t_cm;
-    if (SPLIT && NT > 1 && rob_cnt_t(tail_q[~t_cm], head_q[~t_cm]) != 0) ct_n = ~t_cm;
+    o_park = MT && wfp_q[~t_cm] && !wkh_q[~t_cm] && int'(wfi_cnt_q[~t_cm]) != WFI_MAX && !slp_rdy[~t_cm];
+    o_has  = 1'b0;
+    if (SPLIT && NT > 1 && rob_cnt_t(tail_q[~t_cm], head_q[~t_cm], md) != 0) o_has = 1'b1;
+    if (SPLIT && NT > 1 && o_has && !o_park && (!MT || o_act || !(|ret) || int'(run_q) == RUN_K - 1)) ct_n = ~t_cm;
   end
+  always_ff @(posedge clk)
+    if (rst || !MT || ct_n != t_cm || !o_has || o_park) run_q <= '0;
+    else if (int'(run_q) != RUN_K - 1) run_q <= run_q + 1'b1;
 
   // ---- Sequential ----
   always_ff @(posedge clk) begin
@@ -748,11 +907,12 @@ module tg_rob
     if (rst) begin
       trace_valid_o <= '0;
       for (int t = 0; t < NT; t++) begin
-        head_q[t] <= rob_start(tid_t'(t));
-        tail_q[t] <= rob_start(tid_t'(t));
+        head_q[t] <= rob_start(tid_t'(t), MD_C);
+        tail_q[t] <= rob_start(tid_t'(t), MD_C);
       end
       ct_q     <= RUN_TID;
       flush    <= 1'b0;
+      flush_slp <= 1'b0;
       icinv    <= 1'b0;
       exr_v_q  <= '0;
       mpr_v_q  <= '0;
@@ -760,6 +920,7 @@ module tg_rob
     end else begin
       for (int j = 0; j < CW; j++) trace_valid_o[j] <= COMMIT_TRACE && (ret[j] || (j == 0 && (do_trap || do_irq)));
       flush     <= do_flush;
+      flush_slp <= HART1_ON && sl_ret;
       // Every flush is the committing thread's: its head instruction's tid
       flush_tid <= hp[0].tid;
       flush_pc  <= use_tt ? (do_irq ? irq_target : trap_target) : nf_pc;
@@ -783,32 +944,39 @@ module tg_rob
             if (ds_valid[k] && (ds_uop[k].d.sys == SYS_MRET || ds_uop[k].d.sys == SYS_SRET)) xr_v_q[t_ds] <= 1'b1;
             if (ds_valid[k] && ds_uop[k].d.sys == SYS_SRET) xr_s_q[t_ds] <= 1'b1;
           end
-          tail_q[t_ds] <= rob_add_t(tail_q[t_ds], $countones(ds_valid), t_ds);
+          tail_q[t_ds] <= rob_add_t(tail_q[t_ds], $countones(ds_valid), t_ds, md);
         end
         // Completions, exceptions, mispredicts and MMIO loads: the toggle tables; replay: the
         // XOR-banked tables (above)
-
-        // Oldest exception: the current register and this cycle's reports
-        for (int t = 0; t < NT; t++) begin
+      end
+      // Step 6: a split with the running thread's window empty moves its pointers to its half's start
+      if (HART1_ON && mrs_i) begin
+        head_q[md.run] <= rob_start(md.run, mdn);
+        tail_q[md.run] <= rob_start(md.run, mdn);
+      end
+      // Oldest exception: the current register and this cycle's reports (in a flush's cycle the other
+      // thread's, with hart 1)
+      for (int t = 0; t < NT; t++)
+        if (!flush || (MT && t_fl != tid_t'(t))) begin
           exr_v_q[t] <= ex_v[t] && !(do_trap && t_cm == tid_t'(t));
           exr_rob_q[t] <= ex_r[t]; exr_cause_q[t] <= ex_c[t]; exr_tval_q[t] <= ex_t[t];
           exr_mem_q[t] <= ex_m[t];
         end
-        // Oldest mispredict, its thread's
-        if (br_valid && br_misp && !br_exc &&
-            (!mpr_v_q[rob_tid(br_rob)] || rob_older(br_rob, mpr_rob_q[rob_tid(br_rob)]))) begin
-          mpr_v_q[rob_tid(br_rob)]   <= 1'b1;
-          mpr_rob_q[rob_tid(br_rob)] <= br_rob;
-          mpr_npc_q[rob_tid(br_rob)] <= br_npc;
-        end
+      // Oldest mispredict, its thread's
+      if (br_valid && br_misp && !br_exc && !rdrop(br_rob, flush, t_fl) &&
+          (!mpr_v_q[rob_tid(br_rob, md)] || rob_older(br_rob, mpr_rob_q[rob_tid(br_rob, md)]))) begin
+        mpr_v_q[rob_tid(br_rob, md)]   <= 1'b1;
+        mpr_rob_q[rob_tid(br_rob, md)] <= br_rob;
+        mpr_npc_q[rob_tid(br_rob, md)] <= br_npc;
       end
     end
   end
   assign xret_v    = xr_v_q[t_cm];
   assign xret_s    = xr_s_q[t_cm];
   always_ff @(posedge clk)
-    hw_q <= rst ? hwin(rob_start(RUN_TID), 0, RUN_TID)
-                : ((ct_n == t_cm) ? hw_n[cm_n] : hwin(head_q[ct_n], 0, ct_n));
+    hw_q <= rst ? hwin(rob_start(RUN_TID, MD_C), 0, RUN_TID, MD_C)
+                : (HART1_ON && mrs_i && ct_n == md.run) ? hwin(rob_start(md.run, mdn), 0, md.run, mdn)
+                : ((ct_n == t_cm) ? hw_n[cm_n] : hwin(head_q[ct_n], 0, ct_n, mdn));
 `ifndef SYNTHESIS
   // Checks of registers against each other wait for the core's first reset: in the SoC the reset
   // comes from a register (the host bridge's), so the first cycle may see it low before any reset
@@ -817,7 +985,7 @@ module tg_rob
   always @(posedge clk) if (rst) rs_q <= 1'b1;
   always_ff @(posedge clk) begin
     if (rs_q && !rst)
-      assert (hw_q == hwin(head_q[t_cm], 0, t_cm)) else $error("tg_rob: the registered head window differs from the head");
+      assert (hw_q == hwin(head_q[t_cm], 0, t_cm, md)) else $error("tg_rob: the registered head window differs from the head");
   end
   always_ff @(posedge clk) begin
     if (!rst && (do_mret || do_sret))
@@ -826,12 +994,15 @@ module tg_rob
       assert (!hp[0].dexc) else $error("tg_rob: a serial instruction with a decode exception retires");
   end
   // The registered timer-pending bit (tg_csr, DR-146) settles two cycles after a CSR write, which
-  // retires alone and flushes: no interrupt may be taken within that margin
-  logic [1:0] csr_ago_q;                  // a CSR instruction retired one / two cycles ago
+  // retires alone and flushes: no interrupt may be taken within that margin. Each hart's pending bits
+  // are its own, so the margin is per thread: with hart 1 the other thread may take its interrupt
+  // (verif-2's two-hart random programs, 10-21)
+  logic [NT-1:0][1:0] csr_ago_q;          // each thread: a CSR instruction of its retired one / two cycles ago
   always_ff @(posedge clk) begin
-    csr_ago_q <= rst ? '0 : {csr_ago_q[0], do_csr};
+    for (int t = 0; t < NT; t++)
+      csr_ago_q[t] <= rst ? '0 : {csr_ago_q[t][0], do_csr && t_cm == tid_t'(t)};
     if (rs_q && !rst && do_irq)
-      assert (csr_ago_q == '0) else $error("tg_rob: an interrupt within two cycles of a CSR write");
+      assert (csr_ago_q[t_cm] == '0) else $error("tg_rob: an interrupt within two cycles of its thread's CSR write");
   end
 `endif
 
@@ -846,11 +1017,11 @@ module tg_rob
   // for an entry as it is dispatched).
   logic [ROB_ENTRIES-1:0] cmp_s, exc_s, misp_s, mmio_s, rpl_s;
   function automatic logic live(input robid_t e);
-    return rob_cnt_t(e, head_q[rob_tid(e)]) < rob_cnt_t(tail_q[rob_tid(e)], head_q[rob_tid(e)]);
+    return rob_cnt_t(e, head_q[rob_tid(e, md)], md) < rob_cnt_t(tail_q[rob_tid(e, md)], head_q[rob_tid(e, md)], md);
   endfunction
   always_ff @(posedge clk) begin
-    if (!rst && !flush) begin
-      if (ds_fire) begin
+    if (!rst) begin
+      if (ds_fire && !flush) begin
         for (int k = 0; k < DISPATCH_WIDTH; k++) begin
           if (ds_valid[k]) begin
             cmp_s[ds_ren[k].rob[RIW-1:0]]  <= !ds_ren[k].has_q;
@@ -861,14 +1032,15 @@ module tg_rob
           end
         end
       end
-      if (replay_valid) rpl_s[replay_rob[RIW-1:0]] <= 1'b1;
-      for (int i = 0; i < 2; i++) if (tlbm_valid[i]) rpl_s[tlbm_rob[i][RIW-1:0]] <= 1'b1;
+      if (replay_valid && !rdrop(replay_rob, flush, t_fl)) rpl_s[replay_rob[RIW-1:0]] <= 1'b1;
+      for (int i = 0; i < 2; i++)
+        if (tlbm_valid[i] && !rdrop(tlbm_rob[i], flush, t_fl)) rpl_s[tlbm_rob[i][RIW-1:0]] <= 1'b1;
       for (int a = 0; a < NRW; a++)
         for (int b = a + 1; b < NRW; b++)
-          assert (!(rw_v[a] && rw_v[b] && rw_a[a] == rw_a[b]))
+          assert (flush || !(rw_v[a] && rw_v[b] && rw_a[a] == rw_a[b]))
             else $error("tg_rob: two replay-table writers at entry %0d", rw_a[a]);
       for (int t = 0; t < NFT; t++) begin
-        if (ft_v[t]) begin
+        if (ft_v[t] && !rdrop(ft_e[t], flush, t_fl)) begin
           if (t < NCP)            cmp_s[ft_e[t][RIW-1:0]]  <= 1'b1;
           else if (t < NCP + NXP) exc_s[ft_e[t][RIW-1:0]]  <= 1'b1;
           else if (t == NFT - 2)  misp_s[ft_e[t][RIW-1:0]] <= 1'b1;
@@ -901,7 +1073,7 @@ module tg_rob
             assert (!(ds_valid[k] && ds_ren[k].rob[RIW-1:0] == sp_e_q[i][RIW-1:0]))
               else $error("tg_rob: a store table's late write at entry %0d as it is dispatched", sp_e_q[i]);
       for (int j = 0; j < CW; j++) begin
-        if (j < cnt) begin
+        if (j < cnt && !flush) begin
           assert (cmp_h[j] == cmp_s[hid[j][RIW-1:0]] && exc_h[j] == exc_s[hid[j][RIW-1:0]] &&
                   misp_h[j] == misp_s[hid[j][RIW-1:0]] && mmio_h[j] == mmio_s[hid[j][RIW-1:0]])
             else $error("tg_rob: the toggle-table flags of %0d differ from the shadow flags", hid[j]);
@@ -918,7 +1090,7 @@ module tg_rob
     logic [3:0]  sx_c;
     logic [63:0] sx_t;
     function automatic logic mine(input robid_t e);
-      return rob_tid(e) == tid_t'(t);
+      return rob_tid(e, md) == tid_t'(t);
     endfunction
     always_comb begin
       sx_v = exr_v_q[t]; sx_r = exr_rob_q[t]; sx_c = exr_cause_q[t]; sx_t = exr_tval_q[t]; sx_m = exr_mem_q[t];
@@ -946,7 +1118,7 @@ module tg_rob
   end
   always_ff @(posedge clk) begin
     if (!rst && !flush) begin
-      assert (cnt >= 0 && cnt <= part_size(ROB_ENTRIES)) else $error("tg_rob: bad occupancy %0d", cnt);
+      assert (cnt >= 0 && cnt <= part_size(ROB_ENTRIES, md)) else $error("tg_rob: bad occupancy %0d", cnt);
       if (do_trap && !hp[0].dexc && !tlbx)
         assert (exr_v_q[t_cm] && exr_rob_q[t_cm] == hid[0]) else $error("tg_rob: exception register does not hold the head");
       for (int j = 0; j < CW; j++)
@@ -954,8 +1126,41 @@ module tg_rob
           assert (mpr_v_q[t_cm] && mpr_rob_q[t_cm] == hid[j])
             else $error("tg_rob: mispredict register does not hold the branch");
       for (int j = 0; j < CW; j++)
-        if (j < cnt) assert (rob_tid(hid[j]) == t_cm) else $error("tg_rob: commit slot %0d is not its thread's", j);
+        if (j < cnt) assert (rob_tid(hid[j], md) == t_cm) else $error("tg_rob: commit slot %0d is not its thread's", j);
     end
+  end
+  // (MT, step 5d) a thread with entries, not parked in WFI, waits at most RUN_K cycles for a commit turn: its head
+  // operations (MMIO loads, atomics, a walk at the head), which the LSU runs only in its thread's turns, so wait at
+  // most RUN_K turns of a sibling that keeps its head actionable
+  if (MT) begin : g_turnwait
+    logic [NT-1:0][2:0] wt_q;
+    always_ff @(posedge clk)
+      for (int t = 0; t < NT; t++) begin
+        if (rst || tid_t'(t) == t_cm || rob_cnt_t(tail_q[t], head_q[t], md) == 0 ||
+            (wfp_q[t] && !wkh_q[t] && int'(wfi_cnt_q[t]) != WFI_MAX && !slp_rdy[t]))
+          wt_q[t] <= '0;
+        else if (wt_q[t] != 3'd7)
+          wt_q[t] <= wt_q[t] + 1'b1;
+        if (rs_q && !rst)
+          assert (int'(wt_q[t]) <= RUN_K) else $error("tg_rob: thread %0d waited %0d cycles for a commit turn", t, wt_q[t]);
+      end
+  end
+  // (MT, for the compute pairs' gap, smt2_report §13.14) commit cycles in which the chosen thread commits nothing,
+  // and of them those in which the other thread's head had completed (it could have committed; not parked in WFI);
+  // on stderr at the end with hart 1
+  if (MT) begin : g_cmw
+    longint unsigned n_cm0, n_cmw;
+    always_ff @(posedge clk)
+      if (rst) begin
+        n_cm0 <= 0;
+        n_cmw <= 0;
+      end else if (!flush && ready && !csr_hold && !(|ret) && !do_flush) begin
+        n_cm0 <= n_cm0 + 1;
+        if (rob_cnt_t(tail_q[~t_cm], head_q[~t_cm], md) != 0 && cmp_s[head_q[~t_cm][RIW-1:0]] && !wfp_q[~t_cm])
+          n_cmw <= n_cmw + 1;
+      end
+    final $fwrite(32'h8000_0002, "TG-STALL2 %m: commit's thread committed nothing %0d cycles (%0d with the other thread's head complete)\n",
+                  n_cm0, n_cmw);
   end
 `endif
 endmodule

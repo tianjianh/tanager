@@ -1,5 +1,5 @@
 # Device trees for the Tanager platform (docs/spec/soc.md §4, §6).
-#   make -C sw/dts [O=<dir>] [CORES=2] [THREADS=1] [RUN_THREADS=$(THREADS)] [MEM=0x40000000] [FPU=1] [PMU=0] [VIRTIO=0] [UART1=0] [SD1=0] [INITRD=0] [BOARD_RESET=0] [UART1_STDOUT=1] [ETH=0] [ETH_MAC=xx:xx:xx:xx:xx:xx] [BOOTARGS="..."]
+#   make -C sw/dts [O=<dir>] [CORES=2] [THREADS=1] [RUN_THREADS=$(THREADS)] [MEM=0x40000000] [FPU=1] [PMU=0] [VIRTIO=0] [UART1=0] [SD1=0] [INITRD=0] [BOARD_RESET=0] [UART1_STDOUT=1] [ETH=0] [ETH_MAC=xx:xx:xx:xx:xx:xx] [RELEASE=0] [BOOTARGS="..."]
 # RUN_THREADS=1 with THREADS=2: an SMT2 build that runs thread 0 of each core (until M7, DR-147),
 # so the tree describes harts 0 and 2.
 # PMU=1 adds OpenSBI's riscv,pmu event map, so Linux's PMU driver can count cycles and instructions
@@ -21,7 +21,12 @@
 # its plain earlycon (the extlinux append's) finds a console only there.
 # ETH=1 adds the PS's GEM3 and its DP83867 PHY (D5, docs/spec/soc-d5-gem3.md), with ETH_MAC as its MAC address (the
 # A53's eth0's: the modes never run together); RISC-V mode only, as riscv.scr takes the PHY out of reset.
-# Builds tanager-kv260.dtb and tanager-qemu.dtb for one configuration into O.
+# RELEASE=1: a release build's PLIC (DR-180), with no machine-mode contexts: the tree lists each hart's M context as
+# absent (-1) in their places, which OpenSBI and Linux skip; RISC-V mode's trees (board-trees.sh). A release tree
+# also boots a development build, whose M contexts nothing uses; a release build is not meant for VIRTIO=1.
+# Builds tanager-kv260.dtb and tanager-qemu.dtb for one configuration into O. Each tree must give every MMIO range whole
+# 4 KiB pages (check_pages.py; soc.md §4, "PMP regions: whole pages"): a smaller one becomes a PMP region in OpenSBI
+# that costs every 4K page its cached PMP result in the core (-23.6% on a store loop). A tree that fails is not kept.
 O       ?= $(SOC_BUILD)/dts
 CORES   ?= 2
 THREADS ?= 1
@@ -37,6 +42,10 @@ BOARD_RESET ?= 0
 UART1_STDOUT ?= 1
 ETH     ?= 0
 ETH_MAC ?=
+RELEASE ?= 0
+ifeq ($(RELEASE)$(VIRTIO),11)
+  $(error RELEASE=1 is a release build's tree, which has no virtio window: leave VIRTIO at 0)
+endif
 ifeq ($(SD1),1)
 BOOTARGS ?= console=ttyS0,115200 earlycon=uart8250,mmio,0x10000000,115200n8 root=LABEL=tanager-root rootwait
 else ifeq ($(UART1),1)
@@ -47,7 +56,7 @@ endif
 DTC     ?= dtc
 CPP     ?= cpp
 
-DEFS := -DTG_NUM_CORES=$(CORES) -DTG_NUM_THREADS=$(THREADS) -DTG_RUN_THREADS=$(RUN_THREADS) -DTG_MEM_SIZE=$(MEM) -DTG_FPU=$(FPU) -DTG_PMU=$(PMU) -DTG_VIRTIO=$(VIRTIO) -DTG_UART1=$(UART1) -DTG_SD1=$(SD1) -DTG_INITRD=$(INITRD) -DTG_BOARD_RESET=$(BOARD_RESET) -DTG_UART1_STDOUT=$(UART1_STDOUT) -DTG_ETH=$(ETH) \
+DEFS := -DTG_NUM_CORES=$(CORES) -DTG_NUM_THREADS=$(THREADS) -DTG_RUN_THREADS=$(RUN_THREADS) -DTG_MEM_SIZE=$(MEM) -DTG_FPU=$(FPU) -DTG_PMU=$(PMU) -DTG_VIRTIO=$(VIRTIO) -DTG_UART1=$(UART1) -DTG_SD1=$(SD1) -DTG_INITRD=$(INITRD) -DTG_BOARD_RESET=$(BOARD_RESET) -DTG_UART1_STDOUT=$(UART1_STDOUT) -DTG_ETH=$(ETH) -DTG_RELEASE=$(RELEASE) \
         $(if $(ETH_MAC),-DTG_ETH_MAC='$(subst :, ,$(ETH_MAC))') \
         -DTG_BOOTARGS='"$(BOOTARGS)"'
 
@@ -57,7 +66,9 @@ all: $(O)/tanager-kv260.dtb $(O)/tanager-qemu.dtb
 $(O)/%.dtb: %.dts tanager.dtsi Makefile
 	@mkdir -p $(O)
 	$(CPP) -nostdinc -undef -x assembler-with-cpp -P $(DEFS) -I. $< -o $(O)/$*.pp.dts
-	$(DTC) -I dts -O dtb -W no-unit_address_vs_reg -o $@ $(O)/$*.pp.dts
+	$(DTC) -I dts -O dtb -W no-unit_address_vs_reg -o $@.tmp $(O)/$*.pp.dts
+	python3 check_pages.py $@.tmp
+	mv $@.tmp $@
 
 clean:
 	rm -f $(O)/*.dtb $(O)/*.pp.dts

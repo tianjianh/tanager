@@ -1,0 +1,3201 @@
+{
+ "basis": {
+  "name": "half",
+  "label": "each program alone on its half of the split window (hart 1 on, before step 6's merge)",
+  "alone_sim": "/home/w/tanager-build/track-verif-79d5d8/sim/smt2-core-h1/tg_vsim"
+ },
+ "alone": {
+  "ms_gather@s0@30": {
+   "ipc": 0.5755083120204604,
+   "cycles": 625600,
+   "instret": 360038,
+   "runs": 0,
+   "total": 1442063
+  },
+  "ms_gather@s0@120": {
+   "ipc": 0.24071699349464126,
+   "cycles": 1495690,
+   "instret": 360038,
+   "runs": 0,
+   "total": 3163374
+  },
+  "ms_gather@s0@250": {
+   "ipc": 0.13058007703411406,
+   "cycles": 2757220,
+   "instret": 360038,
+   "runs": 0,
+   "total": 5768571
+  },
+  "ms_gather@s1@30": {
+   "ipc": 0.5766947028173368,
+   "cycles": 624313,
+   "instret": 360038,
+   "runs": 0,
+   "total": 1440843
+  },
+  "ms_gather@s1@120": {
+   "ipc": 0.24024988689428387,
+   "cycles": 1498598,
+   "instret": 360038,
+   "runs": 0,
+   "total": 3151023
+  },
+  "ms_gather@s1@250": {
+   "ipc": 0.13055886350351092,
+   "cycles": 2757668,
+   "instret": 360038,
+   "runs": 0,
+   "total": 5768937
+  },
+  "ms_stride@s0@30": {
+   "ipc": 0.5274725274725275,
+   "cycles": 35126,
+   "instret": 18528,
+   "runs": 0,
+   "total": 709159
+  },
+  "ms_stride@s0@120": {
+   "ipc": 0.17572245563785696,
+   "cycles": 105439,
+   "instret": 18528,
+   "runs": 0,
+   "total": 1444789
+  },
+  "ms_stride@s0@250": {
+   "ipc": 0.08941912318295013,
+   "cycles": 207204,
+   "instret": 18528,
+   "runs": 0,
+   "total": 2623773
+  },
+  "ms_stride@s1@30": {
+   "ipc": 0.5341636395087355,
+   "cycles": 34686,
+   "instret": 18528,
+   "runs": 0,
+   "total": 708642
+  },
+  "ms_stride@s1@120": {
+   "ipc": 0.1753980725902645,
+   "cycles": 105634,
+   "instret": 18528,
+   "runs": 0,
+   "total": 1444914
+  },
+  "ms_stride@s1@250": {
+   "ipc": 0.08938633732149749,
+   "cycles": 207280,
+   "instret": 18528,
+   "runs": 0,
+   "total": 2623796
+  },
+  "ms_spmv@s0@30": {
+   "ipc": 0.5647811450343724,
+   "cycles": 2393343,
+   "instret": 1351715,
+   "runs": 0,
+   "total": 4338286
+  },
+  "ms_spmv@s0@120": {
+   "ipc": 0.22393527966169366,
+   "cycles": 6036186,
+   "instret": 1351715,
+   "runs": 0,
+   "total": 10236585
+  },
+  "ms_spmv@s0@250": {
+   "ipc": 0.11815750464469138,
+   "cycles": 11439942,
+   "instret": 1351715,
+   "runs": 0,
+   "total": 18924127
+  },
+  "ms_spmv@s1@30": {
+   "ipc": 0.56487319224406,
+   "cycles": 2392953,
+   "instret": 1351715,
+   "runs": 0,
+   "total": 4337735
+  },
+  "ms_spmv@s1@120": {
+   "ipc": 0.22274637614766585,
+   "cycles": 6068404,
+   "instret": 1351715,
+   "runs": 0,
+   "total": 10268880
+  },
+  "ms_spmv@s1@250": {
+   "ipc": 0.11821570343991024,
+   "cycles": 11434310,
+   "instret": 1351715,
+   "runs": 0,
+   "total": 18918435
+  },
+  "ms_hashprobe@s0@30": {
+   "ipc": 0.3922651212066972,
+   "cycles": 4134260,
+   "instret": 1621726,
+   "runs": 0,
+   "total": 6430339
+  },
+  "ms_hashprobe@s0@120": {
+   "ipc": 0.20597782074717297,
+   "cycles": 7873304,
+   "instret": 1621726,
+   "runs": 0,
+   "total": 11909993
+  },
+  "ms_hashprobe@s0@250": {
+   "ipc": 0.12098038719817213,
+   "cycles": 13404867,
+   "instret": 1621726,
+   "runs": 0,
+   "total": 20192299
+  },
+  "ms_hashprobe@s1@30": {
+   "ipc": 0.39332047428590694,
+   "cycles": 4123167,
+   "instret": 1621726,
+   "runs": 0,
+   "total": 6423507
+  },
+  "ms_hashprobe@s1@120": {
+   "ipc": 0.20588689719823364,
+   "cycles": 7876781,
+   "instret": 1621726,
+   "runs": 0,
+   "total": 11916927
+  },
+  "ms_hashprobe@s1@250": {
+   "ipc": 0.12158754181402526,
+   "cycles": 13337929,
+   "instret": 1621726,
+   "runs": 0,
+   "total": 20115281
+  },
+  "ms_chase8@s0@30": {
+   "ipc": 0.11622819753373212,
+   "cycles": 516570,
+   "instret": 60040,
+   "runs": 0,
+   "total": 3688811
+  },
+  "ms_chase8@s0@120": {
+   "ipc": 0.03760879710104076,
+   "cycles": 1596435,
+   "instret": 60040,
+   "runs": 0,
+   "total": 7111875
+  },
+  "ms_chase8@s0@250": {
+   "ipc": 0.019020163781223766,
+   "cycles": 3156650,
+   "instret": 60040,
+   "runs": 0,
+   "total": 12061618
+  },
+  "ms_chase8@s1@30": {
+   "ipc": 0.11615489382777193,
+   "cycles": 516896,
+   "instret": 60040,
+   "runs": 0,
+   "total": 3689432
+  },
+  "ms_chase8@s1@120": {
+   "ipc": 0.03759619779958296,
+   "cycles": 1596970,
+   "instret": 60040,
+   "runs": 0,
+   "total": 7111244
+  },
+  "ms_chase8@s1@250": {
+   "ipc": 0.019007061484234967,
+   "cycles": 3158826,
+   "instret": 60040,
+   "runs": 0,
+   "total": 12063635
+  },
+  "ms_stream@s0@30": {
+   "ipc": 0.8064084370326013,
+   "cycles": 1462884,
+   "instret": 1179682,
+   "runs": 0,
+   "total": 2858574
+  },
+  "ms_stream@s0@120": {
+   "ipc": 0.40064310363389555,
+   "cycles": 2944471,
+   "instret": 1179682,
+   "runs": 0,
+   "total": 5826172
+  },
+  "ms_stream@s0@250": {
+   "ipc": 0.23219732645214117,
+   "cycles": 5080515,
+   "instret": 1179682,
+   "runs": 0,
+   "total": 10107591
+  },
+  "ms_stream@s1@30": {
+   "ipc": 0.8064145007803138,
+   "cycles": 1462873,
+   "instret": 1179682,
+   "runs": 0,
+   "total": 2858471
+  },
+  "ms_stream@s1@120": {
+   "ipc": 0.40064310363389555,
+   "cycles": 2944471,
+   "instret": 1179682,
+   "runs": 0,
+   "total": 5826127
+  },
+  "ms_stream@s1@250": {
+   "ipc": 0.23219709793485707,
+   "cycles": 5080520,
+   "instret": 1179682,
+   "runs": 0,
+   "total": 10107531
+  },
+  "ms_copy@s0@30": {
+   "ipc": 0.37890810203659364,
+   "cycles": 845775,
+   "instret": 320471,
+   "runs": 0,
+   "total": 2144453
+  },
+  "ms_copy@s0@120": {
+   "ipc": 0.18784340941142544,
+   "cycles": 1706054,
+   "instret": 320471,
+   "runs": 0,
+   "total": 4601865
+  },
+  "ms_copy@s0@250": {
+   "ipc": 0.10250558474092687,
+   "cycles": 3126376,
+   "instret": 320471,
+   "runs": 0,
+   "total": 8514200
+  },
+  "ms_copy@s1@30": {
+   "ipc": 0.37622357098413967,
+   "cycles": 851810,
+   "instret": 320471,
+   "runs": 0,
+   "total": 2149381
+  },
+  "ms_copy@s1@120": {
+   "ipc": 0.1878360327315589,
+   "cycles": 1706121,
+   "instret": 320471,
+   "runs": 0,
+   "total": 4601746
+  },
+  "ms_copy@s1@250": {
+   "ipc": 0.10250371589603871,
+   "cycles": 3126433,
+   "instret": 320471,
+   "runs": 0,
+   "total": 8514201
+  },
+  "coremark_A@s0@30": {
+   "ipc": 1.5363435956371312,
+   "cycles": 659566,
+   "instret": 1013320,
+   "runs": 0,
+   "total": 677101
+  },
+  "coremark_A@s0@120": {
+   "ipc": 1.5159702586658288,
+   "cycles": 668430,
+   "instret": 1013320,
+   "runs": 0,
+   "total": 698276
+  },
+  "coremark_A@s0@250": {
+   "ipc": 1.4877370194460553,
+   "cycles": 681115,
+   "instret": 1013320,
+   "runs": 0,
+   "total": 729705
+  },
+  "coremark_A@s1@30": {
+   "ipc": 1.5367746416715071,
+   "cycles": 659381,
+   "instret": 1013320,
+   "runs": 0,
+   "total": 676697
+  },
+  "coremark_A@s1@120": {
+   "ipc": 1.518878812860676,
+   "cycles": 667150,
+   "instret": 1013320,
+   "runs": 0,
+   "total": 696876
+  },
+  "coremark_A@s1@250": {
+   "ipc": 1.488416636800019,
+   "cycles": 680804,
+   "instret": 1013320,
+   "runs": 0,
+   "total": 729102
+  },
+  "dhrystone@s0@30": {
+   "ipc": 1.5247033571547872,
+   "cycles": 562798,
+   "instret": 858100,
+   "runs": 0,
+   "total": 586339
+  },
+  "dhrystone@s0@120": {
+   "ipc": 1.5232931962174185,
+   "cycles": 563319,
+   "instret": 858100,
+   "runs": 0,
+   "total": 614330
+  },
+  "dhrystone@s0@250": {
+   "ipc": 1.5191321066030288,
+   "cycles": 564862,
+   "instret": 858100,
+   "runs": 0,
+   "total": 656823
+  },
+  "dhrystone@s1@30": {
+   "ipc": 1.52554365604244,
+   "cycles": 562488,
+   "instret": 858100,
+   "runs": 0,
+   "total": 585940
+  },
+  "dhrystone@s1@120": {
+   "ipc": 1.5219963142893123,
+   "cycles": 563799,
+   "instret": 858100,
+   "runs": 0,
+   "total": 614735
+  },
+  "dhrystone@s1@250": {
+   "ipc": 1.5184412486573624,
+   "cycles": 565119,
+   "instret": 858100,
+   "runs": 0,
+   "total": 657014
+  },
+  "embench_nsichneu@s0@30": {
+   "ipc": 1.2957195446333247,
+   "cycles": 1856438,
+   "instret": 2405423,
+   "runs": 0,
+   "total": 1868080
+  },
+  "embench_nsichneu@s0@120": {
+   "ipc": 1.2955415892665076,
+   "cycles": 1856693,
+   "instret": 2405423,
+   "runs": 0,
+   "total": 1887766
+  },
+  "embench_nsichneu@s0@250": {
+   "ipc": 1.2955820610943993,
+   "cycles": 1856635,
+   "instret": 2405423,
+   "runs": 0,
+   "total": 1915931
+  },
+  "embench_nsichneu@s1@30": {
+   "ipc": 1.2956302119073602,
+   "cycles": 1856566,
+   "instret": 2405423,
+   "runs": 0,
+   "total": 1868110
+  },
+  "embench_nsichneu@s1@120": {
+   "ipc": 1.295717450756582,
+   "cycles": 1856441,
+   "instret": 2405423,
+   "runs": 0,
+   "total": 1887496
+  },
+  "embench_nsichneu@s1@250": {
+   "ipc": 1.295676970469685,
+   "cycles": 1856499,
+   "instret": 2405423,
+   "runs": 0,
+   "total": 1915749
+  },
+  "embench_huffbench@s0@30": {
+   "ipc": 1.221836828046556,
+   "cycles": 1770770,
+   "instret": 2163592,
+   "runs": 0,
+   "total": 1977058
+  },
+  "embench_huffbench@s0@120": {
+   "ipc": 1.2220749255122358,
+   "cycles": 1770425,
+   "instret": 2163592,
+   "runs": 0,
+   "total": 1995075
+  },
+  "embench_huffbench@s0@250": {
+   "ipc": 1.2223600743949758,
+   "cycles": 1770012,
+   "instret": 2163592,
+   "runs": 0,
+   "total": 2020857
+  },
+  "embench_huffbench@s1@30": {
+   "ipc": 1.220531358452589,
+   "cycles": 1772664,
+   "instret": 2163592,
+   "runs": 0,
+   "total": 1979023
+  },
+  "embench_huffbench@s1@120": {
+   "ipc": 1.2226702298816148,
+   "cycles": 1769563,
+   "instret": 2163592,
+   "runs": 0,
+   "total": 1993193
+  },
+  "embench_huffbench@s1@250": {
+   "ipc": 1.2213333333333334,
+   "cycles": 1771500,
+   "instret": 2163592,
+   "runs": 0,
+   "total": 2022516
+  },
+  "embench_minver@s0@30": {
+   "ipc": 1.4721768739213583,
+   "cycles": 300146,
+   "instret": 441868,
+   "runs": 0,
+   "total": 305297
+  },
+  "embench_minver@s0@120": {
+   "ipc": 1.4721866837251452,
+   "cycles": 300144,
+   "instret": 441868,
+   "runs": 0,
+   "total": 308384
+  },
+  "embench_minver@s0@250": {
+   "ipc": 1.4714709114522628,
+   "cycles": 300290,
+   "instret": 441868,
+   "runs": 0,
+   "total": 313298
+  },
+  "embench_minver@s1@30": {
+   "ipc": 1.4722161139209298,
+   "cycles": 300138,
+   "instret": 441868,
+   "runs": 0,
+   "total": 305213
+  },
+  "embench_minver@s1@120": {
+   "ipc": 1.472137636013513,
+   "cycles": 300154,
+   "instret": 441868,
+   "runs": 0,
+   "total": 308351
+  },
+  "embench_minver@s1@250": {
+   "ipc": 1.471539516977714,
+   "cycles": 300276,
+   "instret": 441868,
+   "runs": 0,
+   "total": 313227
+  },
+  "embench_matmult-int@s0@30": {
+   "ipc": 1.92052263949975,
+   "cycles": 1656132,
+   "instret": 3180639,
+   "runs": 0,
+   "total": 1717326
+  },
+  "embench_matmult-int@s0@120": {
+   "ipc": 1.9195223884200012,
+   "cycles": 1656995,
+   "instret": 3180639,
+   "runs": 0,
+   "total": 1731643
+  },
+  "embench_matmult-int@s0@250": {
+   "ipc": 1.9197842306320314,
+   "cycles": 1656769,
+   "instret": 3180639,
+   "runs": 0,
+   "total": 1750766
+  },
+  "embench_matmult-int@s1@30": {
+   "ipc": 1.920530757038267,
+   "cycles": 1656125,
+   "instret": 3180639,
+   "runs": 0,
+   "total": 1717355
+  },
+  "embench_matmult-int@s1@120": {
+   "ipc": 1.9204704569620277,
+   "cycles": 1656177,
+   "instret": 3180639,
+   "runs": 0,
+   "total": 1730571
+  },
+  "embench_matmult-int@s1@250": {
+   "ipc": 1.9190000760205763,
+   "cycles": 1657446,
+   "instret": 3180639,
+   "runs": 0,
+   "total": 1751416
+  }
+ },
+ "pairs": [
+  {
+   "group": "mem+mem",
+   "a": "ms_gather",
+   "b": "ms_stride",
+   "lat": 30,
+   "ws": 1.2433673960723932,
+   "slots": {
+    "0": {
+     "ipc": 0.30024534126786895,
+     "cycles": 1199146,
+     "instret": 360038,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.3854860186418109,
+     "cycles": 48064,
+     "instret": 18528,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_gather",
+   "b": "ms_stride",
+   "lat": 120,
+   "ws": 1.2786997787879062,
+   "slots": {
+    "0": {
+     "ipc": 0.10737361148513942,
+     "cycles": 3353133,
+     "instret": 360038,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.1460438572982517,
+     "cycles": 126866,
+     "instret": 18528,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_gather",
+   "b": "ms_stride",
+   "lat": 250,
+   "ws": 1.2733329958925332,
+   "slots": {
+    "0": {
+     "ipc": 0.05468452636807004,
+     "cycles": 6583910,
+     "instret": 360038,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.07638522427440633,
+     "cycles": 242560,
+     "instret": 18528,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_stride",
+   "b": "ms_spmv",
+   "lat": 30,
+   "ws": 1.1121773776020127,
+   "slots": {
+    "0": {
+     "ipc": 0.3279466166345116,
+     "cycles": 56497,
+     "instret": 18528,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.2770393741197226,
+     "cycles": 4879144,
+     "instret": 1351715,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_stride",
+   "b": "ms_spmv",
+   "lat": 120,
+   "ws": 1.0857850294912081,
+   "slots": {
+    "0": {
+     "ipc": 0.1213073538654934,
+     "cycles": 152736,
+     "instret": 18528,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.08808507058359474,
+     "cycles": 15345563,
+     "instret": 1351715,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_stride",
+   "b": "ms_spmv",
+   "lat": 250,
+   "ws": 1.1266106233718522,
+   "slots": {
+    "0": {
+     "ipc": 0.06670266767469489,
+     "cycles": 277770,
+     "instret": 18528,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.044999438387141086,
+     "cycles": 30038486,
+     "instret": 1351715,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_spmv",
+   "b": "ms_hashprobe",
+   "lat": 30,
+   "ws": 1.6409510726142171,
+   "slots": {
+    "0": {
+     "ipc": 0.49606950841330716,
+     "cycles": 2724850,
+     "instret": 1351715,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.29995080123699747,
+     "cycles": 5406640,
+     "instret": 1621726,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_spmv",
+   "b": "ms_hashprobe",
+   "lat": 120,
+   "ws": 1.4368604103224245,
+   "slots": {
+    "0": {
+     "ipc": 0.18068058494573294,
+     "cycles": 7481241,
+     "instret": 1351715,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.129712355445668,
+     "cycles": 12502479,
+     "instret": 1621726,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_spmv",
+   "b": "ms_hashprobe",
+   "lat": 250,
+   "ws": 1.3558488706227156,
+   "slots": {
+    "0": {
+     "ipc": 0.09396113998893639,
+     "cycles": 14385894,
+     "instret": 1351715,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.06816555916046867,
+     "cycles": 23790988,
+     "instret": 1621726,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_hashprobe",
+   "b": "ms_chase8",
+   "lat": 30,
+   "ws": 1.4565094579547782,
+   "slots": {
+    "0": {
+     "ipc": 0.22319417857477586,
+     "cycles": 7265987,
+     "instret": 1621726,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.1030899513052795,
+     "cycles": 582404,
+     "instret": 60040,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_hashprobe",
+   "b": "ms_chase8",
+   "lat": 120,
+   "ws": 1.2945992503511052,
+   "slots": {
+    "0": {
+     "ipc": 0.08908434114432515,
+     "cycles": 18204389,
+     "instret": 1621726,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.032411848571238855,
+     "cycles": 1852409,
+     "instret": 60040,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_hashprobe",
+   "b": "ms_chase8",
+   "lat": 250,
+   "ws": 1.2328847157941036,
+   "slots": {
+    "0": {
+     "ipc": 0.04539441225213528,
+     "cycles": 35725234,
+     "instret": 1621726,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.016301662204797097,
+     "cycles": 3683060,
+     "instret": 60040,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_chase8",
+   "b": "ms_stream",
+   "lat": 30,
+   "ws": 1.324330065934889,
+   "slots": {
+    "0": {
+     "ipc": 0.08858906712938372,
+     "cycles": 677736,
+     "instret": 60040,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.4533102876913831,
+     "cycles": 2602372,
+     "instret": 1179682,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_chase8",
+   "b": "ms_stream",
+   "lat": 120,
+   "ws": 1.2027368917610985,
+   "slots": {
+    "0": {
+     "ipc": 0.027161828673282196,
+     "cycles": 2210455,
+     "instret": 60040,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.1925157444444644,
+     "cycles": 6127717,
+     "instret": 1179682,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_chase8",
+   "b": "ms_stream",
+   "lat": 250,
+   "ws": 1.158704541720624,
+   "slots": {
+    "0": {
+     "ipc": 0.0134857586435537,
+     "cycles": 4452104,
+     "instret": 60040,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.1044144430647598,
+     "cycles": 11298073,
+     "instret": 1179682,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_stream",
+   "b": "ms_copy",
+   "lat": 30,
+   "ws": 1.4519439053218512,
+   "slots": {
+    "0": {
+     "ipc": 0.5395308292354525,
+     "cycles": 2186496,
+     "instret": 1179682,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.2945416177634318,
+     "cycles": 1088033,
+     "instret": 320471,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_stream",
+   "b": "ms_copy",
+   "lat": 120,
+   "ws": 1.2924291564933057,
+   "slots": {
+    "0": {
+     "ipc": 0.23815663908352003,
+     "cycles": 4953387,
+     "instret": 1179682,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.13110828642532105,
+     "cycles": 2444323,
+     "instret": 320471,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_stream",
+   "b": "ms_copy",
+   "lat": 250,
+   "ws": 1.2415726795437956,
+   "slots": {
+    "0": {
+     "ipc": 0.128052153419176,
+     "cycles": 9212512,
+     "instret": 1179682,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.07073707640273501,
+     "cycles": 4530453,
+     "instret": 320471,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_copy",
+   "b": "ms_gather",
+   "lat": 30,
+   "ws": 1.519897108309836,
+   "slots": {
+    "0": {
+     "ipc": 0.2998808789691025,
+     "cycles": 1068661,
+     "instret": 320471,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.42010062681732685,
+     "cycles": 857028,
+     "instret": 360038,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_copy",
+   "b": "ms_gather",
+   "lat": 120,
+   "ws": 1.352656279391057,
+   "slots": {
+    "0": {
+     "ipc": 0.11647628975090354,
+     "cycles": 2751384,
+     "instret": 320471,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.17600348059033158,
+     "cycles": 2045630,
+     "instret": 360038,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_copy",
+   "b": "ms_gather",
+   "lat": 250,
+   "ws": 1.2969395969559998,
+   "slots": {
+    "0": {
+     "ipc": 0.06080383685110458,
+     "cycles": 5270572,
+     "instret": 320471,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.09188259562373659,
+     "cycles": 3918457,
+     "instret": 360038,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_gather",
+   "b": "ms_spmv",
+   "lat": 30,
+   "ws": 1.4762055427842695,
+   "slots": {
+    "0": {
+     "ipc": 0.44150439005248443,
+     "cycles": 815480,
+     "instret": 360038,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.40052333836661064,
+     "cycles": 3374872,
+     "instret": 1351715,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_gather",
+   "b": "ms_spmv",
+   "lat": 120,
+   "ws": 1.2728109455982135,
+   "slots": {
+    "0": {
+     "ipc": 0.1596060982599895,
+     "cycles": 2255791,
+     "instret": 360038,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.1358232478548314,
+     "cycles": 9952015,
+     "instret": 1351715,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_gather",
+   "b": "ms_spmv",
+   "lat": 250,
+   "ws": 1.209342026148394,
+   "slots": {
+    "0": {
+     "ipc": 0.0813934167362017,
+     "cycles": 4423429,
+     "instret": 360038,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.06927678595360973,
+     "cycles": 19511803,
+     "instret": 1351715,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_stride",
+   "b": "ms_hashprobe",
+   "lat": 30,
+   "ws": 1.2854021772122248,
+   "slots": {
+    "0": {
+     "ipc": 0.4537173082574199,
+     "cycles": 40836,
+     "instret": 18528,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.16725157887105085,
+     "cycles": 9696327,
+     "instret": 1621726,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_spmv",
+   "b": "ms_chase8",
+   "lat": 30,
+   "ws": 1.1635680864163658,
+   "slots": {
+    "0": {
+     "ipc": 0.2601235770530329,
+     "cycles": 5196434,
+     "instret": 1351715,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.08165618990368269,
+     "cycles": 735278,
+     "instret": 60040,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_spmv",
+   "b": "ms_chase8",
+   "lat": 120,
+   "ws": 1.0588687095641758,
+   "slots": {
+    "0": {
+     "ipc": 0.08726686779723039,
+     "cycles": 15489441,
+     "instret": 1351715,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.025158318482355026,
+     "cycles": 2386487,
+     "instret": 60040,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_spmv",
+   "b": "ms_chase8",
+   "lat": 250,
+   "ws": 1.0428019945793352,
+   "slots": {
+    "0": {
+     "ipc": 0.0457825856316555,
+     "cycles": 29524654,
+     "instret": 1351715,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.012455919860553446,
+     "cycles": 4820198,
+     "instret": 60040,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_hashprobe",
+   "b": "ms_stream",
+   "lat": 30,
+   "ws": 1.589799293204025,
+   "slots": {
+    "0": {
+     "ipc": 0.3136565379619479,
+     "cycles": 5170388,
+     "instret": 1621726,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.637225399305021,
+     "cycles": 1851279,
+     "instret": 1179682,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_hashprobe",
+   "b": "ms_stream",
+   "lat": 120,
+   "ws": 1.5269305832623685,
+   "slots": {
+    "0": {
+     "ipc": 0.1551434683370144,
+     "cycles": 10453073,
+     "instret": 1621726,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.3099879282336909,
+     "cycles": 3805574,
+     "instret": 1179682,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_hashprobe",
+   "b": "ms_stream",
+   "lat": 250,
+   "ws": 1.4635512087764075,
+   "slots": {
+    "0": {
+     "ipc": 0.08695528617144109,
+     "cycles": 18650114,
+     "instret": 1621726,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.17293946454650233,
+     "cycles": 6821358,
+     "instret": 1179682,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_chase8",
+   "b": "ms_copy",
+   "lat": 30,
+   "ws": 1.257444324619604,
+   "slots": {
+    "0": {
+     "ipc": 0.07734711255911501,
+     "cycles": 776241,
+     "instret": 60040,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.22271231859986407,
+     "cycles": 1438946,
+     "instret": 320471,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_chase8",
+   "b": "ms_copy",
+   "lat": 120,
+   "ws": 1.1670998360271745,
+   "slots": {
+    "0": {
+     "ipc": 0.025834745408997065,
+     "cycles": 2324002,
+     "instret": 60040,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.09019252569804918,
+     "cycles": 3553188,
+     "instret": 320471,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_chase8",
+   "b": "ms_copy",
+   "lat": 250,
+   "ws": 1.1431250953929752,
+   "slots": {
+    "0": {
+     "ipc": 0.012905921763115719,
+     "cycles": 4652128,
+     "instret": 60040,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.04762180732271234,
+     "cycles": 6729501,
+     "instret": 320471,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_stream",
+   "b": "ms_gather",
+   "lat": 30,
+   "ws": 1.4463466681171804,
+   "slots": {
+    "0": {
+     "ipc": 0.5158965199959417,
+     "cycles": 2286664,
+     "instret": 1179682,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.4651623697521334,
+     "cycles": 774005,
+     "instret": 360038,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_stream",
+   "b": "ms_gather",
+   "lat": 120,
+   "ws": 1.3552690027227081,
+   "slots": {
+    "0": {
+     "ipc": 0.22483079304521442,
+     "cycles": 5246977,
+     "instret": 1179682,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.1907810546853266,
+     "cycles": 1887179,
+     "instret": 360038,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_stream",
+   "b": "ms_gather",
+   "lat": 250,
+   "ws": 1.2877295806236577,
+   "slots": {
+    "0": {
+     "ipc": 0.1193192880948848,
+     "cycles": 9886767,
+     "instret": 1179682,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.10103420039590001,
+     "cycles": 3563526,
+     "instret": 360038,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_copy",
+   "b": "ms_stride",
+   "lat": 30,
+   "ws": 1.2599559289594304,
+   "slots": {
+    "0": {
+     "ipc": 0.24564468209705262,
+     "cycles": 1304612,
+     "instret": 320471,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.3267263878112436,
+     "cycles": 56708,
+     "instret": 18528,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_copy",
+   "b": "ms_stride",
+   "lat": 120,
+   "ws": 1.162187180841757,
+   "slots": {
+    "0": {
+     "ipc": 0.0904891912809657,
+     "cycles": 3541539,
+     "instret": 320471,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.11935145163264387,
+     "cycles": 155239,
+     "instret": 18528,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_copy",
+   "b": "ms_stride",
+   "lat": 250,
+   "ws": 1.1422405286260373,
+   "slots": {
+    "0": {
+     "ipc": 0.04659867249379694,
+     "cycles": 6877256,
+     "instret": 320471,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.06146598769220562,
+     "cycles": 301435,
+     "instret": 18528,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_chase8",
+   "b": "ms_chase8",
+   "lat": 30,
+   "ws": 1.0647923819696674,
+   "slots": {
+    "0": {
+     "ipc": 0.061757284818960846,
+     "cycles": 972193,
+     "instret": 60040,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.06196251082331499,
+     "cycles": 968973,
+     "instret": 60040,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_chase8",
+   "b": "ms_chase8",
+   "lat": 120,
+   "ws": 1.0002734534731754,
+   "slots": {
+    "0": {
+     "ipc": 0.018806100769252213,
+     "cycles": 3192581,
+     "instret": 60040,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.01880667806218545,
+     "cycles": 3192483,
+     "instret": 60040,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_chase8",
+   "b": "ms_chase8",
+   "lat": 250,
+   "ws": 1.0005355604238169,
+   "slots": {
+    "0": {
+     "ipc": 0.00951185972383288,
+     "cycles": 6312120,
+     "instret": 60040,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.009511933563484948,
+     "cycles": 6312071,
+     "instret": 60040,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "coremark_A",
+   "b": "dhrystone",
+   "lat": 30,
+   "ws": 1.1774040537509078,
+   "slots": {
+    "0": {
+     "ipc": 0.9032813612866937,
+     "cycles": 1121821,
+     "instret": 1013320,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.8992496646545942,
+     "cycles": 954240,
+     "instret": 858100,
+     "runs": 1
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "coremark_A",
+   "b": "dhrystone",
+   "lat": 120,
+   "ws": 1.1857546241470327,
+   "slots": {
+    "0": {
+     "ipc": 0.897679173510084,
+     "cycles": 1128822,
+     "instret": 1013320,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.9034666756511467,
+     "cycles": 949786,
+     "instret": 858100,
+     "runs": 1
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "coremark_A",
+   "b": "dhrystone",
+   "lat": 250,
+   "ws": 1.19255426620606,
+   "slots": {
+    "0": {
+     "ipc": 0.8864107938263008,
+     "cycles": 1143172,
+     "instret": 1013320,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.906118863027267,
+     "cycles": 947006,
+     "instret": 858100,
+     "runs": 1
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "dhrystone",
+   "b": "embench_nsichneu",
+   "lat": 30,
+   "ws": 1.2274582006319634,
+   "slots": {
+    "0": {
+     "ipc": 0.9776310362820627,
+     "cycles": 877734,
+     "instret": 858100,
+     "runs": 3
+    },
+    "1": {
+     "ipc": 0.7595812774826124,
+     "cycles": 3166775,
+     "instret": 2405423,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "dhrystone",
+   "b": "embench_nsichneu",
+   "lat": 120,
+   "ws": 1.219286712611761,
+   "slots": {
+    "0": {
+     "ipc": 0.9776677934740874,
+     "cycles": 877701,
+     "instret": 858100,
+     "runs": 3
+    },
+    "1": {
+     "ipc": 0.7482441130076084,
+     "cycles": 3214757,
+     "instret": 2405423,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "dhrystone",
+   "b": "embench_nsichneu",
+   "lat": 250,
+   "ws": 1.2020271009958137,
+   "slots": {
+    "0": {
+     "ipc": 0.972061583913236,
+     "cycles": 882763,
+     "instret": 858100,
+     "runs": 3
+    },
+    "1": {
+     "ipc": 0.7283616229100758,
+     "cycles": 3302512,
+     "instret": 2405423,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "embench_nsichneu",
+   "b": "embench_huffbench",
+   "lat": 30,
+   "ws": 1.2524676668072021,
+   "slots": {
+    "0": {
+     "ipc": 0.7977495148844495,
+     "cycles": 3015261,
+     "instret": 2405423,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.7772184629223106,
+     "cycles": 2783763,
+     "instret": 2163592,
+     "runs": 1
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "embench_nsichneu",
+   "b": "embench_huffbench",
+   "lat": 120,
+   "ws": 1.2495551123254716,
+   "slots": {
+    "0": {
+     "ipc": 0.7969991053974355,
+     "cycles": 3018100,
+     "instret": 2405423,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.7756241743547644,
+     "cycles": 2789485,
+     "instret": 2163592,
+     "runs": 1
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "embench_nsichneu",
+   "b": "embench_huffbench",
+   "lat": 250,
+   "ws": 1.248743693467508,
+   "slots": {
+    "0": {
+     "ipc": 0.7964494204490258,
+     "cycles": 3020183,
+     "instret": 2405423,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.7743267294380886,
+     "cycles": 2794159,
+     "instret": 2163592,
+     "runs": 1
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "embench_huffbench",
+   "b": "embench_minver",
+   "lat": 30,
+   "ws": 1.2643361669742035,
+   "slots": {
+    "0": {
+     "ipc": 0.7129600307909186,
+     "cycles": 3034661,
+     "instret": 2163592,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 1.0023159962526682,
+     "cycles": 440847,
+     "instret": 441868,
+     "runs": 6
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "embench_huffbench",
+   "b": "embench_minver",
+   "lat": 120,
+   "ws": 1.2611704051142123,
+   "slots": {
+    "0": {
+     "ipc": 0.710734375677526,
+     "cycles": 3044164,
+     "instret": 2163592,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 1.0004505636573995,
+     "cycles": 441669,
+     "instret": 441868,
+     "runs": 7
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "embench_huffbench",
+   "b": "embench_minver",
+   "lat": 250,
+   "ws": 1.2624627144037244,
+   "slots": {
+    "0": {
+     "ipc": 0.7121347070513973,
+     "cycles": 3038178,
+     "instret": 2163592,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 1.000459624375941,
+     "cycles": 441665,
+     "instret": 441868,
+     "runs": 7
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "embench_minver",
+   "b": "embench_matmult-int",
+   "lat": 30,
+   "ws": 1.1655584577934395,
+   "slots": {
+    "0": {
+     "ipc": 1.0300649694268378,
+     "cycles": 428971,
+     "instret": 441868,
+     "runs": 8
+    },
+    "1": {
+     "ipc": 0.8947179208907575,
+     "cycles": 3554907,
+     "instret": 3180639,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "embench_minver",
+   "b": "embench_matmult-int",
+   "lat": 120,
+   "ws": 1.166001193053407,
+   "slots": {
+    "0": {
+     "ipc": 1.0309734410034694,
+     "cycles": 428593,
+     "instret": 441868,
+     "runs": 8
+    },
+    "1": {
+     "ipc": 0.8943639397421037,
+     "cycles": 3556314,
+     "instret": 3180639,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "embench_minver",
+   "b": "embench_matmult-int",
+   "lat": 250,
+   "ws": 1.1662525275957396,
+   "slots": {
+    "0": {
+     "ipc": 1.0301202010500108,
+     "cycles": 428948,
+     "instret": 441868,
+     "runs": 8
+    },
+    "1": {
+     "ipc": 0.8946205292726847,
+     "cycles": 3555294,
+     "instret": 3180639,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "embench_matmult-int",
+   "b": "coremark_A",
+   "lat": 30,
+   "ws": 1.09135487891007,
+   "slots": {
+    "0": {
+     "ipc": 0.8979858666222469,
+     "cycles": 3541970,
+     "instret": 3180639,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.958611105592718,
+     "cycles": 1057071,
+     "instret": 1013320,
+     "runs": 3
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "embench_matmult-int",
+   "b": "coremark_A",
+   "lat": 120,
+   "ws": 1.0944882697177094,
+   "slots": {
+    "0": {
+     "ipc": 0.9029013931694755,
+     "cycles": 3522687,
+     "instret": 3180639,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.9479476351825415,
+     "cycles": 1068962,
+     "instret": 1013320,
+     "runs": 3
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "embench_matmult-int",
+   "b": "coremark_A",
+   "lat": 250,
+   "ws": 1.1026720576341278,
+   "slots": {
+    "0": {
+     "ipc": 0.9062349258304558,
+     "cycles": 3509729,
+     "instret": 3180639,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.9386277575640807,
+     "cycles": 1079576,
+     "instret": 1013320,
+     "runs": 3
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "coremark_A",
+   "b": "embench_nsichneu",
+   "lat": 30,
+   "ws": 1.2022805120877171,
+   "slots": {
+    "0": {
+     "ipc": 0.9474123149015582,
+     "cycles": 1069566,
+     "instret": 1013320,
+     "runs": 2
+    },
+    "1": {
+     "ipc": 0.7587386272305516,
+     "cycles": 3170292,
+     "instret": 2405423,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "coremark_A",
+   "b": "embench_nsichneu",
+   "lat": 120,
+   "ws": 1.1956344619154684,
+   "slots": {
+    "0": {
+     "ipc": 0.938296617365321,
+     "cycles": 1079957,
+     "instret": 1013320,
+     "runs": 2
+    },
+    "1": {
+     "ipc": 0.7472313810570238,
+     "cycles": 3219114,
+     "instret": 2405423,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "coremark_A",
+   "b": "embench_nsichneu",
+   "lat": 250,
+   "ws": 1.1857405744726153,
+   "slots": {
+    "0": {
+     "ipc": 0.9283644415860216,
+     "cycles": 1091511,
+     "instret": 1013320,
+     "runs": 2
+    },
+    "1": {
+     "ipc": 0.7278199196966992,
+     "cycles": 3304970,
+     "instret": 2405423,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "dhrystone",
+   "b": "embench_huffbench",
+   "lat": 30,
+   "ws": 1.209004959498936,
+   "slots": {
+    "0": {
+     "ipc": 0.9542194827131815,
+     "cycles": 899269,
+     "instret": 858100,
+     "runs": 3
+    },
+    "1": {
+     "ipc": 0.7117718137187977,
+     "cycles": 3039727,
+     "instret": 2163592,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "dhrystone",
+   "b": "embench_huffbench",
+   "lat": 120,
+   "ws": 1.203661004218953,
+   "slots": {
+    "0": {
+     "ipc": 0.9547779509826502,
+     "cycles": 898743,
+     "instret": 858100,
+     "runs": 3
+    },
+    "1": {
+     "ipc": 0.7053286150425673,
+     "cycles": 3067495,
+     "instret": 2163592,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "dhrystone",
+   "b": "embench_huffbench",
+   "lat": 250,
+   "ws": 1.1951780119148157,
+   "slots": {
+    "0": {
+     "ipc": 0.9540847413152826,
+     "cycles": 899396,
+     "instret": 858100,
+     "runs": 3
+    },
+    "1": {
+     "ipc": 0.692657312322181,
+     "cycles": 3123611,
+     "instret": 2163592,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "embench_nsichneu",
+   "b": "embench_minver",
+   "lat": 30,
+   "ws": 1.2943029414177267,
+   "slots": {
+    "0": {
+     "ipc": 0.7539754632764112,
+     "cycles": 3190320,
+     "instret": 2405423,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 1.048815339115409,
+     "cycles": 421302,
+     "instret": 441868,
+     "runs": 7
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "embench_nsichneu",
+   "b": "embench_minver",
+   "lat": 120,
+   "ws": 1.2945827060936548,
+   "slots": {
+    "0": {
+     "ipc": 0.7542180181569965,
+     "cycles": 3189294,
+     "instret": 2405423,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 1.048777998514183,
+     "cycles": 421317,
+     "instret": 441868,
+     "runs": 7
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "embench_nsichneu",
+   "b": "embench_minver",
+   "lat": 250,
+   "ws": 1.2942843258934214,
+   "slots": {
+    "0": {
+     "ipc": 0.7542506544051153,
+     "cycles": 3189156,
+     "instret": 2405423,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 1.047902501725287,
+     "cycles": 421669,
+     "instret": 441868,
+     "runs": 7
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "embench_huffbench",
+   "b": "embench_matmult-int",
+   "lat": 30,
+   "ws": 1.122860145648523,
+   "slots": {
+    "0": {
+     "ipc": 0.7872204640237171,
+     "cycles": 2748394,
+     "instret": 2163592,
+     "runs": 1
+    },
+    "1": {
+     "ipc": 0.9191036320995161,
+     "cycles": 3460588,
+     "instret": 3180639,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "embench_huffbench",
+   "b": "embench_matmult-int",
+   "lat": 120,
+   "ws": 1.114018855941811,
+   "slots": {
+    "0": {
+     "ipc": 0.7813314679920509,
+     "cycles": 2769109,
+     "instret": 2163592,
+     "runs": 1
+    },
+    "1": {
+     "ipc": 0.9115908707898982,
+     "cycles": 3489108,
+     "instret": 3180639,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "embench_huffbench",
+   "b": "embench_matmult-int",
+   "lat": 250,
+   "ws": 1.1027221853559002,
+   "slots": {
+    "0": {
+     "ipc": 0.7773036273584871,
+     "cycles": 2783458,
+     "instret": 2163592,
+     "runs": 1
+    },
+    "1": {
+     "ipc": 0.895824185604519,
+     "cycles": 3550517,
+     "instret": 3180639,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "embench_minver",
+   "b": "coremark_A",
+   "lat": 30,
+   "ws": 1.2408675830674456,
+   "slots": {
+    "0": {
+     "ipc": 0.985129465062046,
+     "cycles": 448538,
+     "instret": 441868,
+     "runs": 2
+    },
+    "1": {
+     "ipc": 0.878577795041288,
+     "cycles": 1153364,
+     "instret": 1013320,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "embench_minver",
+   "b": "coremark_A",
+   "lat": 120,
+   "ws": 1.2483355456646044,
+   "slots": {
+    "0": {
+     "ipc": 0.9941122872537881,
+     "cycles": 444485,
+     "instret": 441868,
+     "runs": 2
+    },
+    "1": {
+     "ipc": 0.870428686041977,
+     "cycles": 1164162,
+     "instret": 1013320,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "embench_minver",
+   "b": "coremark_A",
+   "lat": 250,
+   "ws": 1.261331283814873,
+   "slots": {
+    "0": {
+     "ipc": 1.0033378898178467,
+     "cycles": 440398,
+     "instret": 441868,
+     "runs": 2
+    },
+    "1": {
+     "ipc": 0.8624939567884842,
+     "cycles": 1174872,
+     "instret": 1013320,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "embench_matmult-int",
+   "b": "dhrystone",
+   "lat": 30,
+   "ws": 1.0979558572479529,
+   "slots": {
+    "0": {
+     "ipc": 0.9127026122728673,
+     "cycles": 3484858,
+     "instret": 3180639,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.9499854418965611,
+     "cycles": 903277,
+     "instret": 858100,
+     "runs": 3
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "embench_matmult-int",
+   "b": "dhrystone",
+   "lat": 120,
+   "ws": 1.0936945931103166,
+   "slots": {
+    "0": {
+     "ipc": 0.902954452544798,
+     "cycles": 3522480,
+     "instret": 3180639,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.9486432555234342,
+     "cycles": 904555,
+     "instret": 858100,
+     "runs": 3
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "embench_matmult-int",
+   "b": "dhrystone",
+   "lat": 250,
+   "ws": 1.0873602137550085,
+   "slots": {
+    "0": {
+     "ipc": 0.8887264230946446,
+     "cycles": 3578873,
+     "instret": 3180639,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.9481600325298116,
+     "cycles": 905016,
+     "instret": 858100,
+     "runs": 3
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "coremark_A",
+   "b": "coremark_A",
+   "lat": 30,
+   "ws": 1.1544222079833355,
+   "slots": {
+    "0": {
+     "ipc": 0.8869073251340006,
+     "cycles": 1142532,
+     "instret": 1013320,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.8869306136882036,
+     "cycles": 1142502,
+     "instret": 1013320,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "coremark_A",
+   "b": "coremark_A",
+   "lat": 120,
+   "ws": 1.1614218616295413,
+   "slots": {
+    "0": {
+     "ipc": 0.8811654493959444,
+     "cycles": 1149977,
+     "instret": 1013320,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.8812029970572071,
+     "cycles": 1149928,
+     "instret": 1013320,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "compute+compute",
+   "a": "coremark_A",
+   "b": "coremark_A",
+   "lat": 250,
+   "ws": 1.1649274302375336,
+   "slots": {
+    "0": {
+     "ipc": 0.8665928342662157,
+     "cycles": 1169315,
+     "instret": 1013320,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.8669086628413819,
+     "cycles": 1168889,
+     "instret": 1013320,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_gather",
+   "b": "coremark_A",
+   "lat": 30,
+   "ws": 1.2149894504016707,
+   "slots": {
+    "0": {
+     "ipc": 0.516500447586476,
+     "cycles": 697072,
+     "instret": 360038,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.48795850243565125,
+     "cycles": 2076652,
+     "instret": 1013320,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_gather",
+   "b": "coremark_A",
+   "lat": 120,
+   "ws": 1.121273869184741,
+   "slots": {
+    "0": {
+     "ipc": 0.2301646206552223,
+     "cycles": 1564263,
+     "instret": 360038,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.2507837921582176,
+     "cycles": 4040612,
+     "instret": 1013320,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_gather",
+   "b": "coremark_A",
+   "lat": 250,
+   "ws": 1.0794600073110725,
+   "slots": {
+    "0": {
+     "ipc": 0.127738458983962,
+     "cycles": 2818556,
+     "instret": 360038,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.150659772107246,
+     "cycles": 6725883,
+     "instret": 1013320,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_gather",
+   "b": "embench_huffbench",
+   "lat": 30,
+   "ws": 1.2472810989854093,
+   "slots": {
+    "0": {
+     "ipc": 0.5239355045257429,
+     "cycles": 687180,
+     "instret": 360038,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.4111893481115742,
+     "cycles": 5261790,
+     "instret": 2163592,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_gather",
+   "b": "embench_huffbench",
+   "lat": 120,
+   "ws": 1.1233764990851118,
+   "slots": {
+    "0": {
+     "ipc": 0.2308706946358367,
+     "cycles": 1559479,
+     "instret": 360038,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.2008609312346773,
+     "cycles": 10771592,
+     "instret": 2163592,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_gather",
+   "b": "embench_huffbench",
+   "lat": 250,
+   "ws": 1.0708706393472844,
+   "slots": {
+    "0": {
+     "ipc": 0.12751496726044592,
+     "cycles": 2823496,
+     "instret": 360038,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.1152250654321129,
+     "cycles": 18777095,
+     "instret": 2163592,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_stride",
+   "b": "dhrystone",
+   "lat": 30,
+   "ws": 1.1740456380127733,
+   "slots": {
+    "0": {
+     "ipc": 0.501991384215232,
+     "cycles": 36909,
+     "instret": 18528,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.3392101830256552,
+     "cycles": 2529700,
+     "instret": 858100,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_stride",
+   "b": "embench_minver",
+   "lat": 30,
+   "ws": 1.1875424152160825,
+   "slots": {
+    "0": {
+     "ipc": 0.5003105338481895,
+     "cycles": 37033,
+     "instret": 18528,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.35191416463512243,
+     "cycles": 1255613,
+     "instret": 441868,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_stride",
+   "b": "embench_minver",
+   "lat": 120,
+   "ws": 1.1330085655673652,
+   "slots": {
+    "0": {
+     "ipc": 0.1752802611040159,
+     "cycles": 105705,
+     "instret": 18528,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.19951145727508748,
+     "cycles": 2214750,
+     "instret": 441868,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_stride",
+   "b": "embench_minver",
+   "lat": 250,
+   "ws": 1.0783531596184652,
+   "slots": {
+    "0": {
+     "ipc": 0.08879346700916306,
+     "cycles": 208664,
+     "instret": 18528,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.12559597745418782,
+     "cycles": 3518170,
+     "instret": 441868,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_spmv",
+   "b": "embench_nsichneu",
+   "lat": 30,
+   "ws": 1.4616341904588839,
+   "slots": {
+    "0": {
+     "ipc": 0.5369938451185032,
+     "cycles": 2517189,
+     "instret": 1351715,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.6618523654653613,
+     "cycles": 3634380,
+     "instret": 2405423,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_spmv",
+   "b": "embench_nsichneu",
+   "lat": 120,
+   "ws": 1.3496548269866944,
+   "slots": {
+    "0": {
+     "ipc": 0.21825761087668769,
+     "cycles": 6193209,
+     "instret": 1351715,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.48590556061014967,
+     "cycles": 4950392,
+     "instret": 2405423,
+     "runs": 1
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_spmv",
+   "b": "embench_nsichneu",
+   "lat": 250,
+   "ws": 1.241966373493387,
+   "slots": {
+    "0": {
+     "ipc": 0.11699726227540141,
+     "cycles": 11553390,
+     "instret": 1351715,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.32623310023183566,
+     "cycles": 7373326,
+     "instret": 2405423,
+     "runs": 1
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_spmv",
+   "b": "embench_matmult-int",
+   "lat": 30,
+   "ws": 1.333541832506661,
+   "slots": {
+    "0": {
+     "ipc": 0.5126210241688062,
+     "cycles": 2636870,
+     "instret": 1351715,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.8179471439706647,
+     "cycles": 3888563,
+     "instret": 3180639,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_spmv",
+   "b": "embench_matmult-int",
+   "lat": 120,
+   "ws": 1.1375375385638176,
+   "slots": {
+    "0": {
+     "ipc": 0.19263107731692697,
+     "cycles": 7017118,
+     "instret": 1351715,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.5326018283327101,
+     "cycles": 5971889,
+     "instret": 3180639,
+     "runs": 1
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_spmv",
+   "b": "embench_matmult-int",
+   "lat": 250,
+   "ws": 1.0188639644204671,
+   "slots": {
+    "0": {
+     "ipc": 0.09938303356266834,
+     "cycles": 13601064,
+     "instret": 1351715,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.3411167764205678,
+     "cycles": 9324194,
+     "instret": 3180639,
+     "runs": 1
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_hashprobe",
+   "b": "embench_huffbench",
+   "lat": 30,
+   "ws": 1.3939340091929524,
+   "slots": {
+    "0": {
+     "ipc": 0.3507503150689583,
+     "cycles": 4623591,
+     "instret": 1621726,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.6099819649239339,
+     "cycles": 3546977,
+     "instret": 2163592,
+     "runs": 1
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_hashprobe",
+   "b": "embench_huffbench",
+   "lat": 120,
+   "ws": 1.235367702420688,
+   "slots": {
+    "0": {
+     "ipc": 0.19158775823824786,
+     "cycles": 8464664,
+     "instret": 1621726,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.37319550783823857,
+     "cycles": 5797476,
+     "instret": 2163592,
+     "runs": 1
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_hashprobe",
+   "b": "embench_huffbench",
+   "lat": 250,
+   "ws": 1.1356936314850905,
+   "slots": {
+    "0": {
+     "ipc": 0.11465039119568111,
+     "cycles": 14144967,
+     "instret": 1621726,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.22963036549104315,
+     "cycles": 9422064,
+     "instret": 2163592,
+     "runs": 1
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_hashprobe",
+   "b": "coremark_A",
+   "lat": 30,
+   "ws": 1.4090143436858833,
+   "slots": {
+    "0": {
+     "ipc": 0.34595515006686683,
+     "cycles": 4687677,
+     "instret": 1621726,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.8099911592564822,
+     "cycles": 1251026,
+     "instret": 1013320,
+     "runs": 3
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_hashprobe",
+   "b": "coremark_A",
+   "lat": 120,
+   "ws": 1.3084898310576358,
+   "slots": {
+    "0": {
+     "ipc": 0.1900928259833984,
+     "cycles": 8531232,
+     "instret": 1621726,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.5856944934937927,
+     "cycles": 1730117,
+     "instret": 1013320,
+     "runs": 4
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_hashprobe",
+   "b": "coremark_A",
+   "lat": 250,
+   "ws": 1.2328913239165837,
+   "slots": {
+    "0": {
+     "ipc": 0.11473618599741482,
+     "cycles": 14134390,
+     "instret": 1621726,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.4234614669371841,
+     "cycles": 2392945,
+     "instret": 1013320,
+     "runs": 5
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_chase8",
+   "b": "embench_minver",
+   "lat": 30,
+   "ws": 1.5174867660362605,
+   "slots": {
+    "0": {
+     "ipc": 0.11184194594554318,
+     "cycles": 536829,
+     "instret": 60040,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.8174112510868158,
+     "cycles": 540570,
+     "instret": 441868,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_chase8",
+   "b": "embench_minver",
+   "lat": 120,
+   "ws": 1.521134432986015,
+   "slots": {
+    "0": {
+     "ipc": 0.036933873356922456,
+     "cycles": 1625608,
+     "instret": 60040,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.7936004482847183,
+     "cycles": 556789,
+     "instret": 441868,
+     "runs": 2
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_chase8",
+   "b": "embench_minver",
+   "lat": 250,
+   "ws": 1.483771588627472,
+   "slots": {
+    "0": {
+     "ipc": 0.018694172798421768,
+     "cycles": 3211696,
+     "instret": 60040,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.7371100657258199,
+     "cycles": 599460,
+     "instret": 441868,
+     "runs": 5
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_chase8",
+   "b": "dhrystone",
+   "lat": 30,
+   "ws": 1.3950506725406722,
+   "slots": {
+    "0": {
+     "ipc": 0.10962826086559582,
+     "cycles": 547669,
+     "instret": 60040,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.6892939737183076,
+     "cycles": 1244897,
+     "instret": 858100,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_chase8",
+   "b": "dhrystone",
+   "lat": 120,
+   "ws": 1.3559025975839356,
+   "slots": {
+    "0": {
+     "ipc": 0.03612432447392899,
+     "cycles": 1662038,
+     "instret": 60040,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.6017577975706685,
+     "cycles": 1425989,
+     "instret": 858100,
+     "runs": 1
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_chase8",
+   "b": "dhrystone",
+   "lat": 250,
+   "ws": 1.3261563001099423,
+   "slots": {
+    "0": {
+     "ipc": 0.018330837420676538,
+     "cycles": 3275355,
+     "instret": 60040,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.5502803345160631,
+     "cycles": 1559387,
+     "instret": 858100,
+     "runs": 1
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_stream",
+   "b": "embench_matmult-int",
+   "lat": 30,
+   "ws": 1.255625410472567,
+   "slots": {
+    "0": {
+     "ipc": 0.6505148448352017,
+     "cycles": 1813459,
+     "instret": 1179682,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.8622104043008607,
+     "cycles": 3688936,
+     "instret": 3180639,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_stream",
+   "b": "embench_matmult-int",
+   "lat": 120,
+   "ws": 1.1339557192852812,
+   "slots": {
+    "0": {
+     "ipc": 0.3410840027224684,
+     "cycles": 3458626,
+     "instret": 1179682,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.5427527290455495,
+     "cycles": 5860199,
+     "instret": 3180639,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_stream",
+   "b": "embench_matmult-int",
+   "lat": 250,
+   "ws": 1.0397382131474968,
+   "slots": {
+    "0": {
+     "ipc": 0.19879759073259134,
+     "cycles": 5934086,
+     "instret": 1179682,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.35229050817664814,
+     "cycles": 9028455,
+     "instret": 3180639,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_stream",
+   "b": "embench_nsichneu",
+   "lat": 30,
+   "ws": 1.38591228625865,
+   "slots": {
+    "0": {
+     "ipc": 0.6678525187940767,
+     "cycles": 1766381,
+     "instret": 1179682,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.7226129053092946,
+     "cycles": 3328785,
+     "instret": 2405423,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_stream",
+   "b": "embench_nsichneu",
+   "lat": 120,
+   "ws": 1.243131366664961,
+   "slots": {
+    "0": {
+     "ipc": 0.3635300766638912,
+     "cycles": 3245074,
+     "instret": 1179682,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.4350565718253373,
+     "cycles": 5528989,
+     "instret": 2405423,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_stream",
+   "b": "embench_nsichneu",
+   "lat": 250,
+   "ws": 1.1564335597011226,
+   "slots": {
+    "0": {
+     "ipc": 0.21934183059605847,
+     "cycles": 5378281,
+     "instret": 1179682,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.2744219072699206,
+     "cycles": 8765419,
+     "instret": 2405423,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_copy",
+   "b": "coremark_A",
+   "lat": 30,
+   "ws": 1.485673423448071,
+   "slots": {
+    "0": {
+     "ipc": 0.34538090716765263,
+     "cycles": 927877,
+     "instret": 320471,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.8823501240385813,
+     "cycles": 1148433,
+     "instret": 1013320,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_copy",
+   "b": "coremark_A",
+   "lat": 120,
+   "ws": 1.3238855241116383,
+   "slots": {
+    "0": {
+     "ipc": 0.16315283585797646,
+     "cycles": 1964238,
+     "instret": 320471,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.6915878155183428,
+     "cycles": 1465208,
+     "instret": 1013320,
+     "runs": 1
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_copy",
+   "b": "coremark_A",
+   "lat": 250,
+   "ws": 1.2292396971490365,
+   "slots": {
+    "0": {
+     "ipc": 0.09065729516386552,
+     "cycles": 3534972,
+     "instret": 320471,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.5132454523997411,
+     "cycles": 1974338,
+     "instret": 1013320,
+     "runs": 1
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_copy",
+   "b": "embench_huffbench",
+   "lat": 30,
+   "ws": 1.4563979429230305,
+   "slots": {
+    "0": {
+     "ipc": 0.36446233245156934,
+     "cycles": 879298,
+     "instret": 320471,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.6035804313791568,
+     "cycles": 3584596,
+     "instret": 2163592,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_copy",
+   "b": "embench_huffbench",
+   "lat": 120,
+   "ws": 1.2034623339118717,
+   "slots": {
+    "0": {
+     "ipc": 0.16848051521324833,
+     "cycles": 1902125,
+     "instret": 320471,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.3748001569468468,
+     "cycles": 5772655,
+     "instret": 2163592,
+     "runs": 0
+    }
+   }
+  },
+  {
+   "group": "mixed",
+   "a": "ms_copy",
+   "b": "embench_huffbench",
+   "lat": 250,
+   "ws": 1.0937275063661374,
+   "slots": {
+    "0": {
+     "ipc": 0.09354455006253895,
+     "cycles": 3425865,
+     "instret": 320471,
+     "runs": 0
+    },
+    "1": {
+     "ipc": 0.22124144560079556,
+     "cycles": 9779325,
+     "instret": 2163592,
+     "runs": 0
+    }
+   }
+  }
+ ],
+ "excluded": [
+  {
+   "group": "mem+mem",
+   "a": "ms_stride",
+   "b": "ms_hashprobe",
+   "lat": 120,
+   "why": "hang: no end within 40,085,148 cycles: slot 0 finished its first region, slot 1 did not"
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_stride",
+   "b": "ms_hashprobe",
+   "lat": 250,
+   "why": "hang: no end within 68,217,162 cycles: slot 0 finished its first region, slot 1 did not"
+  },
+  {
+   "group": "mixed",
+   "a": "ms_stride",
+   "b": "dhrystone",
+   "lat": 120,
+   "why": "hang: no end within 6,178,572 cycles: slot 0 finished its first region, slot 1 did not"
+  },
+  {
+   "group": "mixed",
+   "a": "ms_stride",
+   "b": "dhrystone",
+   "lat": 250,
+   "why": "hang: no end within 9,842,361 cycles: slot 0 finished its first region, slot 1 did not"
+  }
+ ],
+ "hangs": [
+  {
+   "group": "mem+mem",
+   "a": "ms_stride",
+   "b": "ms_hashprobe",
+   "lat": 120,
+   "why": "no end within 40,085,148 cycles: slot 0 finished its first region, slot 1 did not"
+  },
+  {
+   "group": "mem+mem",
+   "a": "ms_stride",
+   "b": "ms_hashprobe",
+   "lat": 250,
+   "why": "no end within 68,217,162 cycles: slot 0 finished its first region, slot 1 did not"
+  },
+  {
+   "group": "mixed",
+   "a": "ms_stride",
+   "b": "dhrystone",
+   "lat": 120,
+   "why": "no end within 6,178,572 cycles: slot 0 finished its first region, slot 1 did not"
+  },
+  {
+   "group": "mixed",
+   "a": "ms_stride",
+   "b": "dhrystone",
+   "lat": 250,
+   "why": "no end within 9,842,361 cycles: slot 0 finished its first region, slot 1 did not"
+  }
+ ],
+ "groups": {
+  "30": {
+   "mem+mem": 1.3422794577347175,
+   "compute+compute": 1.1907213574301712,
+   "mixed": 1.346610526544946
+  },
+  "120": {
+   "mem+mem": 1.2409950826494323,
+   "compute+compute": 1.1897411582137438,
+   "mixed": 1.2401176207118174
+  },
+  "250": {
+   "mem+mem": 1.2067776549832263,
+   "compute+compute": 1.1880271601974444,
+   "mixed": 1.1617919621126023
+  }
+ },
+ "overall": {
+  "30": 1.2911153092779513,
+  "120": 1.2233812169637701,
+  "250": 1.1853883799623097
+ }
+}

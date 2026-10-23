@@ -25,14 +25,32 @@ ifneq ($(filter-out 1,$(SYNTH)),)
   $(error SYNTH must be 1 or unset (got "$(SYNTH)"))
 endif
 SYNTH_MODELS := $(addprefix tests/unit/prim/models/,RAM32M16.sv RAM64M8.sv RAM64X8SW.sv SRL16E.sv SRLC32E.sv)
+# LAT_INJ=0: a release build's SoC, without the two latency injectors (tanager_soc LAT_INJ, DR-177; lint only)
+LAT_INJ ?=
+ifneq ($(filter-out 0 1,$(LAT_INJ)),)
+  $(error LAT_INJ must be 0, 1 or unset (got "$(LAT_INJ)"))
+endif
+# RELEASE=1: a release build's SoC (tanager_soc RELEASE, DR-180; lint only), with the host DMA port on (-GHOST_DMA=1)
+# so that its release form is read too; lint-all runs it with LAT_INJ=0 COMMIT_TRACE=0, as the board's product
+RELEASE ?=
+ifneq ($(filter-out 0 1,$(RELEASE)),)
+  $(error RELEASE must be 0, 1 or unset (got "$(RELEASE)"))
+endif
+# XBAR_SLICE=1, MEM_SLICE=1: the uncore's register slices back on (tanager_soc parameters, off since DR-186; lint
+# only here, and tests/unit/soc short runs the SoC with them)
+XBAR_SLICE ?=
+MEM_SLICE  ?=
+ifneq ($(filter-out 0 1,$(XBAR_SLICE) $(MEM_SLICE)),)
+  $(error XBAR_SLICE and MEM_SLICE must be 0, 1 or unset (got "$(XBAR_SLICE)" and "$(MEM_SLICE)"))
+endif
 SYNTH_FLAGS := $(if $(SYNTH),+define+SYNTHESIS -Wno-UNUSED tools/ci/synth_lint/synth.vlt \
                  tools/ci/synth_lint/xilinx_stubs.sv $(SYNTH_MODELS))
 
 .PHONY: lint lint-all regress regress-profiles cycle-identical perf boot-lockstep boot-lockstep-gate
 lint:
 	@test -f $(RTL_CFG) || { echo "unknown CFG=$(CFG) (one of: $(CFGS))"; exit 2; }
-	$(VERILATOR) $(LINT_FLAGS) $(TC_DEF) $(LINT_ONLY_DEF) $(RTL_CFG) -F $(RTL_F) $(SYNTH_FLAGS)
-	@echo "lint OK: $(CFG)$(if $(TIMING_CUTS), TIMING_CUTS=$(TIMING_CUTS))$(if $(DC_MSHRS), DC_MSHRS=$(DC_MSHRS))$(if $(QUEUE_DECODE), QUEUE_DECODE=$(QUEUE_DECODE))$(if $(SPEC_WAKE), SPEC_WAKE=$(SPEC_WAKE))$(if $(STA_BASE), STA_BASE=$(STA_BASE))$(if $(STEER_LA), STEER_LA=$(STEER_LA))$(if $(PMP_ENTRIES), PMP_ENTRIES=$(PMP_ENTRIES))$(if $(STORE_PF), STORE_PF=$(STORE_PF))$(if $(URF), URF=$(URF))$(if $(STORE_PF_MAX), STORE_PF_MAX=$(STORE_PF_MAX))$(if $(SOLO_TID), SOLO_TID=$(SOLO_TID))$(if $(SPLIT), SPLIT=$(SPLIT))$(if $(strip $(LINT_ONLY_SET)), $(strip $(LINT_ONLY_SET)))$(if $(SYNTH), SYNTH=1)"
+	$(VERILATOR) $(LINT_FLAGS) $(TC_DEF) $(LINT_ONLY_DEF) $(if $(LAT_INJ),-GLAT_INJ=$(LAT_INJ)) $(if $(RELEASE),-GRELEASE=$(RELEASE) $(if $(filter 1,$(RELEASE)),-GHOST_DMA=1)) $(if $(XBAR_SLICE),-GXBAR_SLICE=$(XBAR_SLICE)) $(if $(MEM_SLICE),-GMEM_SLICE=$(MEM_SLICE)) $(RTL_CFG) -F $(RTL_F) $(SYNTH_FLAGS)
+	@echo "lint OK: $(CFG)$(if $(LAT_INJ), LAT_INJ=$(LAT_INJ))$(if $(RELEASE), RELEASE=$(RELEASE))$(if $(TIMING_CUTS), TIMING_CUTS=$(TIMING_CUTS))$(if $(DC_MSHRS), DC_MSHRS=$(DC_MSHRS))$(if $(QUEUE_DECODE), QUEUE_DECODE=$(QUEUE_DECODE))$(if $(SPEC_WAKE), SPEC_WAKE=$(SPEC_WAKE))$(if $(SPEC_WAKE_FILT), SPEC_WAKE_FILT=$(SPEC_WAKE_FILT))$(if $(STA_BASE), STA_BASE=$(STA_BASE))$(if $(STEER_LA), STEER_LA=$(STEER_LA))$(if $(PMP_ENTRIES), PMP_ENTRIES=$(PMP_ENTRIES))$(if $(STORE_PF), STORE_PF=$(STORE_PF))$(if $(URF), URF=$(URF))$(if $(STORE_PF_MAX), STORE_PF_MAX=$(STORE_PF_MAX))$(if $(SOLO_TID), SOLO_TID=$(SOLO_TID))$(if $(SPLIT), SPLIT=$(SPLIT))$(if $(HART1), HART1=$(HART1))$(if $(XBAR_SLICE), XBAR_SLICE=$(XBAR_SLICE))$(if $(MEM_SLICE), MEM_SLICE=$(MEM_SLICE))$(if $(strip $(LINT_ONLY_SET)), $(strip $(LINT_ONLY_SET)))$(if $(SYNTH), SYNTH=1)"
 
 # DR-140's elaborations, so that every switch's branches compile: the fallback (every switch off), the
 # default (#4, #5 on), and #2, #8 and the commit trace off (DR-146) each on top of the default (lint only;
@@ -50,7 +68,7 @@ lint-all:
 CORE ?= core
 REGRESS_ARGS = CFG=$(CFG) CORE=$(CORE) $(if $(LAT),LAT=$(LAT)) $(if $(SUITES),SUITES="$(SUITES)") \
   $(if $(MARCH),MARCH=$(MARCH)) $(if $(SELFTEST),SELFTEST=$(SELFTEST)) $(if $(RANDN),RANDN=$(RANDN)) \
-  $(if $(JOBS),JOBS=$(JOBS)) $(foreach v,DC_MSHRS QUEUE_DECODE SPEC_WAKE STA_BASE STEER_LA PMP_ENTRIES STORE_PF URF STORE_PF_MAX SOLO_TID SPLIT,$(if $($(v)),$(v)=$($(v))))
+  $(if $(JOBS),JOBS=$(JOBS)) $(foreach v,DC_MSHRS QUEUE_DECODE SPEC_WAKE SPEC_WAKE_FILT STA_BASE STEER_LA PMP_ENTRIES STORE_PF URF STORE_PF_MAX SOLO_TID SPLIT HART1,$(if $($(v)),$(v)=$($(v))))
 regress:
 	@tools/ci/regress.sh $(REGRESS_ARGS) $(if $(TIMING_CUTS),TIMING_CUTS=$(TIMING_CUTS))
 regress-profiles:
@@ -64,10 +82,12 @@ regress-profiles:
 # tools/ci/cycle_identical.py, unless BOOT_FW=<file> or BOOT_KERNEL=<file> names another); TIMING_CUTS=0|1 or
 # BRANCH_TIMING_CUTS=0|1 picks the core's timing-cut profile (DR-140), DC_MSHRS=1|4 or BRANCH_DC_MSHRS=1|4 the
 # L1D's misses in flight (DR-149), QUEUE_DECODE=0|1 or BRANCH_QUEUE_DECODE=0|1 G8's queue decode bits,
-# SPEC_WAKE=0|1 or BRANCH_SPEC_WAKE=0|1 M6's speculative load wakeup, STA_BASE=0|1 or BRANCH_STA_BASE=0|1 M6's
-# store address on its base alone, STEER_LA=0|1 or BRANCH_STEER_LA=0|1 M6's ALU-queue steering a group ahead
-# (DR-169), PMP_ENTRIES=8|16 or BRANCH_PMP_ENTRIES=8|16 the core's PMP entries (DR-167; each side's lockstep
-# follows its model), STORE_PF=0|1 or BRANCH_STORE_PF=0|1 M6's ownership prefetch for stores (DR-171) and
+# SPEC_WAKE=0|1 or BRANCH_SPEC_WAKE=0|1 M6's speculative load wakeup, SPEC_WAKE_FILT=0|1|2 or
+# BRANCH_SPEC_WAKE_FILT=0|1|2 its filter (a load whose PC's loads keep failing in M2 does not wake its dependants
+# speculatively; 2: D$ misses do not count), STA_BASE=0|1 or BRANCH_STA_BASE=0|1 M6's store address on its base
+# alone, STEER_LA=0|1 or BRANCH_STEER_LA=0|1 M6's ALU-queue steering a group ahead (DR-169), PMP_ENTRIES=8|16
+# or BRANCH_PMP_ENTRIES=8|16 the core's PMP entries (DR-167; each side's lockstep follows its model),
+# STORE_PF=0|1 or BRANCH_STORE_PF=0|1 M6's ownership prefetch for stores (DR-171) and
 # STORE_PF_MAX=2|3 or BRANCH_STORE_PF_MAX=2|3 its prefetches in flight, URF=0|1 or BRANCH_URF=0|1 the UltraRAM
 # integer register file (DR-174), on the boot too; HARNESS=auto|branch|own picks the base side's sim/.
 cycle-identical:
@@ -79,6 +99,7 @@ cycle-identical:
 	  $(if $(DC_MSHRS),--dc-mshrs $(DC_MSHRS)) $(if $(BRANCH_DC_MSHRS),--branch-dc-mshrs $(BRANCH_DC_MSHRS)) \
 	  $(if $(QUEUE_DECODE),--queue-decode $(QUEUE_DECODE)) $(if $(BRANCH_QUEUE_DECODE),--branch-queue-decode $(BRANCH_QUEUE_DECODE)) \
 	  $(if $(SPEC_WAKE),--spec-wake $(SPEC_WAKE)) $(if $(BRANCH_SPEC_WAKE),--branch-spec-wake $(BRANCH_SPEC_WAKE)) \
+	  $(if $(SPEC_WAKE_FILT),--spec-wake-filt $(SPEC_WAKE_FILT)) $(if $(BRANCH_SPEC_WAKE_FILT),--branch-spec-wake-filt $(BRANCH_SPEC_WAKE_FILT)) \
 	  $(if $(STA_BASE),--sta-base $(STA_BASE)) $(if $(BRANCH_STA_BASE),--branch-sta-base $(BRANCH_STA_BASE)) \
 	  $(if $(STEER_LA),--steer-la $(STEER_LA)) $(if $(BRANCH_STEER_LA),--branch-steer-la $(BRANCH_STEER_LA)) \
 	  $(if $(PMP_ENTRIES),--pmp-entries $(PMP_ENTRIES)) $(if $(BRANCH_PMP_ENTRIES),--branch-pmp-entries $(BRANCH_PMP_ENTRIES)) \
@@ -87,6 +108,7 @@ cycle-identical:
 	  $(if $(STORE_PF_MAX),--store-pf-max $(STORE_PF_MAX)) $(if $(BRANCH_STORE_PF_MAX),--branch-store-pf-max $(BRANCH_STORE_PF_MAX)) \
 	  $(if $(SOLO_TID),--solo-tid $(SOLO_TID)) $(if $(BRANCH_SOLO_TID),--branch-solo-tid $(BRANCH_SOLO_TID)) \
 	  $(if $(SPLIT),--split $(SPLIT)) $(if $(BRANCH_SPLIT),--branch-split $(BRANCH_SPLIT)) \
+	  $(if $(HART1),--hart1 $(HART1)) $(if $(BRANCH_HART1),--branch-hart1 $(BRANCH_HART1)) \
 	  $(if $(HARNESS),--harness $(HARNESS))
 
 # The Linux boot under lockstep (docs/spec/verification.md §4.7; DR-173): tb_boot with the commit-trace tap
@@ -99,10 +121,10 @@ BOOT_LS_ARGS = $(if $(BRANCH),--branch "$(BRANCH)") $(if $(MCYC),--mcyc $(MCYC))
   $(if $(JOBS),--jobs $(JOBS)) $(if $(BOOT_FW),--boot-fw "$(BOOT_FW)") $(if $(BOOT_KERNEL),--boot-kernel "$(BOOT_KERNEL)") \
   $(if $(TIMING_CUTS),--timing-cuts $(TIMING_CUTS)) $(if $(DC_MSHRS),--dc-mshrs $(DC_MSHRS)) \
   $(if $(QUEUE_DECODE),--queue-decode $(QUEUE_DECODE)) $(if $(SPEC_WAKE),--spec-wake $(SPEC_WAKE)) \
-  $(if $(STA_BASE),--sta-base $(STA_BASE)) $(if $(STEER_LA),--steer-la $(STEER_LA)) \
+  $(if $(SPEC_WAKE_FILT),--spec-wake-filt $(SPEC_WAKE_FILT)) $(if $(STA_BASE),--sta-base $(STA_BASE)) $(if $(STEER_LA),--steer-la $(STEER_LA)) \
   $(if $(PMP_ENTRIES),--pmp-entries $(PMP_ENTRIES)) $(if $(STORE_PF),--store-pf $(STORE_PF)) $(if $(URF),--urf $(URF)) \
   $(if $(STORE_PF_MAX),--store-pf-max $(STORE_PF_MAX)) $(if $(SOLO_TID),--solo-tid $(SOLO_TID)) \
-  $(if $(SPLIT),--split $(SPLIT))
+  $(if $(SPLIT),--split $(SPLIT)) $(if $(HART1),--hart1 $(HART1))
 boot-lockstep:
 	@python3 tools/ci/boot_lockstep.py $(BOOT_LS_ARGS) $(if $(SHAPE),--shape "$(SHAPE)") $(if $(TIMING),--timing "$(TIMING)")
 boot-lockstep-gate:
@@ -119,6 +141,7 @@ perf:
 	  $(if $(DC_MSHRS),--dc-mshrs $(DC_MSHRS)) $(if $(BRANCH_DC_MSHRS),--branch-dc-mshrs $(BRANCH_DC_MSHRS)) \
 	  $(if $(QUEUE_DECODE),--queue-decode $(QUEUE_DECODE)) $(if $(BRANCH_QUEUE_DECODE),--branch-queue-decode $(BRANCH_QUEUE_DECODE)) \
 	  $(if $(SPEC_WAKE),--spec-wake $(SPEC_WAKE)) $(if $(BRANCH_SPEC_WAKE),--branch-spec-wake $(BRANCH_SPEC_WAKE)) \
+	  $(if $(SPEC_WAKE_FILT),--spec-wake-filt $(SPEC_WAKE_FILT)) $(if $(BRANCH_SPEC_WAKE_FILT),--branch-spec-wake-filt $(BRANCH_SPEC_WAKE_FILT)) \
 	  $(if $(STA_BASE),--sta-base $(STA_BASE)) $(if $(BRANCH_STA_BASE),--branch-sta-base $(BRANCH_STA_BASE)) \
 	  $(if $(STEER_LA),--steer-la $(STEER_LA)) $(if $(BRANCH_STEER_LA),--branch-steer-la $(BRANCH_STEER_LA)) \
 	  $(if $(PMP_ENTRIES),--pmp-entries $(PMP_ENTRIES)) $(if $(BRANCH_PMP_ENTRIES),--branch-pmp-entries $(BRANCH_PMP_ENTRIES)) \
@@ -126,4 +149,5 @@ perf:
 	  $(if $(URF),--urf $(URF)) $(if $(BRANCH_URF),--branch-urf $(BRANCH_URF)) \
 	  $(if $(STORE_PF_MAX),--store-pf-max $(STORE_PF_MAX)) $(if $(BRANCH_STORE_PF_MAX),--branch-store-pf-max $(BRANCH_STORE_PF_MAX)) \
 	  $(if $(SOLO_TID),--solo-tid $(SOLO_TID)) $(if $(BRANCH_SOLO_TID),--branch-solo-tid $(BRANCH_SOLO_TID)) \
-	  $(if $(SPLIT),--split $(SPLIT)) $(if $(BRANCH_SPLIT),--branch-split $(BRANCH_SPLIT))
+	  $(if $(SPLIT),--split $(SPLIT)) $(if $(BRANCH_SPLIT),--branch-split $(BRANCH_SPLIT)) \
+	  $(if $(HART1),--hart1 $(HART1)) $(if $(BRANCH_HART1),--branch-hart1 $(BRANCH_HART1))

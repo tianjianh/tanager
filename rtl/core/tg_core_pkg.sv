@@ -109,6 +109,16 @@ package tg_core_pkg;
 `else
   localparam bit SPEC_WAKE = 1'b1;
 `endif
+  // Speculative wakeup's filter (tg_issue): a load whose PC's loads keep failing to complete in M2
+  // does not wake its dependants speculatively (a 2-bit count per PC hash). 1 (the default): every
+  // failure counts; 2: a load that missed the D$ in M2 leaves its count alone (tg_lsu's ld_m2_miss),
+  // so a streaming loop's loads keep their wakeups; TG_SPEC_WAKE_FILT=0 lets every tracked load wake
+  // its dependants, cycle for cycle as before the filter
+`ifdef TG_SPEC_WAKE_FILT
+  localparam int SPEC_WAKE_FILT = `TG_SPEC_WAKE_FILT;
+`else
+  localparam int SPEC_WAKE_FILT = 1;
+`endif
   // The return-address stack (plan §4.2, M6; tg_ras, RAS_ENTRIES of the configuration): decode
   // predicts returns from it, and a flush restores it exactly from commit's copy. On by default;
   // TG_RAS=0 turns it off: the front end without it, cycle for cycle
@@ -226,21 +236,47 @@ package tg_core_pkg;
   localparam bit SOLO_TID = 1'b0;
 `endif
   localparam tid_t RUN_TID = tid_t'(SOLO_TID);
+  // M7's step 5 (DR-175): hart 1, TG_HART1=1 (smt2 builds only; off until step 8's checks pass; with SOLO_TID hart 0
+  // runs as tid 1 and hart 1 as tid 0, each with its own homes).
+  // On: the window split (SPLIT below); each register bank's free list divided between the harts, with transfers
+  // (D3 revised); hart 1's homes reserved (D4: x1-x16 in bank 1, x17-x31 in bank 2, f0-f31 in F1); FP banks of 64
+  // (tg_cfg_smt2); from step 5c hart 1 fetches from reset. Until then hart 0 runs alone in its half, taking hart 1's
+  // free registers by transfers. Off: the core of steps 1-4, cycle for cycle.
+`ifdef TG_HART1
+  localparam bit HART1_ON = `TG_HART1;
+`else
+  localparam bit HART1_ON = 1'b0;
+`endif
   // M7's split mode (step 3b, D1): thread t owns part t of the ROB, LQ and SQ, the halves, and its pointers wrap
   // inside it (x_add_t, x_cnt_t below). Merged mode (SPLIT = 0) is the core before M7: the running thread owns every
   // entry. SPLIT is on with hart 1 (step 5); TG_SPLIT=1 (a test mode, smt2 builds only) runs the one thread in its
   // half, so the halves are tested before hart 1 runs (not cycle-identical: the window is half).
 `ifdef TG_SPLIT
-  localparam bit SPLIT = `TG_SPLIT;
+  localparam bit SPLIT = `TG_SPLIT || HART1_ON;
 `else
-  localparam bit SPLIT = 1'b0;
+  localparam bit SPLIT = HART1_ON;
 `endif
-  // A thread's part of a structure of n entries: its first entry and its size
-  function automatic int part_base(input int n, input tid_t t);
-    return (SPLIT && t != tid_t'(0)) ? n / 2 : 0;
+  // DR-185: rename's payload LUTRAM takes decode's write through a register, landing a cycle later (1, the default:
+  // decode's paths end beside decode), or directly (0: about 770 flip-flops a core fewer, if those paths close)
+`ifdef TG_PAY_WREG
+  localparam bit PAY_WREG = `TG_PAY_WREG;
+`else
+  localparam bit PAY_WREG = 1'b1;
+`endif
+  // M7's step 6 (D2): with hart 1 the split is a mode set at run time (md_t, tg_rename's md_q). Split: the halves.
+  // Merged: thread run owns every entry while its sibling sleeps with an empty window (threading.md). Without hart 1
+  // the mode is the constant MD_C: merged with RUN_TID as before M7, or TG_SPLIT's test mode.
+  typedef struct packed {
+    logic split;
+    tid_t run;
+  } md_t;
+  localparam md_t MD_C = '{split: SPLIT, run: RUN_TID};
+  // A thread's part of a structure of n entries in mode md: its first entry and its size
+  function automatic int part_base(input int n, input tid_t t, input md_t md);
+    return (md.split && t != tid_t'(0)) ? n / 2 : 0;
   endfunction
-  function automatic int part_size(input int n);
-    return SPLIT ? n / 2 : n;
+  function automatic int part_size(input int n, input md_t md);
+    return md.split ? n / 2 : n;
   endfunction
   localparam int BHT_ENTRIES  = 512;      // 2-bit direction counters
   localparam int NP           = FETCH_BYTES / 2;   // halfword parcels per fetch block
@@ -265,6 +301,13 @@ package tg_core_pkg;
   localparam int PIDX_W = idx_w(INT_PREGS_PER_BANK);
   localparam int BANK_W = idx_w(INT_BANKS);
   localparam int LD_BANK = N_ALU;         // the load pipe's bank
+  // Hart 1's homes (HART1_ON; D4, refined under DR-154, smt2_report §13.11): x1-x16 in bank 1 at 0-15, x17-x31 in
+  // the load bank at 0-14, f0-f31 in F1 at 0-31; x0 is bank 0's register 0, as hart 0's (whose homes are bank 0's and
+  // F0's 0-31). No single-writer bank gives more than 16 entries to a hart asleep.
+  localparam int H1_LO_BANK = 1;          // x1 .. x16
+  localparam int H1_LO_N    = 16;
+  localparam int H1_HI_BANK = LD_BANK;    // x17 .. x31
+  localparam int H1_HI_N    = 15;
 
   // FP physical registers {bank, index}: F0 takes P4 results, F1 FP loads. FP tags travel in
   // preg_t-wide fields next to a flag that says which file they name.
@@ -356,87 +399,102 @@ package tg_core_pkg;
                                   : int'(t[SQW-2:0]) + SQ_ENTRIES - int'(h[SQW-2:0]);
   endfunction
 
-  // Per thread: x_add_t(p, k, t) advances thread t's pointer p by k inside its part; x_cnt_t(t, h) counts the entries
-  // of a part in [h, t); x_start(t) is thread t's first pointer (its part's first entry, wrap bit 0); x_tid(e) is the
-  // thread whose part holds entry e (the running thread in merged mode). In merged mode they are the functions above.
-  function automatic robid_t rob_add_t(input robid_t p, input int k, input tid_t t);
+  // Per thread: x_add_t(p, k, t, md) advances thread t's pointer p by k inside its part; x_cnt_t(t, h, md) counts the
+  // entries of a part in [h, t); x_start(t, md) is thread t's first pointer (its part's first entry, wrap bit 0);
+  // x_tid(e, md) is the thread whose part holds entry e (the running thread in merged mode).
+  function automatic robid_t rob_add_t(input robid_t p, input int k, input tid_t t, input md_t md);
     int i;
     logic w;
     i = int'(p[ROBW-2:0]) + k;
     w = p[ROBW-1];
-    if (i >= part_base(ROB_ENTRIES, t) + part_size(ROB_ENTRIES)) begin i -= part_size(ROB_ENTRIES); w = !w; end
+    if (i >= part_base(ROB_ENTRIES, t, md) + part_size(ROB_ENTRIES, md)) begin
+      i -= part_size(ROB_ENTRIES, md);
+      w = !w;
+    end
     return {w, (ROBW-1)'(i)};
   endfunction
-  function automatic int rob_cnt_t(input robid_t t, input robid_t h);
+  function automatic int rob_cnt_t(input robid_t t, input robid_t h, input md_t md);
     return (t[ROBW-1] == h[ROBW-1]) ? int'(t[ROBW-2:0]) - int'(h[ROBW-2:0])
-                                    : int'(t[ROBW-2:0]) + part_size(ROB_ENTRIES) - int'(h[ROBW-2:0]);
+                                    : int'(t[ROBW-2:0]) + part_size(ROB_ENTRIES, md) - int'(h[ROBW-2:0]);
   endfunction
-  function automatic robid_t rob_start(input tid_t t);
-    return {1'b0, (ROBW-1)'(part_base(ROB_ENTRIES, t))};
+  function automatic robid_t rob_start(input tid_t t, input md_t md);
+    return {1'b0, (ROBW-1)'(part_base(ROB_ENTRIES, t, md))};
   endfunction
-  function automatic tid_t rob_tid(input robid_t e);
-    if (!SPLIT) return RUN_TID;
+  function automatic tid_t rob_tid(input robid_t e, input md_t md);
+    if (!md.split) return md.run;
     return tid_t'(int'(e[ROBW-2:0]) >= ROB_ENTRIES / 2);
   endfunction
   // The thread whose part holds LQ entry i or SQ entry i (the running thread in merged mode)
-  function automatic tid_t lq_tid(input int i);
-    if (!SPLIT) return RUN_TID;
+  function automatic tid_t lq_tid(input int i, input md_t md);
+    if (!md.split) return md.run;
     return tid_t'(i >= LQ_ENTRIES / 2);
   endfunction
-  function automatic tid_t sq_tid(input int i);
-    if (!SPLIT) return RUN_TID;
+  function automatic tid_t sq_tid(input int i, input md_t md);
+    if (!md.split) return md.run;
     return tid_t'(i >= SQ_ENTRIES / 2);
   endfunction
-  function automatic lqid_t lq_add_t(input lqid_t p, input int k, input tid_t t);
+  function automatic lqid_t lq_add_t(input lqid_t p, input int k, input tid_t t, input md_t md);
     int i;
     logic w;
     i = int'(p[LQW-2:0]) + k;
     w = p[LQW-1];
-    if (i >= part_base(LQ_ENTRIES, t) + part_size(LQ_ENTRIES)) begin i -= part_size(LQ_ENTRIES); w = !w; end
+    if (i >= part_base(LQ_ENTRIES, t, md) + part_size(LQ_ENTRIES, md)) begin
+      i -= part_size(LQ_ENTRIES, md);
+      w = !w;
+    end
     return {w, (LQW-1)'(i)};
   endfunction
-  function automatic int lq_cnt_t(input lqid_t t, input lqid_t h);
+  function automatic int lq_cnt_t(input lqid_t t, input lqid_t h, input md_t md);
     return (t[LQW-1] == h[LQW-1]) ? int'(t[LQW-2:0]) - int'(h[LQW-2:0])
-                                  : int'(t[LQW-2:0]) + part_size(LQ_ENTRIES) - int'(h[LQW-2:0]);
+                                  : int'(t[LQW-2:0]) + part_size(LQ_ENTRIES, md) - int'(h[LQW-2:0]);
   endfunction
-  function automatic lqid_t lq_start(input tid_t t);
-    return {1'b0, (LQW-1)'(part_base(LQ_ENTRIES, t))};
+  function automatic lqid_t lq_start(input tid_t t, input md_t md);
+    return {1'b0, (LQW-1)'(part_base(LQ_ENTRIES, t, md))};
   endfunction
-  function automatic sqid_t sq_add_t(input sqid_t p, input int k, input tid_t t);
+  function automatic sqid_t sq_add_t(input sqid_t p, input int k, input tid_t t, input md_t md);
     int i;
     logic w;
     i = int'(p[SQW-2:0]) + k;
     w = p[SQW-1];
-    if (i >= part_base(SQ_ENTRIES, t) + part_size(SQ_ENTRIES)) begin i -= part_size(SQ_ENTRIES); w = !w; end
+    if (i >= part_base(SQ_ENTRIES, t, md) + part_size(SQ_ENTRIES, md)) begin
+      i -= part_size(SQ_ENTRIES, md);
+      w = !w;
+    end
     return {w, (SQW-1)'(i)};
   endfunction
-  function automatic int sq_cnt_t(input sqid_t t, input sqid_t h);
+  function automatic int sq_cnt_t(input sqid_t t, input sqid_t h, input md_t md);
     return (t[SQW-1] == h[SQW-1]) ? int'(t[SQW-2:0]) - int'(h[SQW-2:0])
-                                  : int'(t[SQW-2:0]) + part_size(SQ_ENTRIES) - int'(h[SQW-2:0]);
+                                  : int'(t[SQW-2:0]) + part_size(SQ_ENTRIES, md) - int'(h[SQW-2:0]);
   endfunction
-  function automatic sqid_t sq_start(input tid_t t);
-    return {1'b0, (SQW-1)'(part_base(SQ_ENTRIES, t))};
+  function automatic sqid_t sq_start(input tid_t t, input md_t md);
+    return {1'b0, (SQW-1)'(part_base(SQ_ENTRIES, t, md))};
   endfunction
   // A thread's part as a mask of entries (every entry in merged mode)
-  function automatic logic [LQ_ENTRIES-1:0] lq_part(input tid_t t);
+  function automatic logic [LQ_ENTRIES-1:0] lq_part(input tid_t t, input md_t md);
     logic [LQ_ENTRIES-1:0] m;
     for (int i = 0; i < LQ_ENTRIES; i++)
-      m[i] = i >= part_base(LQ_ENTRIES, t) && i < part_base(LQ_ENTRIES, t) + part_size(LQ_ENTRIES);
+      m[i] = i >= part_base(LQ_ENTRIES, t, md) && i < part_base(LQ_ENTRIES, t, md) + part_size(LQ_ENTRIES, md);
     return m;
   endfunction
-  function automatic logic [SQ_ENTRIES-1:0] sq_part(input tid_t t);
+  function automatic logic [SQ_ENTRIES-1:0] sq_part(input tid_t t, input md_t md);
     logic [SQ_ENTRIES-1:0] m;
     for (int i = 0; i < SQ_ENTRIES; i++)
-      m[i] = i >= part_base(SQ_ENTRIES, t) && i < part_base(SQ_ENTRIES, t) + part_size(SQ_ENTRIES);
+      m[i] = i >= part_base(SQ_ENTRIES, t, md) && i < part_base(SQ_ENTRIES, t, md) + part_size(SQ_ENTRIES, md);
     return m;
   endfunction
   // The entries thread t owns: its part in split mode; in merged mode every entry is the running thread's and none the
   // other's (M7's step 4: a pick over both threads, as the LSU's replays, takes each thread's own)
-  function automatic logic [LQ_ENTRIES-1:0] lq_own(input tid_t t);
-    return (SPLIT || t == RUN_TID) ? lq_part(t) : '0;
+  function automatic logic [LQ_ENTRIES-1:0] lq_own(input tid_t t, input md_t md);
+    return (md.split || t == md.run) ? lq_part(t, md) : '0;
   endfunction
-  function automatic logic [SQ_ENTRIES-1:0] sq_own(input tid_t t);
-    return (SPLIT || t == RUN_TID) ? sq_part(t) : '0;
+  function automatic logic [SQ_ENTRIES-1:0] sq_own(input tid_t t, input md_t md);
+    return (md.split || t == md.run) ? sq_part(t, md) : '0;
+  endfunction
+  // Step 6: a thread's window in a structure lies in its own half without wrapping there (h and t: its head and tail;
+  // half: the structure's half size), so the halves can split around it
+  function automatic logic win_fits(input int hi, input logic hw, input int ti, input logic tw, input int half,
+                                    input tid_t t);
+    return hw == tw && (hi >= half) == (t != tid_t'(0)) && (ti >= half) == (t != tid_t'(0));
   endfunction
 
   // ---- Micro-op classes ----

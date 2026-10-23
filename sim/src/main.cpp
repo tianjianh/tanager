@@ -341,6 +341,7 @@ int main(int argc, char** argv) {
 
   // ---- Lockstep ----
   std::unique_ptr<lockstep_t> ls;
+  std::unique_ptr<hart_order_t> order;  // several harts: in cycle order, ATOMIC_EARLY cycles behind (§3.7)
   if (o.lockstep) {
     lockstep_cfg_t lc;
     lc.isa = o.isa;
@@ -365,7 +366,9 @@ int main(int argc, char** argv) {
     lc.rom_size = mc.rom_size;
     lc.dev_regions = mc.dev_regions;
     lc.deny = mc.deny;
+    lc.mtgsmt = hw.hart1_on;  // a core with hart 1 has mtgsmt (0x7C0); without it the CSR is illegal
     ls = std::make_unique<lockstep_t>(lc, mem, &elf);
+    if (lc.hartids.size() > 1) order = std::make_unique<hart_order_t>(*ls, lc.hartids);
   }
 
   FILE* logf = nullptr;
@@ -496,7 +499,29 @@ int main(int argc, char** argv) {
     t.sig.bus_lines.clear();
     if (status != EXIT_PASS) break;
 
-    if (ls && !ls->cycle(t.recs, t.wbs)) { status = EXIT_MISMATCH; why = ls->error(); break; }
+    if (ls) {
+      bool ok = true;
+      if (order) {
+        // Several harts: an AMO or SC performs before it retires (a trace stall can hold its record back), so
+        // another hart may read what it wrote first; the checker gets the records ATOMIC_EARLY cycles late and
+        // looks ahead (§3.7). As in a cycle's records (§3.5), a writeback of a tag a record of this cycle creates
+        // comes after it, the others before.
+        auto created = [&](const tr_wb_t& w) {
+          for (auto& r : t.recs)
+            if (r.hart == w.hart && r.rd_deferred && r.wb_tag == w.wb_tag) return true;
+          return false;
+        };
+        for (auto& w : t.wbs)
+          if (!created(w)) order->push(w);
+        for (auto& r : t.recs) order->push(r);
+        for (auto& w : t.wbs)
+          if (created(w)) order->push(w);
+        ok = order->drain(exit_seen ? ~0ull : cycle >= ATOMIC_EARLY ? cycle - ATOMIC_EARLY : 0);
+      } else {
+        ok = ls->cycle(t.recs, t.wbs);
+      }
+      if (!ok) { status = EXIT_MISMATCH; why = ls->error(); break; }
+    }
     if (ls && (cycle & 4095) == 0 && !ls->check_stale(cycle, o.wb_timeout)) { status = EXIT_MISMATCH; why = ls->error(); break; }
 
     if (exit_seen) {
@@ -523,6 +548,11 @@ int main(int argc, char** argv) {
       break;
     }
     t.sig.cycle_end(cycle);
+  }
+  // Records the lookahead still holds (a timeout, a hang) are checked as they would have been
+  if (order && status != EXIT_MISMATCH && status != EXIT_PROTOCOL && !ls->failed() && !order->drain(~0ull)) {
+    status = EXIT_MISMATCH;
+    why = ls->error();
   }
   fflush(stdout);
   if (fst_open) fst->close();
@@ -558,7 +588,7 @@ int main(int argc, char** argv) {
     }
   }
 
-  if (status == EXIT_MISMATCH && t.sink.stalls && cycle - t.sink.last_stall <= 64)
+  if (status == EXIT_MISMATCH && t.sink.stalls && cycle - t.sink.last_stall <= 64 + (order ? ATOMIC_EARLY : 0))
     why += strfmt(" (trace_stall_i was high until cycle %llu: a record lost or reordered at a stall?)",
                   (unsigned long long)t.sink.last_stall);
 
@@ -587,6 +617,12 @@ int main(int argc, char** argv) {
               (unsigned long long)t.l1d.probes_on_grant, (unsigned long long)t.l1d.probes_on_release,
               (unsigned long long)t.l1d.releases_during_acquire, (unsigned long long)t.l1d.acquires_same_set,
               (unsigned long long)t.l1d.grants_ooo, t.l1d.max_src_inflight);
+    if (ls && order)
+      fprintf(stderr, "tg_vsim: several harts: %llu loads read bytes another hart's recent write had replaced; %llu "
+                      "atomics read past a write, which then followed them; %llu reads showed a store that reached "
+                      "memory after a later write of another hart; %llu reads took an atomic of another hart first\n",
+              (unsigned long long)ls->hart_loads_old(), (unsigned long long)ls->hart_reapplied(),
+              (unsigned long long)ls->hart_late(), (unsigned long long)order->early());
     if (t.sink.enabled)
       fprintf(stderr, "tg_vsim: trace_stall_i high in %llu cycles (%llu stalls); sink peak %u of %u records, "
                       "stall below %u free%s\n",

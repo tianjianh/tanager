@@ -4,8 +4,11 @@
 #                                                   device tree without F/D: the kernel needs no FPU
 #   make -C tests/unit/boot linux [CORES=1|2] [CFG=smt2 RUN_THREADS=1]  the full lp64d boot to TANAGER-BOOT-OK (the init
 #                                                   script), with the FPU in the device tree
+#   make -C tests/unit/boot linux RELEASE=1 [...]   the same boot on a release build (DR-180): serial console alone
 #   make -C tests/unit/boot run CORES=2 ARGS="+fw=... +dtb=... +expect=... +max_mcycles=N"
-#   ARGS= adds plusargs to any of them, for example ARGS="+dump_pc=<hex> +dump_stop" (tb_boot.sv)
+#   ARGS= adds plusargs to any of them, and overrides theirs: it comes first, and a plusarg's first value counts.
+#   For example ARGS="+max_mcycles=80", or ARGS="+dump_pc=<hex> +dump_stop" (tb_boot.sv)
+#   A failed run (TEST FAILED) exits with status 1, so make fails
 #   TIMING_CUTS=0|1 builds the core in that DR-140 profile (unset: the package's default)
 # Images: OpenSBI fw_jump from sw/build_opensbi.sh (pinned source; built on first use), a device
 # tree built here for CORES x threads of the configuration, 128 MiB, no FPU.
@@ -31,13 +34,25 @@ ifneq ($(TIMING_CUTS),)
     $(error TIMING_CUTS needs sim/profile.mk, which this tree lacks)
   endif
 endif
-NAME   := boot$(TAG)$(TC_SUFFIX)$(if $(filter 1,$(SERIAL)),_ser)_c$(CORES)_t$(VTHREADS)
+# LAT_INJ=0: a release build's memory path, without the two latency injectors (DR-177), in a directory of its own
+LAT_INJ ?= 1
+# RELEASE=1: a release build as the board's product (tanager_soc RELEASE, DR-180), so LAT_INJ=0, no trace
+# (+define+TG_COMMIT_TRACE=0) and SERIAL=1, the console on the serial line alone; the idle host DMA port in its
+# release form; the device trees with the PLIC's M contexts absent (sw/dts RELEASE=1)
+RELEASE ?= 0
+ifeq ($(RELEASE),1)
+  override LAT_INJ := 0
+  override SERIAL := 1
+endif
+NAME   := boot$(TAG)$(TC_SUFFIX)$(if $(filter 1,$(SERIAL)),_ser)$(if $(filter 0,$(LAT_INJ)),_rel)$(if $(filter 1,$(RELEASE)),ease)_c$(CORES)_t$(VTHREADS)
 TB     := $(CURDIR)/tb_boot.sv
 # MEM_PARAMS: the DDR models' timing (tb_boot MEM_*), for example the board's fixed latency:
 #   MEM_PARAMS="-GMEM_LAT_MIN=22 -GMEM_LAT_MAX=22 -GMEM_READY_PCT=100 -GMEM_OOO=0 -GMEM_R_PCT=100" TAG=_lat22
 MEM_PARAMS ?=
-PARAMS := -GN_CORES=$(CORES) -GUART_SERIAL_TB=$(SERIAL) $(MEM_PARAMS)
-EXTRA_VFLAGS := -CFLAGS -O2 $(if $(filter-out 1,$(VTHREADS)),--threads $(VTHREADS)) $(TC_DEF)
+PARAMS := -GN_CORES=$(CORES) -GUART_SERIAL_TB=$(SERIAL) $(MEM_PARAMS) $(if $(filter 0,$(LAT_INJ)),-GLAT_INJ_TB=0) \
+          $(if $(filter 1,$(RELEASE)),-GRELEASE_TB=1 -GHOST_DMA_TB=1)
+EXTRA_VFLAGS := -CFLAGS -O2 $(if $(filter-out 1,$(VTHREADS)),--threads $(VTHREADS)) $(TC_DEF) \
+                $(if $(filter 1,$(RELEASE)),+define+TG_COMMIT_TRACE=0)
 include ../common/unit.mk
 
 THREADS := $(if $(filter smt2%,$(CFG)),2,1)
@@ -45,8 +60,10 @@ THREADS := $(if $(filter smt2%,$(CFG)),2,1)
 # the board's shape until M7 (DR-147); each choice builds its trees in a directory of its own
 RUN_THREADS ?= $(THREADS)
 DTS_SFX := $(if $(filter-out $(THREADS),$(RUN_THREADS)),-r$(RUN_THREADS))
-# MCYC: the OpenSBI runs' cycle limit, in millions (the banner comes by 10.7 M cycles at 2x2)
-MCYC    ?= 20
+# MCYC: the OpenSBI runs' cycle limit, in millions: 20 (the banner comes by 10.7 M cycles at 2x2), or 60 with the
+# console on the serial line (SERIAL=1, RELEASE=1), where "Boot HART MEDELEG" ends about 2,700 characters in, at
+# 8,680 cycles each (115200 baud at 100 MHz): about 24 M cycles
+MCYC    ?= $(if $(filter 1,$(SERIAL)),60,20)
 OSBI_FW := $(SOC_BUILD)/opensbi/platform/generic/firmware/fw_jump.bin
 FW      ?= $(OSBI_FW)
 DTB     := $(OUTDIR)/dts$(DTS_SFX)/tanager-kv260.dtb
@@ -61,10 +78,10 @@ $(OUTDIR)/$(TOP): $(wildcard $(CORE_DIR)/*.sv $(CORE_DIR)/*/*.sv $(CORE_DIR)/*.f
 # BOOTARGS: the kernel command line in the device trees (earlycon=sbi prints through OpenSBI)
 BOOTARGS ?= console=ttyS0,115200 earlycon
 $(DTB): $(REPO)/sw/dts/tanager-kv260.dts $(REPO)/sw/dts/tanager.dtsi Makefile
-	$(MAKE) --no-print-directory -B -C $(REPO)/sw/dts O=$(OUTDIR)/dts$(DTS_SFX) CORES=$(CORES) THREADS=$(THREADS) RUN_THREADS=$(RUN_THREADS) MEM=0x08000000 FPU=0 BOOTARGS="$(BOOTARGS)"
+	$(MAKE) --no-print-directory -B -C $(REPO)/sw/dts O=$(OUTDIR)/dts$(DTS_SFX) CORES=$(CORES) THREADS=$(THREADS) RUN_THREADS=$(RUN_THREADS) MEM=0x08000000 FPU=0 RELEASE=$(RELEASE) BOOTARGS="$(BOOTARGS)"
 DTB_FPU := $(OUTDIR)/dts-fpu$(DTS_SFX)/tanager-kv260.dtb
 $(DTB_FPU): $(REPO)/sw/dts/tanager-kv260.dts $(REPO)/sw/dts/tanager.dtsi Makefile
-	$(MAKE) --no-print-directory -B -C $(REPO)/sw/dts O=$(OUTDIR)/dts-fpu$(DTS_SFX) CORES=$(CORES) THREADS=$(THREADS) RUN_THREADS=$(RUN_THREADS) MEM=0x08000000 FPU=1 BOOTARGS="$(BOOTARGS)"
+	$(MAKE) --no-print-directory -B -C $(REPO)/sw/dts O=$(OUTDIR)/dts-fpu$(DTS_SFX) CORES=$(CORES) THREADS=$(THREADS) RUN_THREADS=$(RUN_THREADS) MEM=0x08000000 FPU=1 RELEASE=$(RELEASE) BOOTARGS="$(BOOTARGS)"
 
 KERNEL     ?= $(SOC_BUILD)/br-tanager_lp64d/images/Image
 LINUX_MCYC ?= 1500
@@ -76,13 +93,13 @@ $(OSBI_FW):
 
 .PHONY: opensbi
 opensbi: build $(DTB) $(FW)
-	$(OUTDIR)/$(TOP) +fw=$(FW) +dtb=$(DTB) +expect="Boot HART MEDELEG" +max_mcycles=$(MCYC) $(ARGS)
+	$(OUTDIR)/$(TOP) $(ARGS) +fw=$(FW) +dtb=$(DTB) +expect="Boot HART MEDELEG" +max_mcycles=$(MCYC)
 
 .PHONY: linux-kernel linux $(DTB) $(DTB_FPU)
 linux-kernel: build $(DTB) $(FW) $(KERNEL)
-	$(OUTDIR)/$(TOP) +fw=$(FW) +dtb=$(DTB) +kernel=$(KERNEL) +expect="Run /init as init process" +max_mcycles=$(LINUX_MCYC) $(ARGS)
+	$(OUTDIR)/$(TOP) $(ARGS) +fw=$(FW) +dtb=$(DTB) +kernel=$(KERNEL) +expect="Run /init as init process" +max_mcycles=$(LINUX_MCYC)
 linux: build $(DTB_FPU) $(FW) $(KERNEL)
-	$(OUTDIR)/$(TOP) +fw=$(FW) +dtb=$(DTB_FPU) +kernel=$(KERNEL) +expect="TANAGER-BOOT-OK" +max_mcycles=$(LINUX_MCYC) $(ARGS)
+	$(OUTDIR)/$(TOP) $(ARGS) +fw=$(FW) +dtb=$(DTB_FPU) +kernel=$(KERNEL) +expect="TANAGER-BOOT-OK" +max_mcycles=$(LINUX_MCYC)
 
 # The boots take minutes: only the long suite runs them, OpenSBI in 1x1, 2x1 and 2x2 at once
 # (cores x threads; 2x2 is CFG=smt2), each built with -j3 so the three builds stay within -j8 or so.

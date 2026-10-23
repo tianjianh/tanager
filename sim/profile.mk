@@ -28,6 +28,13 @@ SPEC_WAKE ?=
 ifneq ($(filter-out 0 1,$(SPEC_WAKE)),)
   $(error SPEC_WAKE must be 0, 1 or unset (got "$(SPEC_WAKE)"))
 endif
+# Its filter, 0, 1 or 2 (+define+TG_SPEC_WAKE_FILT, tg_core_pkg::SPEC_WAKE_FILT; the FPU track's): 1 by default; 2
+# leaves a load's count alone when it misses the D$; 0 lets every tracked load wake its dependants speculatively, as
+# before the filter. Not cycle-exact; runs programs.
+SPEC_WAKE_FILT ?=
+ifneq ($(filter-out 0 1 2,$(SPEC_WAKE_FILT)),)
+  $(error SPEC_WAKE_FILT must be 0, 1, 2 or unset (got "$(SPEC_WAKE_FILT)"))
+endif
 # M6's store address on its base alone, 0 or 1 (+define+TG_STA_BASE, tg_core_pkg::STA_BASE; DR-169): on by
 # default; 0 gives the wait for the store's data as before. Not cycle-exact; runs programs.
 STA_BASE ?=
@@ -79,20 +86,29 @@ SPLIT ?=
 ifneq ($(filter-out 0 1,$(SPLIT)),)
   $(error SPLIT must be 0, 1 or unset (got "$(SPLIT)"))
 endif
-TC_SUFFIX := $(if $(TIMING_CUTS),-tc$(TIMING_CUTS))$(if $(DC_MSHRS),-m$(DC_MSHRS))$(if $(QUEUE_DECODE),-qd$(QUEUE_DECODE))$(if $(SPEC_WAKE),-sw$(SPEC_WAKE))$(if $(STA_BASE),-sb$(STA_BASE))$(if $(STEER_LA),-sl$(STEER_LA))$(if $(PMP_ENTRIES),-p$(PMP_ENTRIES))$(if $(STORE_PF),-spf$(STORE_PF))$(if $(URF),-urf$(URF))$(if $(STORE_PF_MAX),-spm$(STORE_PF_MAX))$(if $(SOLO_TID),-solo$(SOLO_TID))$(if $(SPLIT),-sp$(SPLIT))
+# M7's hart 1 (DR-175, step 5), 0 or 1 (+define+TG_HART1, tg_core_pkg::HART1_ON; the core track's switch; smt2 builds
+# only; with SOLO_TID=1 hart 0 runs as tid 1): the split window, each register bank's free list divided between the
+# harts with transfers, hart 1's homes and FP banks of 96; from step 5c hart 1 runs. Until then hart 0 runs alone. Not
+# the same cycles.
+HART1 ?=
+ifneq ($(filter-out 0 1,$(HART1)),)
+  $(error HART1 must be 0, 1 or unset (got "$(HART1)"))
+endif
+TC_SUFFIX := $(if $(TIMING_CUTS),-tc$(TIMING_CUTS))$(if $(DC_MSHRS),-m$(DC_MSHRS))$(if $(QUEUE_DECODE),-qd$(QUEUE_DECODE))$(if $(SPEC_WAKE),-sw$(SPEC_WAKE))$(if $(SPEC_WAKE_FILT),-swf$(SPEC_WAKE_FILT))$(if $(STA_BASE),-sb$(STA_BASE))$(if $(STEER_LA),-sl$(STEER_LA))$(if $(PMP_ENTRIES),-p$(PMP_ENTRIES))$(if $(STORE_PF),-spf$(STORE_PF))$(if $(URF),-urf$(URF))$(if $(STORE_PF_MAX),-spm$(STORE_PF_MAX))$(if $(SOLO_TID),-solo$(SOLO_TID))$(if $(SPLIT),-sp$(SPLIT))$(if $(HART1),-h$(HART1))
 TC_DEF    := $(strip $(if $(TIMING_CUTS),+define+TG_TIMING_CUTS=$(TIMING_CUTS)) $(if $(DC_MSHRS),+define+TG_DC_MSHRS=$(DC_MSHRS)) \
                      $(if $(QUEUE_DECODE),+define+TG_QUEUE_DECODE=$(QUEUE_DECODE)) $(if $(SPEC_WAKE),+define+TG_SPEC_WAKE=$(SPEC_WAKE)) \
-                     $(if $(STA_BASE),+define+TG_STA_BASE=$(STA_BASE)) \
+                     $(if $(SPEC_WAKE_FILT),+define+TG_SPEC_WAKE_FILT=$(SPEC_WAKE_FILT)) $(if $(STA_BASE),+define+TG_STA_BASE=$(STA_BASE)) \
                      $(if $(STEER_LA),+define+TG_STEER_LA=$(STEER_LA)) $(if $(PMP_ENTRIES),+define+TG_PMP_ENTRIES=$(PMP_ENTRIES)) \
                      $(if $(STORE_PF),+define+TG_STORE_PF=$(STORE_PF)) $(if $(URF),+define+TG_URF=$(URF)) \
                      $(if $(STORE_PF_MAX),+define+TG_STORE_PF_MAX=$(STORE_PF_MAX)) $(if $(SOLO_TID),+define+TG_SOLO_TID=$(SOLO_TID)) \
-                     $(if $(SPLIT),+define+TG_SPLIT=$(SPLIT)))
+                     $(if $(SPLIT),+define+TG_SPLIT=$(SPLIT)) $(if $(HART1),+define+TG_HART1=$(HART1)))
 TC_ARG    := $(strip $(if $(TIMING_CUTS),TIMING_CUTS=$(TIMING_CUTS)) $(if $(DC_MSHRS),DC_MSHRS=$(DC_MSHRS)) \
                      $(if $(QUEUE_DECODE),QUEUE_DECODE=$(QUEUE_DECODE)) $(if $(SPEC_WAKE),SPEC_WAKE=$(SPEC_WAKE)) \
-                     $(if $(STA_BASE),STA_BASE=$(STA_BASE)) \
+                     $(if $(SPEC_WAKE_FILT),SPEC_WAKE_FILT=$(SPEC_WAKE_FILT)) $(if $(STA_BASE),STA_BASE=$(STA_BASE)) \
                      $(if $(STEER_LA),STEER_LA=$(STEER_LA)) $(if $(PMP_ENTRIES),PMP_ENTRIES=$(PMP_ENTRIES)) \
                      $(if $(STORE_PF),STORE_PF=$(STORE_PF)) $(if $(URF),URF=$(URF)) \
-                     $(if $(STORE_PF_MAX),STORE_PF_MAX=$(STORE_PF_MAX)) $(if $(SOLO_TID),SOLO_TID=$(SOLO_TID)) $(if $(SPLIT),SPLIT=$(SPLIT)))
+                     $(if $(STORE_PF_MAX),STORE_PF_MAX=$(STORE_PF_MAX)) $(if $(SOLO_TID),SOLO_TID=$(SOLO_TID)) $(if $(SPLIT),SPLIT=$(SPLIT)) \
+                     $(if $(HART1),HART1=$(HART1)))
 # The PMP entries of the core this tree builds, for Spike's regions in lockstep (DR-167): PMP_ENTRIES when
 # set, else the package's default, from its one `localparam int PMP_ENTRIES = N;` line, else 16 (the core
 # before the switch). tg_vsim takes the count from the model itself and stops if this reading differs, so
@@ -126,8 +142,19 @@ COMMIT_TRACE ?=
 ifneq ($(filter-out 0 1,$(COMMIT_TRACE)),)
   $(error COMMIT_TRACE must be 0, 1 or unset (got "$(COMMIT_TRACE)"))
 endif
+# TAGE-lite's sizes (tg_core_pkg's TG_TAGE_NT, _LI, _TW and _BI; DR-170 built two tagged tables of 2K): other sizes
+# for lint only, as a bigger chip's four tables of 4K (TAGE_NT=4 TAGE_LI=12, area_switches.md)
+TAGE_NT ?=
+TAGE_LI ?=
+TAGE_TW ?=
+TAGE_BI ?=
+ifneq ($(filter-out 1 2 3 4,$(TAGE_NT)),)
+  $(error TAGE_NT must be 1 to 4 or unset (got "$(TAGE_NT)"))
+endif
+TAGE_SET := $(foreach v,NT LI TW BI,$(if $(TAGE_$(v)),TAGE_$(v)=$(TAGE_$(v))))
 # The lint-only switches together, for the lint targets; a build that runs programs refuses them.
 LINT_ONLY_DEF := $(DE_DEF) $(if $(ROB_STORE_REPORT_LATE),+define+TG_ROB_STORE_REPORT_LATE=$(ROB_STORE_REPORT_LATE)) \
-                 $(if $(COMMIT_TRACE),+define+TG_COMMIT_TRACE=$(COMMIT_TRACE))
+                 $(if $(COMMIT_TRACE),+define+TG_COMMIT_TRACE=$(COMMIT_TRACE)) \
+                 $(foreach v,NT LI TW BI,$(if $(TAGE_$(v)),+define+TG_TAGE_$(v)=$(TAGE_$(v))))
 LINT_ONLY_SET := $(if $(DE_STAGE),DE_STAGE=$(DE_STAGE)) $(if $(ROB_STORE_REPORT_LATE),ROB_STORE_REPORT_LATE=$(ROB_STORE_REPORT_LATE)) \
-                 $(if $(filter 0,$(COMMIT_TRACE)),COMMIT_TRACE=0)
+                 $(if $(filter 0,$(COMMIT_TRACE)),COMMIT_TRACE=0) $(TAGE_SET)

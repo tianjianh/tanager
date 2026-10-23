@@ -1,13 +1,18 @@
 // PLIC, riscv,plic0 (docs/spec/uncore-periph.md): priorities at 4s, pending at 0x1000,
 // enables at 0x2000 + 0x80c, threshold at 0x200000 + 0x1000c, claim/complete at +4.
 // Context 2h is hart h's M-mode, 2h+1 its S-mode. Level gateways, or edge for EDGE_SRC sources.
+// Release builds (DR-180) take S_ONLY and PRIO_W = 1: the M-mode contexts hold nothing (their enables and
+// threshold read 0 and ignore writes, a claim there reads 0, their outputs stay 0), and priorities and
+// thresholds are one bit (WARL: a write keeps bit 0). OpenSBI takes no external interrupt, and Linux writes
+// priority 1 alone.
 module tg_plic
   import tg_pkg::*, tg_uncore_pkg::*;
 #(
   parameter int              N_SRC    = PLIC_NSRC,   // sources 1 .. N_SRC-1; <= 32
   parameter int              N_CTX    = 2 * NUM_HARTS,
   parameter int              PRIO_W   = 3,
-  parameter logic [N_SRC-1:0] EDGE_SRC = '0
+  parameter logic [N_SRC-1:0] EDGE_SRC = '0,
+  parameter bit              S_ONLY   = 1'b0           // the S-mode contexts alone (2h+1)
 ) (
   input  logic             clk,
   input  logic             rst,
@@ -18,6 +23,7 @@ module tg_plic
   output logic [N_CTX-1:0] irq_o
 );
   localparam int SW = idx_w(N_SRC);
+  localparam logic [N_CTX-1:0] CTX_LIVE = S_ONLY ? N_CTX'({N_CTX{2'b10}}) : '1;   // the contexts built
 
   logic [N_SRC-1:0][PRIO_W-1:0] prio_q;
   logic [N_SRC-1:0]             pend_q, busy_q, src_q;
@@ -56,7 +62,7 @@ module tg_plic
   always_comb begin
     claim_id = '0;
     for (int c = 0; c < N_CTX; c++)
-      if (int'(cx) == c) claim_id = best_of(c, pend_q, en_q, prio_q, thr_q);
+      if (int'(cx) == c && CTX_LIVE[c]) claim_id = best_of(c, pend_q, en_q, prio_q, thr_q);
   end
 
   wire claim    = rd && ctx_area && ctx_ok && off[11:2] == 10'd1;
@@ -66,7 +72,7 @@ module tg_plic
   always_comb begin
     cpl_en = 1'b0;
     for (int c = 0; c < N_CTX; c++)
-      if (int'(cx) == c && int'(cpl_id) < N_SRC && en_q[c][cpl_id]) cpl_en = 1'b1;
+      if (int'(cx) == c && CTX_LIVE[c] && int'(cpl_id) < N_SRC && en_q[c][cpl_id]) cpl_en = 1'b1;
   end
 
   always_ff @(posedge clk) begin
@@ -98,13 +104,13 @@ module tg_plic
       end
       if (wr && en_area && enc_ok && off[6:3] == 4'd0) begin
         for (int c = 0; c < N_CTX; c++)
-          if (int'(en_ctx) == c)
+          if (int'(en_ctx) == c && CTX_LIVE[c])
             for (int s = 1; s < N_SRC; s++)
               if (req_i.be[s / 8]) en_q[c][s] <= req_i.wdata[s];
       end
       if (wr && ctx_area && ctx_ok && off[11:3] == 9'd0 && req_i.be[0]) begin
         for (int c = 0; c < N_CTX; c++)
-          if (int'(cx) == c) thr_q[c] <= req_i.wdata[PRIO_W-1:0];
+          if (int'(cx) == c && CTX_LIVE[c]) thr_q[c] <= req_i.wdata[PRIO_W-1:0];
       end
     end
   end
@@ -120,10 +126,10 @@ module tg_plic
       rdat[N_SRC-1:0] = pend_q;
     end else if (en_area && enc_ok && off[6:3] == 4'd0) begin
       for (int c = 0; c < N_CTX; c++)
-        if (int'(en_ctx) == c) rdat[N_SRC-1:0] = en_q[c] & ~N_SRC'(1);
+        if (int'(en_ctx) == c && CTX_LIVE[c]) rdat[N_SRC-1:0] = en_q[c] & ~N_SRC'(1);
     end else if (ctx_area && ctx_ok && off[11:3] == 9'd0) begin
       for (int c = 0; c < N_CTX; c++)
-        if (int'(cx) == c) rdat[PRIO_W-1:0] = thr_q[c];
+        if (int'(cx) == c && CTX_LIVE[c]) rdat[PRIO_W-1:0] = thr_q[c];
       if (off[2]) rdat[32 +: SW] = claim_id;              // the claim word itself
     end
   end
@@ -136,7 +142,7 @@ module tg_plic
   // Interrupt outputs
   always_ff @(posedge clk) begin
     if (rst) irq_o <= '0;
-    else for (int c = 0; c < N_CTX; c++) irq_o[c] <= best_of(c, pend_q, en_q, prio_q, thr_q) != '0;
+    else for (int c = 0; c < N_CTX; c++) irq_o[c] <= CTX_LIVE[c] && best_of(c, pend_q, en_q, prio_q, thr_q) != '0;
   end
 
   wire unused = ^{req_i.addr[PA_W-1:26], req_i.size, src_i[0]};

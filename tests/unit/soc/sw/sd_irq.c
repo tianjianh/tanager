@@ -28,7 +28,8 @@
  *     pages for the PLIC and the PS window (each inside its region, so the core decides their accesses with
  *     the DTLB's cached PMP result), the rest of the first GiB in 2 MiB pages, RAM in a 1 GiB page.
  * A request not done in TIMEOUT ticks (10 MHz) fails with the PLIC's view of source 21; an enable read with
- * bit 21 clear fails too (the second candidate). TOHOST = 1 on success, else (code << 1) | 1.
+ * bit 21 clear fails too (the second candidate). TOHOST = 1 on success, else (code << 1) | 1. On a release build
+ * (FROMHOST bit 3, tb_soc RELEASE, DR-180) TTC1's line is no PLIC source: the end check then wants no TTC1 interrupt.
  * Registers: the PS model's SD device (tests/unit/soc/tb_soc.sv, SDIRQ): status 0x30 (write 1 to clear), signal
  * enable 0x38, command 0x40 (the model's own), scratch 0x44. */
 #include <stdint.h>
@@ -255,6 +256,11 @@ static int dma_data(void) {
   uint64_t fh = REG64(HOSTCTL + 0x30);
   return (fh >> 16) == 0x7467 && (fh & 2);
 }
+/* A release build (FROMHOST bit 3: tb_soc RELEASE, DR-180): TTC1's line is no PLIC source, so it never interrupts */
+static int release_build(void) {
+  uint64_t fh = REG64(HOSTCTL + 0x30);
+  return (fh >> 16) == 0x7467 && (fh & 8);
+}
 static uint64_t wword(uint32_t req, uint32_t k) {    /* a write's data, as tb_soc's sd_wword */
   return ((uint64_t)req * 0xC2B2AE3D27D4EB4Full) ^ k ^ 0x5A5A5A5A5A5A5A5Aull;
 }
@@ -317,7 +323,7 @@ static void requests(void) {                     /* hart 0, in M-mode or S-mode 
   puts_(", priority writes and GEM3 polls "); puthex(ops1[4] + ops1[5], 4); puts_(", TTC1 events "); puthex(ops1[6] + ops1[7], 4);
   puts_("\n");
   if (done_cnt != N_REQ || other_irq || en_lost || (SMODE && (ticks == 0 || ipis == 0)) || uart_irqs == 0 ||
-      ttc_irqs == 0)
+      (release_build() ? ttc_irqs + ttc_spur != 0 : ttc_irqs == 0))
     fail(0x20);
   puts_("SDIRQ PASS\n");
   tohost(1);

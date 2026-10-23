@@ -37,7 +37,12 @@
 // room checks against that thread's heads, the block after a serialising uop, and the flush of the RN and DS stages
 // (only when they hold the flushed thread's group). The wakeup tags and LLTs stay one pool each; each records its
 // thread, and a flush returns the flushed thread's. Commit's pushes and map writes are the commit group's thread's
-// (cm_tid). The divide and FP counts stay shared until two threads run (step 5).
+// (cm_tid). The divide and FP counts are shared totals (the room checks read one register each); with hart 1
+// (M7's step 5c) each thread's share is kept beside them, and a flush takes only its thread's share off.
+// With hart 1 (M7's step 5d, DR-178 as amended) RN has a register per thread: decode's group goes into its thread's,
+// and rename works on one of the two a cycle (sel_q, chosen a cycle ahead from registered state), so a group that
+// cannot rename waits in its own register and never holds the other thread's. With hart 1 a group also renames
+// only when its issue queues' banks have rows for it (st_free), so a group short of rows waits there, not at DS.
 // F and D (EXT_FD): a second map (tg_rmap) for the f registers, whose physical registers are
 // {bank, index} in F0 (P4 results) or F1 (FP loads), with their own free lists and ready table.
 // An FP op's integer source (FCVT.F.I, FMV.F.X) and an FP store's address are integer sources
@@ -58,10 +63,15 @@ module tg_rename
   input  logic start,          // the core's reset sequence is done
   input  logic flush,
   input  tid_t flush_tid,
+  input  logic flush_slp,      // with hart 1 (step 6): the flush follows a WFI gone to sleep; its thread stays blocked
   // From decode
   input  logic [W-1:0]   de_valid,
   input  uop_t [W-1:0]   de_uop,
   output logic           de_take,
+  output logic [NUM_THREADS-1:0] blk_o,  // with hart 1: each thread behind a serial uop until its flush (fetch drops
+                                         // its later instructions; RN drops its group: the flush would)
+  output logic [NUM_THREADS-1:0] acc_o,  // with hart 1 (step 5d): each thread's RN register can take decode's group
+                                         // next cycle (it will be empty, or renamed from): decode's thread choice
   // Window state, per thread
   input  robid_t [NUM_THREADS-1:0] rob_head,
   input  lqid_t  [NUM_THREADS-1:0] lq_head,
@@ -78,11 +88,13 @@ module tg_rename
   input  logic [LLT_ENTRIES-1:0]           llt_rel,
   input  logic [IQ_TAGS-1:0]               tag_free,    // tags returned (registered)
   input  logic                             div_done,
+  input  tid_t                             div_done_tid,   // ... its thread (hart 1: the per-thread shares)
   // F and D (EXT_FD): FP register-file writes (F0: P4, F1: FP loads), P4 issue and returns
   input  logic [1:0]                       fp_we,
   input  logic [1:0][FPIDX_W-1:0]          fp_widx,
   input  logic                             fdiv_iss,    // IQ-FP issued a divide / sqrt
   input  logic                             fpi_iss,     // ... an FP->int op
+  input  tid_t                             fp_iss_tid,  // ... its thread (IQ-FP's one issue)
   input  logic                             fdiv_done,   // P4 returned a divide
   input  logic                             fpi_pop,     // ... an FP->int op
   // Commit (one thread's group a cycle)
@@ -107,7 +119,16 @@ module tg_rename
   output logic [NCOL-1:0]                  wid_alloc,   // IDs given out at RN (clear W)
   output logic [DISPATCH_WIDTH-1:0]        ds_src2_rdy,  // DS: rs2's register is written
   output robid_t [NUM_THREADS-1:0]         rob_tail,    // next ROB entry RN gives out, per thread
-  output logic [7:0]                       dbg_o        // board debug: RN's stall flags (tg_core's dbg_o)
+  output logic [7:0]                       dbg_o,       // board debug: RN's stall flags (tg_core's dbg_o)
+  // Step 6 (D2, threading.md), with hart 1: a sleeping thread lends its half of the window to its sibling
+  input  logic [NUM_THREADS-1:0]           slp_i,       // each thread asleep (tg_rob)
+  input  logic [NUM_THREADS-1:0]           wkr_i,       // ... and asking to wake
+  output md_t                              md_o,        // the mode (tg_core_pkg's md_t)
+  output md_t                              mdn_o,       // ... next cycle's
+  output logic                             mrs_o,       // at this edge the split moves md_o.run's empty window to
+                                                        // its half's start (tg_rob, tg_lsu)
+  output logic [NUM_THREADS-1:0]           wk_o,        // each sleeping thread wakes (registered)
+  output logic                             sph_o        // a wake waits for the split: md_o.run's WFI retires (tg_rob)
 );
   if (W != DISPATCH_WIDTH) begin : g_bad
     $error("tg_rename: RENAME_WIDTH must equal DISPATCH_WIDTH");
@@ -125,6 +146,18 @@ module tg_rename
     return c == C_ALU || c == C_BR;
   endfunction
   localparam int NT = NUM_THREADS;
+  // M7's step 6 (D2): the mode, merged or split (md_q, below), and next cycle's; constants without hart 1
+  md_t md_q, mdn_q;
+  md_t md, mdn;
+  assign md  = HART1_ON ? md_q : MD_C;
+  assign mdn = HART1_ON ? mdn_q : MD_C;
+  logic sp_hold;                    // the split stops the running thread's renaming
+  logic [NT-1:0] mg_pend;           // each thread runs beside a sleeper whose window is empty: a merge waits
+  logic [NT-1:0] nwr_hold;          // ... and a tail is within a group of its half's end: that thread waits
+  // the end of thread t's half (split): its pointers' last index + 1
+  function automatic int rob_end(input int t); return (t != 0) ? ROB_ENTRIES : ROB_ENTRIES / 2; endfunction
+  function automatic int lq_end(input int t);  return (t != 0) ? LQ_ENTRIES : LQ_ENTRIES / 2;   endfunction
+  function automatic int sq_end(input int t);  return (t != 0) ? SQ_ENTRIES : SQ_ENTRIES / 2;   endfunction
   logic [LLT_ENTRIES-1:0] llt_busy_q;
   logic [IQ_TAGS-1:0]    tag_busy_q;
   logic [LLT_ENTRIES-1:0] llt_tid_q;       // each LLT's and tag's thread (bit 0 of the tid: NT <= 2)
@@ -138,17 +171,124 @@ module tg_rename
   logic [idx_w(FDIV_INFLIGHT + 1)-1:0] fdiv_pre_q, fdiv_post_q;
   logic [idx_w(FPI_INFLIGHT + 1)-1:0]  fpi_pre_q, fpi_post_q;
   logic [NT-1:0]         block_q;          // after a serialising uop, until the thread's flush
+  // With hart 1 each thread's share of the divide count and of the FP counts not yet issued, so a flush takes only
+  // its own off the totals (without hart 1 a flush empties them: one thread runs)
+  localparam bit CMT = HART1_ON && NT > 1;
+  logic [NT-1:0][idx_w(DIV_INFLIGHT + 1)-1:0]  div_t_q;
+  logic [NT-1:0][idx_w(FDIV_INFLIGHT + 1)-1:0] fdiv_pre_t_q;
+  logic [NT-1:0][idx_w(FPI_INFLIGHT + 1)-1:0]  fpi_pre_t_q;
+  logic                                        div_dec;      // a divide returned: the total (and its share) drop
+  assign div_dec = div_done && (CMT ? div_t_q[div_done_tid] != '0 : div_cnt_q != '0);
+`ifndef SYNTHESIS
+  always_ff @(posedge clk)
+    if (CMT && !rst)
+      assert (int'(div_cnt_q) == int'(div_t_q[0]) + int'(div_t_q[NT-1]) &&
+              int'(fdiv_pre_q) == int'(fdiv_pre_t_q[0]) + int'(fdiv_pre_t_q[NT-1]) &&
+              int'(fpi_pre_q) == int'(fpi_pre_t_q[0]) + int'(fpi_pre_t_q[NT-1]))
+        else $error("tg_rename: a count differs from its threads' shares");
+`endif
 
+  // RN: a register per thread with hart 1 (step 5d), one without; rn_valid_q and rn_uop_q are the group rename
+  // works on this cycle, the selected register's (sel_q). The select is a register, so its multiplexer sits after
+  // the RN registers, not on decode's path into them.
+  localparam int NRN = CMT ? NT : 1;
+  logic [NRN-1:0][W-1:0] rn_v_q;
+  uop_t [NRN-1:0][W-1:0] rn_u_q;
+  logic                  sel_q;            // (CMT) the RN register rename works on this cycle: its thread
   logic [W-1:0]          rn_valid_q;
   uop_t [W-1:0]          rn_uop_q;
+  assign rn_valid_q = rn_v_q[CMT ? sel_q : 1'b0];
+  assign rn_uop_q   = rn_u_q[CMT ? sel_q : 1'b0];
   logic [W-1:0]          ds_valid_q;
   uop_t [W-1:0]          ds_uop_q;
   ren_t [W-1:0]          ds_ren_q;
+  // DR-185: the fields rename never reads (the payload: the PC, the instruction, the prediction state, the immediate,
+  // the branch target, the units' controls) wait in a LUTRAM beside rename, not in the RN and DS registers. Decode
+  // writes a group's payload as the group enters its thread's RN register; DS reads it as the group dispatches. A
+  // thread has at most two groups between them (its RN register's and DS's); with three rows a thread ({thread, row})
+  // one is always free, so decode writes its group every cycle into its thread's free row, chosen from registers
+  // alone (the write port waits for no fire). With PAY_WREG (the default) the write is registered and lands a cycle
+  // later (pay_wa_q, pay_wd_q): decode's paths end at flip-flops beside decode, not at the LUTRAM, and a group taken
+  // in cycle c is written at the end of c + 1, while DS reads it at c + 2 at the earliest. The RN and DS registers keep
+  // the fields rename reads and the row (rn_s_q, ds_s_q). ds_full is DS's group whole.
+  typedef struct packed {
+    logic [63:0]     pc;
+    logic [31:0]     insn;
+    logic            rvc;
+    logic [63:0]     pred_npc;
+    logic            ubtb_hit, ubtb_way, dfix, ptk;
+    logic [FTQW-1:0] ftq;
+    tg_alu_pkg::alu_ctl_t alu;
+    logic            b_imm;
+    logic [63:0]     imm;
+    br_kind_e        br_kind;
+    logic [2:0]      br_f3;
+    logic [63:0]     br_target;
+    logic [11:0]     jalr_off;
+    logic [1:0]      mem_size;
+    logic            mem_uns;
+    logic [4:0]      amo_op;
+    mul_op_e         mul_op;
+    div_op_e         div_op;
+    logic            word, bcnt;
+    csr_op_e         csr_op;
+    logic            csr_imm, csr_wr;
+    sys_e            sys;
+    logic [3:0]      exc_cause;
+    logic            exc_hi;
+    tg_fpu_pkg::fop_e  fop;
+    tg_fpu_pkg::ffmt_e fmt, src_fmt;
+    tg_fpu_pkg::ifmt_e ifmt;
+    tg_fpu_pkg::rm_e   rm;
+  } pay_t;
+  /* verilator lint_off UNUSEDSIGNAL */            // each of the two reads its own part of the uop
+  function automatic pay_t pay_of(input uop_t u);
+    pay_t p;
+    p.pc = u.pc; p.insn = u.insn; p.rvc = u.rvc; p.pred_npc = u.pred_npc; p.ubtb_hit = u.ubtb_hit;
+    p.ubtb_way = u.ubtb_way; p.dfix = u.dfix; p.ptk = u.ptk; p.ftq = u.ftq;
+    p.alu = u.d.alu; p.b_imm = u.d.b_imm; p.imm = u.d.imm; p.br_kind = u.d.br_kind; p.br_f3 = u.d.br_f3;
+    p.br_target = u.d.br_target; p.jalr_off = u.d.jalr_off; p.mem_size = u.d.mem_size; p.mem_uns = u.d.mem_uns;
+    p.amo_op = u.d.amo_op; p.mul_op = u.d.mul_op; p.div_op = u.d.div_op; p.word = u.d.word; p.bcnt = u.d.bcnt;
+    p.csr_op = u.d.csr_op; p.csr_imm = u.d.csr_imm; p.csr_wr = u.d.csr_wr; p.sys = u.d.sys;
+    p.exc_cause = u.d.exc_cause; p.exc_hi = u.d.exc_hi; p.fop = u.d.fop; p.fmt = u.d.fmt; p.src_fmt = u.d.src_fmt;
+    p.ifmt = u.d.ifmt; p.rm = u.d.rm;
+    return p;
+  endfunction
+  function automatic uop_t ren_of(input uop_t u);     // the fields rename reads; the payload's zero
+    uop_t r;
+    r = '0;
+    r.tid = u.tid; r.d.cls = u.d.cls; r.d.rs1 = u.d.rs1; r.d.rs2 = u.d.rs2; r.d.rd = u.d.rd; r.d.rs3 = u.d.rs3;
+    r.d.rs1_en = u.d.rs1_en; r.d.rs2_en = u.d.rs2_en; r.d.rd_en = u.d.rd_en; r.d.rs3_en = u.d.rs3_en;
+    r.d.rs1_fp = u.d.rs1_fp; r.d.rs2_fp = u.d.rs2_fp; r.d.rd_fp = u.d.rd_fp; r.d.amo = u.d.amo;
+    r.d.serial = u.d.serial; r.d.exc = u.d.exc; r.d.fp_int = u.d.fp_int; r.d.fp_div = u.d.fp_div;
+    return r;
+  endfunction
+  /* verilator lint_on UNUSEDSIGNAL */
+  function automatic uop_t with_pay(input uop_t r, input pay_t p);
+    uop_t u;
+    u = r;
+    u.pc = p.pc; u.insn = p.insn; u.rvc = p.rvc; u.pred_npc = p.pred_npc; u.ubtb_hit = p.ubtb_hit;
+    u.ubtb_way = p.ubtb_way; u.dfix = p.dfix; u.ptk = p.ptk; u.ftq = p.ftq;
+    u.d.alu = p.alu; u.d.b_imm = p.b_imm; u.d.imm = p.imm; u.d.br_kind = p.br_kind; u.d.br_f3 = p.br_f3;
+    u.d.br_target = p.br_target; u.d.jalr_off = p.jalr_off; u.d.mem_size = p.mem_size; u.d.mem_uns = p.mem_uns;
+    u.d.amo_op = p.amo_op; u.d.mul_op = p.mul_op; u.d.div_op = p.div_op; u.d.word = p.word; u.d.bcnt = p.bcnt;
+    u.d.csr_op = p.csr_op; u.d.csr_imm = p.csr_imm; u.d.csr_wr = p.csr_wr; u.d.sys = p.sys;
+    u.d.exc_cause = p.exc_cause; u.d.exc_hi = p.exc_hi; u.d.fop = p.fop; u.d.fmt = p.fmt; u.d.src_fmt = p.src_fmt;
+    u.d.ifmt = p.ifmt; u.d.rm = p.rm;
+    return u;
+  endfunction
+  localparam int PAYW = $bits(pay_t);
+  localparam int PAYA = (NRN > 1) ? 3 : 2;          // a payload row's address: {thread,} row (0..2)
+  logic [NRN-1:0][1:0]   rn_s_q;                    // each RN register's group's row
+  logic [1:0]            ds_s_q;                    // DS's group's
+  logic [1:0]            pay_s;                     // the free row of decode's thread: where its group is written
+  pay_t [W-1:0]          ds_pay;
+  uop_t [W-1:0]          ds_full;
   // The threads: RN's group (t_rn), DS's (t_ds), commit's (t_cm) and the flushed one (t_fl); without SMT thread 0,
   // whatever
   // the tid bits hold
   tid_t t_rn, t_ds, t_cm, t_fl;
-  assign t_rn = (NT > 1) ? rn_uop_q[0].tid : tid_t'(0);
+  assign t_rn = CMT ? tid_t'(sel_q) : (NT > 1) ? rn_uop_q[0].tid : tid_t'(0);
   assign t_ds = (NT > 1) ? ds_uop_q[0].tid : tid_t'(0);
   assign t_cm = (NT > 1) ? cm_tid : tid_t'(0);
   assign t_fl = (NT > 1) ? flush_tid : tid_t'(0);
@@ -174,16 +314,30 @@ module tg_rename
   logic [INT_BANKS-1:0][COMMIT_WIDTH-1:0] fl_push_v;
   logic [INT_BANKS-1:0][COMMIT_WIDTH-1:0][PIDX_W-1:0] fl_push_idx;
   logic [INT_BANKS-1:0][idx_w(COMMIT_WIDTH+1)-1:0] fl_cmt_n;
+  // Transfers (HART1_ON, D3 revised): a group waiting for a bank's registers asks that bank's list for its sibling's,
+  // one a cycle; the want is registered (off rename's fire path), and taken while the group's thread is at RN
+  logic [INT_BANKS-1:0] fl_want_q, fl_xfer;
+  logic [1:0]           ffl_want_q, ffl_xfer;
+  tid_t                 want_t_q;
   for (genvar b = 0; b < INT_BANKS; b++) begin : g_fl
-    // homes: bank 0 for the running thread; with two threads (step 5) thread 1's are bank 1's (D4), FIRST_S
+    // homes: bank 0's 0-31 for the running thread; with hart 1 (step 5) its homes too (tg_core_pkg H1_*: bank 1's
+    // 0-15, the load bank's 0-14), and the rest of each bank divided between the harts (FIRST_S), with transfers
     tg_freelist #(.DEPTH(INT_PREGS_PER_BANK), .NB(FL_BANKS), .NPOP(W), .NPUSH(COMMIT_WIDTH),
-                  .FIRST(b == 0 ? 32 : 0), .FIRST_S(b <= 1 ? 32 : 0)) u_fl (
+                  .FIRST(b == 0 ? 32 : 0), .SPLIT_L(HART1_ON),
+                  .FIRST_S(b == 0 ? 32 : b == H1_LO_BANK ? H1_LO_N : b == H1_HI_BANK ? H1_HI_N : 0)) u_fl (
       .clk, .rst, .ready(fl_ready[b]), .count(fl_count[b]), .pop_tid(t_rn), .pop_idx(fl_pop[b]),
       .pop_n(fl_pop_n[b]), .pop(rn_fire), .push_tid(t_cm), .push_v(fl_push_v[b]), .push_idx(fl_push_idx[b]),
-      .commit_n(fl_cmt_n[b]), .flush, .flush_tid(t_fl));
+      .commit_n(fl_cmt_n[b]), .flush, .flush_tid(t_fl), .want(fl_want_q[b]), .want_tid(want_t_q),
+      .give_last(1'b1), .xfer(fl_xfer[b]));
   end
 
-  // ---- FP free lists (EXT_FD): F0 starts with indices 32-63 (f0-f31 map to F0 0-31), F1 0-63
+  // ---- FP free lists (EXT_FD): F0 starts with indices 32-63 (f0-f31 map to F0 0-31), F1 0-63; with hart 1 (step 5)
+  // its f0-f31 are F1's 0-31 and each bank's rest (32-63) is divided between the harts. With hart 1 an FP destination
+  // whose own bank (P4's results F0, FP loads F1) has no register left for its thread takes the other's (DR-179)
+  localparam bit FXB = EXT_FD && HART1_ON;
+  logic [1:0] fown_s;               // (FXB) a destination found its own bank short for its thread (it crossed)
+  logic       fgl;                  // (FXB) the FP lists' giver (want_t_q's sibling) is blocked: it gives its last
+  assign fgl = FXB && block_q[CMT ? !want_t_q : 1'b0];
   logic [1:0]                         ffl_ready;
   logic [1:0][NT-1:0][FPIDX_W:0]      ffl_count;
   logic [1:0][W-1:0][FPIDX_W-1:0]     ffl_pop;
@@ -195,15 +349,17 @@ module tg_rename
   if (EXT_FD) begin : g_ffl
     for (genvar b = 0; b < 2; b++) begin : g_b
       tg_freelist #(.DEPTH(FP_PREGS_PER_BANK), .NB(FL_BANKS), .NPOP(W), .NPUSH(COMMIT_WIDTH),
-                    .FIRST(b == FPB_F0 ? 32 : 0), .FIRST_S(32)) u_fl (
+                    .FIRST(b == FPB_F0 ? 32 : 0), .SPLIT_L(HART1_ON), .FIRST_S(32)) u_fl (
         .clk, .rst, .ready(ffl_ready[b]), .count(ffl_count[b]), .pop_tid(t_rn), .pop_idx(ffl_pop[b]),
         .pop_n(ffl_pop_n[b]), .pop(rn_fire), .push_tid(t_cm), .push_v(ffl_push_v[b]), .push_idx(ffl_push_idx[b]),
-        .commit_n(ffl_cmt_n[b]), .flush, .flush_tid(t_fl));
+        .commit_n(ffl_cmt_n[b]), .flush, .flush_tid(t_fl), .want(ffl_want_q[b]), .want_tid(want_t_q),
+        .give_last(fgl), .xfer(ffl_xfer[b]));
     end
   end else begin : g_noffl
     assign ffl_ready = '1;
     assign ffl_count = '0;
     assign ffl_pop   = '0;
+    assign ffl_xfer  = '0;
     logic unused;
     assign unused = ^{ffl_pop_n, ffl_push_v, ffl_push_idx, ffl_cmt_n};
   end
@@ -246,8 +402,9 @@ module tg_rename
   for (genvar j = 0; j < COMMIT_WIDTH; j++) begin : g_icm
     assign icm_we[j] = cm_valid[j] && cm_rd_en[j] && !cm_rd_fp[j];
   end
-  tg_rmap #(.W(W), .CW(COMMIT_WIDTH), .PW(PRW), .DW(PDW), .NR(NMR), .NRD(2 * W),
-            .H1(INT_PREGS_PER_BANK), .X0(1'b1)) u_imap (
+  tg_rmap #(.W(W), .CW(COMMIT_WIDTH), .PW(PRW), .DW(PDW), .NR(NMR), .NRD(2 * W), .HSPLIT(HART1_ON), .HIW(PIDX_W),
+            .HSPL(1 + H1_LO_N), .HB_LO(H1_LO_BANK), .HOFF_LO(-1), .HB_HI(H1_HI_BANK), .HOFF_HI(-(1 + H1_LO_N)),
+            .X0(1'b1)) u_imap (
     .clk, .rst, .flush, .flush_tid(t_fl), .ready(imap_ready), .rtid(t_rn), .ctid(t_cm), .ra(map_ra), .rd_p(im_rdp), .rd_d(im_rdd),
     .we(im_we), .wa(im_wa), .wd_p(im_wdp), .wd_d(im_wdd), .cwe(icm_we), .cwa(cm_rd),
     .cwd(cm_dst));
@@ -287,8 +444,8 @@ module tg_rename
       assign fm_wdp[k] = FRW'(ren[k].dst);
       assign fm_wdd[k] = ren[k].wid;
     end
-    tg_rmap #(.W(W), .CW(COMMIT_WIDTH), .PW(FRW), .DW(COL_W), .NR(FNMR), .NRD(3 * W),
-              .H1(FP_PREGS_PER_BANK), .X0(1'b0)) u_fmap (
+    tg_rmap #(.W(W), .CW(COMMIT_WIDTH), .PW(FRW), .DW(COL_W), .NR(FNMR), .NRD(3 * W), .HSPLIT(HART1_ON),
+              .HIW(FPIDX_W), .HSPL(32), .HB_LO(FPB_F1), .HOFF_LO(0), .X0(1'b0)) u_fmap (
       .clk, .rst, .flush, .flush_tid(t_fl), .ready(fmap_ready), .rtid(t_rn), .ctid(t_cm), .ra(fmap_ra), .rd_p(fmap_p),
       .rd_d(fmap_w),
       .we(fm_we), .wa(fm_wa), .wd_p(fm_wdp), .wd_d(fm_wdd), .cwe(fcm_we), .cwa(cm_rd),
@@ -415,13 +572,16 @@ module tg_rename
   // one at the end; the free lists' are icv / fcv (timing: no compare after the steering)
   // (each thread's, picked by the group's thread: the compares stay on registers)
   logic [W:0] rob_room, lq_room, sq_room, div_room, fdiv_room, fpi_room;
+`ifndef SYNTHESIS
+  logic [6:0] rn_why;           // why the RN group cannot fire: ROB, LQ, SQ, tags/LLTs, unit counts, int/FP registers
+`endif
   logic [NT-1:0][W:0] rob_room_t, lq_room_t, sq_room_t;
   always_comb begin
     for (int t = 0; t < NT; t++)
       for (int n = 0; n <= W; n++) begin
-        rob_room_t[t][n] = rob_cnt_t(rtail_q[t], rob_head[t]) + n <= part_size(ROB_ENTRIES);
-        lq_room_t[t][n]  = lq_cnt_t(ltail_q[t], lq_head[t]) + n <= part_size(LQ_ENTRIES);
-        sq_room_t[t][n]  = sq_cnt_t(stail_q[t], sq_head[t]) + n <= part_size(SQ_ENTRIES);
+        rob_room_t[t][n] = rob_cnt_t(rtail_q[t], rob_head[t], md) + n <= part_size(ROB_ENTRIES, md) && !nwr_hold[t];
+        lq_room_t[t][n]  = lq_cnt_t(ltail_q[t], lq_head[t], md) + n <= part_size(LQ_ENTRIES, md) && !nwr_hold[t];
+        sq_room_t[t][n]  = sq_cnt_t(stail_q[t], sq_head[t], md) + n <= part_size(SQ_ENTRIES, md) && !nwr_hold[t];
       end
     rob_room = rob_room_t[t_rn];
     lq_room  = lq_room_t[t_rn];
@@ -454,6 +614,7 @@ module tg_rename
     logic found;
     pops = '0;
     fpops = '0;
+    fown_s = '0;
     nld = 0; nst = 0; ndiv = 0; nfdiv = 0; nfpi = 0; nrob = 0;
     port = 0; pref = 0; p = 0; b = 0; fb = 0;
     found = 1'b0;
@@ -484,9 +645,9 @@ module tg_rename
       endcase
       ren[k].q = QW'(port);
       // Window entries
-      ren[k].rob = rob_add_t(rtail_q[t_rn], k, t_rn);
-      ren[k].lq  = lq_add_t(ltail_q[t_rn], nld, t_rn);
-      ren[k].sq  = sq_add_t(stail_q[t_rn], nst, t_rn);
+      ren[k].rob = rob_add_t(rtail_q[t_rn], k, t_rn, md);
+      ren[k].lq  = lq_add_t(ltail_q[t_rn], nld, t_rn, md);
+      ren[k].sq  = sq_add_t(stail_q[t_rn], nst, t_rn, md);
       if (rn_valid_q[k]) begin
         if (rn_uop_q[k].d.cls == C_LD) nld++;
         if (rn_uop_q[k].d.cls == C_ST) nst++;
@@ -570,6 +731,12 @@ module tg_rename
       if (rn_uop_q[k].d.rd_en && rn_valid_q[k]) begin
         if (EXT_FD && rn_uop_q[k].d.rd_fp) begin
           fb = (rn_uop_q[k].d.cls == C_LD) ? FPB_F1 : FPB_F0;
+          // (DR-179) its own bank's list for the thread has none left after the group's earlier slots: the other
+          // bank's (its pops then checked below like the own bank's); the inputs are registers, the count flags
+          if (FXB && !fcv[fb][idx_w(W)'(fpops[fb])]) begin
+            fown_s[fb] = 1'b1;
+            fb = 1 - fb;
+          end
           ren[k].dst = mk_fpreg(fb, ffl_pop[fb][fpops[fb]]);
           fpops[fb] = fpops[fb] + 1'b1;
         end else begin
@@ -584,18 +751,33 @@ module tg_rename
     if (!rob_room[nrob] || !lq_room[nld] || !sq_room[nst]) rn_ok = 1'b0;
     if (llt_short || tag_short) rn_ok = 1'b0;
     if (!div_room[ndiv] || !fdiv_room[nfdiv] || !fpi_room[nfpi]) rn_ok = 1'b0;
+`ifndef SYNTHESIS
+    rn_why = {1'b0, 1'b0, !div_room[ndiv] || !fdiv_room[nfdiv] || !fpi_room[nfpi], llt_short || tag_short,
+              !sq_room[nst], !lq_room[nld], !rob_room[nrob]};
+`endif
     for (int i = 0; i < 2; i++) begin
-      if (fpops[i] != '0 && !fcv[i][idx_w(W)'(fpops[i] - 1'b1)]) rn_ok = 1'b0;     // fpops > ffl_count
+      if (fpops[i] != '0 && !fcv[i][idx_w(W)'(fpops[i] - 1'b1)]) begin
+        rn_ok = 1'b0;                                                                 // fpops > ffl_count
+`ifndef SYNTHESIS
+        rn_why[6] = 1'b1;
+`endif
+      end
     end
     for (int i = 0; i < INT_BANKS; i++) begin
-      if (pops[i] != '0 && !icv[i][idx_w(W)'(pops[i] - 1'b1)]) rn_ok = 1'b0;       // pops > fl_count
+      if (pops[i] != '0 && !icv[i][idx_w(W)'(pops[i] - 1'b1)]) begin
+        rn_ok = 1'b0;                                                                 // pops > fl_count
+`ifndef SYNTHESIS
+        rn_why[5] = 1'b1;
+`endif
+      end
     end
 `ifndef SYNTHESIS
-    rn_ok_ref = !(rob_cnt_t(rtail_q[t_rn], rob_head[t_rn]) + nrob > part_size(ROB_ENTRIES) ||
-                  lq_cnt_t(ltail_q[t_rn], lq_head[t_rn]) + nld > part_size(LQ_ENTRIES) ||
-                  sq_cnt_t(stail_q[t_rn], sq_head[t_rn]) + nst > part_size(SQ_ENTRIES) || llt_short || tag_short ||
+    rn_ok_ref = !(rob_cnt_t(rtail_q[t_rn], rob_head[t_rn], md) + nrob > part_size(ROB_ENTRIES, md) ||
+                  lq_cnt_t(ltail_q[t_rn], lq_head[t_rn], md) + nld > part_size(LQ_ENTRIES, md) ||
+                  sq_cnt_t(stail_q[t_rn], sq_head[t_rn], md) + nst > part_size(SQ_ENTRIES, md) || llt_short || tag_short ||
                   int'(div_cnt_q) + ndiv > DIV_INFLIGHT || int'(fdiv_pre_q) + int'(fdiv_post_q) + nfdiv > FDIV_INFLIGHT ||
                   int'(fpi_pre_q) + int'(fpi_post_q) + nfpi > FPI_INFLIGHT);
+    if (nwr_hold[t_rn]) rn_ok_ref = 1'b0;
     for (int i = 0; i < 2; i++) if (int'(fpops[i]) > int'(ffl_count[i][t_rn])) rn_ok_ref = 1'b0;
     for (int i = 0; i < INT_BANKS; i++) if (int'(pops[i]) > int'(fl_count[i][t_rn])) rn_ok_ref = 1'b0;
 `endif
@@ -607,9 +789,115 @@ module tg_rename
   assign window_empty = rtail_q[t_rn] == rob_head[t_rn] && !(|ds_valid_q && t_ds == t_rn);
 
   logic ds_free;
+  // (CMT) the group's issue-queue rows: each uop's bank has one for it a group ahead (st_free, the flags STEER_LA's
+  // steering reads). While the other thread's register holds a group, a group short of rows waits in its own RN
+  // register, not at DS, where it would hold that group too; otherwise it goes on and DS waits for the rows, as
+  // without hart 1 (the row is taken the cycle it frees: waiting at RN would cost a lone thread a cycle a time,
+  // 1.5-2.3% of CoreMark and Dhrystone)
+  logic iq_rows, rows_need;
+  always_comb begin
+    iq_rows = 1'b1;
+    for (int k = 0; k < W; k++)
+      if (rn_valid_q[k] && ren[k].has_q && !st_free[ren[k].q][k]) iq_rows = 1'b0;
+  end
+  assign rows_need = CMT && |rn_v_q[CMT ? !sel_q : 1'b0];
   assign rn_fire = (|rn_valid_q) && rn_ok && ds_free && !block_q[t_rn] && !flush && ready && start &&
-                   irdy_ready && frdy_ready && (!rn_serial || window_empty);
-  assign de_take = !flush && ready && (!(|rn_valid_q) || rn_fire);
+                   irdy_ready && frdy_ready && (!rn_serial || window_empty) && (!rows_need || iq_rows) && !sp_hold;
+  assign blk_o   = CMT ? block_q : '0;
+
+  // With hart 1 (step 5d) each register's group is judged from registered state: it looks able to rename when its
+  // thread's ROB, LQ and SQ halves and the unit counts have room for it, its queues' banks rows (st_free; an ALU uop
+  // any ALU queue's), and a serial uop finds its window drained. The free registers and the tags are left to the
+  // attempt itself (none held a group in 5c's pair runs). A thread behind a serial uop (block_q) has its later group
+  // dropped (its flush would kill it), so it never holds rename.
+  logic [NT-1:0] rdy;
+  logic [W-1:0]  alu_rows;          // some ALU queue's bank has a row for slot k
+  always_comb
+    for (int k = 0; k < W; k++) begin
+      alu_rows[k] = 1'b0;
+      for (int p = 0; p < N_ALU; p++) alu_rows[k] |= st_free[p][k];
+    end
+  if (!CMT) begin : g_alr_off
+    logic unused_alr;
+    assign unused_alr = ^alu_rows;
+  end
+  for (genvar t = 0; t < NT; t++) begin : g_rdy
+    if (CMT) begin : g_on
+      localparam int CW1 = idx_w(W + 1);
+      logic [CW1-1:0] nr, nl, ns, nd, nf, ni;
+      logic           iq, ser, wemp, r;
+      always_comb begin
+        nr = CW1'($countones(rn_v_q[t]));
+        nl = CW1'(ren_nld(rn_u_q[t], rn_v_q[t]));
+        ns = CW1'(ren_nst(rn_u_q[t], rn_v_q[t]));
+        nd = CW1'(ren_ndiv(rn_u_q[t], rn_v_q[t]));
+        nf = CW1'(ren_nfp(rn_u_q[t], rn_v_q[t], 1'b1));
+        ni = CW1'(ren_nfp(rn_u_q[t], rn_v_q[t], 1'b0));
+        iq = 1'b1;
+        for (int k = 0; k < W; k++)
+          if (rn_v_q[t][k])
+            unique case (rn_u_q[t][k].d.cls)
+              C_BR:                iq = iq && st_free[0][k];
+              C_MUL, C_DIV, C_CSR: iq = iq && st_free[1][k];
+              C_LD:                iq = iq && st_free[Q_LD][k];
+              C_ST:                iq = iq && st_free[Q_STA][k];
+              C_ALU:               iq = iq && alu_rows[k];
+              C_FP:                iq = iq && st_free[EXT_FD ? Q_FP : 0][k];
+              default: ;
+            endcase
+        ser  = rn_v_q[t][0] && (rn_u_q[t][0].d.serial || rn_u_q[t][0].d.exc);
+        wemp = rtail_q[t] == rob_head[t] && !(|ds_valid_q && t_ds == tid_t'(t));
+        r    = |rn_v_q[t] && !block_q[t] && rob_room_t[t][nr] && lq_room_t[t][nl] && sq_room_t[t][ns] &&
+               div_room[nd] && fdiv_room[nf] && fpi_room[ni] && iq && (!ser || wemp);
+      end
+      assign rdy[t] = r;
+    end else begin : g_off
+      assign rdy[t] = 1'b0;
+    end
+  end
+
+  // Decode's group (its thread t_de) goes into its thread's register when that is empty or renamed from this
+  // cycle, or the thread is blocked (the group is dropped); without hart 1 into the one register, as before
+  tid_t t_de;
+  assign t_de = CMT ? de_uop[0].tid : t_rn;
+  logic [NT-1:0] rn_vac;
+  always_comb
+    for (int t = 0; t < NT; t++)
+      rn_vac[t] = CMT ? (!(|rn_v_q[CMT ? t : 0]) || (sel_q == t[0] && rn_fire) || block_q[t])
+                      : (!(|rn_valid_q) || rn_fire);
+  assign de_take = !flush && ready && rn_vac[t_de];
+
+  // (CMT) the register rename works on next cycle: the other thread's when its group looks able to rename (or has
+  // just come from decode, not yet judged), so two such threads alternate and a stalled group gives way; else this
+  // one's while it holds a group. acc_o tells decode's thread choice which registers take a group next cycle: an
+  // empty one, a blocked thread's, or the chosen one's while its group looks able to rename (rdy). A chosen group
+  // that cannot (its ROB, LQ or SQ half full for a miss's length) does not keep decode on its thread: rename stays
+  // on it while the other register is empty, and the other thread's group, waiting in its queue, would never come
+  // (smt2_report §13.20: 52-89% of decode's empty slots in mixed pairs at 250 cycles).
+  // A group short of registers stays chosen: its thread's transfer next cycle needs that thread to be the one
+  // popping (tg_freelist's pt == xt, the want registered from this cycle's group), so alternating would starve it
+  logic          want_any;
+  always_comb begin
+    want_any = 1'b0;
+    for (int b = 0; b < INT_BANKS; b++) if (int'(pops[b]) > int'(fl_count[b][t_rn])) want_any = 1'b1;
+    for (int b = 0; b < 2; b++) if (EXT_FD && int'(fpops[b]) > int'(ffl_count[b][t_rn])) want_any = 1'b1;
+  end
+  logic          sel_n;
+  logic [NT-1:0] vn, nw;            // each register holds a group next cycle; ... one decode hands it now
+  always_comb begin
+    for (int t = 0; t < NT; t++) begin
+      nw[t] = CMT && de_take && |de_valid && t_de == tid_t'(t) && !block_q[t];
+      vn[t] = nw[t] || (CMT && |rn_v_q[CMT ? t : 0] && !(sel_q == t[0] && rn_fire) && !block_q[t] &&
+                        !(flush && t_fl == tid_t'(t)));
+    end
+    sel_n = sel_q;
+    if (CMT) begin
+      if (vn[sel_q] && |rn_valid_q && want_any)          sel_n = sel_q;   // its transfer needs it chosen
+      else if (vn[!sel_q] && (nw[!sel_q] || rdy[!sel_q])) sel_n = !sel_q;
+      else if (!vn[sel_q])                               sel_n = !sel_q;
+    end
+    for (int t = 0; t < NT; t++) acc_o[t] = CMT && (!vn[t] || (sel_n == t[0] && rdy[t]) || block_q[t]);
+  end
 
   // The pops each free list takes when rename fires (the free list applies rn_fire last)
   assign ffl_pop_n[0] = fpops[0];
@@ -617,6 +905,134 @@ module tg_rename
   for (genvar b = 0; b < INT_BANKS; b++) begin : g_pops
     assign fl_pop_n[b] = pops[b];
   end
+
+  // Transfers' wants (HART1_ON): the group at RN needs more of a bank's registers than its thread's list holds. FP
+  // with crossing (DR-179): a group short in both banks asks in both; and a destination that finds its own bank short
+  // asks for one there although it crosses, so it takes the sibling's spare rather than crossing into the bank the
+  // other writer writes (its loads wait there for P4, P4's results there take the load path's slot). A running giver
+  // keeps one; a blocked one (parked in WFI, or behind a serial uop) gives its last (fgl). On the 25 FP pairs this
+  // gains 0.42 / 0.37 / 0.06% at 30 / 120 / 250 cycles over asking only while the sibling is blocked (fpu-2's runs:
+  // tk_dgemm with itself +2.5 to +4.9%, its P4 results into F1 420K -> 182K at 120); where both threads overfill the
+  // FP banks by design (m7_fprestore pairs) the transfers go back and forth and cost up to 11%
+  always_ff @(posedge clk) begin
+    if (rst || !HART1_ON) begin
+      fl_want_q  <= '0;
+      ffl_want_q <= '0;
+      want_t_q   <= '0;
+    end else begin
+      want_t_q <= t_rn;
+      for (int b = 0; b < INT_BANKS; b++)
+        fl_want_q[b] <= |rn_valid_q && int'(pops[b]) > int'(fl_count[b][t_rn]);
+      for (int b = 0; b < 2; b++)
+        ffl_want_q[b] <= EXT_FD && |rn_valid_q && (int'(fpops[b]) > int'(ffl_count[b][t_rn]) ||
+                                                   (FXB && (fown_s[b] ||
+                                                            int'(fpops[1-b]) > int'(ffl_count[1-b][t_rn]))));
+    end
+  end
+`ifndef SYNTHESIS
+  // The transfers, per bank, on stderr at the end of a run with hart 1 (stdout is compared with Spike)
+  longint unsigned nxf[INT_BANKS + 2];
+  always_ff @(posedge clk)
+    if (rst) begin
+      for (int b = 0; b < INT_BANKS + 2; b++) nxf[b] <= 0;
+    end else begin
+      for (int b = 0; b < INT_BANKS; b++) if (fl_xfer[b]) nxf[b] <= nxf[b] + 1;
+      for (int b = 0; b < 2; b++) if (ffl_xfer[b]) nxf[INT_BANKS + b] <= nxf[INT_BANKS + b] + 1;
+    end
+  // The shared stall the coordinator asked to measure (M7's step 5): cycles the group rename works on does not fire
+  // while the other thread's group waits for rename, in RN's other register (step 5d: rename turns to it next if it
+  // looks able to go) or, with one RN register (5c), in decode behind it; on stderr at the end with hart 1
+  logic oth_w, oth_r;                // the other thread's group waits ... and looks able to rename (room for it)
+  always_comb begin
+    oth_w = 1'b0;
+    oth_r = 1'b0;
+    if (CMT) begin
+      oth_w = |rn_v_q[CMT ? !sel_q : 1'b0] && !block_q[!sel_q];
+      oth_r = oth_w && rdy[!sel_q];
+    end
+  end
+  longint unsigned n_rnhold2;
+  always_ff @(posedge clk)
+    if (rst) n_rnhold2 <= 0;
+    else if (HART1_ON && |rn_valid_q && !rn_fire && !flush && oth_w) n_rnhold2 <= n_rnhold2 + 1;
+  // Sharper (the throughput it may cost): that group looks able to rename (its thread's ROB, LQ, SQ halves, the unit
+  // counts, its queues' rows, a serial uop's drain), so it could have gone but for the choice
+  longint unsigned n_rnhold2b;
+  always_ff @(posedge clk)
+    if (rst) n_rnhold2b <= 0;
+    else if (HART1_ON && |rn_valid_q && !rn_fire && !flush && oth_r) n_rnhold2b <= n_rnhold2b + 1;
+  final if (HART1_ON) $fwrite(32'h8000_0002, "TG-STALL2 %m: RN holds the other thread's group %0d cycles (%0d with room in that thread's window)\n",
+                              n_rnhold2, n_rnhold2b);
+  // ... and why the group rename works on cannot fire in those cycles (each cause counted on its own; several may
+  // hold): DS still holds a group, a serial uop (its block or its window's drain), the group's ROB, LQ or SQ room, the
+  // shared tags or LLTs, the divide and FP counts, its integer or FP registers, its queues' rows (step 5d)
+  longint unsigned n_why [10];
+  always_ff @(posedge clk)
+    if (rst) for (int i = 0; i < 10; i++) n_why[i] <= 0;
+    else if (HART1_ON && |rn_valid_q && !rn_fire && !flush && oth_r) begin
+      if (!ds_free) n_why[0] <= n_why[0] + 1;
+      if (block_q[t_rn] || (rn_serial && !window_empty)) n_why[1] <= n_why[1] + 1;
+      for (int k = 0; k < 7; k++) if (rn_why[k]) n_why[2 + k] <= n_why[2 + k] + 1;
+      if (!iq_rows) n_why[9] <= n_why[9] + 1;
+    end
+  final if (HART1_ON) $fwrite(32'h8000_0002, "TG-RNHOLD %m: ds %0d serial %0d rob %0d lq %0d sq %0d tags %0d units %0d iregs %0d fregs %0d rows %0d\n",
+                              n_why[0], n_why[1], n_why[2], n_why[3], n_why[4], n_why[5], n_why[6], n_why[7], n_why[8], n_why[9]);
+  // With hart 1: a thread whose window (ROB, RN and DS) has been empty for a few cycles holds no wakeup tag and no LLT
+  // (a tag returns two cycles after its op completes): a return lost to the other thread's flush leaks it for good
+  if (CMT) begin : g_leak
+    logic [NT-1:0][2:0] emp_q;               // cycles each thread's window has been empty (saturating at 7)
+    always_ff @(posedge clk)
+      for (int t = 0; t < NT; t++) begin
+        if (rst || rtail_q[t] != rob_head[t] || |rn_v_q[t] || (|ds_valid_q && t_ds == tid_t'(t)))
+          emp_q[t] <= '0;
+        else if (emp_q[t] != 3'd7) emp_q[t] <= emp_q[t] + 1'b1;
+        if (!rst && emp_q[t] >= 3'd5)
+          for (int i = 0; i < IQ_TAGS; i++)
+            assert (!(tag_busy_q[i] && tag_tid_q[i] == t[0])) else $error("tg_rename: thread %0d's window is empty but tag %0d is busy for it", t, i);
+        if (!rst && emp_q[t] >= 3'd5)
+          for (int i = 0; i < LLT_ENTRIES; i++)
+            assert (!(llt_busy_q[i] && llt_tid_q[i] == t[0])) else $error("tg_rename: thread %0d's window is empty but LLT %0d is busy for it", t, i);
+      end
+  end
+  // (DR-179) FP destinations renamed across, on stderr at the end with hart 1: P4's results into F1, FP loads into F0
+  longint unsigned nfx[2];
+  logic [1:0][idx_w(W+1)-1:0] fx_n;
+  always_comb begin
+    fx_n = '0;
+    for (int k = 0; k < W; k++)
+      if (EXT_FD && rn_valid_q[k] && rn_uop_q[k].d.rd_en && rn_uop_q[k].d.rd_fp &&
+          int'(fpreg_bank(ren[k].dst)) != ((rn_uop_q[k].d.cls == C_LD) ? FPB_F1 : FPB_F0)) begin
+        if (rn_uop_q[k].d.cls == C_LD) fx_n[1] = fx_n[1] + 1'b1;
+        else                            fx_n[0] = fx_n[0] + 1'b1;
+      end
+  end
+  always_ff @(posedge clk)
+    if (rst) begin
+      nfx[0] <= 0;
+      nfx[1] <= 0;
+    end else if (rn_fire) begin
+      nfx[0] <= nfx[0] + longint'(fx_n[0]);
+      nfx[1] <= nfx[1] + longint'(fx_n[1]);
+    end
+  final if (HART1_ON && EXT_FD) $fwrite(32'h8000_0002, "TG-FXB %m: renamed across, P4 results into F1 %0d, FP loads into F0 %0d\n",
+                                        nfx[0], nfx[1]);
+  // +xfer_log=FILE appends the counts to FILE, a line a run (a regress run's total: the lines' sum)
+  string xf_log;
+  final if (HART1_ON) begin
+    int fd;
+    $fwrite(32'h8000_0002, "TG-XFER %m:");
+    for (int b = 0; b < INT_BANKS; b++) $fwrite(32'h8000_0002, " B%0d %0d", b, nxf[b]);
+    $fwrite(32'h8000_0002, " F0 %0d F1 %0d\n", nxf[INT_BANKS], nxf[INT_BANKS + 1]);
+    if ($value$plusargs("xfer_log=%s", xf_log)) begin
+      fd = $fopen(xf_log, "a");
+      if (fd != 0) begin
+        for (int b = 0; b < INT_BANKS + 2; b++) $fwrite(fd, "%0d ", nxf[b]);
+        $fwrite(fd, "\n");
+        $fclose(fd);
+      end
+    end
+  end
+`endif
 
   always_comb begin                  // the picks' columns (each slot's vectors are 0 unless it uses one)
     wid_alloc = '0;
@@ -643,7 +1059,61 @@ module tg_rename
   // serial uop, resources, fire, DS busy, and ready && start
   assign dbg_o = {ready && start, |ds_valid_q, rn_fire, rn_ok, block_q[t_rn], window_empty, rn_serial,
                   rn_valid_q[0]};
-  assign ds_uop   = ds_uop_q;
+`ifndef SYNTHESIS
+  // (DR-185) Simulation only: each group's whole uop rides in shadows beside the RN and DS registers, loaded with them,
+  // and DS's group as rejoined from the LUTRAM must equal it in every valid slot (any row reused too early shows)
+  uop_t [NRN-1:0][W-1:0] rn_sh_q;
+  uop_t [W-1:0]          ds_sh_q;
+  logic                  pay_rs;                     // (checked from the first reset on)
+  initial pay_rs = 1'b0;
+  always @(posedge clk) if (rst) pay_rs <= 1'b1;
+`endif
+  // DR-185's payload LUTRAM (above): decode's thread's free row is the first that neither its RN register's group nor
+  // its group at DS holds, from registers; the write goes there every cycle, taken or not, so a taken group's row
+  // holds it and an untaken one is written again next cycle. A dropped or flushed group's row is simply free. The read
+  // is DS's group's row, from registers
+  always_comb begin
+    logic       rv, dv;
+    logic [1:0] rr;
+    tid_t       td;
+    td    = CMT ? t_de : tid_t'(0);
+    rv    = |rn_v_q[CMT ? td[0] : 1'b0];
+    rr    = rn_s_q[CMT ? td[0] : 1'b0];
+    dv    = |ds_valid_q && (!CMT || t_ds == td);    // (one register without hart 1: DS's group is the thread's)
+    pay_s = 2'd0;
+    for (int i = 2; i >= 0; i--)
+      if (!(rv && rr == 2'(i)) && !(dv && ds_s_q == 2'(i))) pay_s = 2'(i);
+  end
+  logic [PAYA-1:0] pay_wa, pay_ra, pay_wa_q;
+  logic [W*PAYW-1:0] pay_wd, pay_rd, pay_wd_q;
+  if (PAY_WREG) begin : g_pay_wreg              // (tg_core_pkg: through a register, or direct)
+    always_ff @(posedge clk) begin
+      pay_wa_q <= pay_wa;
+      pay_wd_q <= pay_wd;
+    end
+  end else begin : g_pay_wdir
+    assign pay_wa_q = pay_wa;
+    assign pay_wd_q = pay_wd;
+  end
+  assign pay_wa = (NRN > 1) ? PAYA'({t_de[0], pay_s}) : PAYA'(pay_s);
+  assign pay_ra = (NRN > 1) ? PAYA'({t_ds[0], ds_s_q}) : PAYA'(ds_s_q);
+  always_comb for (int k = 0; k < W; k++) pay_wd[k*PAYW +: PAYW] = pay_of(de_uop[k]);
+  tg_ram_lut #(.DEPTH(4 * NRN), .WIDTH(W * PAYW), .NR(1)) u_pay (
+    .clk, .we(1'b1), .waddr(pay_wa_q), .wdata(pay_wd_q), .raddr(pay_ra), .rdata(pay_rd));
+  always_comb
+    for (int k = 0; k < W; k++) begin
+      ds_pay[k]  = pay_rd[k*PAYW +: PAYW];
+      ds_full[k] = with_pay(ds_uop_q[k], ds_pay[k]);
+    end
+`ifndef SYNTHESIS
+  // (DR-185) the split loses no field: a uop's rename fields and its payload give it back whole
+  always_ff @(posedge clk)
+    if (!rst && de_take)
+      for (int k = 0; k < W; k++)
+        if (de_valid[k]) assert (with_pay(ren_of(de_uop[k]), pay_of(de_uop[k])) == de_uop[k])
+          else $error("tg_rename: a uop field is neither rename's nor the payload's (DR-185)");
+`endif
+  assign ds_uop   = ds_full;
   assign ds_ren   = ds_ren_q;
 
   // MX: name a pending source by the ALU-queue row that holds its 1-cycle producer
@@ -751,51 +1221,51 @@ module tg_rename
       iq_mdep[k] = mrow1[k] | ((STA_BASE && ds_uop_q[k].d.cls == C_ST) ? '0 : mrow2[k]);
       iq_pl[k] = '0;
       iq_pl[k].rob       = ds_ren_q[k].rob;
-      iq_pl[k].tid       = ds_uop_q[k].tid;
-      iq_pl[k].cls       = ds_uop_q[k].d.cls;
-      iq_pl[k].alu       = ds_uop_q[k].d.alu;
-      iq_pl[k].b_imm     = ds_uop_q[k].d.b_imm;
-      iq_pl[k].imm       = ds_uop_q[k].d.imm;
+      iq_pl[k].tid       = ds_full[k].tid;
+      iq_pl[k].cls       = ds_full[k].d.cls;
+      iq_pl[k].alu       = ds_full[k].d.alu;
+      iq_pl[k].b_imm     = ds_full[k].d.b_imm;
+      iq_pl[k].imm       = ds_full[k].d.imm;
       iq_pl[k].src1      = ds_ren_q[k].src1;
       iq_pl[k].src2      = ds_ren_q[k].src2;
-      iq_pl[k].dst_en    = ds_uop_q[k].d.rd_en;
+      iq_pl[k].dst_en    = ds_full[k].d.rd_en;
       iq_pl[k].dst       = ds_ren_q[k].dst;
       iq_pl[k].wid       = ds_ren_q[k].wid;
       iq_pl[k].llt       = ds_ren_q[k].llt;
-      iq_pl[k].pc        = ds_uop_q[k].pc;
-      iq_pl[k].br_kind   = ds_uop_q[k].d.br_kind;
-      iq_pl[k].br_f3     = ds_uop_q[k].d.br_f3;
-      iq_pl[k].br_target = ds_uop_q[k].d.br_target;
-      iq_pl[k].jalr_off  = ds_uop_q[k].d.jalr_off;
-      iq_pl[k].pred_npc  = ds_uop_q[k].pred_npc;
-      iq_pl[k].ubtb_hit  = ds_uop_q[k].ubtb_hit;
-      iq_pl[k].ubtb_way  = ds_uop_q[k].ubtb_way;
-      iq_pl[k].dfix      = ds_uop_q[k].dfix;
-      iq_pl[k].rvc       = ds_uop_q[k].rvc;
-      iq_pl[k].mul_op    = ds_uop_q[k].d.mul_op;
-      iq_pl[k].div_op    = ds_uop_q[k].d.div_op;
-      iq_pl[k].word      = ds_uop_q[k].d.word;
-      iq_pl[k].bcnt      = ds_uop_q[k].d.bcnt;
-      iq_pl[k].csr_op    = ds_uop_q[k].d.csr_op;
-      iq_pl[k].csr_imm   = ds_uop_q[k].d.csr_imm;
-      iq_pl[k].csr_wr    = ds_uop_q[k].d.csr_wr;
-      iq_pl[k].csr_addr  = ds_uop_q[k].insn[31:20];
-      iq_pl[k].csr_zimm  = ds_uop_q[k].insn[19:15];
-      iq_pl[k].insn      = ds_uop_q[k].insn;
+      iq_pl[k].pc        = ds_full[k].pc;
+      iq_pl[k].br_kind   = ds_full[k].d.br_kind;
+      iq_pl[k].br_f3     = ds_full[k].d.br_f3;
+      iq_pl[k].br_target = ds_full[k].d.br_target;
+      iq_pl[k].jalr_off  = ds_full[k].d.jalr_off;
+      iq_pl[k].pred_npc  = ds_full[k].pred_npc;
+      iq_pl[k].ubtb_hit  = ds_full[k].ubtb_hit;
+      iq_pl[k].ubtb_way  = ds_full[k].ubtb_way;
+      iq_pl[k].dfix      = ds_full[k].dfix;
+      iq_pl[k].rvc       = ds_full[k].rvc;
+      iq_pl[k].mul_op    = ds_full[k].d.mul_op;
+      iq_pl[k].div_op    = ds_full[k].d.div_op;
+      iq_pl[k].word      = ds_full[k].d.word;
+      iq_pl[k].bcnt      = ds_full[k].d.bcnt;
+      iq_pl[k].csr_op    = ds_full[k].d.csr_op;
+      iq_pl[k].csr_imm   = ds_full[k].d.csr_imm;
+      iq_pl[k].csr_wr    = ds_full[k].d.csr_wr;
+      iq_pl[k].csr_addr  = ds_full[k].insn[31:20];
+      iq_pl[k].csr_zimm  = ds_full[k].insn[19:15];
+      iq_pl[k].insn      = ds_full[k].insn;
       iq_pl[k].lq        = ds_ren_q[k].lq;
       iq_pl[k].sq        = ds_ren_q[k].sq;
-      iq_pl[k].mem_size  = ds_uop_q[k].d.mem_size;
-      iq_pl[k].mem_uns   = ds_uop_q[k].d.mem_uns;
+      iq_pl[k].mem_size  = ds_full[k].d.mem_size;
+      iq_pl[k].mem_uns   = ds_full[k].d.mem_uns;
       iq_pl[k].src3      = ds_ren_q[k].src3;
-      iq_pl[k].src1_fp   = ds_uop_q[k].d.rs1_fp;
-      iq_pl[k].dst_fp    = ds_uop_q[k].d.rd_fp;
-      iq_pl[k].fop       = ds_uop_q[k].d.fop;
-      iq_pl[k].fmt       = ds_uop_q[k].d.fmt;
-      iq_pl[k].src_fmt   = ds_uop_q[k].d.src_fmt;
-      iq_pl[k].ifmt      = ds_uop_q[k].d.ifmt;
-      iq_pl[k].rm        = ds_uop_q[k].d.rm;
-      iq_pl[k].fp_int    = ds_uop_q[k].d.fp_int;
-      iq_pl[k].fp_div    = ds_uop_q[k].d.fp_div;
+      iq_pl[k].src1_fp   = ds_full[k].d.rs1_fp;
+      iq_pl[k].dst_fp    = ds_full[k].d.rd_fp;
+      iq_pl[k].fop       = ds_full[k].d.fop;
+      iq_pl[k].fmt       = ds_full[k].d.fmt;
+      iq_pl[k].src_fmt   = ds_full[k].d.src_fmt;
+      iq_pl[k].ifmt      = ds_full[k].d.ifmt;
+      iq_pl[k].rm        = ds_full[k].d.rm;
+      iq_pl[k].fp_int    = ds_full[k].d.fp_int;
+      iq_pl[k].fp_div    = ds_full[k].d.fp_div;
     end
   end
 
@@ -831,20 +1301,25 @@ module tg_rename
       llt_busy_q <= '0;
       tag_busy_q <= '0;
       for (int t = 0; t < NT; t++) begin
-        rtail_q[t] <= rob_start(tid_t'(t));
-        ltail_q[t] <= lq_start(tid_t'(t));
-        stail_q[t] <= sq_start(tid_t'(t));
+        rtail_q[t] <= rob_start(tid_t'(t), MD_C);
+        ltail_q[t] <= lq_start(tid_t'(t), MD_C);
+        stail_q[t] <= sq_start(tid_t'(t), MD_C);
       end
       div_cnt_q  <= '0;
+      div_t_q    <= '0;
+      fdiv_pre_t_q <= '0;
+      fpi_pre_t_q  <= '0;
       block_q    <= '0;
-      rn_valid_q <= '0;
+      rn_v_q     <= '0;
+      sel_q      <= RUN_TID[0];
       ds_valid_q <= '0;
     end else begin
       llt_busy_q <= llt_busy_q & ~llt_rel;
       fdiv_post_q <= fdiv_post_q + (idx_w(FDIV_INFLIGHT + 1))'(fdiv_iss) - (idx_w(FDIV_INFLIGHT + 1))'(fdiv_done);
       fpi_post_q  <= fpi_post_q + (idx_w(FPI_INFLIGHT + 1))'(fpi_iss) - (idx_w(FPI_INFLIGHT + 1))'(fpi_pop);
       tag_busy_q <= tag_busy_q & ~tag_free;
-      if (div_done && div_cnt_q != '0) div_cnt_q <= div_cnt_q - 1'b1;
+      if (div_dec) div_cnt_q <= div_cnt_q - 1'b1;
+      if (CMT && div_dec) div_t_q[div_done_tid] <= div_t_q[div_done_tid] - 1'b1;
 
       if (flush) begin
         // the flushed thread's tagged producers in flight are squashed: their tags and LLTs return
@@ -853,11 +1328,23 @@ module tg_rename
         rtail_q[t_fl] <= rob_head[t_fl];
         ltail_q[t_fl] <= lq_head[t_fl];
         stail_q[t_fl] <= sq_cmt[t_fl];
-        div_cnt_q  <= '0;               // (one thread runs until step 5: its divides)
-        fdiv_pre_q <= '0;                // not yet issued: gone with the flush
-        fpi_pre_q  <= '0;
-        block_q[t_fl] <= 1'b0;
-        if (t_rn == t_fl) rn_valid_q <= '0;
+        if (!CMT) begin
+          div_cnt_q  <= '0;              // (one thread: its divides)
+          fdiv_pre_q <= '0;              // not yet issued: gone with the flush
+          fpi_pre_q  <= '0;
+        end else begin                   // hart 1: the flushed thread's share goes; the other's issue and done count
+          div_cnt_q <= div_cnt_q - div_t_q[t_fl] - (idx_w(DIV_INFLIGHT + 1))'(div_dec && div_done_tid != t_fl);
+          div_t_q[t_fl] <= '0;
+          fdiv_pre_q <= fdiv_pre_q - fdiv_pre_t_q[t_fl] - (idx_w(FDIV_INFLIGHT + 1))'(fdiv_iss && fp_iss_tid != t_fl);
+          fpi_pre_q  <= fpi_pre_q - fpi_pre_t_q[t_fl] - (idx_w(FPI_INFLIGHT + 1))'(fpi_iss && fp_iss_tid != t_fl);
+          fdiv_pre_t_q[t_fl] <= '0;
+          fpi_pre_t_q[t_fl]  <= '0;
+          if (fdiv_iss && fp_iss_tid != t_fl) fdiv_pre_t_q[fp_iss_tid] <= fdiv_pre_t_q[fp_iss_tid] - 1'b1;
+          if (fpi_iss && fp_iss_tid != t_fl)  fpi_pre_t_q[fp_iss_tid]  <= fpi_pre_t_q[fp_iss_tid] - 1'b1;
+        end
+        block_q[t_fl] <= HART1_ON && flush_slp;   // (step 6: a WFI's sleep keeps its thread blocked until it wakes)
+        if (CMT)               rn_v_q[CMT ? t_fl[0] : 1'b0] <= '0;   // (with hart 1 the flushed thread's)
+        else if (t_rn == t_fl) rn_v_q[0]       <= '0;
         if (t_ds == t_fl) ds_valid_q <= '0;
       end else begin
         // FP divides and FP->int ops renamed this cycle, and those issued
@@ -865,12 +1352,21 @@ module tg_rename
                       - (idx_w(FDIV_INFLIGHT + 1))'(fdiv_iss);
         fpi_pre_q  <= fpi_pre_q + (idx_w(FPI_INFLIGHT + 1))'(rn_fire ? ren_nfp(rn_uop_q, rn_valid_q, 1'b0) : 0)
                       - (idx_w(FPI_INFLIGHT + 1))'(fpi_iss);
+        if (CMT)
+          for (int t = 0; t < NT; t++) begin
+            fdiv_pre_t_q[t] <= fdiv_pre_t_q[t]
+                               + (idx_w(FDIV_INFLIGHT + 1))'((rn_fire && t_rn == tid_t'(t)) ? ren_nfp(rn_uop_q, rn_valid_q, 1'b1) : 0)
+                               - (idx_w(FDIV_INFLIGHT + 1))'(fdiv_iss && fp_iss_tid == tid_t'(t));
+            fpi_pre_t_q[t]  <= fpi_pre_t_q[t]
+                               + (idx_w(FPI_INFLIGHT + 1))'((rn_fire && t_rn == tid_t'(t)) ? ren_nfp(rn_uop_q, rn_valid_q, 1'b0) : 0)
+                               - (idx_w(FPI_INFLIGHT + 1))'(fpi_iss && fp_iss_tid == tid_t'(t));
+          end
         // DS
         if (ds_fire) ds_valid_q <= '0;
         // RN -> DS
         if (rn_fire) begin
           ds_valid_q <= rn_valid_q;
-          rn_valid_q <= '0;
+          rn_v_q[CMT ? sel_q : 1'b0] <= '0;
           for (int k = 0; k < W; k++) begin
             if (rn_valid_q[k]) begin
               if (ren[k].use_llt) begin
@@ -883,21 +1379,139 @@ module tg_rename
               end
             end
           end
-          rtail_q[t_rn] <= rob_add_t(rtail_q[t_rn], $countones(rn_valid_q), t_rn);
-          ltail_q[t_rn] <= lq_add_t(ltail_q[t_rn], ren_nld(rn_uop_q, rn_valid_q), t_rn);
-          stail_q[t_rn] <= sq_add_t(stail_q[t_rn], ren_nst(rn_uop_q, rn_valid_q), t_rn);
+          rtail_q[t_rn] <= rob_add_t(rtail_q[t_rn], $countones(rn_valid_q), t_rn, md);
+          ltail_q[t_rn] <= lq_add_t(ltail_q[t_rn], ren_nld(rn_uop_q, rn_valid_q), t_rn, md);
+          stail_q[t_rn] <= sq_add_t(stail_q[t_rn], ren_nst(rn_uop_q, rn_valid_q), t_rn, md);
           div_cnt_q <= div_cnt_q + (idx_w(DIV_INFLIGHT + 1))'(ren_ndiv(rn_uop_q, rn_valid_q))
-                       - (idx_w(DIV_INFLIGHT + 1))'(div_done && div_cnt_q != '0);
+                       - (idx_w(DIV_INFLIGHT + 1))'(div_dec);
+          if (CMT)
+            div_t_q[t_rn] <= div_t_q[t_rn] + (idx_w(DIV_INFLIGHT + 1))'(ren_ndiv(rn_uop_q, rn_valid_q))
+                             - (idx_w(DIV_INFLIGHT + 1))'(div_dec && div_done_tid == t_rn);
           if (rn_serial) block_q[t_rn] <= 1'b1;
         end
-        // DE -> RN
-        if (de_take) begin
-          rn_valid_q <= de_valid;
-          rn_uop_q   <= de_uop;
+        // DE -> RN (with hart 1 into the group's thread's register; a thread behind a serial uop drops its group)
+        if (CMT) for (int t = 0; t < NT; t++) if (block_q[t]) rn_v_q[CMT ? t : 0] <= '0;
+        if (de_take && !(CMT && block_q[t_de])) begin
+          rn_v_q[CMT ? t_de[0] : 1'b0] <= de_valid;
+          for (int k = 0; k < W; k++) rn_u_q[CMT ? t_de[0] : 1'b0][k] <= ren_of(de_uop[k]);
+          rn_s_q[CMT ? t_de[0] : 1'b0] <= pay_s;     // the row this cycle's write fills
+`ifndef SYNTHESIS
+          rn_sh_q[CMT ? t_de[0] : 1'b0] <= de_uop;
+`endif
         end
       end
+      // Step 6: a wake unblocks its thread; a split with the running thread's window empty moves its tails to its
+      // half's start (with the ROB's and the LSU's pointers: mrs_o)
+      if (HART1_ON) begin
+        for (int t = 0; t < NT; t++) if (wk_o[t]) block_q[t] <= 1'b0;
+        if (mrs_o) begin
+          rtail_q[md.run] <= rob_start(md.run, mdn);
+          ltail_q[md.run] <= lq_start(md.run, mdn);
+          stail_q[md.run] <= sq_start(md.run, mdn);
+        end
+      end
+      if (CMT) sel_q <= sel_n;
     end
   end
+
+  // ---- Step 6 (D2, threading.md): merge and split ----
+  // A thread that waited in WFI while its sibling ran goes to sleep: tg_rob retires the WFI, and its flush keeps the
+  // thread blocked here, so decode drops its groups and fetch holds its stream. Once the sleeper's window is empty
+  // (its committed stores drained) a merge waits (mg_pend): the runner's tails do not wrap in its half (the room
+  // flags above), so its window stops wrapping as its heads move on, and the halves merge around it. The mode,
+  // decided from registered pointers and announced a cycle ahead (mdn_q, then md_q), reaches every module while the
+  // tails still cannot wrap. A wake waits for the split: the runner renames nothing until its window lies in its half
+  // without wrapping (win_fits), or is empty; then its pointers go back to its half's start (mrs_o). The sleeper wakes
+  // with the split.
+  logic          rs_q, sp_q;
+  logic [NT-1:0] wk_q, emp, nwr, fit, wk_now;
+  logic          mg_go, sp_go;
+  tid_t          mg_r;                   // a merge's running thread
+  always_comb begin
+    for (int t = 0; t < NT; t++) begin
+      emp[t] = rtail_q[t] == rob_head[t] && ltail_q[t] == lq_head[t] && stail_q[t] == sq_head[t];
+      nwr[t] = rtail_q[t][ROBW-1] == rob_head[t][ROBW-1] && ltail_q[t][LQW-1] == lq_head[t][LQW-1] &&
+               stail_q[t][SQW-1] == sq_head[t][SQW-1];        // its windows do not wrap
+      fit[t] = win_fits(int'(rob_head[t][ROBW-2:0]), rob_head[t][ROBW-1], int'(rtail_q[t][ROBW-2:0]),
+                        rtail_q[t][ROBW-1], ROB_ENTRIES / 2, tid_t'(t)) &&
+               win_fits(int'(lq_head[t][LQW-2:0]), lq_head[t][LQW-1], int'(ltail_q[t][LQW-2:0]),
+                        ltail_q[t][LQW-1], LQ_ENTRIES / 2, tid_t'(t)) &&
+               win_fits(int'(sq_head[t][SQW-2:0]), sq_head[t][SQW-1], int'(stail_q[t][SQW-2:0]),
+                        stail_q[t][SQW-1], SQ_ENTRIES / 2, tid_t'(t));
+      // a sleeper's wake without a merge to undo (none in flight)
+      wk_now[t] = HART1_ON && slp_i[t] && wkr_i[t] && !wk_q[t] && md_q.split && mdn_q.split && !sp_q;
+    end
+    mg_go = 1'b0;
+    mg_r  = '0;
+    if (HART1_ON && NT > 1 && md_q.split && mdn_q.split && !sp_q)
+      for (int t = 0; t < NT; t++)
+        if (slp_i[t] && !wkr_i[t] && !wk_q[t] && emp[t] && nwr[NT - 1 - t]) begin
+          mg_go = 1'b1;
+          mg_r  = tid_t'(NT - 1 - t);
+        end
+    sp_go = HART1_ON && sp_q && (fit[md_q.run] || emp[md_q.run]);
+    for (int t = 0; t < NT; t++) begin
+      // (a merge decided for runner t holds its tails until md_q merges, even if the sleeper asks to wake meanwhile:
+      // a tail that wrapped in its half then would leave the sleeper's half inside the merged window)
+      mg_pend[t] = HART1_ON && NT > 1 && md_q.split &&
+                   ((!sp_q && slp_i[NT - 1 - t] && !wkr_i[NT - 1 - t] && emp[NT - 1 - t]) ||
+                    (!mdn_q.split && mdn_q.run == tid_t'(t)));
+      nwr_hold[t] = mg_pend[t] && (int'(rtail_q[t][ROBW-2:0]) + W >= rob_end(t) ||
+                                   int'(ltail_q[t][LQW-2:0]) + W >= lq_end(t) ||
+                                   int'(stail_q[t][SQW-2:0]) + W >= sq_end(t));
+    end
+  end
+  always_ff @(posedge clk)
+    if (rst || !HART1_ON) begin
+      md_q  <= MD_C;
+      mdn_q <= MD_C;
+      rs_q  <= 1'b0;
+      sp_q  <= 1'b0;
+      wk_q  <= '0;
+    end else begin
+      md_q <= mdn_q;
+      wk_q <= wk_now;
+      if (mdn_q.split && !md_q.split) wk_q[~md_q.run] <= 1'b1;            // the sleeper wakes with the split
+      rs_q <= sp_go && emp[md_q.run];
+      if (mg_go) mdn_q <= '{split: 1'b0, run: mg_r};
+      if (!md_q.split && mdn_q == md_q && wkr_i[~md_q.run] && !sp_q) sp_q <= 1'b1;
+      if (sp_go) begin
+        mdn_q <= '{split: 1'b1, run: md_q.run};
+        sp_q  <= 1'b0;
+      end
+    end
+  assign sp_hold = HART1_ON && (sp_q || (mdn_q.split && !md_q.split));
+`ifndef SYNTHESIS
+  // (step 6) a merge finds the runner's windows unwrapped in its half (mg_pend held its tails while it was in flight)
+  logic mg_rs, md_sq;
+  initial mg_rs = 1'b0;
+  always @(posedge clk) if (rst) mg_rs <= 1'b1;
+  always_ff @(posedge clk) begin
+    md_sq <= md_q.split;
+    if (mg_rs && !rst && HART1_ON && NT > 1 && md_sq && !md_q.split)
+      assert (nwr[md_q.run]) else $error("tg_rename: a merge found thread %0d's window wrapped in its half", md_q.run);
+  end
+  // (step 6) the merges and splits, the cycles merged and the splits' drains, the wakes; on stderr at the end
+  longint unsigned n_mg, n_sp, n_spr, n_mgc, n_spc, n_wk;
+  always_ff @(posedge clk)
+    if (rst) begin
+      n_mg <= 0; n_sp <= 0; n_spr <= 0; n_mgc <= 0; n_spc <= 0; n_wk <= 0;
+    end else if (HART1_ON) begin
+      if (mg_go) n_mg <= n_mg + 1;
+      if (sp_go) n_sp <= n_sp + 1;
+      if (sp_go && emp[md_q.run]) n_spr <= n_spr + 1;
+      if (!md_q.split) n_mgc <= n_mgc + 1;
+      if (sp_q) n_spc <= n_spc + 1;
+      n_wk <= n_wk + longint'($countones(wk_q));
+    end
+  final if (HART1_ON) $fwrite(32'h8000_0002, "TG-SMT %m: %0d merges, %0d splits (%0d with the window empty), %0d cycles merged, %0d cycles draining for a split, %0d wakes\n",
+                              n_mg, n_sp, n_spr, n_mgc, n_spc, n_wk);
+`endif
+  assign md_o    = md;
+  assign mdn_o   = mdn;
+  assign mrs_o   = HART1_ON && rs_q;
+  assign wk_o    = HART1_ON ? wk_q : '0;
+  assign sph_o   = HART1_ON && sp_q;
 
   // The DS payload takes RN's group whenever DS is free, so its enable does not wait for
   // rn_fire (a load of every DS flip-flop); ds_valid_q says whether RN fired, and nothing reads
@@ -906,8 +1520,19 @@ module tg_rename
     if (ds_free) begin
       ds_uop_q <= rn_uop_q;
       ds_ren_q <= ren;
+      ds_s_q   <= rn_s_q[CMT ? sel_q : 1'b0];
+`ifndef SYNTHESIS
+      ds_sh_q  <= rn_sh_q[CMT ? sel_q : 1'b0];
+`endif
     end
   end
+`ifndef SYNTHESIS
+  always_ff @(posedge clk)
+    if (pay_rs && !rst)
+      for (int k = 0; k < W; k++)
+        if (ds_valid_q[k]) assert (ds_full[k] == ds_sh_q[k])
+          else $error("tg_rename: DS's slot %0d rejoined from the payload LUTRAM differs from its group (DR-185)", k);
+`endif
 
   function automatic int ren_nld(input uop_t [W-1:0] u, input logic [W-1:0] v);
     int n;
@@ -943,6 +1568,8 @@ module tg_rename
   // A group is a prefix of valid slots. Only allocated LLTs are released (a flush frees them
   // all, and a release registered from that cycle may follow).
   logic flush_d;
+  logic ds_nr_q;                    // (CMT) DS's group left RN without its rows (the other register was empty)
+  always_ff @(posedge clk) if (rn_fire) ds_nr_q <= !iq_rows;
   always_ff @(posedge clk) flush_d <= flush;
   always_ff @(posedge clk) begin
     if (!rst) begin
@@ -951,6 +1578,10 @@ module tg_rename
       for (int k = 1; k < W; k++)
         assert (!rn_valid_q[k] || rn_valid_q[k-1]) else $error("tg_rename: group is not a prefix");
       assert ((tag_free & ~tag_busy_q) == '0 || flush) else $error("tg_rename: a free tag returned");
+      // with hart 1 a group leaves RN without its banks' rows after DS's write (iq_rows) only while the other
+      // thread's register is empty, so DS waits only for such a group: the one stage both threads pass never holds
+      // one thread's group while the other thread's waited at RN (step 5d)
+      if (CMT && |ds_valid_q) assert (ds_ok || ds_nr_q) else $error("tg_rename: DS holds a group that had its rows");
     end
   end
   // The resource check's flags give what the compares gave

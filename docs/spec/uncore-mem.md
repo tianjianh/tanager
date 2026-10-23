@@ -9,7 +9,7 @@ tg_l2_bank ──AXI4──► tg_axi_lat_inj ──AXI4──► tg_axi_window 
              PA_W address, RISC-V physical               remapped address, AXI_EXT_ADDR_W bits
 ```
 
-A register slice (`tg_axi_slice`: a skid buffer on each channel) follows the window, so the window's adder and the route to the PS port end at flip-flops. It may present a W beat before its AW, which AXI4 allows. `tg_uncore` `MEM_SLICE` (on by default, as built for 200 MHz) can remove it (`tg_axi_slice` `ON`), for DR-145's study of the slices at 125 and 100 MHz: off, every DRAM access is a cycle shorter each way ([soc.md](soc.md) §Reserve levers).
+A register slice (`tg_axi_slice`: a skid buffer on each channel) can follow the window, so the window's adder and the route to the PS port end at flip-flops; it may present a W beat before its AW, which AXI4 allows. `tg_uncore` `MEM_SLICE` builds it (`tg_axi_slice` `ON`). Built for 200 MHz, it is off by default since DR-186 (the user, 10-22): every DRAM access is a cycle shorter each way ([soc.md](soc.md) §Reserve levers). Without it, the banks' AW and W (with `W_SLICE` off) reach `S_AXI_HP1/HP2` through the window in the cycle they leave the bank, and the PS's ready, R and B come back into the banks' write and refill paths in one; AR keeps the AR slice before the injector. The routed no-slice product build had these paths at −0.20 ns (default placement, congested; DR-186); `W_SLICE` is the narrower slice for the write side.
 
 Before the injector, a skid buffer on AR alone (`tg_uncore` `AR_SLICE`, on by default since 10-15, the user's decision, DR-135) cuts the L2's AR handshake: without it, the L2's pick, its MSHR LUTRAM read, this window's range check and the ready back into the pick made the uncore's second-longest path at 200 MHz (−0.70 to −0.98 ns). It costs one cycle on every L2 fill (+0.056% cycles at `st`, +0.134% at `smt2`, first 20M cycles of the 2-core Linux boot). `W_SLICE` (off by default; a DR-135 reserve item, [soc.md](soc.md) §Reserve levers) puts skid buffers on AW and W in the same place, for the write-back path from the banks to the memory path by the PS ports, at a cycle per write-back.
 
@@ -47,6 +47,9 @@ Emulates longer DRAM latency on the board, so Linux-scale workloads run at the 9
   - a beat costs 256 tokens.
 - **Why buffer.** The PS port's limit of 16 outstanding transactions applies only to the time a request spends downstream. Responses wait in the injector's own buffer, so the emulated latency is not distorted (plan §5.6).
 - **Defaults.** Reset values (`rd_delay` = `wr_delay` = 0, mode 0, no cap) make the injector a pass-through with a few cycles of buffering.
+- **Release builds** (`tg_uncore` `LAT_INJ` = 0, build.tcl `TG_LAT_INJ=0`, or `TG_RELEASE=1`, which brings it; DR-177, DR-180; [soc.md](soc.md) §2.5) leave both injectors out. Each bank's channels go straight to its window, and the statistics read 0.
+  - The L2 then sees the PS's own response order. It takes it: R goes by ID into its MSHRs, and beats of different IDs may interleave ([l2.md](l2.md)).
+  - The few cycles of buffering go too, so each fill arrives a little sooner.
 
 ### Parameters
 `SLOTS` = 32 (more than the L2 bank's 24 MSHRs), `AXI_ID_W` = 6, `BEATS` = 4.

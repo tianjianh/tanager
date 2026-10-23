@@ -1,6 +1,7 @@
 // Software boot on tanager_soc with the real core (docs/spec/soc.md §Verification): the host loads
 // images into the carve-out the way tanager-host does, releases the cores, and echoes the console.
-// The run passes when the console shows the +expect string.
+// The run passes when the console shows the +expect string (and, with SERIAL, the serial line matches the host's
+// copy). A failed run prints TEST FAILED and exits with status 1.
 //   +fw=<file>      at 0x8000_0000 (OpenSBI fw_jump)          +dtb=<file>    at DTB_ADDR (0x8220_0000)
 //   +kernel=<file>  at 0x8020_0000 (optional)                 +initrd=<file> at 0x8400_0000 (optional)
 //   +expect=<text>  pass when the console contains it         +max_mcycles=N  give up after N million cycles
@@ -12,6 +13,8 @@
 // the same signature retired the same instructions in the same cycles (the cycle-identity check of
 // docs/perf/fpga_friendly.md for uncore rewrites). Each progress line carries the running signature,
 // so two runs compare at every million cycles, however far each got.
+// RELEASE_TB = 1 (make ... RELEASE=1: a release build, DR-180, with LAT_INJ = 0, no trace and the serial console):
+// no console through the host, so the decoded serial line is the console; no trace, so no signature either.
 module tb_boot;
   import tg_pkg::*, tg_tl_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*;
 
@@ -27,6 +30,11 @@ module tb_boot;
   parameter int L2_SETS_TB    = 64;      // the board has 1024 (tanager_soc's default)
   parameter bit DEBUG_CNT_TB  = 1'b0;    // the board debug counters; +dbg_dump prints them at the end
   parameter bit HOST_DMA_TB   = 1'b0;    // the host DMA port, for +hdma_lines (external-write lockstep, below)
+  parameter bit LAT_INJ_TB    = 1'b1;    // the two latency injectors; 0: a release build's memory path (DR-177)
+  parameter bit RELEASE_TB    = 1'b0;    // a release build (tanager_soc RELEASE, DR-180): needs UART_SERIAL_TB
+  if (RELEASE_TB && !UART_SERIAL_TB) begin : g_bad_rel
+    $error("tb_boot: a release build's console is the serial line alone: RELEASE_TB needs UART_SERIAL_TB");
+  end
 
   localparam logic [39:0] CO_BASE = 40'h8_4000_0000;    // carve-out in "PS" address space
   localparam logic [39:0] CO_SIZE = 40'h1000_0000;      // 256 MiB (the device tree says 128 MiB)
@@ -78,7 +86,7 @@ module tb_boot;
 
   tanager_soc #(
     .N_CORES (N_CORES), .CLK_HZ (100_000_000), .L2_SETS (L2_SETS_TB), .L2_MSHR (24), .DEBUG_CNT (DEBUG_CNT_TB),
-    .HOST_DMA (HOST_DMA_TB),
+    .HOST_DMA (HOST_DMA_TB), .LAT_INJ (LAT_INJ_TB), .RELEASE (RELEASE_TB),
     .CORE_RST_INIT (1'b1), .UNCORE_RST_INIT (1'b1), .CORE_KIND ("core"), .UART_SERIAL (UART_SERIAL_TB)
   ) dut (
     .uart_txd_o (uart_txd), .uart_rxd_i (1'b1),
@@ -283,6 +291,11 @@ module tb_boot;
   task automatic dump_last();
     for (int h = 0; h < NH_TB; h++) dump_hart(h);
   endtask
+  // A failed run exits with status 1, but after the final blocks, where the monitors the tools bind in (sim/tb's
+  // signature and tap) finish their files: $fatal would exit before them. The handler runs as the process exits.
+  task automatic exit_status_1();
+    $c("std::atexit([] { std::fflush(nullptr); std::_Exit(1); });");
+  endtask
 
   // ---- AXI4-Lite host master (clk_host) ----
   task automatic hw(input logic [15:0] a, input logic [31:0] d);
@@ -320,6 +333,7 @@ module tb_boot;
     fd = $fopen(path, "rb");
     if (fd == 0) begin
       $display("TEST FAILED: cannot open %s", path);
+      exit_status_1();
       $finish;
     end
     a = 0;
@@ -335,14 +349,30 @@ module tb_boot;
     $display("tb_boot: loaded %s at %h (%0d bytes)", path, rv_addr, a);
   endtask
 
-  string console = "", expect_s = "";
+  string console = "", expect_s = "", cline = "";
+  int    shown = 0;                       // a release build: the serial line's characters echoed so far
+  // The console is echoed a whole line at a time, so the progress lines never land inside one, and a line that a script
+  // matches (TANAGER-BOOT-OK and its hart count) stays whole in the log; the last, partial line goes out at the end
+  function automatic void echo_char(input logic [7:0] c);
+    cline = {cline, string'(c)};
+    if (c == 8'h0A) begin
+      $write("%s", cline);
+      cline = "";
+    end
+  endfunction
   task automatic drain_console();
     logic [31:0] v;
+    if (RELEASE_TB) begin                 // no console through the host: the serial line is the console
+      for (; shown < sconsole.len(); shown++) echo_char(sconsole[shown]);
+      console = sconsole;
+      $fflush();
+      return;
+    end
     do begin
       hr(16'h100, v);
       if (v[8]) begin
         console = {console, $sformatf("%c", v[7:0])};
-        $write("%c", v[7:0]);
+        echo_char(v[7:0]);
       end
     end while (v[8]);
     $fflush();
@@ -351,6 +381,15 @@ module tb_boot;
     if (s.len() == 0) return 1'b0;
     for (int i = 0; i + s.len() <= console.len(); i++)
       if (console.substr(i, i + s.len() - 1) == s) return 1'b1;
+    return 1'b0;
+  endfunction
+  // the console holds s and the end of the line it is on
+  function automatic bit line_after(input string s);
+    for (int i = 0; i + s.len() <= console.len(); i++)
+      if (console.substr(i, i + s.len() - 1) == s) begin
+        for (int j = i + s.len(); j < console.len(); j++) if (console[j] == "\n") return 1'b1;
+        return 1'b0;
+      end
     return 1'b0;
   endfunction
 
@@ -423,7 +462,7 @@ module tb_boot;
   endtask
 
   initial begin
-    string path;
+    string path, serial_err;
     longint unsigned max_cycles, cyc;
     int max_m;
     logic [31:0] v;
@@ -459,6 +498,8 @@ module tb_boot;
     if ($value$plusargs("initrd=%s", path)) load(path, 64'h8400_0000);
     hw64(16'h030, 64'h8000_0000);               // BOOT_ENTRY
     hw64(16'h038, 64'h8220_0000);               // DTB_ADDR
+    if (RELEASE_TB && ($test$plusargs("trace_out=") || $test$plusargs("hdma_lines=")))
+      $fatal(1, "tb_boot: +trace_out and +hdma_lines need the trace, which a release build has not");
     if ($value$plusargs("trace_out=%s", path)) begin
       trace_fd = $fopen(path, "wb");
       if (trace_fd == 0) $fatal(1, "tb_boot: cannot open %s", path);
@@ -498,7 +539,20 @@ module tb_boot;
         break;
       end
     end
+    // the rest of the expected string's line too, as scripts match it whole (the boot marker's harts=N): on a serial
+    // console it comes a character every 8,680 cycles. 2M cycles at most
+    if (console_has(expect_s))
+      for (int k = 0; k < 1000 && !line_after(expect_s); k++) begin
+        repeat (2000) @(posedge clk);
+        cyc += 2000;
+        drain_console();
+        trace_poll();
+      end
     drain_console();
+    if (cline.len() > 0) begin            // the last line, unfinished
+      $write("%s\n", cline);
+      cline = "";
+    end
     if (trace_fd != 0) begin                    // stop taking records; the lanes drain into the ring
       hw(16'h1000, 32'h0);
       repeat (4000) @(posedge clk);
@@ -535,16 +589,23 @@ module tb_boot;
     end
     $display("\n[tb_boot] %0d cycles, %0d instructions retired", cyc, instret);
     $display("[tb_boot] trace signature %016h", tsig);
-    if (UART_SERIAL_TB) begin
+    if (RELEASE_TB) begin
       if (sconsole.len() == 0) $display("tb_boot: ERROR: nothing on the serial line");
-      else if (console.substr(0, sconsole.len() - 1) != sconsole) $display("tb_boot: ERROR: the serial line and the host copy differ");
+      else $display("tb_boot: serial line: %0d characters (a release build: no host copy)", sconsole.len());
+    end else if (UART_SERIAL_TB) begin
+      if (sconsole.len() == 0) serial_err = "nothing on the serial line";
+      else if (console.substr(0, sconsole.len() - 1) != sconsole) serial_err = "the serial line and the host copy differ";
+      if (serial_err != "") $display("tb_boot: ERROR: %s", serial_err);
       else $display("tb_boot: serial line: %0d characters, the same as the host copy", sconsole.len());
     end
-    if (console_has(expect_s)) $display("TEST PASSED (boot, %0d core(s))", N_CORES);
-    else begin
+    if (!console_has(expect_s)) begin
       dump_last();
       $display("TEST FAILED (boot, %0d core(s)): \"%s\" not seen", N_CORES, expect_s);
-    end
+      exit_status_1();
+    end else if (serial_err != "") begin
+      $display("TEST FAILED (boot, %0d core(s)): %s", N_CORES, serial_err);
+      exit_status_1();
+    end else $display("TEST PASSED (boot, %0d core(s))", N_CORES);
     $finish;
   end
 endmodule

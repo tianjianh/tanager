@@ -33,6 +33,15 @@
 #include "extwrite.h"
 #include "virtio.h"
 
+/* The full barrier between the CPU's stores and the PL's view of memory (the host DMA window, the RISC-V's RAM): the
+ * A53's dsb sy. On another host (make native, a build and warnings check) the compiler's full fence stands in, so
+ * that build compiles as the board's does */
+#if defined(__aarch64__)
+#define TG_DSB() __asm__ volatile("dsb sy" ::: "memory")
+#else
+#define TG_DSB() __sync_synchronize()
+#endif
+
 /* ---- Host register map (docs/spec/host.md) ---- */
 enum {
   R_ID = 0x000, R_VERSION = 0x004, R_CLK_HZ = 0x008, R_CAPS = 0x00C,
@@ -65,9 +74,14 @@ enum {
 #define TRS_ST_FULL      0x8u
 #define TRS_ST_AXI_ERR   0x10u
 #define TRS_REC_BYTES  64u
+#define CAPS_INJ       0x2u            /* CAPS[1]: the latency injectors (development builds; release builds have none, DR-177) */
 #define CAPS_VIRTIO    0x4u            /* CAPS[2]: the forwarded virtio window (stage C, soc.md §8.1) */
 #define CAPS_TRACE     0x8u            /* CAPS[3]: the commit-trace stream is built (DR-146) */
 #define CAPS_HDMA      0x100u          /* CAPS[8]: the coherent host DMA port (stage C, soc.md §8.1) */
+#define CAPS_CON       0x200u          /* CAPS[9]: the host console (release builds have none, DR-180) */
+#define CAPS_HDMA_LINES 0x400u         /* CAPS[10]: the DMA port's line counters (none in release builds, DR-180) */
+#define CAPS_HDMA_CPL  0x800u          /* CAPS[11]: the DMA port's completion queue (none in release builds without
+                                          the trace, DR-180) */
 #define TG_ID          0x54474E52u     /* "TNGR" */
 #define CTRL_CORE_RST  0x1u
 #define CTRL_UNC_RST   0x2u
@@ -466,7 +480,7 @@ static void cmd_dma_adma(const struct opts *o, int argc, char **argv) {
   volatile uint64_t *hp = dma_map(o, off, n);
   uint64_t w = n / 8;
   for (uint64_t i = 0; i < w; i++) { ddr[w + i] = 0xD0D0000000000000ull ^ (off + 8 * i) * 0x9E3779B97F4A7C15ull; ddr[2 * w + i] = 0; hp[i] = 0; }
-  __asm__ volatile("dsb sy" ::: "memory");
+  TG_DSB();
   uint32_t wr0 = rd(R_HDMA_WR_LINES), rd0 = rd(R_HDMA_RD_LINES), dr0 = rd(R_HDMA_WR_DROPS);
   double us1, us2;
   uint32_t isr1 = adma_copy(ch, o->base + off + n, o->dma_pa + off, n, &us1);
@@ -484,8 +498,9 @@ static void cmd_dma_adma(const struct opts *o, int argc, char **argv) {
   ch[ZD_IER / 4] = ~imr & 0xFFF;
   int ok1 = (isr1 & ZD_DONE) && !(isr1 & ZD_ERRS) && !bad1, ok2 = (isr2 & ZD_DONE) && !(isr2 & ZD_ERRS) && !bad2;
   printf("dma adma 0x%" PRIx64 ": %u bytes, DDR 0x%" PRIx64 " -> HPM1 0x%" PRIx64 " (RISC-V 0x%" PRIx64 "): %s, ISR 0x%03x, "
-         "%.0f us, %" PRIu64 " words wrong; the port wrote %u lines, read %u\n", pa, n, o->base + off + n, o->dma_pa + off,
-         (uint64_t)(DRAM_BASE_RV + off), ok1 ? "ok" : "FAIL", isr1, us1, bad1, wr1 - wr0, rd1 - rd0);
+         "%.0f us, %" PRIu64 " words wrong; the port wrote %u lines, read %u%s\n", pa, n, o->base + off + n, o->dma_pa + off,
+         (uint64_t)(DRAM_BASE_RV + off), ok1 ? "ok" : "FAIL", isr1, us1, bad1, wr1 - wr0, rd1 - rd0,
+         rd(R_CAPS) & CAPS_HDMA_LINES ? "" : " (not counted: a release build)");
   printf("dma adma 0x%" PRIx64 ": %u bytes, HPM1 0x%" PRIx64 " -> DDR 0x%" PRIx64 ": %s, ISR 0x%03x, %.0f us, %" PRIu64
          " words wrong; the port read %u lines; %u write bursts dropped; channel STATUS 0x%x\n", pa, n, o->dma_pa + off,
          o->base + off + 2 * n, ok2 ? "ok" : "FAIL", isr2, us2, bad2, rd2 - rd1, dr2 - dr0, st);
@@ -504,6 +519,11 @@ static void cmd_dma(const struct opts *o, int argc, char **argv) {
     wr(R_HDMA_CTRL, 0);
   }
   if (!strcmp(argv[0], "status")) {
+    if (!(rd(R_CAPS) & CAPS_HDMA_LINES)) {             /* a release build (DR-180) */
+      printf("host DMA port: completions %s; lines not counted (a release build: CAPS[10] = 0, DR-180); %u write "
+             "bursts dropped in part\n", rd(R_CAPS) & CAPS_HDMA_CPL ? (rd(R_HDMA_CTRL) & 1 ? "recorded" : "not recorded")
+             : "not built", rd(R_HDMA_WR_DROPS));
+    } else
     printf("host DMA port: completions %s, %u waiting; %u line reads, %u line writes (one per burst within a line, "
            "an 8-byte store is one); %u write bursts dropped in part\n",
            rd(R_HDMA_CTRL) & 1 ? "recorded" : "not recorded", rd(R_HDMA_STATUS) & 0x1f, rd(R_HDMA_RD_LINES),
@@ -515,7 +535,7 @@ static void cmd_dma(const struct opts *o, int argc, char **argv) {
   } else if (!strcmp(argv[0], "write") && argc >= 3) {
     volatile uint64_t *p = dma_map(o, num(argv[1]), 8);
     p[0] = num(argv[2]);
-    __asm__ volatile("dsb sy" ::: "memory");
+    TG_DSB();
   } else if (!strcmp(argv[0], "adma")) {
     cmd_dma_adma(o, argc, argv);
   } else if (!strcmp(argv[0], "check")) {
@@ -528,7 +548,7 @@ static void cmd_dma(const struct opts *o, int argc, char **argv) {
     uint32_t rd0 = rd(R_HDMA_RD_LINES), wr0 = rd(R_HDMA_WR_LINES);
     double t0 = now_s();
     for (uint64_t i = 0; i < n; i++) p[i] = (off + 8 * i) * 0x9E3779B97F4A7C15ull;
-    __asm__ volatile("dsb sy" ::: "memory");
+    TG_DSB();
     double t1 = now_s();
     for (uint64_t i = 0; i < n; i++)
       if (p[i] != (off + 8 * i) * 0x9E3779B97F4A7C15ull && bad++ < 4)
@@ -537,15 +557,16 @@ static void cmd_dma(const struct opts *o, int argc, char **argv) {
     /* narrow stores: every other 32-bit half, then the whole words again */
     volatile uint32_t *q = (volatile uint32_t *)p;
     for (uint64_t i = 0; i < 2 * n; i += 2) q[i] = (uint32_t)i;
-    __asm__ volatile("dsb sy" ::: "memory");
+    TG_DSB();
     for (uint64_t i = 0; i < n; i++) {
       uint64_t want = (((off + 8 * i) * 0x9E3779B97F4A7C15ull) & ~0xffffffffull) | (uint32_t)(2 * i);
       if (p[i] != want && bad++ < 8) fprintf(stderr, "dma check: 0x%" PRIx64 " reads 0x%016" PRIx64 " after a 32-bit store\n", off + 8 * i, p[i]);
     }
     uint32_t drops = rd(R_HDMA_WR_DROPS) - (uint32_t)drops0;
-    printf("dma check 0x%" PRIx64 "+0x%" PRIx64 ": %s; writes %.1f MB/s, reads %.1f MB/s; %u lines read, %u written, %u drops\n",
+    printf("dma check 0x%" PRIx64 "+0x%" PRIx64 ": %s; writes %.1f MB/s, reads %.1f MB/s; %u lines read, %u written%s, %u drops\n",
            off, len, bad || drops ? "FAIL" : "ok", len / (t1 - t0) / 1e6, len / (t2 - t1) / 1e6,
-           rd(R_HDMA_RD_LINES) - rd0, rd(R_HDMA_WR_LINES) - wr0, drops);
+           rd(R_HDMA_RD_LINES) - rd0, rd(R_HDMA_WR_LINES) - wr0,
+           rd(R_CAPS) & CAPS_HDMA_LINES ? "" : " (not counted: a release build)", drops);
     if (bad || drops) exit(1);
   } else usage();
 }
@@ -611,9 +632,17 @@ static void cmd_info(void) {
          st & ST_L2_INIT ? "ready" : "not ready", st & ST_POWER_REQ ? ", power request pending" : "");
   printf("  window          base 0x%" PRIx64 " size 0x%" PRIx64 "\n", rd64(R_DRAM_BASE), rd64(R_DRAM_SIZE));
   printf("  boot            entry 0x%" PRIx64 " dtb 0x%" PRIx64 "\n", rd64(R_BOOT_ENTRY), rd64(R_DTB_ADDR));
-  printf("  injector        rd %u wr %u ctrl 0x%08x; %u reads, native latency avg %.1f max %u cycles\n",
-         rd(R_INJ_RD), rd(R_INJ_WR), rd(R_INJ_CTRL), rd(R_INJ_CNT),
-         rd(R_INJ_CNT) ? (double)rd(R_INJ_SUM) / rd(R_INJ_CNT) : 0.0, rd(R_INJ_MAX));
+  if (rd(R_CAPS) & CAPS_INJ)
+    printf("  injector        rd %u wr %u ctrl 0x%08x; %u reads, native latency avg %.1f max %u cycles\n",
+           rd(R_INJ_RD), rd(R_INJ_WR), rd(R_INJ_CTRL), rd(R_INJ_CNT),
+           rd(R_INJ_CNT) ? (double)rd(R_INJ_SUM) / rd(R_INJ_CNT) : 0.0, rd(R_INJ_MAX));
+  else
+    printf("  injector        not built (a release build: CAPS[1] = 0, DR-177)\n");
+  if (!(rd(R_CAPS) & CAPS_CON))
+    printf("  host console    not built (a release build: CAPS[9] = 0, DR-180); the console is the PMOD UART\n");
+  if ((rd(R_CAPS) & CAPS_HDMA) && !(rd(R_CAPS) & CAPS_HDMA_LINES))
+    printf("  DMA port        no line counters or completion queue%s (a release build: CAPS[10] = 0, DR-180)\n",
+           rd(R_CAPS) & CAPS_HDMA_CPL ? " (the queue is built)" : "");
   printf("  tohost          0x%016" PRIx64 " (%u writes)\n", rd64(R_TOHOST), rd(R_TOHOST_SEQ));
   if (rd(R_CAPS) & CAPS_VIRTIO) print_vq();
 }
@@ -706,7 +735,21 @@ static void cmd_load(const struct opts *o) {
           o->base, (unsigned long long)DRAM_BASE_RV);
 }
 
+/* A release build (TG_LAT_INJ=0, DR-177) has no latency injectors and reads CAPS[1] = 0. A command that asks for a
+ * delay or a bandwidth cap stops here, before anything is loaded or released, rather than run at the native latency
+ * as if injected. One that asks only for zeros (--inj-rd 0, as the lockstep runs pass), or for nothing, goes on. */
+static int inj_built(void) { return (rd(R_CAPS) & CAPS_INJ) != 0; }
+static void check_inj(const struct opts *o) {
+  if (inj_built()) return;
+  if (o->inj_rd > 0 || o->inj_wr > 0 || o->inj_bw > 0)
+    die("--inj-*: this bitstream has no latency injectors (a release build: CAPS[1] = 0, DR-177); injected "
+        "latency needs a development build (TG_LAT_INJ=1)");
+  if (o->inj_rd >= 0 || o->inj_wr >= 0 || o->inj_mode >= 0 || o->inj_bw >= 0)
+    fprintf(stderr, "injector: not built in this bitstream (a release build); nothing to set\n");
+}
+
 static void set_inj(const struct opts *o) {
+  if (!inj_built()) return;
   if (o->inj_rd >= 0) wr(R_INJ_RD, (uint32_t)o->inj_rd);
   if (o->inj_wr >= 0) wr(R_INJ_WR, (uint32_t)o->inj_wr);
   if (o->inj_mode >= 0 || o->inj_bw >= 0) {
@@ -849,7 +892,7 @@ static uint64_t h_ram_rd64(uint64_t off)             { return *(volatile uint64_
 static void     h_ram_wr64(uint64_t off, uint64_t v) { *(volatile uint64_t *)(vio_ram + off) = v; }
 static void     h_ram_wr32(uint64_t off, uint32_t v) { *(volatile uint32_t *)(vio_ram + off) = v; }
 static void     h_ram_wr8(uint64_t off, uint8_t v)   { vio_ram[off] = v; }
-static void     h_barrier(void)                      { __asm__ volatile("dsb sy" ::: "memory"); }
+static void     h_barrier(void)                      { TG_DSB(); }
 
 /* Board lockstep with the back-ends (extwrite.h; docs/spec/verification.md §3.10): with --trace, every store
  * through the DMA port becomes an external-write record in the trace, between the ring's records. The port
@@ -866,6 +909,8 @@ static void h_emit(const uint8_t rec[XW_REC_BYTES]) {
 static void h_xw_fail(const char *msg) { die("%s (HDMA_STATUS 0x%x)", msg, rd(R_HDMA_STATUS)); }
 static void hdma_rec_off(void) { if (xw_on) wr(R_HDMA_CTRL, 0); }
 static void hdma_rec_on(void) {
+  if (!(rd(R_CAPS) & CAPS_HDMA_CPL))
+    die("this bitstream's DMA port has no completion queue (CAPS[11] = 0: a release build without the trace, DR-180)");
   wr(R_HDMA_CTRL, 0);
   for (int i = 0; i < 64 && (rd(R_HDMA_STATUS) & 0x1f); i++) (void)rd(R_HDMA_CPL1);   /* an earlier run's */
   wr(R_HDMA_CTRL, 1);
@@ -912,6 +957,16 @@ static int tap_open(const char *name, const char *bridge) {
 static int cmd_run(const struct opts *o) {
   check_id();
   set_inj(o);
+  /* A release build (DR-180) has no console through the host (CAPS[9] = 0): its console is the PMOD UART. A run
+   * asked for a pty stops here; the default stdio console becomes none, with a note */
+  int con = o->console;
+  if (con >= 0 && !(rd(R_CAPS) & CAPS_CON)) {
+    if (con == 1) die("--pty: this bitstream has no host console (a release build: CAPS[9] = 0, DR-180); its console "
+                      "is the PMOD UART");
+    fprintf(stderr, "console: none through the host (a release build: CAPS[9] = 0, DR-180); the RISC-V console is the "
+            "PMOD UART\n");
+    con = -1;
+  }
   uint32_t ctrl = (o->lossless ? CTRL_LOSSLESS : 0) | (o->freeze_time ? CTRL_TFREEZE : 0);
   /* uncore first, wait for the L2, then the cores (docs/spec/host.md, loading sequence). A system that
    * already runs (tg start) keeps running: holding the cores alone would cut their TileLink
@@ -926,12 +981,12 @@ static int cmd_run(const struct opts *o) {
   wr(R_POWER, 0x80000000u);                 /* clear a stale power request */
 
   int in_fd = -1, out_fd = -1;
-  if (o->console == 1) {
+  if (con == 1) {
     int m = posix_openpt(O_RDWR | O_NOCTTY);
     if (m < 0 || grantpt(m) || unlockpt(m)) die("pty: %s", strerror(errno));
     fprintf(stderr, "console on %s\n", ptsname(m));   /* stderr: stdout may carry trace records */
     in_fd = out_fd = m;
-  } else if (o->console == 0) {
+  } else if (con == 0) {
     in_fd = 0;
     out_fd = (o->trace && !strcmp(o->trace, "-")) ? 2 : 1;   /* --trace -: records alone on stdout */
     if (isatty(0) && tcgetattr(0, &saved_tio) == 0) {
@@ -987,14 +1042,14 @@ static int cmd_run(const struct opts *o) {
         char c;
         ssize_t got = read(in_fd, &c, 1);
         if (got == 1) {
-          if (o->console == 0 && ctrl_a && c == 'x') { stop_req = 1; }
-          else if (o->console == 0 && c == 1) { ctrl_a = 1; }
+          if (con == 0 && ctrl_a && c == 'x') { stop_req = 1; }
+          else if (con == 0 && c == 1) { ctrl_a = 1; }
           else {
             ctrl_a = 0;
             while (rd(R_UART_RX_SPACE) == 0) sleep_us(50);
             wr(R_UART_RX, (uint8_t)c);
           }
-        } else if (got == 0 && o->console == 0) {
+        } else if (got == 0 && con == 0) {
           in_fd = -1;                       /* stdin at its end (a script, nohup): stop reading it, or the loop spins */
         }
         idle = 0;
@@ -1171,10 +1226,15 @@ int main(int argc, char **argv) {
   if (!strcmp(cmd, "info"))       { check_id(); cmd_info(); return 0; }
   if (!strcmp(cmd, "reset"))      { check_id(); cmd_reset(); return 0; }
   if (!strcmp(cmd, "load"))       { check_id(); check_trace(&o); check_virtio(&o); cmd_load(&o); return 0; }
-  if (!strcmp(cmd, "run"))        { check_id(); check_trace(&o); check_virtio(&o); return cmd_run(&o); }
-  if (!strcmp(cmd, "boot"))       { check_id(); check_trace(&o); check_virtio(&o); cmd_load(&o); return cmd_run(&o); }
+  if (!strcmp(cmd, "run"))        { check_id(); check_trace(&o); check_virtio(&o); check_inj(&o); return cmd_run(&o); }
+  if (!strcmp(cmd, "boot"))       { check_id(); check_trace(&o); check_virtio(&o); check_inj(&o); cmd_load(&o); return cmd_run(&o); }
   if (!strcmp(cmd, "inj"))        {
     check_id();
+    check_inj(&o);
+    if (!inj_built()) {
+      printf("injector: not built in this bitstream (a release build: CAPS[1] = 0, DR-177)\n");
+      return 0;
+    }
     set_inj(&o);
     if (stats || (o.inj_rd < 0 && o.inj_wr < 0 && o.inj_mode < 0 && o.inj_bw < 0))
       printf("injector: rd %u wr %u ctrl 0x%08x; %u reads, native latency avg %.1f max %u cycles\n",

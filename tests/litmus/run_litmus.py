@@ -3,9 +3,9 @@
 alone (tg_vsim) or on the SoC (tb_boot), and judges every final state against herd's (docs/spec/verification.md §6.6).
 
 A test passes when every state it ends in is one herd's RISC-V model allows. Spike runs check the harness: its
-harts interleave one instruction at a time, so every state is allowed. Tests with an SC don't run there: each Spike
-hart keeps its LR reservation through another hart's store, so the replaying Spike's SC can succeed where the
-checker's must fail, and the replay stops.
+harts interleave one instruction at a time, so every state is allowed. Tests with an SC run there too: tg_replay
+drops a hart's reservation when another hart stores into its line (Spike alone keeps it through other harts'
+stores, so its SC could succeed where the checker's must fail).
   run_litmus.py --suite DIR --replay <tg_replay> --harts 0,1 --workdir DIR [--family SAFE,CO] [--sample N]
   run_litmus.py --suite DIR --tb <tb_boot> --harts 0,1 --workdir DIR [--lat fixed|jitter|board|default]
   run_litmus.py --suite DIR --vsim <tg_vsim> --harts 0,1 --workdir DIR
@@ -113,10 +113,7 @@ def main():
     nlar -= len(paths)
     if a.sample and a.sample < len(paths):
         paths = sorted(random.Random(a.seed).sample(paths, a.sample))
-    nlrsc = 0
-    if a.replay:   # see the docstring: Spike's harts keep their reservations through each other's stores
-        keep = [p for p in paths if not re.search(r"\bsc\.[wd]", open(p, errors="replace").read())]
-        nlrsc, paths = len(paths) - len(keep), keep
+    nlrsc = 0   # SC tests run on Spike too: tg_replay clears a hart's reservation when another stores in its line
     os.makedirs(a.workdir, exist_ok=True)
     faildir = os.path.join(a.workdir, "failures")
     batches = [paths[i:i + a.batch] for i in range(0, len(paths), a.batch)]
@@ -165,7 +162,9 @@ def main():
         for m in re.finditer(r"^.*?LIT-BAD (\S+) (.*)$", out, re.M):
             if m[1] in res:
                 res[m[1]]["first"] = m[2].strip()
-        status = "" if "LIT-END" in out else "no LIT-END (" + (out.strip().splitlines() or ["?"])[-1][:120] + ")"
+        # The marker's own console line: tb_boot's banner and its verdict quote the +expect string as well
+        status = "" if re.search(r"^(?:\d{10} )?LIT-END", out, re.M) else \
+            "no LIT-END (" + (out.strip().splitlines() or ["?"])[-1][:120] + ")"
         return k, res, skipped, status, " ".join(cmd)
 
     t0 = time.time()

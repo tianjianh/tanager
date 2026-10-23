@@ -60,7 +60,8 @@ NIGHT_MEM_GB = 12         # the nightly starts no run while MemAvailable is unde
 NIGHT_CRON = "15 0 * * *"
 SWITCH_VALUES = {"TIMING_CUTS": (0, 1), "DC_MSHRS": (1, 4), "QUEUE_DECODE": (0, 1), "SPEC_WAKE": (0, 1),
                  "STA_BASE": (0, 1), "STEER_LA": (0, 1), "PMP_ENTRIES": (8, 16), "STORE_PF": (0, 1), "URF": (0, 1),
-                 "STORE_PF_MAX": (2, 3), "SOLO_TID": (0, 1), "SPLIT": (0, 1)}
+                 "STORE_PF_MAX": (2, 3), "SOLO_TID": (0, 1), "SPLIT": (0, 1),
+                 "HART1": (0, 1), "SPEC_WAKE_FILT": (0, 1, 2)}
 
 
 def log(msg):
@@ -204,8 +205,8 @@ def run_one(build, dtb, images, shape, timing, mcyc, seed, outdir, nice=False, p
     os.mkfifo(fifo)
     harts = 1 if SHAPES[shape][1] * SHAPES[shape][3] == 1 else 4   # the record's hart field: harts 0 and 2
     fw, kernel = images["fw"][0], images["kernel"][0]
-    # The host policy (verification.md §8): on a hybrid host the st shape's model and its checker at nice 10 or more,
-    # the board shape's four-thread model and its checker on the E-cores
+    # The host policy (verification.md §8): on a hybrid host every model and its checker at nice 10 or more, the
+    # board and smp4 shapes' four-thread models and their checkers on the E-cores
     pol = host_policy.preexec(SHAPES[shape][4])
 
     def pre():
@@ -218,6 +219,7 @@ def run_one(build, dtb, images, shape, timing, mcyc, seed, outdir, nice=False, p
     t0 = time.time()
     with open(os.path.join(outdir, "lockstep.log"), "w") as lf, open(os.path.join(outdir, "tb_boot.log"), "w") as tf:
         ls = subprocess.Popen([*io, build.ls, f"--fw={fw}", f"--kernel={kernel}", f"--dtb={dtb}", f"--harts={harts}",
+                               *(["--mtgsmt=1"] if "HART1=1" in build.prof else []),  # a core with hart 1 has mtgsmt
                                "--stats=600", *([f"--plant={plant}"] if plant is not None else []), fifo],
                               stdout=lf, stderr=subprocess.STDOUT, preexec_fn=pre if nice or pol else None)
         tb = subprocess.Popen([*io, build.tb(), f"+fw={fw}", f"+dtb={dtb}", f"+kernel={kernel}",

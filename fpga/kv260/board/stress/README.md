@@ -438,3 +438,116 @@ It meets 100 MHz at WNS +0.367 ns with 105,934 LUTs. The package is d4r1-riscv w
 - **Network checks:** 24, hourly from 18:28:22.
 - **The end:** 17:58:22 UTC on 10-21, or the first failure, SD1 timeout or capture.
 - The stress numbers carry the watch's cost (about 3.5% on cpu and threads).
+
+**s21's memory gap** (the coordinator asked for it to be split before anyone calls it a regression):
+- **It holds.** Steady over passes 1–9: memory 124.71 MiB/s, against s20's 142.81 in stage C on the same bitstream: −12.7%. Both runs had the probe's watch.
+- **The watch's share,** measured with a twin of its poll loop (the same static busybox and commands, chrooted in its RAM root) from 1488 to 2584 s of uptime, with the probe still armed:
+
+  | | One loop (passes 1–9) | Two loops (passes 12–15, 18, 19) | One loop's cost |
+  |---|---|---|---|
+  | cpu | 90.44 | 87.30 | −3.5% |
+  | memory | 124.71 | 121.11 | −2.9% |
+  | threads | 2,223 | 2,145 | −3.5% |
+
+  Passes 10, 11, 16, 17 and 20 are left out: they overlapped the start or end of the twin, the `clock_gettime` test, or the 18:28 network check.
+- **The mode's share:** the watch costs about 3% in both modes and both runs had it, so the whole −12.7% is RISC-V mode against stage C.
+  - d4r1's mode cost was 4.7% (s18 138.30 against s19 segment a 131.86, no watch). d4s2's was 2.2%. The gap grows with each faster core.
+  - Against d4r1, with the watch taken out (÷0.971): d4r2 is 6.3% faster in stage C (about 147.1 against 138.3), but 2.6% slower in RISC-V mode (about 128.4 against 131.9).
+- **The clock read in RISC-V mode,** under the stress ([`../runs/cg.c`](../runs/cg.c)): `clock_gettime` 1,096–1,149 ns a call, a bare `rdtime` 246–249 ns. Both OpenSBI banners show the same timer, `zicntr` and `sstc`, so neither mode traps on the read. These numbers mean something only beside stage C's under the same load, which comes after s21.
+- **The two setups differ in the memory path.** RISC-V mode's window, set by `riscv.scr`, is 1 GiB at `0x8_4000_0000`, in the high DDR aperture. Stage C's is set by `tanager-host`.
+
+**s21 at 6 hours (23:58 UTC):**
+- **183 of 183 passes clean.** No failed pass, no FAIL/DMESG line, no SD1 timeout, no probe capture, no kernel trouble.
+- **Steady over 161 passes:** 116.1 s per pass, cpu 90.35 events/s, memory 124.84 MiB/s, threads 2,226 events, with the watch's cost. 22 passes are left out: those overlapping the network checks, the `clock_gettime` test, and the twin loop's window (passes 10–20; [`s21_experiment_windows.txt`](s21_experiment_windows.txt)).
+- **Network checks: 6 of 6 OK,** 0.47–0.57 MB/s up and 0.52–0.57 down, `apt-get update` exit 0 every time ([`net_s21.txt`](net_s21.txt)).
+
+**Laptop outages in s21 (the laptop's, not the board's):**
+- **01:27 UTC, 10-21: the app restarted on the laptop,** ahead of a full laptop shutdown the user is about to do. COM5 and COM7 logging, the stress watcher and the hourly check stopped with it.
+  - COM5's last line is pass 229 at 27,210.80 s of uptime, at 01:26:58. Check 8, due at 01:28:22, was missed.
+  - At 01:29 the board was still running: up 27,342.61 s (no reset since s21 began), the stress running, the watch armed, no SD1 timeout.
+  - The laptop itself had not rebooted: up since 10-12.
+  - **Correction:** the original loggers and the hourly check survived the app restart. They kept COM5 and COM7 and ran check 8 at 01:28:22, which pass 230 overlapped. Only their notifications to this session were lost, so a fresh watcher reads their log. Nothing was missed.
+- **The coming full shutdown:** the coordinator has asked the user to keep the laptop off for at least 15 s and not to touch COM5's adapter. The CH340's line then stays low past the PMOD hook's 10.7 s ceiling, so it can't look like a reset request. After it, the board's uptime and the pass counter will show whether the board kept running.
+- **About 01:32–01:35 UTC: the laptop's full shutdown and reboot** (it was up again at 01:35:05). Every laptop process died with it: the COM5 and COM7 loggers, the watcher, the hourly check and the timers.
+  - COM5's last line before it was pass 231 at 27,457 s (01:31:04), and check 8 at 01:28:22 had passed.
+  - **The board kept running.** COM5's first line after it, at 01:40:43, was pass 236 with `fails=0` at 28,049 s of uptime. Passes 232–235 ran unlogged, and the cumulative failure count shows them clean.
+  - COM7's shell at 01:41:55 read 28,108 s of uptime: no reset since s21 began.
+  - Logging restarted at 01:40 ([`uart_COM5_s21_part1.txt`](uart_COM5_s21_part1.txt) holds the part before).
+  - **The board's network is down, on the laptop's side.** eth0 lost its link four times while the laptop rebooted (27,630–27,716 s). Its link came back at 1 Gb/s/Full, but it has no IPv4 address ([`uart_COM7_s21_net.txt`](uart_COM7_s21_net.txt)).
+  - The laptop's connection sharing reports itself running, but nothing listens on UDP 67 (DHCP) or 53 (DNS), and the laptop's ARP entry for 192.168.137.6 stays "Incomplete". This is the known ICS fault after a reboot, and the user's restart of ICS fixes it.
+  - The hourly checks resume once the lease is back; until then, the checks are what's missing.
+
+**s21 ended at 08:03:44–08:04:00 UTC on 10-21 (01:04 PDT), by an external power cut.** The user interrupted the board's power supply ("I interrupted the board power supply seems, just let you know"). It was not a board fault.
+- **When:**
+  - COM5's last line is pass 432 (`fails=0`) at 51,018.75 s of uptime, at 08:03:44.
+  - COM7 then shows a cold power-up: the FSBL, `Net: PHY reset timed out`, and `tanager-mode: ARM mode` (trial 1: the RISC-V boot was never confirmed). Ubuntu's kernel was 36 s in at 08:04:46 ([`uart_COM7_s21_cut.txt`](uart_COM7_s21_cut.txt)).
+  - Ubuntu came up with `fancontrol` active and `k26-starter-kits` loaded. It has no IPv4 address while the laptop's ICS serves no DHCP; SSH works over its IPv6 link-local address. Its clock came back at 10-20 12:48 (no NTP).
+- **s21's totals, 17:58:22 UTC 10-20 to the cut: 14.09 h of stress.**
+  - 432 passes, all clean. 428 are logged; passes 232–235 ran during the laptop's reboot, and the cumulative count stayed at `fails=0` through pass 432.
+  - No FAIL/DMESG line, no SD1 timeout, no probe capture, no kernel trouble.
+  - Steady over 401 passes: 116.1 s per pass, cpu 90.31 events/s, memory 124.62 MiB/s, threads 2,221 events, with the watch's cost. 27 passes are left out for the network checks and the experiments; pass 236 is flagged only because its uptime span covers the unlogged passes.
+  - Network checks: 8 of 8 OK, 0.47–0.57 MB/s up and 0.52–0.58 down, `apt-get update` exit 0 every time. Checks 9 on (from 02:28) never ran: the laptop's reboot left its ICS serving no DHCP, so the board had no lease.
+- **The coordinator's call:** no restart of the 24 h soak on d4r2. The 60 of 60 boots and these 14 clean hours are enough for DR-176's fix. The next long stress comes with the product build that runs hart 1 (M8, 72 h).
+- Logs: [`uart_COM5_s21_part1.txt`](uart_COM5_s21_part1.txt) (to pass 231), [`uart_COM5_s21_part2.txt`](uart_COM5_s21_part2.txt) (passes 236–432), [`net_s21.txt`](net_s21.txt).
+
+## The SD1 hunt's set-up undone, and s22: d4r2 without the watch (10-21)
+
+**The undo** ([`../runs/sd1_probe_undo.sh`](../runs/sd1_probe_undo.sh), [`../memgap/undo_run.txt`](../memgap/undo_run.txt); logged in the change log): the coordinator closed the hunt after d4r2's 60 boots.
+- Removed: the probe, its initramfs hook and init-top script, the static busybox and soc-2's originals, the watch's unit and `sd_read_stress.sh`.
+- `iomem=relaxed` is gone, busybox is purged, and the initramfs was rebuilt with no trace of the probe.
+- **The boot after it was clean:** the kernel command line was `root=LABEL=tanager-root console=ttyS0,115200 earlycon rw`, nothing from the probe at the switch to the real root, no SD1 timeout.
+- **OpenSBI's banner on that boot:** `Domain0 Region02 : 0x00000000ff5e0218-0x00000000ff5e021f M: (I,R,W) S/U: (R,W)`. This is the 8-byte PMP region soc-2 found behind RISC-V mode's memory gap: a region smaller than a page makes the core stop caching each 4K page's PMP result. Their test tree, `d4r2-riscv-pmpfix`, is checked and staged for when the coordinator schedules it.
+
+**s22, the short stress without the watch** (d4r2, RISC-V mode, the old tree): from 08:59:06 UTC (`STRESS start 2026-10-21T08:34:27Z up=168.66`, [`uart_COM5_s22_start.txt`](uart_COM5_s22_start.txt)).
+- The guest's clock runs about 25 minutes behind: with no DHCP from the laptop's ICS it has no NTP. It doesn't step during the run, so the pass times hold.
+- **s22: 10 of 10 passes clean** (to `STRESS stop after pass 10, fails=0`). Steady: 116.0 s per pass, cpu 92.77 events/s, memory 127.14 MiB/s, threads 2,286 events.
+  - That's d4r2 in RISC-V mode on the old tree, without the watch: against s21, with the watch, cpu +2.7%, memory +2.0%, threads +2.9%.
+  - Logs: [`uart_COM5_s22.txt`](uart_COM5_s22.txt), [`uart_COM5_s22_stop.txt`](uart_COM5_s22_stop.txt).
+
+**soc-2's PMP tree fix** (the coordinator: right after s22, a before-and-after): installed on p1, with all four checks passed ([`../memgap/README.md`](../memgap/README.md)).
+- OpenSBI's region is now a page.
+- memgap's store loop, `rdtime` and event times match stage C, and sysbench 1 KiB reads 146.1 MiB/s.
+- `reboot` and `poweroff` still reset the board.
+
+**s23, the short stress with the fixed tree, without the watch:** from 09:35:29 UTC (`STRESS start 2026-10-21T09:03:45Z up=157.47`, [`uart_COM5_s23_start.txt`](uart_COM5_s23_start.txt)).
+- **s23: 10 of 10 passes clean** (to `STRESS stop after pass 10, fails=0`, at 09:54 UTC). Debian stays up in RISC-V mode. Logs: [`uart_COM5_s23.txt`](uart_COM5_s23.txt), [`uart_COM5_s23_stop.txt`](uart_COM5_s23_stop.txt).
+
+**Before and after the PMP tree fix** (d4r2, RISC-V mode, no watch, 10 passes each):
+
+| | s22, the old tree | s23, the fixed tree | Change | s20, stage C (with the watch) |
+|---|---|---|---|---|
+| Pass | 116.0 s | 114.1 s | −1.6% | 114.7 s |
+| cpu | 92.77 events/s | 93.81 events/s | +1.1% | 91.02 |
+| **memory** | 127.14 MiB/s | **146.23 MiB/s** | **+15.0%** | 142.81 |
+| threads | 2,286 events | 2,323 events | +1.6% | 2,257 |
+
+- **RISC-V mode now runs at stage C's speed.** s23's memory figure (146.2) matches stage C's without the watch: s20's 142.8 with the watch's measured 2.9% taken out is 147.1, and memgap's sysbench run read 144.5–146.1.
+- cpu and threads rise less because they rarely store to memory or read the clock.
+- These are d4r2's figures in the product mode, without the watch.
+
+**Two resets while the board idled after s23 (10-21), both at the laptop's wake from hibernation.**
+- **What happened:**
+  - After s23 (09:54 UTC) Debian idled in RISC-V mode.
+  - At about 11:08 UTC the board reset with no shutdown. U-Boot's hook read riscv, trial 1 and booted Ubuntu: DR-172's fallback for an unconfirmed RISC-V boot, as designed.
+  - Ubuntu ran until about 17:00 UTC, when the board reset again with no shutdown. This time the A53's U-Boot stopped at its prompt, where the next serial session found it at 17:18 UTC.
+  - At the prompt: `version`, RESET_REASON and the mode record read first, then `boot`, which brought Ubuntu up ([`uart_COM7_uboot_found.txt`](uart_COM7_uboot_found.txt)). The record went back to riscv for the baseline ([`../d4r2/README.md`](../d4r2/README.md)).
+- **The laptop** (Windows' System log, [`laptop_power_1021.txt`](laptop_power_1021.txt)): its battery reached critical twice, and each time it hibernated.
+  - 10:37:41 to 11:08:35 UTC, with a power-source change logged at 11:08:33.
+  - 11:57:10 to 17:02:03 UTC.
+  - It is now on AC at 100%.
+- **The board's records:**
+  - **The RISC-V's journal** ([`reset_1021_riscv.txt`](reset_1021_riscv.txt)): `eth0: Lost carrier` at 3,892.9 s and `Gained carrier` at 5,701.3 s. s23's start (up 157.5 s at about 09:35:25) puts these at 10:37:41 and 11:07:50 UTC: the laptop's sleep, and its firmware starting the wake about 45 s before Windows logged it. Nothing follows, and there are no shutdown lines.
+  - **COM7** ([`uart_COM7_1021.txt`](uart_COM7_1021.txt), 08:14 to 17:18 UTC): the logger, paused with the laptop, came back after Windows' wake (11:08:35) in the middle of the A53's ARM-mode boot, at the end of U-Boot's 4.9 s read of `image.fit`. That point comes about 13 s after a reset: the hook runs about 8 s after it in the baseline's stamped boots ([`../d4r2/README.md`](../d4r2/README.md)), and the read takes 4.9 s. So the A53 reset at about 11:08:22 or a little later: after the link's return and before Windows' wake.
+  - **Ubuntu's journal** ([`reset_1021_ubuntu.txt`](reset_1021_ubuntu.txt)): its last entry is a 5-minute cron line at 20,911 s, with no shutdown lines.
+    - From that boot's start, that entry is at about 16:57 UTC, and the next cron line, due about 17:02, is missing.
+    - So the reset came between 16:57 and 17:02, or a little later (journald syncs every 5 minutes): around the laptop's wake at 17:02:03.
+  - **RESET_REASON reads `0x21`**, both at the prompt and in Ubuntu: an external POR at some point, then software resets.
+    - This U-Boot prints the register but doesn't clear it, so it can't tell these resets from Debian's reboots.
+    - No SRST, PMU, internal-POR or debug bit is set.
+    - A power-on reads the same. After the user moved the board to a new supply on 10-22, U-Boot printed `SOFT` and the register read `0x21` ([`../d4r2/README.md`](../d4r2/README.md)). So the register can't separate a dip in the supply from a software reset either.
+- **Reading:**
+  - Both resets came during the laptop's wake, with the board idle and no warning in either journal. They are laptop events, like s21's power cut, not board faults.
+  - The first, in RISC-V mode, could be the PMOD hook. A break of 2.7–10.7 s on COM5's line resets the board as the break ends, and the laptop's USB ports may cut the adapter's power for a few seconds while the firmware wakes.
+  - But the second came in ARM mode, where the hook isn't loaded. A single cause for both would have to reach the board in either mode: the micro-USB's FTDI (COM7 and JTAG) powering up again, or the supply.
+  - The U-Boot prompt fits a stray byte from the FTDI on UART1 during the autoboot countdown.
+  - A test would tell which line does it: with the loggers on and the board idle in each mode, the laptop put to sleep and woken, or each USB cable unplugged and plugged back. That needs the user at the laptop. Until then, the laptop staying on AC avoids it.

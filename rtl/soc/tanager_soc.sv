@@ -30,6 +30,8 @@ module tanager_soc
   parameter bit          DEBUG_CNT       = 1'b0,              // board debug counters (tg_uncore)
   parameter bit          VIRTIO_WINDOW   = 1'b0,              // the forwarded virtio window (tg_uncore)
   parameter bit          HOST_DMA        = 1'b0,              // the coherent host DMA port (tg_uncore)
+  parameter bit          LAT_INJ         = 1'b1,              // the two latency injectors: 0 in release builds (tg_uncore; DR-177)
+  parameter bit          RELEASE         = 1'b0,              // a release build (tg_uncore; DR-180)
   parameter int          BREAK_LOG2      = 28,                // the PMOD reset hook's shortest break (tg_uncore)
   parameter string       CORE_KIND       = "core"     // "core" or "trafgen"
 ) (
@@ -242,7 +244,8 @@ module tanager_soc
     .DRAM_BASE_INIT (DRAM_BASE_INIT), .DRAM_SIZE_INIT (DRAM_SIZE_INIT), .UART_SERIAL (UART_SERIAL),
     .UNCORE_DSP (UNCORE_DSP), .AR_SLICE (AR_SLICE), .B_SLICE (B_SLICE), .D_SLICE (D_SLICE), .W_SLICE (W_SLICE),
     .XBAR_IN_SLICE (XBAR_IN_SLICE), .XBAR_SLICE (XBAR_SLICE), .MEM_SLICE (MEM_SLICE), .DEBUG_CNT (DEBUG_CNT),
-    .VIRTIO_WINDOW (VIRTIO_WINDOW), .HOST_DMA (HOST_DMA), .BREAK_LOG2 (BREAK_LOG2)
+    .VIRTIO_WINDOW (VIRTIO_WINDOW), .HOST_DMA (HOST_DMA), .LAT_INJ (LAT_INJ), .RELEASE (RELEASE),
+    .TRAFGEN (CORE_KIND == "trafgen"), .BREAK_LOG2 (BREAK_LOG2)
   ) u_uncore (
     .clk, .rst, .clk_host, .rst_host,
     .core_dbg_sel_o (core_dbg_sel), .core_dbg_i (core_dbg),

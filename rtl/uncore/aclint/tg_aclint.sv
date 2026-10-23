@@ -86,11 +86,15 @@ module tg_aclint
   end
 
   // MTIP: mtime >= mtimecmp, registered, per hart in two DSP48E2 compares (tg_dsp_cmp at latency 1,
-  // whose P register is the irq register; DR-136): the high words' lt and eq and the low words' lt,
-  // combined after the registers. rst_q keeps the synchronous reset: irq is 0 the cycle after rst.
-  // From the first clock edge on, irq is the register it replaced, cycle for cycle.
+  // whose P register is the compare's register; DR-136): the high words' lt and eq and the low words' lt,
+  // combined after the registers. rst_q keeps the synchronous reset: mti_cmp is 0 the cycle after rst.
+  // From the first clock edge on, mti_cmp is the register it replaced, cycle for cycle.
+  // Each hart's MTIP and MSIP then leave through a register of their own, one cycle later (spikes §8.18):
+  // the lines run into the cores' interrupt logic (the CSR file, rename, the ROB, fetch), and a flop that
+  // the placer can put by the core keeps the DSPs' clock-to-out, rst_q and the route out of those cones.
   logic rst_q;
   always_ff @(posedge clk) rst_q <= rst;
+  logic [N_HARTS-1:0] mti_cmp, mti_q, msi_q;
   for (genvar h = 0; h < N_HARTS; h++) begin : g_mti
     logic hi_eq, hi_lt, lo_eq, lo_lt;
     tg_dsp_cmp #(.W (32), .LAT (1)) u_hi (
@@ -99,16 +103,26 @@ module tg_aclint
     tg_dsp_cmp #(.W (32), .LAT (1)) u_lo (
       .clk, .ce (1'b1), .opa (mtime_q[31:0]), .opb (cmp_q[h][31:0]), .is_eq (lo_eq), .is_lt (lo_lt)
     );
-    assign irq_mti_o[h] = !rst_q && !(hi_lt || (hi_eq && lo_lt));
+    assign mti_cmp[h] = !rst_q && !(hi_lt || (hi_eq && lo_lt));
     wire unused_eq = lo_eq;
   end
-  assign irq_msi_o = msip_q;
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      mti_q <= '0;
+      msi_q <= '0;
+    end else begin
+      mti_q <= mti_cmp;
+      msi_q <= msip_q;
+    end
+  end
+  assign irq_mti_o = mti_q;
+  assign irq_msi_o = msi_q;
   assign mtime_o   = mtime_q;
 
   wire unused = ^{req_i.addr[PA_W-1:16], off[2:0], req_i.size};
 
 `ifndef SYNTHESIS
-  // MTIP is the registered compare it replaced
+  // The DSPs' compare is the registered compare it replaced
   logic [N_HARTS-1:0] mti_ref_q;
   always_ff @(posedge clk) begin
     if (rst) mti_ref_q <= '0;
@@ -116,6 +130,6 @@ module tg_aclint
   end
   logic started_q;                      // past the first edge (before it, no register has loaded)
   always_ff @(posedge clk) started_q <= 1'b1;
-  always_ff @(posedge clk) if (started_q === 1'b1) assert (irq_mti_o == mti_ref_q) else $error("tg_aclint: MTIP differs from mtime >= mtimecmp");
+  always_ff @(posedge clk) if (started_q === 1'b1) assert (mti_cmp == mti_ref_q) else $error("tg_aclint: MTIP differs from mtime >= mtimecmp");
 `endif
 endmodule

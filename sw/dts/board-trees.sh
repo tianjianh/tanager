@@ -9,6 +9,8 @@
 #     tanager-kv260-bench.dtb        the Linux bench's (DR-141): the PMU event map, tanager.bench=1
 #     tanager-kv260-riscv.dtb        RISC-V mode's, which sw/d4mode/build.sh puts in tanager/ as tanager.dtb: UART1 off
 #                                    the stdout path, SD1, the board's reset, GEM3 with the board's MAC
+#     tanager-kv260-riscv-rel.dtb    the same for a release build (TG_RELEASE=1, DR-180): the PLIC's M contexts absent.
+#                                    The product's; it boots a development build as well (nothing uses those contexts)
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 out=${1:?usage: board-trees.sh <out-dir> [1|2]}
@@ -28,4 +30,5 @@ one virtio MEM=0x40000000 VIRTIO=1
 one virtio-768m MEM=0x30000000 VIRTIO=1
 one bench MEM=0x40000000 PMU=1 BOOTARGS="console=ttyS0,115200 earlycon tanager.bench=1"
 one riscv MEM=0x40000000 UART1=1 UART1_STDOUT=0 SD1=1 BOARD_RESET=1 ETH=1 ETH_MAC="$mac"
+one riscv-rel MEM=0x40000000 UART1=1 UART1_STDOUT=0 SD1=1 BOARD_RESET=1 ETH=1 ETH_MAC="$mac" RELEASE=1
 echo "board-trees.sh: RUN_THREADS=$rt, $(( rt == 2 ? 4 : 2 )) harts, in $out"

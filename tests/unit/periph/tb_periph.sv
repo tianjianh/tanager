@@ -2,8 +2,10 @@
 // tg_tl_dev with tg_aclint, tg_plic, tg_uart and a stub host-control register; tg_bootrom directly.
 // Directed checks per device plus a random PLIC test against a reference model. VIRTIO = 1 (make
 // ... VIRTIO=1) adds a stub device at the virtio slots that holds the bus's wait for 0-40 cycles at
-// random, the forwarded window's case, checked against a reference memory.
-module tb_periph #(parameter bit VIRTIO = 1'b0);
+// random, the forwarded window's case, checked against a reference memory. REL = 1 (make ... REL=1) builds the
+// PLIC as release builds do (DR-180: S_ONLY, PRIO_W = 1): the model keeps the M contexts empty and one bit of
+// each priority and threshold, and directed checks find an M context's registers and claim reading 0.
+module tb_periph #(parameter bit VIRTIO = 1'b0, parameter bit REL = 1'b0);
   import tg_pkg::*, tg_tl_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*, tg_bootrom_img_pkg::*;
 
   localparam int NH = 4;                 // harts
@@ -33,7 +35,7 @@ module tb_periph #(parameter bit VIRTIO = 1'b0);
   logic [31:0] src;
   logic [2*NH-1:0] eip;
   localparam logic [31:0] EDGE = 32'h00FF_0000;    // sources 16..23 edge-triggered
-  tg_plic #(.N_SRC (32), .N_CTX (2 * NH), .EDGE_SRC (EDGE)) u_plic (
+  tg_plic #(.N_SRC (32), .N_CTX (2 * NH), .PRIO_W (REL ? 1 : 3), .EDGE_SRC (EDGE), .S_ONLY (REL)) u_plic (
     .clk, .rst, .req_i (req), .req_valid_i (req_v[DEV_PLIC]), .rsp_o (rsp[DEV_PLIC]), .src_i (src), .irq_o (eip));
 
   logic uirq, tx_v, tx_r, rx_v, rx_r;
@@ -276,6 +278,10 @@ module tb_periph #(parameter bit VIRTIO = 1'b0);
   logic [2:0] m_thr [2*NH];
   bit [31:0] src_prev;
 
+  // what the PLIC keeps of a priority or threshold written, and whether a context holds anything
+  function automatic logic [2:0] pk(input logic [2:0] p); return REL ? (p & 3'd1) : p; endfunction
+  function automatic bit live(input int c); return !REL || c % 2 == 1; endfunction
+
   function automatic int ref_best(input int c);
     int id; logic [2:0] p;
     id = 0; p = m_thr[c];
@@ -302,10 +308,10 @@ module tb_periph #(parameter bit VIRTIO = 1'b0);
     for (int s = 0; s < 32; s++) m_prio[s] = 0;
     for (int c = 0; c < 2*NH; c++) begin m_en[c] = 0; m_thr[c] = 0; end
     // directed: priority, enable, claim, complete
-    wr32(PLIC_BASE + 4 * 10, 32'd5);    m_prio[10] = 5;
+    wr32(PLIC_BASE + 4 * 10, 32'd5);    m_prio[10] = pk(5);
     wr32(PLIC_BASE + 34'h2000 + 34'h80 * 3, 32'h400);  m_en[3] = 32'h400;   // context 3 = hart 1 S
     rd32(PLIC_BASE + 4 * 10, w);
-    if (w != 5) fail("plic priority readback");
+    if (w != 32'(pk(5))) fail($sformatf("plic priority readback %0d, want %0d", w, pk(5)));
     src[10] = 1'b1;
     plic_settle();
     if (eip != 8'b0000_1000) fail($sformatf("plic eip %b (want ctx 3)", eip));
@@ -323,16 +329,40 @@ module tb_periph #(parameter bit VIRTIO = 1'b0);
     if (eip != 0) fail("plic eip after complete with the source low");
     // threshold masks
     src[10] = 1'b1;
-    wr32(PLIC_BASE + 34'h20_0000 + 34'h1000 * 3, 32'd5);  m_thr[3] = 5;
+    wr32(PLIC_BASE + 34'h20_0000 + 34'h1000 * 3, 32'd5);  m_thr[3] = pk(5);
     plic_settle();
     if (eip[3]) fail("plic threshold did not mask");
-    wr32(PLIC_BASE + 34'h20_0000 + 34'h1000 * 3, 32'd4);  m_thr[3] = 4;
+    wr32(PLIC_BASE + 34'h20_0000 + 34'h1000 * 3, 32'd4);  m_thr[3] = pk(4);
     plic_settle();
     if (!eip[3]) fail("plic threshold 4 masked priority 5");
     rd32(PLIC_BASE + 34'h20_0000 + 34'h1000 * 3 + 4, w);  m_pend[10] = 0; m_busy[10] = 1;
     src[10] = 1'b0;
     wr32(PLIC_BASE + 34'h20_0000 + 34'h1000 * 3 + 4, 32'd10); m_busy[10] = 0;
     plic_settle();
+    if (REL) begin
+      // a release build's M contexts (here hart 1's, 2) hold nothing: enables and threshold read 0 after writes,
+      // and a claim there reads 0 with source 10 pending and enabled on both of hart 1's contexts
+      wr32(PLIC_BASE + 34'h2000 + 34'h80 * 2, 32'hFFFF_FFFE);
+      wr32(PLIC_BASE + 34'h20_0000 + 34'h1000 * 2, 32'd1);
+      rd32(PLIC_BASE + 34'h2000 + 34'h80 * 2, w);
+      if (w != 0) fail($sformatf("plic release: context 2's enables read %h", w));
+      rd32(PLIC_BASE + 34'h20_0000 + 34'h1000 * 2, w);
+      if (w != 0) fail($sformatf("plic release: context 2's threshold reads %0d", w));
+      src[10] = 1'b1;
+      plic_settle();
+      if (eip != 8'b0000_1000) fail($sformatf("plic release: eip %b (want ctx 3 alone)", eip));
+      rd32(PLIC_BASE + 34'h20_0000 + 34'h1000 * 2 + 4, w);
+      if (w != 0) fail($sformatf("plic release: context 2 claimed %0d", w));
+      rd32(PLIC_BASE + 34'h20_0000 + 34'h1000 * 3 + 4, w);  m_pend[10] = 0; m_busy[10] = 1;
+      if (w != 10) fail($sformatf("plic release: context 3 claimed %0d (want 10)", w));
+      src[10] = 1'b0;
+      wr32(PLIC_BASE + 34'h20_0000 + 34'h1000 * 2 + 4, 32'd10);   // a complete through context 2: ignored
+      @(posedge clk); @(posedge clk);
+      if (!u_plic.busy_q[10]) fail("plic release: a complete through context 2 was taken");
+      wr32(PLIC_BASE + 34'h20_0000 + 34'h1000 * 3 + 4, 32'd10); m_busy[10] = 0;
+      plic_settle();
+      $display("plic: release form (M contexts empty, 1-bit priorities) ok");
+    end
     // random: sources toggle, contexts claim and complete, all checked against the model
     for (int it = 0; it < 3000; it++) begin
       int op;
@@ -345,15 +375,15 @@ module tb_periph #(parameter bit VIRTIO = 1'b0);
       end else if (op < 40) begin
         int s; logic [2:0] p;
         s = int'($urandom_range(31, 1)); p = 3'($urandom());
-        wr32(PLIC_BASE + 4 * s, 32'(p)); m_prio[s] = p;
+        wr32(PLIC_BASE + 4 * s, 32'(p)); m_prio[s] = pk(p);
       end else if (op < 50) begin
         int c; logic [31:0] e;
         c = int'($urandom_range(2*NH - 1)); e = $urandom() & ~32'h1;
-        wr32(PLIC_BASE + 34'h2000 + 34'h80 * c, e); m_en[c] = e;
+        wr32(PLIC_BASE + 34'h2000 + 34'h80 * c, e); if (live(c)) m_en[c] = e;
       end else if (op < 55) begin
         int c; logic [2:0] t;
         c = int'($urandom_range(2*NH - 1)); t = 3'($urandom_range(3));
-        wr32(PLIC_BASE + 34'h20_0000 + 34'h1000 * c, 32'(t)); m_thr[c] = t;
+        wr32(PLIC_BASE + 34'h20_0000 + 34'h1000 * c, 32'(t)); if (live(c)) m_thr[c] = pk(t);
       end else if (op < 80) begin
         int c, want;
         c = int'($urandom_range(2*NH - 1));
@@ -419,8 +449,8 @@ module tb_periph #(parameter bit VIRTIO = 1'b0);
     p_wait();
     for (int k = 1; k < 32; k++) wr32(PLIC_BASE + 4 * k, 32'd1);
     for (int c = 0; c < 2*NH; c++) begin wr32(P_CTX + 34'h1000 * c, 32'd0); p_en(c, 32'hFFFF_FFFE); end
-    for (int k = 1; k < 32; k++) p_complete(0, k);
-    do begin p_claim(0, w); if (w != 0) p_complete(0, int'(w)); end while (w != 0);
+    for (int k = 1; k < 32; k++) p_complete(REL ? 1 : 0, k);            // a release build's context 0 holds nothing
+    do begin p_claim(REL ? 1 : 0, w); if (w != 0) p_complete(REL ? 1 : 0, int'(w)); end while (w != 0);
     for (int c = 0; c < 2*NH; c++) p_en(c, 32'd0);
     p_wait();
     if (u_plic.pend_q != '0 || u_plic.busy_q != '0) fail("plic seq: no clean slate");

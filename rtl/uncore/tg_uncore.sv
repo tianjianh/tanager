@@ -59,8 +59,9 @@ module tg_uncore
   // measured in docs/spec/soc.md
   parameter logic [3:0]  XBAR_IN_SLICE   = XBAR_IN_SLICE_DEF,
   // The crossbar's own register slices (every target-side A, C and E output, every initiator-side D
-  // and B output) and the memory ports' AXI slices toward the PS. On, as built for 200 MHz; off
-  // they cost no cycle and no area: a timing study at the lower clock of DR-145
+  // and B output) and the memory ports' AXI slices toward the PS. Built for 200 MHz, off since DR-186
+  // (the user, 10-22): off, every message that went through one is a cycle shorter, and their flip-flops
+  // go. On, each is a timing lever (docs/spec/soc.md §Reserve levers)
   parameter bit          XBAR_SLICE      = XBAR_SLICE_DEF,
   parameter bit          MEM_SLICE       = MEM_SLICE_DEF,
   // The L2 MSHRs' way flip-flops one-hot (else binary): the reservations and the ProbeAck search take
@@ -88,6 +89,19 @@ module tg_uncore
   // L2 serves the host's reads and writes coherently; each write line's AccessAck cycle can be recorded
   // for lockstep (host bridge HDMA_*). Off by default: no logic, s_axi_dma_* ignored and its outputs 0
   parameter bit          HOST_DMA        = 1'b0,
+  // The two AXI latency injectors, one on each L2 bank's memory path (docs/spec/uncore-mem.md; DR-177): 1 in
+  // development builds, which inject latency on the board (host bridge INJ_*); 0 in release builds, where each
+  // bank's AXI channels run straight to its window, and the INJ_* registers and CAPS[1] read 0
+  parameter bit          LAT_INJ         = 1'b1,
+  // A release build (DR-180; build.tcl TG_RELEASE=1, with LAT_INJ = 0, VIRTIO_WINDOW = 0 and no trace): the PLIC keeps
+  // its S-mode contexts alone, with 1-bit priorities and no TTC1 source (PS_IRQ_TTC1); the host bridge has no
+  // console FIFOs (the console is the serial line alone: UART_SERIAL) and carries only the built features' fields
+  // across its crossings; the DMA port has no line counters, nor a completion queue without the trace. 0 (the
+  // default, development builds) keeps all of it
+  parameter bit          RELEASE         = 1'b0,
+  // The cores may be traffic generators (tanager_soc CORE_KIND "trafgen"): with RELEASE, their controls and results
+  // cross the host bridge only then
+  parameter bit          TRAFGEN         = 1'b1,
   // The PMOD reset hook (PS_WINDOW builds; docs/spec/soc-d4-modes.md): armed by BOARD_CTRL[1], a break on
   // uart_rxd_i of 2^BREAK_LOG2 to 2^(BREAK_LOG2+2) cycles (2.7 to 10.7 s at 100 MHz) makes the PS window write
   // the board's reset when it ends
@@ -253,6 +267,9 @@ module tg_uncore
   if (N_CORES < 1 || N_CORES > NUM_CORES) begin : g_bad_cores
     $error("tg_uncore: N_CORES must be 1..NUM_CORES");
   end
+  // release builds (RELEASE, DR-180): what the DMA port and the host bridge leave out
+  localparam bit HDMA_STATS = !RELEASE;               // the DMA port's line counters
+  localparam bit HDMA_CPL   = !RELEASE || TRACE;      // its completion queue: lockstep's, which needs the trace
 
   logic uncore_rst;     // from the host bridge (rst, or the host's CTRL register)
 
@@ -449,21 +466,44 @@ module tg_uncore
       assign w_sv      = l2_wv[b];
       assign l2_wr[b]  = w_sr;
     end
-    tg_axi_lat_inj u_inj (
-      .clk, .rst (uncore_rst),
-      .rd_delay_i (inj_rd), .wr_delay_i (inj_wr), .mode_i (inj_mode), .bw_rate_i (inj_bw),
-      .st_rd_count_o (inj_cnt[b]), .st_lat_sum_o (inj_sum[b]), .st_lat_max_o (inj_max[b]),
-      .s_ar_i (ar_s), .s_ar_valid_i (ar_sv), .s_ar_ready_o (ar_sr),
-      .s_r_o (l2_r_ch[b]), .s_r_valid_o (l2_rv[b]), .s_r_ready_i (l2_rr[b]),
-      .s_aw_i (aw_s), .s_aw_valid_i (aw_sv), .s_aw_ready_o (aw_sr),
-      .s_w_i (w_s), .s_w_valid_i (w_sv), .s_w_ready_o (w_sr),
-      .s_b_o (l2_b_ch[b]), .s_b_valid_o (l2_bvv[b]), .s_b_ready_i (l2_brr[b]),
-      .m_ar_o (ij_ar[b]), .m_ar_valid_o (ij_arv[b]), .m_ar_ready_i (ij_arr[b]),
-      .m_r_i (ij_r[b]), .m_r_valid_i (ij_rv[b]), .m_r_ready_o (ij_rr[b]),
-      .m_aw_o (ij_aw[b]), .m_aw_valid_o (ij_awv[b]), .m_aw_ready_i (ij_awr[b]),
-      .m_w_o (ij_w[b]), .m_w_valid_o (ij_wv[b]), .m_w_ready_i (ij_wr[b]),
-      .m_b_i (ij_b[b]), .m_b_valid_i (ij_bv[b]), .m_b_ready_o (ij_br[b])
-    );
+    if (LAT_INJ) begin : g_inj
+      tg_axi_lat_inj u_inj (
+        .clk, .rst (uncore_rst),
+        .rd_delay_i (inj_rd), .wr_delay_i (inj_wr), .mode_i (inj_mode), .bw_rate_i (inj_bw),
+        .st_rd_count_o (inj_cnt[b]), .st_lat_sum_o (inj_sum[b]), .st_lat_max_o (inj_max[b]),
+        .s_ar_i (ar_s), .s_ar_valid_i (ar_sv), .s_ar_ready_o (ar_sr),
+        .s_r_o (l2_r_ch[b]), .s_r_valid_o (l2_rv[b]), .s_r_ready_i (l2_rr[b]),
+        .s_aw_i (aw_s), .s_aw_valid_i (aw_sv), .s_aw_ready_o (aw_sr),
+        .s_w_i (w_s), .s_w_valid_i (w_sv), .s_w_ready_o (w_sr),
+        .s_b_o (l2_b_ch[b]), .s_b_valid_o (l2_bvv[b]), .s_b_ready_i (l2_brr[b]),
+        .m_ar_o (ij_ar[b]), .m_ar_valid_o (ij_arv[b]), .m_ar_ready_i (ij_arr[b]),
+        .m_r_i (ij_r[b]), .m_r_valid_i (ij_rv[b]), .m_r_ready_o (ij_rr[b]),
+        .m_aw_o (ij_aw[b]), .m_aw_valid_o (ij_awv[b]), .m_aw_ready_i (ij_awr[b]),
+        .m_w_o (ij_w[b]), .m_w_valid_o (ij_wv[b]), .m_w_ready_i (ij_wr[b]),
+        .m_b_i (ij_b[b]), .m_b_valid_i (ij_bv[b]), .m_b_ready_o (ij_br[b])
+      );
+    end else begin : g_thru
+      // A release build (DR-177): the bank's channels straight to its window. The L2 then sees the PS's own
+      // response order, which it takes (R by ID into its MSHRs, beats of different IDs interleaved: l2.md)
+      assign ij_ar[b]   = ar_s;
+      assign ij_arv[b]  = ar_sv;
+      assign ar_sr      = ij_arr[b];
+      assign l2_r_ch[b] = ij_r[b];
+      assign l2_rv[b]   = ij_rv[b];
+      assign ij_rr[b]   = l2_rr[b];
+      assign ij_aw[b]   = aw_s;
+      assign ij_awv[b]  = aw_sv;
+      assign aw_sr      = ij_awr[b];
+      assign ij_w[b]    = w_s;
+      assign ij_wv[b]   = w_sv;
+      assign w_sr       = ij_wr[b];
+      assign l2_b_ch[b] = ij_b[b];
+      assign l2_bvv[b]  = ij_bv[b];
+      assign ij_br[b]   = l2_brr[b];
+      assign inj_cnt[b] = '0;
+      assign inj_sum[b] = '0;
+      assign inj_max[b] = '0;
+    end
     tg_axi_window u_win (
       .clk, .rst (uncore_rst), .base_i (win_base), .size_i (win_size),
       .s_ar_i (ij_ar[b]), .s_ar_valid_i (ij_arv[b]), .s_ar_ready_o (ij_arr[b]),
@@ -494,6 +534,10 @@ module tg_uncore
     );
   end
 
+  if (!LAT_INJ) begin : g_noinj
+    wire unused_inj = ^{inj_rd, inj_wr, inj_mode, inj_bw};   // the host bridge holds them at 0 (release build)
+  end
+
   // Injector statistics, both ports
   logic [31:0] inj_cnt_all, inj_sum_all;
   logic [15:0] inj_max_all;
@@ -516,7 +560,7 @@ module tg_uncore
   logic [25:0] cpl_line;
   logic [31:0] cpl_cycle, hdma_rd_lines, hdma_wr_lines, hdma_wr_drops;
   if (HOST_DMA) begin : g_hdma
-    tg_hdma #(.ID_W (HDMA_ID_W)) u_hdma (
+    tg_hdma #(.ID_W (HDMA_ID_W), .CPL (HDMA_CPL), .STATS (HDMA_STATS)) u_hdma (
       .clk, .rst (uncore_rst),
       .s_awid (s_axi_dma_aw.id), .s_awaddr (s_axi_dma_aw.addr), .s_awlen (s_axi_dma_aw.len),
       .s_awsize (s_axi_dma_aw.size), .s_awburst (s_axi_dma_aw.burst), .s_awvalid (s_axi_dma_aw_valid),
@@ -665,9 +709,11 @@ module tg_uncore
     plic_src[IRQ_HOSTCTL] = mbox_irq;
     for (int s = 0; s < VIO_SLOTS; s++) plic_src[IRQ_VIRTIO0 + s] = vio_irq[s];
     for (int h = 0; h < NH; h++) plic_src[IRQ_MERR0 + h] = merr_i[h];
-    for (int k = 0; k < PS_IRQS; k++) plic_src[IRQ_PS0 + k] = ps_irq[k];
+    for (int k = 0; k < PS_IRQS; k++)
+      if (!(RELEASE && k == PS_IRQ_TTC1)) plic_src[IRQ_PS0 + k] = ps_irq[k];   // TTC1 is D1's test alone
   end
-  tg_plic #(.N_SRC (PLIC_NSRC), .N_CTX (2 * NH), .EDGE_SRC (EDGE_SRC)) u_plic (
+  tg_plic #(.N_SRC (PLIC_NSRC), .N_CTX (2 * NH), .PRIO_W (RELEASE ? 1 : 3), .EDGE_SRC (EDGE_SRC),
+            .S_ONLY (RELEASE)) u_plic (
     .clk, .rst (uncore_rst), .req_i (dreq), .req_valid_i (dreq_v[DEV_PLIC]), .rsp_o (drsp[DEV_PLIC]),
     .src_i (plic_src), .irq_o (plic_irq_o)
   );
@@ -781,7 +827,8 @@ module tg_uncore
     .CLK_HZ (CLK_HZ), .CFG_CODE (CFG_CODE), .N_CORES_SOC (N_CORES),
     .CORE_RST_INIT (CORE_RST_INIT), .UNCORE_RST_INIT (UNCORE_RST_INIT),
     .DRAM_BASE_INIT (DRAM_BASE_INIT), .DRAM_SIZE_INIT (DRAM_SIZE_INIT), .TRACE (TRACE), .DEBUG (DEBUG_CNT),
-    .VIRTIO (VIRTIO_WINDOW), .HDMA (HOST_DMA)
+    .VIRTIO (VIRTIO_WINDOW), .HDMA (HOST_DMA), .LAT_INJ (LAT_INJ), .HOST_CONSOLE (!RELEASE), .HDMA_STATS (HDMA_STATS),
+    .HDMA_CPL (HDMA_CPL), .TRAFGEN (TRAFGEN), .CDC_TRIM (RELEASE)
   ) u_host (
     .clk_host, .rst_host,
     .s_awaddr (s_axil_awaddr), .s_awvalid (s_axil_awvalid), .s_awready (s_axil_awready),

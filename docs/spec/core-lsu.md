@@ -31,6 +31,10 @@ Inside `tg_core` (packages: `tg_core_pkg`, `tg_tl_pkg`, `tg_map_pkg`):
 - **Split mode (`SPLIT`, D1):** thread t owns LQ entries [12t, 12t + 12) and SQ entries [10t, 10t + 10) in smt2, and its
   pointers, the drain's next head and the head's mask wrap there. A flush drops only the flushed thread's entries.
   Each search takes its thread's entries (below).
+- **From step 6 the split is a mode at run time** (core-pipeline.md §8.5).
+  - While the sibling sleeps, the running thread owns every entry; the sleeper owns none.
+  - A split whose runner's window is empty moves its LQ and SQ pointers to its half's start (`mrs_i`). If the runner
+    is the drain's thread, its head's mask and the drain head's entry (`sqh_q`) are reread.
 - **Translation and PMP per hart (M7's step 4):** each access translates and checks with its thread's privilege, data
   privilege, SUM, MXR, satp and PMP (each hart's copy, a cycle behind `tg_csr`'s): a new load's and a store address's
   thread is its queue entry's half (the running thread without the split mode), the head's check the ROB's commit
@@ -39,7 +43,10 @@ Inside `tg_core` (packages: `tg_core_pkg`, `tg_tl_pkg`, `tg_map_pkg`):
 - **The LSU per thread (M7's step 4):**
   - **A flush kills only its thread's operations** (`kill_t`): every stage, report and LUTRAM write is gated by its
     operation's thread (a load's or a store's queue entry's, a PTE read's walk's), and the walker's walk ends only at
-    its thread's flush. The store-data capture and the store prefetch (a hint) wait out any flush cycle.
+    its thread's flush. The store-data capture and the store prefetch (a hint) wait out any flush cycle. With hart 1
+    (5c) the capture also waits in the cycle the other thread's atomic writes `u_sqd` (its one write port, the
+    atomic's), and an MMIO request's source is its hart's index in the core (the access's thread ^ `SOLO_TID`;
+    interfaces.md §2.4), 0 for a lone hart.
   - **Searches stay inside a thread:** forwarding takes the M1 load's thread's stores from its SQ head (the M1 store
     address only when it is the load's thread's); the ordering check the store's thread's loads, from its heads; a
     blocked load wakes on its thread's SQ.
@@ -48,6 +55,13 @@ Inside `tg_core` (packages: `tg_core_pkg`, `tg_tl_pkg`, `tg_map_pkg`):
     when both threads want it (a committed store, or an atomic as their next entry) and holding while an MMIO store or
     an atomic uses the head; the head's registered fields follow it. The D$'s store port takes a new request each
     cycle, so a store waiting for its line may give way to the other thread's.
+  - **Forward progress beside a sibling (5d):** the D$ keeps a line installed for a store `FU_ST` cycles for its first
+    write, and an LR's line `RSV_HOLD` cycles for its SC. With two threads those windows run in the thread's own head
+    cycles, so the sibling's atomic or MMIO store, which holds the head for tens of cycles, starts only while the thread
+    has no claim out (`fpc_t`: its head store asked for its line and was not acknowledged, `stm_q`, or its reservation
+    still holds probes). Without this, two cores whose stores or LR/SC loops met on a line, each beside a sibling
+    spinning on atomics, took the line from each other forever (verif-2's four-hart coherence programs on 5c and 5d:
+    6 of 40 hung; none with the claims).
   - **The head:** the ROB's commit thread (`hd_tid_o`) chooses the head checks (the DTLB retry, the deciding walk and
     its fault, the trap's tval), the MMIO load (its thread's LQ head at its ROB head, its committed stores drained),
     `sq_drained` and `mmio_busy`. With two threads the commit thread alternates, so the head check's registers are per
@@ -137,7 +151,8 @@ LR.W/D, SC.W/D and the AMOs (SWAP, ADD, XOR, AND, OR, MIN, MAX, MINU, MAXU) are 
       head store waiting (`st_wait`, per thread, written in the thread's drain cycles; `st_resv`). Otherwise an entry
       that frees while the store cannot take it (the release engine busy with its victim, or the drain presenting the
       other thread's store) goes to the sibling's next load miss, and a pointer chase beside a store stream starves the
-      drain (6 of the pair runner's 42 pairs hang in the model). In merged mode the allocation is the one before M7.
+      drain (6 of the pair runner's 42 pairs hang in the model). In merged mode the allocation is the one before M7,
+      with hart 1 too while the sibling sleeps (`split_i`, step 6).
     - Loads' and the walker's misses go through a request register. The next cycle each one merges with the entry holding its line, finds the line present, allocates, or gets no answer. The answer is registered and reaches the LSU two cycles after `lm_req`.
     - No allocation shares a cycle with an install (the state port's one write).
   - **Sources:** Acquires carry their entry's index (0-3) and the Release carries 4. Grants come back in any order, matched by source; a Grant's beats are contiguous, so port B writes one Grant at a time. One install per cycle, the lowest entry first, after a probe update.

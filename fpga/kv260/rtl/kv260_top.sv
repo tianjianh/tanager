@@ -37,7 +37,9 @@ module kv260_top
   parameter bit          MEM_SLICE     = MEM_SLICE_DEF,
   parameter bit          DEBUG_CNT     = 1'b0,            // board debug counters (build.tcl TG_DEBUG_CNT)
   parameter bit          VIRTIO_WINDOW = 1'b0,            // the forwarded virtio window (build.tcl TG_VIRTIO_WINDOW)
-  parameter bit          HOST_DMA      = 1'b0             // the coherent host DMA port on HPM1 (build.tcl TG_HOST_DMA)
+  parameter bit          HOST_DMA      = 1'b0,            // the coherent host DMA port on HPM1 (build.tcl TG_HOST_DMA)
+  parameter bit          LAT_INJ       = 1'b1,            // the two latency injectors: 1 development, 0 release (build.tcl TG_LAT_INJ; DR-177)
+  parameter bit          RELEASE       = 1'b0             // a release build (tg_uncore RELEASE; build.tcl TG_RELEASE; DR-180)
 ) (
   output logic fan_en_b,
   output logic pmod_uart_txd,
@@ -225,7 +227,7 @@ module kv260_top
     .CORE_RST_INIT (1'b1), .UNCORE_RST_INIT (1'b1), .UNCORE_DSP (UNCORE_DSP),
     .AR_SLICE (AR_SLICE), .B_SLICE (B_SLICE), .D_SLICE (D_SLICE), .W_SLICE (W_SLICE),
     .XBAR_IN_SLICE (XBAR_IN_SLICE), .XBAR_SLICE (XBAR_SLICE), .MEM_SLICE (MEM_SLICE), .DEBUG_CNT (DEBUG_CNT),
-    .VIRTIO_WINDOW (VIRTIO_WINDOW), .HOST_DMA (HOST_DMA)
+    .VIRTIO_WINDOW (VIRTIO_WINDOW), .HOST_DMA (HOST_DMA), .LAT_INJ (LAT_INJ), .RELEASE (RELEASE)
   ) u_soc (
     .clk (clk_core), .clk2x, .rst (rst_core), .clk_host, .rst_host,
     .s_axil_awaddr (l_awaddr), .s_axil_awvalid (l_awvalid), .s_axil_awready (l_awready),

@@ -4,6 +4,7 @@ Every RTL unit has a spec here before its RTL is written (plan §2.3, convention
 
 - **Cross-track contracts:** [interfaces.md](interfaces.md).
 - **Coding, build and collaboration rules:** [conventions.md](conventions.md).
+- **The area measures and how to turn them off on a bigger chip:** [area_switches.md](area_switches.md).
 
 ## Template
 

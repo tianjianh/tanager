@@ -9,7 +9,8 @@
 #   sudo sh ps-memregs [--bridge] > memregs_<mode>.txt
 # --bridge only with a Tanager bitstream loaded (stage C; without one a read of the bridge hangs the A53): also the
 # host bridge's configuration and its native DDR read latency over 1 s (docs/spec/host.md: INJ_RD_COUNT and
-# INJ_RD_LATSUM, both ports, in core cycles; best taken while a benchmark runs on the RISC-V).
+# INJ_RD_LATSUM, both ports, in core cycles; best taken while a benchmark runs on the RISC-V). The latency counters live
+# in the injectors, which release builds (TG_LAT_INJ=0, DR-177) don't have: there it says so.
 set -u
 r() {  # name address
   v=$(busybox devmem "$2" 32 2>/dev/null) || v=refused
@@ -80,6 +81,10 @@ if [ "${1:-}" = --bridge ]; then
            TRS_CTRL:1000 VQ_CTRL:1100 HDMA_CTRL:1300 BOARD_CTRL:1404; do
     r "BRIDGE.${x%%:*}" 0xA000${x#*:}
   done
+  if [ $(( $(busybox devmem 0xA000000C 32) & 2 )) = 0 ]; then
+    echo "BRIDGE.native-read-latency the injectors aren't built (a release build: CAPS[1] = 0, DR-177), and with them its counters"
+    exit 0
+  fi
   c0=$(busybox devmem 0xA0000050 32) s0=$(busybox devmem 0xA0000054 32)
   sleep 1
   c1=$(busybox devmem 0xA0000050 32) s1=$(busybox devmem 0xA0000054 32)

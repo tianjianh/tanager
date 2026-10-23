@@ -1,0 +1,6 @@
+== /home/w/tanager-build/track-spikes-72f833/fp/h100_hu1_synth_post_synth.dcp
+ExploreArea              CLB LUTs 119295 (logic 102681, memory 16614), registers  64123,   94 s
+ExploreSequentialArea    CLB LUTs 119161 (logic 102547, memory 16614), registers  64064,  114 s
+ExploreWithRemap         CLB LUTs 120988 (logic 104374, memory 16614), registers  64123,   64 s
+AddRemap                 CLB LUTs 120732 (logic 104118, memory 16614), registers  64123,   45 s
+Default                  CLB LUTs 120764 (logic 104150, memory 16614), registers  64123,   40 s

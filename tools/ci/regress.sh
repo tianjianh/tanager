@@ -6,6 +6,7 @@
 #                       [DC_MSHRS=1|4]           (the L1D's misses in flight, DR-149; sim/profile.mk)
 #                       [QUEUE_DECODE=0|1]       (G8's instruction-queue decode bits; sim/profile.mk)
 #                       [SPEC_WAKE=0|1]          (M6's speculative load wakeup, DR-153; sim/profile.mk)
+#                       [SPEC_WAKE_FILT=0|1|2]   (its filter; sim/profile.mk)
 #                       [STA_BASE=0|1] [STEER_LA=0|1] (M6's store address on its base, its steering a group ahead; DR-169)
 #                       [PMP_ENTRIES=8|16]       (the core's PMP entries, DR-167; lockstep's Spike takes the model's count)
 #                       [STORE_PF=0|1]           (M6's ownership prefetch for stores, DR-171; sim/profile.mk)
@@ -13,21 +14,24 @@
 #                       [STORE_PF_MAX=2|3]       (its prefetches in flight; sim/profile.mk)
 #                       [SOLO_TID=0|1]           (M7's test mode: the one thread runs as tid 1, DR-175; sim/profile.mk)
 #                       [SPLIT=0|1]              (M7's split mode: the thread runs in its half, DR-175; sim/profile.mk)
+#                       [HART1=0|1]              (M7's hart 1, step 5: divided free lists with transfers; sim/profile.mk)
 # Steps: build tg_vsim and tg_replay; the harness's unit tests (make -C sim unit); riscv-tests, our directed tests (interrupts), CoreMark A/B and
 # Dhrystone, RANDN constrained-random programs, all with lockstep; the riscv-tests and directed tests
 # again under trace back-pressure; with ARCH=1 the ACT4 tests of the
 # core's configuration (tests/arch); the checker self-test and RANDFD random F/D programs (tg_replay);
 # for CORE=core, PGN random programs with a probe at every GrantAck (forward progress: each store and
 # atomic must use its line before giving it up) and COHN coherence programs on the two-core SoC
-# (tests/coherence: atomics and LR/SC loops on one line from the same cycle, lockstep for every hart).
+# (tests/coherence: atomics and LR/SC loops on one line from the same cycle, lockstep for every hart). With
+# HART1=1, once the RTL has +xwake, the directed tests and RANDN random programs again with random wakes (+xwake=20:
+# the window merges and splits at random points; M7's step 6).
 # Prints a summary and exits non-zero on any failure. TIMING_CUTS=both runs the default and the
 # fallback side by side (make regress-profiles; below).
 set -u
-CFG=st CORE=core LAT=native SUITES="" MARCH="" SIMARGS="" SELFTEST=1 JOBS=8 RANDN=100 RANDFD=50 ARCH=0 ACTCFG="" TIMING_CUTS="" COHN=20 PGN=12 DC_MSHRS="" QUEUE_DECODE="" SPEC_WAKE="" STA_BASE="" STEER_LA="" PMP_ENTRIES="" STORE_PF="" URF="" STORE_PF_MAX="" SOLO_TID="" SPLIT=""
+CFG=st CORE=core LAT=native SUITES="" MARCH="" SIMARGS="" SELFTEST=1 JOBS=8 RANDN=100 RANDFD=50 ARCH=0 ACTCFG="" TIMING_CUTS="" COHN=20 PGN=12 DC_MSHRS="" QUEUE_DECODE="" SPEC_WAKE="" SPEC_WAKE_FILT="" STA_BASE="" STEER_LA="" PMP_ENTRIES="" STORE_PF="" URF="" STORE_PF_MAX="" SOLO_TID="" SPLIT="" HART1=""
 for kv in "$@"; do
   case "$kv" in
-    CFG=*|CORE=*|LAT=*|SUITES=*|MARCH=*|SIMARGS=*|SELFTEST=*|JOBS=*|RANDN=*|RANDFD=*|ARCH=*|ACTCFG=*|TIMING_CUTS=*|COHN=*|PGN=*|DC_MSHRS=*|QUEUE_DECODE=*|SPEC_WAKE=*|STA_BASE=*|STEER_LA=*|PMP_ENTRIES=*|STORE_PF=*|URF=*|STORE_PF_MAX=*|SOLO_TID=*|SPLIT=*) declare "${kv%%=*}=${kv#*=}" ;;
-    *) echo "usage: $0 [CFG=..] [CORE=..] [LAT=..] [SUITES=..] [MARCH=..] [SIMARGS=..] [SELFTEST=0|1] [RANDN=N] [RANDFD=N] [ARCH=0|1] [ACTCFG=..] [JOBS=N] [TIMING_CUTS=0|1|both] [COHN=N] [PGN=N] [DC_MSHRS=1|4] [QUEUE_DECODE=0|1] [SPEC_WAKE=0|1] [STA_BASE=0|1] [STEER_LA=0|1] [PMP_ENTRIES=8|16] [STORE_PF=0|1] [URF=0|1] [STORE_PF_MAX=2|3] [SOLO_TID=0|1] [SPLIT=0|1]"; exit 5 ;;
+    CFG=*|CORE=*|LAT=*|SUITES=*|MARCH=*|SIMARGS=*|SELFTEST=*|JOBS=*|RANDN=*|RANDFD=*|ARCH=*|ACTCFG=*|TIMING_CUTS=*|COHN=*|PGN=*|DC_MSHRS=*|QUEUE_DECODE=*|SPEC_WAKE=*|SPEC_WAKE_FILT=*|STA_BASE=*|STEER_LA=*|PMP_ENTRIES=*|STORE_PF=*|URF=*|STORE_PF_MAX=*|SOLO_TID=*|SPLIT=*|HART1=*) declare "${kv%%=*}=${kv#*=}" ;;
+    *) echo "usage: $0 [CFG=..] [CORE=..] [LAT=..] [SUITES=..] [MARCH=..] [SIMARGS=..] [SELFTEST=0|1] [RANDN=N] [RANDFD=N] [ARCH=0|1] [ACTCFG=..] [JOBS=N] [TIMING_CUTS=0|1|both] [COHN=N] [PGN=N] [DC_MSHRS=1|4] [QUEUE_DECODE=0|1] [SPEC_WAKE=0|1] [SPEC_WAKE_FILT=0|1|2] [STA_BASE=0|1] [STEER_LA=0|1] [PMP_ENTRIES=8|16] [STORE_PF=0|1] [URF=0|1] [STORE_PF_MAX=2|3] [SOLO_TID=0|1] [SPLIT=0|1] [HART1=0|1]"; exit 5 ;;
   esac
 done
 
@@ -90,6 +94,7 @@ fi
 [ -n "$DC_MSHRS" ] && export DC_MSHRS
 [ -n "$QUEUE_DECODE" ] && export QUEUE_DECODE
 [ -n "$SPEC_WAKE" ] && export SPEC_WAKE
+[ -n "$SPEC_WAKE_FILT" ] && export SPEC_WAKE_FILT
 [ -n "$STA_BASE" ] && export STA_BASE
 [ -n "$STEER_LA" ] && export STEER_LA
 [ -n "$PMP_ENTRIES" ] && export PMP_ENTRIES
@@ -98,7 +103,8 @@ fi
 [ -n "$STORE_PF_MAX" ] && export STORE_PF_MAX
 [ -n "$SOLO_TID" ] && export SOLO_TID
 [ -n "$SPLIT" ] && export SPLIT
-TCS="${TIMING_CUTS:+-tc$TIMING_CUTS}${DC_MSHRS:+-m$DC_MSHRS}${QUEUE_DECODE:+-qd$QUEUE_DECODE}${SPEC_WAKE:+-sw$SPEC_WAKE}${STA_BASE:+-sb$STA_BASE}${STEER_LA:+-sl$STEER_LA}${PMP_ENTRIES:+-p$PMP_ENTRIES}${STORE_PF:+-spf$STORE_PF}${URF:+-urf$URF}${STORE_PF_MAX:+-spm$STORE_PF_MAX}${SOLO_TID:+-solo$SOLO_TID}${SPLIT:+-sp$SPLIT}"   # the build directories' suffix (sim/profile.mk)
+[ -n "$HART1" ] && export HART1
+TCS="${TIMING_CUTS:+-tc$TIMING_CUTS}${DC_MSHRS:+-m$DC_MSHRS}${QUEUE_DECODE:+-qd$QUEUE_DECODE}${SPEC_WAKE:+-sw$SPEC_WAKE}${SPEC_WAKE_FILT:+-swf$SPEC_WAKE_FILT}${STA_BASE:+-sb$STA_BASE}${STEER_LA:+-sl$STEER_LA}${PMP_ENTRIES:+-p$PMP_ENTRIES}${STORE_PF:+-spf$STORE_PF}${URF:+-urf$URF}${STORE_PF_MAX:+-spm$STORE_PF_MAX}${SOLO_TID:+-solo$SOLO_TID}${SPLIT:+-sp$SPLIT}${HART1:+-h$HART1}"   # the build directories' suffix (sim/profile.mk)
 LOGS="$BUILD/regress/$CFG-$CORE$TCS"
 mkdir -p "$LOGS"
 : "${RISCV_TESTS:?source tools/env.sh first}"
@@ -158,6 +164,20 @@ if [ "${RESULTS[0]}" = PASS ]; then
   if [ "$RANDN" != 0 ]; then
     step "random programs ($RANDN seeds, $MARCH, memory stress), lockstep" "$LOGS/random.log" \
       make -C "$ROOT/tests/random" CFG="$CFG" CORE="$CORE" ${TIMING_CUTS:+TIMING_CUTS="$TIMING_CUTS"} N="$RANDN" SEED=1 ISA="$MARCH" JOBS="$JOBS" SIMARGS="$SIMARGS"
+  fi
+  # M7's step 6 (core-pipeline.md §8.5): with hart 1, a sleeping sibling's window merges into the runner's and splits
+  # when it wakes. tg_rob's +xwake=20 (simulation only) wakes a sleeping thread at random, 2% a cycle, so the programs
+  # run across merges and splits at random points (verification.md §6.2); hart 1 sits parked in WFI in all of them.
+  if [ "$HART1" = 1 ] && grep -q '"xwake=' "$ROOT/rtl/core/rob/tg_rob.sv" 2>/dev/null; then
+    step "directed tests with random wakes (+xwake=20: merges and splits), lockstep, lat=$LAT" "$LOGS/directed-xwake.log" \
+      make -C "$ROOT/tests/isa" directed CFG="$CFG" CORE="$CORE" ${TIMING_CUTS:+TIMING_CUTS="$TIMING_CUTS"} LAT="$LAT" JOBS="$JOBS" \
+        SIMARGS="+xwake=20 $SIMARGS"
+    if [ "$RANDN" != 0 ]; then
+      step "random programs with random wakes ($RANDN seeds, $MARCH, timer interrupts, +xwake=20), lockstep" \
+        "$LOGS/random-xwake.log" make -C "$ROOT/tests/random" CFG="$CFG" CORE="$CORE" ${TIMING_CUTS:+TIMING_CUTS="$TIMING_CUTS"} \
+          N="$RANDN" SEED=1 ISA="$MARCH" IRQ=200 JOBS="$JOBS" WORK="$BUILD/random/$CFG-$CORE$TCS-xwake" \
+          SIMARGS="+xwake=20 $SIMARGS"
+    fi
   fi
   if [ "$PGN" != 0 ] && [ "$CORE" = core ]; then
     step "random programs with a probe at every GrantAck ($PGN seeds, --probe-grant=100), lockstep" "$LOGS/probe-grant.log" \
