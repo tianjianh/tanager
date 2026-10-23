@@ -1210,7 +1210,10 @@ class lockstep_impl_t {
   // cycles before w if w is an atomic (it may have performed before them) and they read what w wrote. An atomic
   // that read past stores is followed by them instead (hw_reapply): they are the last writers of their bytes, and
   // the older stores under them stay candidates as above (core-2's case, 10-23: an sd whose bytes equal what was
-  // there before it may have landed after the AMO whose read showed them, as its hart's younger sw did).
+  // there before it may have landed after the AMO whose read showed them, as its hart's younger sw did). A plain
+  // store that may land after w brings its hart's older plain stores to those bytes, back to another hart's write
+  // there: they may land after w too, before it (seed 503877 of the 10-23 checks: an AMO read past three sd's of the
+  // other hart, a late lander explained it as well, and a later read showed the second sd, the third still to land).
   void late_write(hart_write_t& w) {
     const uint64_t dw = w.pa & ~7ull, nh = harts_[w.hart].nrec;
     const uint8_t wm = dw_mask(w.pa, w.len);
@@ -1228,6 +1231,17 @@ class lockstep_impl_t {
       }
       late_prune(it);
     }
+    auto add = [&](const late_t& c) {
+      auto& v = late_[dw];
+      auto same = std::find_if(v.begin(), v.end(), [&](const late_t& x) { return x.id == c.id; });
+      if (same == v.end()) {
+        v.push_back(c);
+        return;
+      }
+      same->mask |= c.mask;
+      for (unsigned b = 0; b < 8; b++)
+        if (c.mask >> b & 1) same->nw[b] = c.nw[b];
+    };
     uint8_t left = wm;  // bytes whose last writer is still to be found
     for (size_t k = hw_.size(); k-- > 0 && left;) {
       const hart_write_t& e = hw_[k];
@@ -1262,16 +1276,30 @@ class lockstep_impl_t {
         c.nw[b] = e.nw[ei];
       }
       if (!c.mask) continue;
-      auto& v = late_[dw];
-      auto same = std::find_if(v.begin(), v.end(), [&](const late_t& x) { return x.id == c.id; });
-      if (same == v.end()) {
-        v.push_back(c);
-      } else {
-        same->mask |= c.mask;
-        for (unsigned b = 0; b < 8; b++)
-          if (c.mask >> b & 1) same->nw[b] = c.nw[b];
+      add(c);
+      for (size_t j = k; j-- > 0 && !e.atomic;) {
+        const hart_write_t& o = hw_[j];
+        if (nh - o.base[w.hart] >= cfg_.hart_window && !o.moved) break;
+        if (!o.len || (o.pa & ~7ull) != dw) continue;
+        const uint8_t om = dw_mask(o.pa, o.len) & c.mask;
+        if (!om) continue;
+        if (o.hart != e.hart || o.atomic) break;
+        late_t oc;
+        oc.id = o.id;
+        oc.hart = o.hart;
+        memcpy(oc.base, o.base, sizeof oc.base);
+        for (unsigned b = 0; b < 8; b++) {
+          if (!(om >> b & 1)) continue;
+          const unsigned oi = b - unsigned(o.pa & 7), wi = b - unsigned(w.pa & 7);
+          if (w.read_known && w.read[wi] == o.nw[oi] && late_only(j, b + dw, o.nw[oi], w.hart)) continue;  // w read it
+          oc.mask |= uint8_t(1u << b);
+          oc.nw[b] = o.nw[oi];
+        }
+        if (oc.mask) add(oc);
       }
     }
+    if (auto it = late_.find(dw); it != late_.end())  // by id: late_find looks newest first
+      std::sort(it->second.begin(), it->second.end(), [](const late_t& a, const late_t& b) { return a.id < b.id; });
   }
 
   // Whether value v of byte b, written by write k of the history, was none of the byte's values before it that
