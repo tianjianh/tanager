@@ -11,7 +11,10 @@
 # that node's reg. Keep each a whole number of 4 KiB pages (sw/dts checks it): a region smaller than a page costs every
 # 4K page its cached PMP result in the core, -23.6% on a store loop (docs/spec/soc.md §4, "PMP regions: whole pages").
 # A firmware change that adds regions of its own must keep the same rule.
-#   bash sw/build_opensbi.sh            -> $SOC_BUILD/opensbi/platform/generic/firmware/fw_jump.bin
+# Tanager's patches (sw/buildroot/patches/opensbi, Buildroot's own patch folder for the package) go on in order, into
+# a source and a build folder named for the patch set (OPENSBI_REV): a new set builds beside the old one, whose
+# fw_jump.bin trees not yet on it keep using.
+#   bash sw/build_opensbi.sh            -> $SOC_BUILD/opensbi-$OPENSBI_REV/platform/generic/firmware/fw_jump.bin
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 source "$here/env.sh"
@@ -23,8 +26,17 @@ if [ ! -x "$tc/bin/riscv64-buildroot-linux-gnu-gcc" ]; then
   tar -C "$dest" -xf "$SOC_DL/toolchain-external-custom/$RVTC_TAR"
   tc="$dest/$RVTC_NAME"
 fi
-src="$SOC_BUILD/opensbi-$OPENSBI_VER"
-[ -d "$src" ] || tar -C "$SOC_BUILD" -xf "$SOC_DL/opensbi/$OPENSBI_TAR"
-make -C "$src" O="$SOC_BUILD/opensbi" -j8 PLATFORM=generic CROSS_COMPILE="$tc/bin/riscv64-buildroot-linux-gnu-" \
+src="$SOC_BUILD/opensbi-$OPENSBI_VER-$OPENSBI_REV"
+out="$SOC_BUILD/opensbi-$OPENSBI_REV"
+if [ ! -d "$src" ]; then
+  tmp="$(mktemp -d "$SOC_BUILD/opensbi-src.XXXXXX")"
+  tar -C "$tmp" -xf "$SOC_DL/opensbi/$OPENSBI_TAR"
+  for p in "$here"/buildroot/patches/opensbi/*.patch; do
+    patch -d "$tmp/opensbi-$OPENSBI_VER" -p1 --no-backup-if-mismatch < "$p"
+  done
+  mv "$tmp/opensbi-$OPENSBI_VER" "$src"
+  rmdir "$tmp"
+fi
+make -C "$src" O="$out" -j8 PLATFORM=generic CROSS_COMPILE="$tc/bin/riscv64-buildroot-linux-gnu-" \
   FW_TEXT_START=0x80000000 FW_PAYLOAD=n FW_DYNAMIC=n FW_JUMP=y
-ls -l "$SOC_BUILD/opensbi/platform/generic/firmware/fw_jump.bin"
+ls -l "$out/platform/generic/firmware/fw_jump.bin"

@@ -202,7 +202,7 @@ With 1, the stage C and bench trees match today's packages byte for byte (checke
 - **The trees:** `RUN_THREADS=2` lists harts 0–3, each with its own interrupt controller, and both threads of both cores in the `cpu-map`.
   - The CLINT gets four pairs in hart order.
   - The PLIC gets all eight contexts (2h machine, 2h+1 supervisor) where `RUN_THREADS=1` keeps −1 placeholders.
-- **OpenSBI needs no change.** The board's `fw_jump.bin` (`sw/build_opensbi.sh`, sha256 `b0094d23…`) was checked on QEMU virt:
+- **OpenSBI needs no change** (until 10-23's hotplug finding: §5, patch set tg1). The board's `fw_jump.bin` (`sw/build_opensbi.sh`, sha256 `b0094d23…`) was checked on QEMU virt:
   - With the four-hart `tanager-qemu` tree, it reports 4 harts, and the reference kernel brings up all four (`sw/qemu/boot_test.sh 2 2`). `1 2`, one core's two threads, also passes.
   - Under Debian's 6.12 kernel with four harts, harts 1–3 went offline and back three times: HSM stop and start, with no failure (`SMP=4 HOTPLUG=1 sw/qemu/debian_test.sh`).
   - Its region grows from 333 KB to 357 KB, still inside `0x8000_0000`–`0x8005_FFFF`.
@@ -226,6 +226,13 @@ With 1, the stage C and bench trees match today's packages byte for byte (checke
   - the device trees.
 
   Output goes to `$SOC_BUILD/br-<config>/images`.
+- **OpenSBI's patch set tg1** (soc-2, 10-23; the coordinator's decision, under DR-147's approval for boot-firmware changes):
+  - **Where:** `sw/buildroot/patches/opensbi`, Buildroot's patch folder for the package (`BR2_GLOBAL_PATCH_DIR`). `sw/build_opensbi.sh` applies the same files, building into `$SOC_BUILD/opensbi-tg1` (`OPENSBI_REV` in `sw/versions.sh`). A new set builds beside the old one, which trees not yet on it keep using.
+  - **`0001`:** the supervisor's remote fences and IPIs skip harts of the domain that cannot take an IPI now (stopped, starting or stopping), instead of failing the call with `SBI_ERR_INVALID_PARAM` before any IPI. A hart the domain doesn't have is still an error. Halt and SSE IPIs keep the strict check.
+  - **Why:** a board hotplug round (u100's soak, 10-23) logged `__sbi_rfence_v02_call: hbase = [1] hmask = [0x5] failed (error [-22])`. Linux keeps a CPU it has taken offline in an address space's CPU mask, so a remote fence 9 ms after hart 3 stopped still named it. Upstream 1.9 refused the whole call, so the online hart 1 missed its fence too, and Linux doesn't retry.
+  - **How it was written:** from the SBI specification (its invalid-hartid error is for a hart not enabled by the platform or not available to the supervisor, and a stopped hart is neither) and the behaviour seen, not from newer upstream code.
+  - **Check:** `sw/qemu/sbi_mask_test.sh` runs an S-mode payload on QEMU virt with four harts. Fences and an IPI whose mask names a stopped hart pass, and the IPI reaches the started hart; a hart that doesn't exist is still −3. With `EXPECT=upstream` the same test shows 1.9's −3, with no IPI.
+  - **The image:** `fw_jump.bin` has sha256 `62349a65…` (a second build gives the same bytes). It is pinned in `cycle_identical.py`'s `REF_IMAGES` since 10-23, in place of `b0094d23…`, and the board's packages carry it from the next one.
 - **Board image:** the lp64d image. F/D integration moves into M3, before the board (plan §11), so no soft-float userland is built.
 - **`/etc/init.d/S99tanager`:** prints `TANAGER-BOOT-OK` with the hart count. With `tanager.autotest=1` on the command line, it runs a short smoke test and powers off, so QEMU, simulation and board runs end by themselves.
 

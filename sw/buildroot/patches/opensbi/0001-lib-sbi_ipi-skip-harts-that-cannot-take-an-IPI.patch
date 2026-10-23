@@ -1,0 +1,126 @@
+From: soc-2 (Tanager's SoC track) <noreply@anthropic.com>
+Subject: [PATCH] lib: sbi_ipi: the supervisor's remote fences and IPIs skip harts that cannot take an IPI
+
+A remote fence or IPI whose mask names a hart of the domain that is stopped (or still starting or stopping) now goes
+to the started harts and succeeds, instead of failing the whole call with SBI_ERR_INVALID_PARAM before any IPI is
+sent. The SBI specification gives that error for a hart that is not enabled by the platform or not available to the
+supervisor; a stopped hart is neither, and has nothing to fence or take until the supervisor starts it again. A hart
+the domain doesn't have is still an error. Halt and SSE IPIs keep the strict check.
+
+Why: on Tanager's board (KV260, four harts, OpenSBI 1.9 and Debian's 6.12 kernel), a hotplug round logged
+"__sbi_rfence_v02_call: hbase = [1] hmask = [0x5] failed (error [-22])": Linux keeps a CPU it has taken offline in an
+address space's CPU mask, so a remote fence 9 ms after hart 3 stopped still named it, and hart 1, online in the same
+mask, missed its fence too. Written for Tanager from the SBI specification and the behaviour seen (soc.md §5).
+
+--- a/include/sbi/sbi_ipi.h
++++ b/include/sbi/sbi_ipi.h
+@@ -76,6 +76,8 @@
+ 
+ int sbi_ipi_send_many(ulong hmask, ulong hbase, u32 event, void *data);
+ 
++int sbi_ipi_send_many_started(ulong hmask, ulong hbase, u32 event, void *data);
++
+ int sbi_ipi_event_create(const struct sbi_ipi_event_ops *ops);
+ 
+ void sbi_ipi_event_destroy(u32 event);
+--- a/lib/sbi/sbi_ipi.c
++++ b/lib/sbi/sbi_ipi.c
+@@ -110,12 +110,20 @@
+ 	return 0;
+ }
+ 
+-/**
+- * As this this function only handlers scalar values of hart mask, it must be
+- * set to all online harts if the intention is to send IPIs to all the harts.
+- * If hmask is zero, no IPIs will be sent.
++/*
++ * With skip_stopped, a hart that the mask names and the domain has, but that
++ * cannot take an IPI now (stopped, or still starting or stopping), is left
++ * out instead of failing the call. The SBI specification's
++ * SBI_ERR_INVALID_PARAM is for a hart that is not enabled by the platform or
++ * not available to the supervisor; a stopped hart is neither, and it has
++ * nothing to fence or take until the supervisor starts it again. Linux keeps
++ * a CPU it has taken offline in an address space's CPU mask, so a remote
++ * fence soon after can still name the stopped hart, and must still reach the
++ * started ones in the same mask (Tanager, board hotplug rounds 2026-10-23).
++ * A hart the domain doesn't have is still an error.
+  */
+-int sbi_ipi_send_many(ulong hmask, ulong hbase, u32 event, void *data)
++static int __sbi_ipi_send_many(ulong hmask, ulong hbase, u32 event, void *data,
++			       bool skip_stopped)
+ {
+ 	int rc = 0;
+ 	bool retry_needed;
+@@ -143,10 +151,22 @@
+ 				sbi_hartmask_set_hartid(i, &tmp_mask);
+ 		}
+ 
+-		sbi_hartmask_and(&target_mask, &target_mask, &tmp_mask);
++		if (skip_stopped) {
++			struct sbi_hartmask dom_mask;
++
++			rc = sbi_domain_get_assigned_hartmask(dom, &dom_mask);
++			if (rc)
++				return rc;
++			sbi_hartmask_and(&dom_mask, &dom_mask, &tmp_mask);
++			if (sbi_hartmask_weight(&dom_mask) != count)
++				return SBI_EINVAL;
++			sbi_hartmask_and(&target_mask, &target_mask, &tmp_mask);
++		} else {
++			sbi_hartmask_and(&target_mask, &target_mask, &tmp_mask);
+ 
+-		if (sbi_hartmask_weight(&target_mask) != count)
+-			return SBI_EINVAL;
++			if (sbi_hartmask_weight(&target_mask) != count)
++				return SBI_EINVAL;
++		}
+ 	}
+ 
+ 	/* Send IPIs */
+@@ -171,6 +191,26 @@
+ 	return rc;
+ }
+ 
++/**
++ * As this this function only handlers scalar values of hart mask, it must be
++ * set to all online harts if the intention is to send IPIs to all the harts.
++ * If hmask is zero, no IPIs will be sent.
++ */
++int sbi_ipi_send_many(ulong hmask, ulong hbase, u32 event, void *data)
++{
++	return __sbi_ipi_send_many(hmask, hbase, event, data, false);
++}
++
++/**
++ * As sbi_ipi_send_many(), but harts of the domain that cannot take an IPI now
++ * are skipped rather than failing the call: for the supervisor's remote
++ * fences and IPIs.
++ */
++int sbi_ipi_send_many_started(ulong hmask, ulong hbase, u32 event, void *data)
++{
++	return __sbi_ipi_send_many(hmask, hbase, event, data, true);
++}
++
+ int sbi_ipi_event_create(const struct sbi_ipi_event_ops *ops)
+ {
+ 	int i, ret = SBI_ENOSPC;
+@@ -211,7 +251,7 @@
+ 
+ int sbi_ipi_send_smode(ulong hmask, ulong hbase)
+ {
+-	return sbi_ipi_send_many(hmask, hbase, ipi_smode_event, NULL);
++	return sbi_ipi_send_many_started(hmask, hbase, ipi_smode_event, NULL);
+ }
+ 
+ void sbi_ipi_clear_smode(void)
+--- a/lib/sbi/sbi_tlb.c
++++ b/lib/sbi/sbi_tlb.c
+@@ -409,7 +409,7 @@
+ 
+ 	sbi_pmu_ctr_incr_fw(tlb_type_to_pmu_fw_event[tinfo->type]);
+ 
+-	return sbi_ipi_send_many(hmask, hbase, tlb_event, tinfo);
++	return sbi_ipi_send_many_started(hmask, hbase, tlb_event, tinfo);
+ }
+ 
+ int sbi_tlb_init(struct sbi_scratch *scratch, bool cold_boot)
