@@ -1695,14 +1695,38 @@ module tg_lsu
   logic [LQ_ENTRIES-1:0] lq_snp_q, snp_hit, snp_ag;
   logic [LQ_ENTRIES-1:0] lq_io_q;                 // the entry is a device load (decided with its PA): never marked, as it
                                                    // reads at the ROB head with nothing older, and must not run twice
+  // The filter (exact): a marked load breaks CoRR only if a load of its thread older than it reads the line after the
+  // event. So each thread's oldest load not done at the compare whose address is unknown or on the event's line bounds
+  // its marks: only loads younger than it are marked. Taken at the compare (E+2), not the event: one done by then
+  // read before the event (AG to done takes three cycles); one that read before and is still in M1/M2 counts as
+  // not done, which only keeps more. The bound on a carry chain as lq_oldest_c's: the set twice over, the slots at or
+  // after the head's in the low half; a slot is younger than the set's oldest when a set bit lies below its place
+  // in the 2N (its own slot at or after the head, N above it before the head)
+  logic [LQ_ENTRIES-1:0] snp_eq, snp_pnd, snp_keep;
+  always_comb begin
+    for (int i = 0; i < LQ_ENTRIES; i++) begin
+      snp_eq[i]  = lq_pa_q[i][6 +: SNW] == ev2_l_q;
+      snp_pnd[i] = lq_v_q[i] && lq_st_q[i] != L_DONE && (!lq_pav_q[i] || snp_eq[i]);
+    end
+    snp_keep = '0;
+    for (int t = 0; t < NT; t++) begin
+      logic [LQ_ENTRIES-1:0]   ge, p;
+      logic [2*LQ_ENTRIES-1:0] u, blw;
+      for (int i = 0; i < LQ_ENTRIES; i++) ge[i] = i >= int'(lqi(lq_head_q[t]));
+      p   = snp_pnd & lq_ot[t];
+      u   = {p, p & ge};
+      blw = ~(u ^ (u - 1'b1));                       // a set bit below the place (an empty set: none)
+      for (int i = 0; i < LQ_ENTRIES; i++)
+        snp_keep[i] |= lq_ot[t][i] && (ge[i] ? blw[i] : blw[LQ_ENTRIES + i]);
+    end
+  end
   always_comb
     for (int i = 0; i < LQ_ENTRIES; i++) begin
       logic own;
       own = 1'b0;
       for (int t = 0; t < NT; t++) own |= ev2_tm_q[t] && lq_ot[t][i];
       snp_hit[i] = ev2_v_q && own && lq_v_q[i] && lq_pav_q[i] && !lq_io_q[i] &&
-                   (lq_st_q[i] == L_DONE || lq_st_q[i] == L_PIPE) &&
-                   lq_pa_q[i][6 +: SNW] == ev2_l_q;
+                   (lq_st_q[i] == L_DONE || lq_st_q[i] == L_PIPE) && snp_eq[i] && snp_keep[i];
       snp_ag[i]  = ((ld_ag_valid && !kill_t[t_ldag]) || ag_rp) && ag_lq == LIW'(i);
     end
   // The report: a thread's oldest mark a cycle (the threads alternate), its ROB index read the cycle after
@@ -1736,23 +1760,49 @@ module tg_lsu
 `ifndef SYNTHESIS
   always_ff @(posedge clk)
     if (!rst) assert ($onehot0({dc_snp_v, st_ev, am_ev})) else $error("tg_lsu: two CoRR events in a cycle");
-  // +snpstat: the events by source, the marks and the reports (each report replays a load from the ROB's head)
+  // The filter's bound against a direct form: an entry is younger than a pending load of its thread (by the distance
+  // from the thread's head)
+  always_ff @(posedge clk)
+    if (!rst && ev2_v_q)
+      for (int i = 0; i < LQ_ENTRIES; i++) begin
+        logic ref_k;
+        ref_k = 1'b0;
+        for (int t = 0; t < NT; t++)
+          if (lq_ot[t][i])
+            for (int j = 0; j < LQ_ENTRIES; j++)
+              if (lq_ot[t][j] && snp_pnd[j] &&
+                  (j - int'(lqi(lq_head_q[t])) + LQ_ENTRIES) % LQ_ENTRIES < (i - int'(lqi(lq_head_q[t])) + LQ_ENTRIES) % LQ_ENTRIES)
+                ref_k = 1'b1;
+        assert (!lq_v_q[i] || snp_keep[i] == ref_k) else $error("tg_lsu: the CoRR filter's bound differs at LQ %0d", i);
+      end
+  // +snpstat: the events by source, the marks before the filter and after it, and the reports (each report replays
+  // a load from the ROB's head)
   bit snp_on;
   initial snp_on = $test$plusargs("snpstat");
-  longint unsigned snp_n_dc, snp_n_st, snp_n_am, snp_n_mark, snp_n_rep;
+  longint unsigned snp_n_dc, snp_n_st, snp_n_am, snp_n_raw, snp_n_mark, snp_n_rep;
   always_ff @(posedge clk)
     if (rst) begin
-      snp_n_dc <= 0; snp_n_st <= 0; snp_n_am <= 0; snp_n_mark <= 0; snp_n_rep <= 0;
+      snp_n_dc <= 0; snp_n_st <= 0; snp_n_am <= 0; snp_n_raw <= 0; snp_n_mark <= 0; snp_n_rep <= 0;
     end else begin
+      longint unsigned nr;
+      nr = 0;
+      for (int i = 0; i < LQ_ENTRIES; i++) begin
+        logic own;
+        own = 1'b0;
+        for (int t = 0; t < NT; t++) own |= ev2_tm_q[t] && lq_ot[t][i];
+        nr += (ev2_v_q && own && lq_v_q[i] && lq_pav_q[i] && !lq_io_q[i] &&
+               (lq_st_q[i] == L_DONE || lq_st_q[i] == L_PIPE) && snp_eq[i]) ? 1 : 0;
+      end
       snp_n_dc   <= snp_n_dc + (dc_snp_v ? 1 : 0);
       snp_n_st   <= snp_n_st + (st_ev ? 1 : 0);
       snp_n_am   <= snp_n_am + (am_ev ? 1 : 0);
+      snp_n_raw  <= snp_n_raw + nr;
       snp_n_mark <= snp_n_mark + $countones(snp_hit);
       snp_n_rep  <= snp_n_rep + (snp_valid ? 1 : 0);
     end
   final if (snp_on)
-    $fwrite(32'h8000_0002, "TG-SNP %m: events D$ %0d, stores %0d, atomics %0d; loads marked %0d; replays reported %0d\n",
-            snp_n_dc, snp_n_st, snp_n_am, snp_n_mark, snp_n_rep);
+    $fwrite(32'h8000_0002, "TG-SNP %m: events D$ %0d, stores %0d, atomics %0d; loads matched %0d, marked %0d (the filter); replays reported %0d\n",
+            snp_n_dc, snp_n_st, snp_n_am, snp_n_raw, snp_n_mark, snp_n_rep);
 `endif
 
   // ================= ROB reports =================
