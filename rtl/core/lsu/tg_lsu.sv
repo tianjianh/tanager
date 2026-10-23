@@ -90,6 +90,8 @@ module tg_lsu
   output logic [3:0][3:0]              exc_cause,
   output logic                         replay_valid,  // a store's ordering violation (its oldest load), a
   output robid_t                       replay_rob,    // cycle after the store's search
+  output logic                         snp_valid,     // CoRR (architecture_plan §4.9): a thread's oldest load the snoop
+  output robid_t                       snp_rob,       // marking found holding a value another hart may have overwritten
   output logic                         spx_valid,     // a store's PMP denial, found after it decided (S3)
   output robid_t                       spx_rob,
   output logic [1:0]                   sth_v,         // commit stops before these stores: S2, S3
@@ -298,8 +300,8 @@ module tg_lsu
   logic [2:0][LIW-1:0]               lqc_ra;       // M2, the MMIO load, the LQ head
   lqc_t [2:0]                        lqc_rd;
   lqc_t                              lqc_wd;
-  logic [0:0][LIW-1:0]               lqr_ra;       // the ordering violation's ROB index
-  robid_t [0:0]                      lqr_rd;
+  logic [1:0][LIW-1:0]               lqr_ra;       // the ordering violation's ROB index, CoRR's snoop report's
+  robid_t [1:0]                      lqr_rd;
   typedef struct packed {
     logic [PA_W-1:0] pa;
     logic [1:0]      size;
@@ -604,6 +606,8 @@ module tg_lsu
   logic [63:0]       am_rdata;
   logic [PA_W-1:6]   lose_line;
   logic [7:0] dc_dbg;
+  logic              dc_snp_v;                    // CoRR: a line leaves the D$ (a probe to N, an eviction)
+  logic [PA_W-1:6]   dc_snp_line;
   tg_dcache u_dc (
     .clk, .rst, .ready,
     .ld_rd_en(dc_rd_en), .ld_rd_pa(dc_rd_pa), .ld_m1_pa(m1_pa), .ld_hit(dc_hit), .ld_dword(dc_dword),
@@ -616,7 +620,7 @@ module tg_lsu
     .c_o(l1d_c_o), .c_valid_o(l1d_c_valid_o), .c_ready_i(l1d_c_ready_i),
     .d_i(l1d_d_i), .d_valid_i(l1d_d_valid_i), .d_ready_o(l1d_d_ready_o),
     .e_o(l1d_e_o), .e_valid_o(l1d_e_valid_o), .e_ready_i(l1d_e_ready_i), .dbg_o(dc_dbg),
-    .split_i(md.split));
+    .snp_v(dc_snp_v), .snp_line(dc_snp_line), .split_i(md.split));
 
   // ================= AG =================
   // A replay takes the AG slot when the LD port has nothing in EX: each thread's oldest ready load, the threads
@@ -1655,6 +1659,102 @@ module tg_lsu
   assign replay_valid = rp_v_q;
   assign replay_rob   = lqr_rd[0];
 
+  // ---- CoRR: a load's order against older loads of its address (architecture_plan §4.9; M7's exit 4) ----
+  // The search above orders a load against older stores, not against older loads of its address: a younger load that
+  // issued first could keep a value another hart overwrote before the older one read it (litmus CoRR on four harts,
+  // 10-23). So a line that leaves the D$ (a probe to N, an eviction: another agent may write it without probing us), or
+  // that the sibling thread writes (a store, an atomic: with hart 1), marks the loads that have read it and not
+  // committed, and each thread's oldest marked load is replayed from the ROB's head (its replay flag), which refetches
+  // it and everything after it. A load the mark misses committed first, before any older load of its address could
+  // read after the event, so it is in order.
+  // The event's line is registered twice and compared in the third cycle: a load that read the line before the event
+  // (at AG up to its cycle) has its PA in the LQ by then (written in M1), one that read it after (from the next cycle
+  // on) does not yet. The compare is partial, PA[19:6] (the set index and 8 tag bits): a false match only replays.
+  localparam int SNW = 14;
+  logic           ev_v, ev1_v_q, ev2_v_q;
+  logic [SNW-1:0] ev_l, ev1_l_q, ev2_l_q;
+  logic [NT-1:0]  ev_tm, ev1_tm_q, ev2_tm_q;      // the threads whose loads the event marks
+  logic           st_ev, am_ev;                    // (hart 1) the drain's write (t_dr_q's), the atomic's (am_t_q's)
+  assign st_ev = IMT && st_ack && !st_dropped;
+  assign am_ev = IMT && am_req && am_ack && am_wr;
+  always_comb begin
+    ev_v  = dc_snp_v || st_ev || am_ev;            // (one a cycle: the D$'s state port takes one write)
+    ev_l  = dc_snp_v ? dc_snp_line[6 +: SNW] : st_ev ? st_pa[6 +: SNW] : am_pa[6 +: SNW];
+    ev_tm = dc_snp_v ? '1 : st_ev ? ~(NT'(1) << t_dr_q) : ~(NT'(1) << am_t_q);
+  end
+  always_ff @(posedge clk) begin
+    ev1_v_q  <= !rst && ev_v;
+    ev2_v_q  <= !rst && ev1_v_q;
+    ev1_l_q  <= ev_l;
+    ev2_l_q  <= ev1_l_q;
+    ev1_tm_q <= ev_tm;
+    ev2_tm_q <= ev1_tm_q;
+  end
+  // The marks: set by the compare; cleared when the entry is free (a commit, a kill), when it re-enters AG (it reads
+  // again), and for a thread when its oldest mark is reported (the replay from it covers its younger loads)
+  logic [LQ_ENTRIES-1:0] lq_snp_q, snp_hit, snp_ag;
+  logic [LQ_ENTRIES-1:0] lq_io_q;                 // the entry is a device load (decided with its PA): never marked, as it
+                                                   // reads at the ROB head with nothing older, and must not run twice
+  always_comb
+    for (int i = 0; i < LQ_ENTRIES; i++) begin
+      logic own;
+      own = 1'b0;
+      for (int t = 0; t < NT; t++) own |= ev2_tm_q[t] && lq_ot[t][i];
+      snp_hit[i] = ev2_v_q && own && lq_v_q[i] && lq_pav_q[i] && !lq_io_q[i] &&
+                   (lq_st_q[i] == L_DONE || lq_st_q[i] == L_PIPE) &&
+                   lq_pa_q[i][6 +: SNW] == ev2_l_q;
+      snp_ag[i]  = ((ld_ag_valid && !kill_t[t_ldag]) || ag_rp) && ag_lq == LIW'(i);
+    end
+  // The report: a thread's oldest mark a cycle (the threads alternate), its ROB index read the cycle after
+  tid_t           sr_t, sr_last_q;
+  logic [NT-1:0]  sr_any;
+  logic           sr_v;
+  logic [LIW-1:0] sr_lq;
+  logic           snp_v_q;
+  logic [LIW-1:0] snp_lq_q;
+  tid_t           snp_t_q;
+  always_comb begin
+    for (int t = 0; t < NT; t++) sr_any[t] = |(lq_snp_q & lq_ot[t]);
+    sr_t  = (NT > 1 && sr_any[NT-1] && (!sr_any[0] || sr_last_q == '0)) ? tid_t'(NT - 1) : '0;
+    sr_v  = sr_any[sr_t];
+    sr_lq = lq_oldest_c(lq_snp_q & lq_ot[sr_t], lqi(lq_head_q[sr_t]));
+  end
+  always_ff @(posedge clk) begin
+    for (int i = 0; i < LQ_ENTRIES; i++)
+      lq_snp_q[i] <= !rst && lq_v_q[i] && !snp_ag[i] && ((lq_snp_q[i] && !(sr_v && lq_ot[sr_t][i])) || snp_hit[i]);
+    snp_v_q  <= !rst && sr_v && !kill_t[sr_t];
+    snp_lq_q <= sr_lq;
+    snp_t_q  <= sr_t;
+    if (rst) sr_last_q <= '0;
+    else if (sr_v) sr_last_q <= sr_t;
+  end
+  assign lqr_ra[1]  = snp_lq_q;
+  assign snp_valid  = snp_v_q && lq_v_q[snp_lq_q] && !kill_t[snp_t_q];   // (still in the LQ: its ROB entry is live)
+  assign snp_rob    = lqr_rd[1];
+  logic unused_snp;                                // (the compare is partial: PA[19:6])
+  assign unused_snp = ^dc_snp_line[PA_W-1:6+SNW];
+`ifndef SYNTHESIS
+  always_ff @(posedge clk)
+    if (!rst) assert ($onehot0({dc_snp_v, st_ev, am_ev})) else $error("tg_lsu: two CoRR events in a cycle");
+  // +snpstat: the events by source, the marks and the reports (each report replays a load from the ROB's head)
+  bit snp_on;
+  initial snp_on = $test$plusargs("snpstat");
+  longint unsigned snp_n_dc, snp_n_st, snp_n_am, snp_n_mark, snp_n_rep;
+  always_ff @(posedge clk)
+    if (rst) begin
+      snp_n_dc <= 0; snp_n_st <= 0; snp_n_am <= 0; snp_n_mark <= 0; snp_n_rep <= 0;
+    end else begin
+      snp_n_dc   <= snp_n_dc + (dc_snp_v ? 1 : 0);
+      snp_n_st   <= snp_n_st + (st_ev ? 1 : 0);
+      snp_n_am   <= snp_n_am + (am_ev ? 1 : 0);
+      snp_n_mark <= snp_n_mark + $countones(snp_hit);
+      snp_n_rep  <= snp_n_rep + (snp_valid ? 1 : 0);
+    end
+  final if (snp_on)
+    $fwrite(32'h8000_0002, "TG-SNP %m: events D$ %0d, stores %0d, atomics %0d; loads marked %0d; replays reported %0d\n",
+            snp_n_dc, snp_n_st, snp_n_am, snp_n_mark, snp_n_rep);
+`endif
+
   // ================= ROB reports =================
   always_comb begin
     exc_valid = '0; exc_rob = '0; exc_cause = '0;      // (tval: the VA at the head, hd_lva/hd_sva)
@@ -1929,7 +2029,7 @@ module tg_lsu
   tg_ram_lut #(.DEPTH(LQ_ENTRIES), .WIDTH($bits(lqc_t)), .NR(3)) u_lqc (
     .clk, .we(ld_ag_valid && !kill_t[t_ldag]), .waddr(ld_ag_pl.lq[LIW-1:0]), .wdata(lqc_wd), .raddr(lqc_ra),
     .rdata(lqc_rd));
-  tg_ram_lut #(.DEPTH(LQ_ENTRIES), .WIDTH(ROBW), .NR(1)) u_lqrob (
+  tg_ram_lut #(.DEPTH(LQ_ENTRIES), .WIDTH(ROBW), .NR(2)) u_lqrob (
     .clk, .we(ld_ag_valid && !kill_t[t_ldag]), .waddr(ld_ag_pl.lq[LIW-1:0]), .wdata(ld_ag_pl.rob), .raddr(lqr_ra),
     .rdata(lqr_rd));
   // LUTRAM copies of the address fields the CAMs keep in flip-flops, for the reads by index: a
@@ -2267,6 +2367,7 @@ module tg_lsu
       if (ln_v && !kill_t[t_ln]) begin
         lq_pa_q[ln_lqw]  <= nl_pa;
         lq_pav_q[ln_lqw] <= !nl_exc && !nl_tm;
+        lq_io_q[ln_lqw]  <= nl_mmio;
         lq_st_q[ln_lqw]  <= (nl_exc || nl_tm || nl_mmio) ? (nl_exc ? L_EXC : nl_tm ? L_TLB : L_MMIO) : L_PIPE;
       end
 
