@@ -24,6 +24,9 @@ namespace tg {
   X(m2_f2, 0, "fe_m2: direct targets and direction overrides come from F2's pre-decode (core-2's TAGE front end), not decode") \
   X(m2_f2_bubble, 1, "fe_m2 with m2_f2: fetch bubble of an F2 redirect (cycles)")                    \
   X(m2_ras_f2, 0, "fe_m2 with m2_f2 and ras: returns are repaired from the RAS at F2 (pre-decode), not at decode") \
+  X(itt_entries, 0, "fe_m2: an indirect target table of this many entries (a power of two; 0 = none): a JALR other than a return that the micro-BTB missed, or gave the wrong target last time, takes the table's target, redirected at F2; trained with the target as the micro-BTB is") \
+  X(itt_hist, 0, "itt_entries: the index hashes the PC with 0 = the path of the last few indirect targets, 1 = the block history of conditional branches") \
+  X(m9_counts, 0, "report M9's planning counters (misaligned loads and stores, the indirect target table's) without changing anything") \
   X(m2_btage, 0, "fe_m2 with m2_dir: core-2's TAGE as built (tg_tage.sv): one read per 16-byte block, slot-tagged sub-entries, conditional-branch history; 0 = the model's per-branch TAGE (dirpred)") \
   X(btage_li, 10, "m2_btage: tagged tables' index bits (two sub-entries per entry)")             \
   X(btage_bi, 11, "m2_btage: base table's index bits (blocks; a 2-bit counter per slot)")         \
@@ -117,7 +120,7 @@ namespace tg {
   X(lqcb, 16, "retired-load completion buffer entries")                                            \
   X(sq, 16, "store queue entries")                                                                 \
   X(early_retire, 1, "early retirement of loads and long operations")                             \
-  X(mdp, 1, "memory dependence prediction (wait table)")                                           \
+  X(mdp, 1, "memory dependence prediction (wait table); 2 = perfect store sets, an oracle: a load waits only for an older store whose address, unresolved at its AG, it will overlap") \
   X(mdp_entries, 1024, "wait table entries")                                                       \
   X(mdp_clear, 65536, "wait table clear interval (cycles)")                                        \
   X(fwd_strict, 0, "forward only from a store of the same address and size")                      \
