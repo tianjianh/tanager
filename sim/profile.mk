@@ -96,7 +96,8 @@ ifneq ($(filter-out 0 1,$(HART1)),)
   $(error HART1 must be 0, 1 or unset (got "$(HART1)"))
 endif
 # PMP checks at TLB fill (DR-183, docs/spec/pmp-at-fill.md), 0 or 1 (+define+TG_PMP_FILL, tg_core_pkg::PMP_FILL; soc-2's
-# switch in the core track's files): one shared checker in place of fetch's and the load port's. Not the same cycles.
+# switch in the core track's files): one shared checker in place of fetch's and the load port's. On by default (the
+# package); 0 builds the three checkers, as before. Not the same cycles.
 PMP_FILL ?=
 ifneq ($(filter-out 0 1,$(PMP_FILL)),)
   $(error PMP_FILL must be 0, 1 or unset (got "$(PMP_FILL)"))

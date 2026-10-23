@@ -2,7 +2,7 @@
 
 **Status:** approved as DR-183 (the user, 10-21 22:45), with DR-182's per-page check first:
 - DR-182, core-2's, is on main (6bed4f90);
-- DR-183 is built behind the switch `PMP_FILL` (§7), off by default, and on by default once its measured boot cost is under 1%. soc-2 builds it (the coordinator, 10-22, with the area pass on the critical path) in core-2's files, with core-2's agreement on them and its review of the plan; it merges after step 7.
+- DR-183 is built behind the switch `PMP_FILL` (§7), merged off (main 90925ece) and on by default since its measured boot cost came in under 1% (+0.17% st, +0.19% smt2). soc-2 built it (the coordinator, 10-22, with the area pass on the critical path) in core-2's files, with core-2's agreement on them and its review of the plan.
 
 The note is soc-2's (10-21), corrected and extended by core-2's review as the MMU's owner (`reports/pmp-at-fill-review.md` in core-2's build folder).
 
@@ -157,7 +157,7 @@ Today ([core-mmu.md](core-mmu.md) §PMP) the walker already caches the result (`
 
 ## 7. As built (DR-183, soc-2, 10-22)
 
-- **The switch:** `PMP_FILL` = 1 (`sim/profile.mk`, `+define+TG_PMP_FILL=1`, `tg_core_pkg::PMP_FILL`; `TG_DEFINES="TG_PMP_FILL=1"` for the Vivado scripts). Off, the core is main's, cycle for cycle (below).
+- **The switch:** `PMP_FILL` (`sim/profile.mk`, `+define+TG_PMP_FILL`, `tg_core_pkg::PMP_FILL`; `TG_DEFINES="TG_PMP_FILL=0"` for the Vivado scripts), on by default. `PMP_FILL=0` builds the three checkers, cycle for cycle the core before DR-183 (below).
 - **Which check decides:**
 
   | Access | Check |
