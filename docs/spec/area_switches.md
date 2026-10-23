@@ -51,6 +51,7 @@ The hardwired rows below need RTL work first.
 |---|---|---|---|
 | **FP banks of 64 with renaming across banks** (DR-179) instead of banks of 96 | 3,260 LUTs (1,630 a core) | FP pairs −0.18 / +0.14 / −0.34%; a select on each FP bank's write port; a rename rule only smt2-study's model has proved | No switch: `FXB = EXT_FD && HART1_ON` (tg_rename.sv) and `FP_PREGS_PER_BANK = 64` (tg_cfg_smt2.sv). The banks of 96 were one configuration line (caf4f560) that d33cf028 replaced; restoring the line alone leaves the crossing logic in, an untested combination. A switch (96 and `FXB` 0 together) is planned with fpu-2 and core-2 (the audit's gap 1). `sim/profile.mk` still says "FP banks of 96" |
 | **The page walker shares the store-address port's PMP checker** (DR-139) | 1.66K LUTs (0.83K a core) | Up to +0.23% cycles on walk-heavy suites | No switch (tg_lsu.sv, tg_ptw.sv). The walker's own checker is dbbd0734's parent; DR-183 (PMP at fill) replaces this arrangement anyway |
+| **Rename's payload in a LUTRAM** (DR-185, main 2e2e090f): the fields rename never reads (PC, instruction bits, prediction state, immediate, branch target, the units' controls; about 385 bits a slot) wait in a LUTRAM beside rename instead of the RN and DS registers | 2,908 FFs and 294 LUTs (1,454 and 147 a core, out of context) | None: cycle-identical by construction | No switch back to the registers: they are 196cb8ed's parent. `TG_PAY_WREG` (1, the default) registers decode's write into the LUTRAM; 0 writes it directly, about 1,540 FFs fewer (770 a core) if decode's paths close (spikes-2's preview without the register had 373 failing pins). `PAY_WREG=0` is linted on every configuration and, with hart 1, in the synthesis view (10-22) |
 | **R5: FP→FP and integer→FP conversions on the FMA** (DR-067) | 1,224 LUTs (612 a core) | FCVT takes 5 cycles, not 2 (at most 0.09% IPC); the FMA's slack +0.34 → +0.08 ns | No switch (tg_fpu_misc.sv). The separate conversion paths are 12880f1b's parent |
 | **fpu-2's levers 1a and 9:** the FMA's addend alignment and the divider's multipliers in DSP tiles | 580 LUTs (290 a core), +2 DSPs a core | None: cycle-identical | Not needed: it costs nothing. The old forms are 897bd3a3's first parent (fpu.md still describes them) |
 | **Cycle-identical RAM, DSP and logic rewrites:** rename maps, ready tables and cold CSRs in LUT RAM, the DTLB as a LUT-RAM CAM, counters in DSPs, 16 wakeup tags | tens to hundreds of LUTs each | None measured (16 tags: 0.00%, DR-053) | Not needed: they cost nothing (core-pipeline.md, the area notes; fpga_friendly.md §4) |
@@ -61,8 +62,8 @@ The hardwired rows below need RTL work first.
 | Measure | Switch | Its off form, to add then |
 |---|---|---|
 | DR-183's PMP checks at TLB fill (soc-2) | `PMP_FILL`, off by default | Lint both forms, with hart 1 too, and run regress and the soak with it on |
-| DR-185's rename payload in LUT RAM (core-2) | `PAY_WREG` | Lint both forms; cycle-identical against the other |
-| DR-185's lever 2: the issue queues' readiness ANDs on CARRY8 chains (fpu-2, `tg_iq_cand`) | the primitive under `SYNTHESIS` or `TG_SIM_PRIMS`, the AND otherwise | Cycle-identical by construction; `tests/unit/iq`'s `tb_iqcc` runs the primitive's model against the AND |
+| DR-185's lever 2: the issue queues' readiness ANDs on CARRY8 chains (fpu-2, `tg_iq_cand`; on main since a8a0ac3c as `tg_issue`'s `CC` = 2'b01, the AND form at 0) | `TG_IQ_CC` (fpu-2's c86431d7: 1 the default, 0 the AND, 3 the select's chains too) | Cycle-identical by construction; `tests/unit/iq`'s `tb_iqcc` runs the primitive's model against the AND. Lint `IQ_CC=0` and `3` once the define is on main |
+| DR-175's FP banks of 96 back (fpu-2's c86431d7) | `TG_FP_BANK96=1` | Into the bigger chip's elaboration, and the hardwired row above becomes a switch |
 
 ## Nothing to undo
 
@@ -72,7 +73,8 @@ Levers considered and never taken: DR-185's reserves (unary ops on ALU1 only, ha
 
 Four elaborations on `smt2`, added 10-22 (`tools/ci/lint_all.sh`, verification.md §4.3):
 - the product's combination, `HART1=1 URF=1 RELEASE=1 LAT_INJ=0 COMMIT_TRACE=0`, in the simulation and synthesis views;
-- the bigger chip's, `HART1=1 PMP_ENTRIES=16 TAGE_NT=4 TAGE_LI=12 XBAR_SLICE=1 MEM_SLICE=1 WIN=96,32,24`, in both views.
+- the bigger chip's, `HART1=1 PMP_ENTRIES=16 TAGE_NT=4 TAGE_LI=12 XBAR_SLICE=1 MEM_SLICE=1 WIN=96,32,24`, in both views;
+- DR-185's direct payload write, `PAY_WREG=0`, on every configuration, and `HART1=1 PAY_WREG=0` in the synthesis view: five more, 42–93 s each by hand at load 70.
 
 - **The cost:** each takes 25–45 s of one thread (by hand at nice 10, host at load 70: the product's 33 s and 43 s, the bigger chip without the window 25 s, the window alone 23–28 s). The four together are about 150 s, so about 25 s more at six at a time of `lint-all`'s 751 s. `lint-all CFGS=smt2 VIVADO=0` with them: 33 of 33 in 451 s at load 70–82.
 - **The slices on, run:** `tests/unit/soc short` adds trafgen with `XBAR_SLICE=1 MEM_SLICE=1`: a model build and about 34 s of simulation. tcore with both slices on passed once too (10-22).
