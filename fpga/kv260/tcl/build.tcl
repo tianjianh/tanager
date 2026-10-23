@@ -313,6 +313,17 @@ if {$pr_unc > 0} {
   }
 }
 if {$ckpt} { stamp "write_checkpoint post_opt"; write_checkpoint -force ./post_opt.dcp }
+# TG_INCR_DCP: incremental implementation from a reference routed checkpoint (spikes-2's measurement copy only, spikes
+# §8.18: rc3 from rc2's closed placement, the coordinator 10-23). read_checkpoint -incremental before place_design keeps
+# the placement and routing of every cell that matches the reference by name; TG_INCR_DIRECTIVE (TimingClosure unless
+# set: ripped-up failing paths are re-placed for WNS 0). The reuse rates go to reports/incremental_reuse_*.rpt
+set incr_dcp [expr {[info exists ::env(TG_INCR_DCP)] ? $::env(TG_INCR_DCP) : ""}]
+set incr_dir [expr {[info exists ::env(TG_INCR_DIRECTIVE)] ? $::env(TG_INCR_DIRECTIVE) : "TimingClosure"}]
+if {$incr_dcp ne ""} {
+  stamp "read_checkpoint -incremental ($incr_dir) $incr_dcp"
+  read_checkpoint -incremental $incr_dcp -directive $incr_dir
+  report_incremental_reuse -file $rep/incremental_reuse_pre_place.rpt
+}
 stamp "place_design ($place_dir)"
 place_design -directive $place_dir
 report_utilization -file $rep/place_utilization.rpt   ;# spikes-2's measurement copy only
@@ -331,6 +342,7 @@ phys_opt_design -directive $phys_dir
 if {$ckpt} { stamp "write_checkpoint post_place"; write_checkpoint -force ./post_place.dcp }
 stamp "route_design ($route_dir)"
 route_design -directive $route_dir
+if {$incr_dcp ne ""} { report_incremental_reuse -file $rep/incremental_reuse.rpt }
 if {$pr_unc > 0} { set_clock_uncertainty -setup 0 $core_clk }   ;# the reports at the real period
 write_checkpoint -force routed.dcp   ;# spikes-2's measurement copy only: for later queries
 stamp "reports"
@@ -387,6 +399,7 @@ puts $fh "pr_unc=$pr_unc (ns of setup uncertainty on clk_core for placement and 
 puts $fh "opt=$opt_dir (opt_design's directive, DR-166)"
 puts $fh "place=$place_dir (place_design's directive, DR-187)"
 puts $fh "phys_opt=$phys_dir route=$route_dir (their directives: spikes-2's measurement copy only)"
+if {$incr_dcp ne ""} { puts $fh "incremental=$incr_dcp ($incr_dir; reuse in reports/incremental_reuse.rpt; spikes-2's measurement copy only)" }
 if {$urf} { puts $fh "urf=1 (DR-174: the integer register file in UltraRAM, clk2x at [expr {2 * $core_mhz}] MHz)" }
 puts $fh "uncore=[expr {$unc_set eq {} ? {-} : $unc_set}]"
 if {[info exists ::env(TG_LAT_INJ)] && !$::env(TG_LAT_INJ)} {
