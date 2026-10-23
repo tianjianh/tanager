@@ -376,6 +376,10 @@ module tg_core
   lqid_t  [NUM_THREADS-1:0] lq_head_t;
   sqid_t  [NUM_THREADS-1:0] sq_head_t, sq_cmt_t;
   logic [N_IQ-1:0][DISPATCH_WIDTH-1:0] iq_bank_free, iq_bank_free2;
+  // M7 step 7's caps: tg_issue's flags (rename reads them); they apply while the halves are split (step 6's mode)
+  logic [N_IQ-1:0][DISPATCH_WIDTH-1:0][1:0] iq_bank_nfree;
+  logic [N_IQ-1:0][NUM_THREADS-1:0][2*DISPATCH_WIDTH-1:0] iq_room_ge;
+  logic [N_IQ-1:0][NUM_THREADS-1:0][DISPATCH_WIDTH-1:0][1:0] iq_bank_left;
   logic [NCOL-1:0] w_vec, iq_busy;
   logic [INT_BANKS-1:0]             rf_we;
   logic [INT_BANKS-1:0][PIDX_W-1:0] rf_widx;
@@ -444,7 +448,7 @@ module tg_core
     .clk, .rst, .ready(rn_ready), .start(init_done && fe_ready && lsu_ready), .flush, .flush_tid,
     .de_valid, .de_uop, .de_take, .blk_o(rn_blk), .acc_o(rn_acc),
     .rob_head(rob_head_t), .lq_head(lq_head_t), .sq_head(sq_head_t), .sq_cmt(sq_cmt_t), .iq_bank_free,
-    .iq_bank_free2, .w_vec, .busy(iq_busy),
+    .iq_bank_free2, .iq_room_ge, .iq_bank_left, .w_vec, .busy(iq_busy),
     .rf_we, .rf_widx, .llt_rel, .tag_free, .div_done, .div_done_tid,
     .fp_we, .fp_widx, .fdiv_iss, .fpi_iss, .fp_iss_tid, .fdiv_done, .fpi_pop,
     .cm_tid(cm_tid[0]), .cm_valid, .cm_rd_en, .cm_rd, .cm_dst, .cm_old, .cm_rd_fp,
@@ -472,6 +476,7 @@ module tg_core
   tg_issue u_is (
     .clk, .rst, .flush, .flush_tid, .disp_we(iq_we), .disp_dep(iq_dep),
     .disp_pl(iq_pl), .disp_mdep(iq_mdep), .bank_free(iq_bank_free), .bank_free2(iq_bank_free2), .mx_hold, .mx_alloc, .alloc(wid_alloc), .wake_reg, .ld_m2_will, .ld_m2_miss, .col_clr,
+    .bank_nfree(iq_bank_nfree), .room_ge(iq_room_ge), .bank_left(iq_bank_left), .split_n(mdn.split),
     .w(w_vec), .busy(iq_busy), .a1_block, .ld_block, .fp_block, .fp_misc_block, .iss_valid, .iss_pl, .iss_src_n,
     .spec_cancel);
 
@@ -845,7 +850,8 @@ module tg_core
 
   logic unused;
   assign unused = ^{debug_req_i, rob_tail_t,
-                    st_dropped, satp_asid};       // the TLBs flush on satp changes: no ASID tags
+                    st_dropped, satp_asid,        // the TLBs flush on satp changes: no ASID tags
+                    iq_bank_nfree};                // (step 7: rename reads the caps' other flags)
   // Board debug (DBG_WORD): the status word, the allocation logs and the select, a register
   if (DBG_WORD) begin : g_dbg
     logic [31:0] dbg_q;
