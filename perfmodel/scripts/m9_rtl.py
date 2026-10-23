@@ -18,7 +18,7 @@ rtlcal.py), today, (a) and (b).
 
   python3 scripts/m9_rtl.py --elfs DIR --vsim64 DIR --vsim128 DIR [--boot64 LOG --boot128 LOG] [--workers N]
       the vsim directories hold <program>.log, tg_vsim's output for DIR's <program>.elf
--> results/m9_rtl.json"""
+-> results/m9_rtl.json (tgsim's runs cached in results/m9_rtl_model.json)"""
 import argparse
 import hashlib
 import json
@@ -31,6 +31,7 @@ import tgrun
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "results" / "m9_rtl.json"
+CACHE = ROOT / "results" / "m9_rtl_model.json"   # tgsim's region stats per ELF and configuration (not committed)
 PRESET = "rtl_m2"
 BASE = {**m.CORE, "m9_counts": 1, "dram_lat": 30}   # as m9_plan.py: the st sizes are the smt2 core's merged window
 CFGS = {"today": {}, "(a) table": {"itt_entries": 256}, "(b) micro-BTB 128": {"ubtb": 128}}
@@ -172,10 +173,11 @@ def main():
     ap.add_argument("--workers", type=int, default=14)
     a = ap.parse_args()
     res = json.loads(OUT.read_text()) if OUT.exists() else {}
-    cache = res.get("model_cache", {})
+    cache = json.loads(CACHE.read_text()) if CACHE.exists() else res.get("model_cache", {})
+    res.pop("model_cache", None)
     elfs = sorted(Path(a.elfs).glob("*.elf"))
     mo = model(elfs, a.workers, cache)
-    res["model_cache"] = cache
+    CACHE.write_text(json.dumps(cache) + "\n")
     rows, out = [], {}
     for e in elfs:
         p = e.stem
