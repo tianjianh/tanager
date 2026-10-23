@@ -336,7 +336,7 @@ A recommendation follows: what M9 builds and in what order, what waits for v2, a
 
 | Source | LUTs a chip | Cost | Owner |
 |---|---|---|---|
-| The divide/sqrt's remaining fabric arithmetic in DSP tiles: F2's pack adders (63 and 31 bits) in DSP ALUs, and the S2 and F1 shifts' fine levels | −0.3 to −0.5K | none (same cycles); the shifts carry a timing risk | fpu |
+| The divide/sqrt's S2 and F1 shifts' fine levels in DSP tiles (not built) | about −0.2K | none (same cycles); a timing risk | fpu |
 | Unary ops on ALU1 only (DR-185's reserve) | −0.36K | ≤ 0.04% | fpu/core |
 | CSR enables into cold LUTRAM (spikes §8.18) | −0.2K | none | core |
 | Fetch's next-PC select (spikes §8.18) | −0.4 to −0.6K | none | core |
@@ -348,9 +348,13 @@ A recommendation follows: what M9 builds and in what order, what waits for v2, a
   bypass selects at −0.6 to −1.2K a chip, from the area pass's early estimates.
   - The RTL already has both selects as one encoded 4:1 per bit (fpga_friendly.md T7): the ring's x1/y1/x2/y2, RF's
     rf_val and EX0's bypass. A DSP's A/D split with INMODE still takes one LUT a bit, so neither saves anything.
-  - What remains is the fpu row above, about −0.3 to −0.5K.
-- The fpu row and the unary-ops move together give −0.66 to −0.86K, about M9's low end (0.9K). The core and soc rows
-  cover the rest: §1's high end needs about two of them, decided by their owners.
+  - **Measured (10-23, viv/fpa1, tg_fpu_div alone, budget flow):** F2's pack adders in DSP ALUs save 4 LUTs (2,038 →
+    2,034) for 3 DSPs. Their carry chains did the work, so they stay in the fabric (claude/track-fpu-395911-fparea
+    dropped).
+  - What remains is the shifts' fine levels in DSPs, about −0.2K a chip with a timing risk. The FPU is no longer a
+    real area source for M9.
+- The unary-ops move (−0.36K) and the core and soc rows pay for M9's additions (0.9–1.9K): about three of them, chosen
+  by their owners once §1's prototype is measured.
 - Taking the sources before the additions keeps the chip's fill at or below rc2's 95.9%. The timing margin, not the
   LUT count, is the binding limit.
 - The debug module lives in development builds, which need their own room check.
