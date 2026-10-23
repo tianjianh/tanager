@@ -393,15 +393,15 @@ The checker found its first real bug the same day: the test core lost deferred w
 
 **2026-10-23, the stress modes with timer interrupts and `run_random.py`'s perturbations** (`run_random.py --replay-only --races --irq 200`, whose `tg_replay` options add deferral at 30 to 90%, `--defer-all` on a third, `--nondet` and `--sc-fail` at random; 500 programs a mode). The self-test's programs run without interrupts and without `--defer-all`; these found two gaps, both fixed (SFENCE.VMA drains the store buffer, and deferred AMOs, §3.7). Failures, with those under `--defer-all` in brackets:
 
-| Mode | Before | After |
-|---|---|---|
-| `--sb=60` | 91 (85) | 6 (2) |
-| `--atomic-early=48` | 79 (78) | 6 (5) |
-| both | 111 (106) | 3 (0) |
-| `--sb=60`, `--vm 50` | 276 (110) | 2 (0) |
-| `--atomic-early=48`, `--vm 50` | 51 (46) | 5 (1) |
-| `--sb=50`, four harts | 164 (147) | 20 (10) |
-| `--atomic-early=48`, four harts | 154 (146) | 18 (12) |
+| Mode | Before | After | With §3.7's two store fixes of 10-23 afternoon |
+|---|---|---|---|
+| `--sb=60` | 91 (85) | 6 (2) | 5 (2) |
+| `--atomic-early=48` | 79 (78) | 6 (5) | 6 (5) |
+| both | 111 (106) | 3 (0) | 3 (0) |
+| `--sb=60`, `--vm 50` | 276 (110) | 2 (0) | 2 (0) |
+| `--atomic-early=48`, `--vm 50` | 51 (46) | 5 (1) | 5 (1) |
+| `--sb=50`, four harts | 164 (147) | 20 (10) | 19 (11) |
+| `--atomic-early=48`, four harts | 154 (146) | 18 (12) | 20 (14) |
 
 What remains is the ambiguity of §3.7 (*Ruled out, not proven*): a deferred AMO whose store data does not fix what it read (a swap, a min or max at its operand), or a load, read a value whose explanation the checker had placed elsewhere. The core defers no result (`rd_deferred` is never set), so the bracketed ones cannot arise from it. The others could; its campaigns of 10-23 (18,800 two-hart programs on 490a7e27, and 800 four-hart coherence programs) showed none.
 
