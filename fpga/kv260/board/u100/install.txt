@@ -1,0 +1,20 @@
+== fh_p1 install /home/ubuntu/tanager/u100-riscv-pkg/u100-riscv 2026-10-20 21:49:21 UTC, A53 up 2938.71 s
+b0094d235a36f8bd b0094d235a36f8bd fw_jump.bin (package, p1)
+459992b884a8a3e0 459992b884a8a3e0 payload.bin (package, p1)
+8aa45e615548e570 8aa45e615548e570 riscv.cmd (package, p1)
+3b56418cce77c196 3b56418cce77c196 riscv.scr (package, p1)
+15cd197cd1338300 15cd197cd1338300 tanager-h01.dtb (package, p1)
+f8037f921c0d7691 f8037f921c0d7691 tanager.bit.bin (package, p1)
+18afd230a9f577f1 18afd230a9f577f1 tanager.dtb (package, p1)
+kept from before:
+  tanager.dtb.pre-pmpfix
+== fh_p1 status 2026-10-20 21:49:23 UTC, A53 up 2940.42 s
+-- tanager/:
+b0094d235a36f8bd fw_jump.bin
+459992b884a8a3e0 payload.bin
+8aa45e615548e570 riscv.cmd
+3b56418cce77c196 riscv.scr
+15cd197cd1338300 tanager-h01.dtb
+f8037f921c0d7691 tanager.bit.bin
+18afd230a9f577f1 tanager.dtb
+45ba89a91ea1b278 tanager.dtb.pre-pmpfix
