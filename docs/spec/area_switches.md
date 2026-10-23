@@ -14,13 +14,13 @@ This page lists every measure taken to fit Tanager on the KV260's XCK26. For eac
 One `make lint-all` elaboration, with hart 1, turns off every measure that has a switch at once, in the simulation and synthesis views (`tools/ci/lint_all.sh`):
 
 ```
-make lint CFG=smt2 HART1=1 PMP_ENTRIES=16 TAGE_NT=4 TAGE_LI=12 XBAR_SLICE=1 MEM_SLICE=1 IQ_CC=0 FP_BANK96=1 RTL_CFG=<tg_cfg_smt2.sv with ROB 96, LQ 32, SQ 24>
+make lint CFG=smt2 HART1=1 PMP_ENTRIES=16 PMP_FILL=0 TAGE_NT=4 TAGE_LI=12 XBAR_SLICE=1 MEM_SLICE=1 IQ_CC=0 FP_BANK96=1 RTL_CFG=<tg_cfg_smt2.sv with ROB 96, LQ 32, SQ 24>
 ```
 
 `lint-all` writes that configuration file itself (`WIN=96,32,24`: a copy of `rtl/common/cfg/tg_cfg_smt2.sv` with the three sizes set). URF and the release form are off when not given.
 
 A board build of that chip (`fpga/kv260/tcl/build.tcl`, fpga/kv260/README.md):
-- `TG_DEFINES="TG_HART1=1 TG_PMP_ENTRIES=16 TG_TAGE_NT=4 TG_TAGE_LI=12 TG_IQ_CC=0 TG_FP_BANK96=1"`, `TG_XBAR_SLICE=1`, `TG_MEM_SLICE=1`;
+- `TG_DEFINES="TG_HART1=1 TG_PMP_ENTRIES=16 TG_PMP_FILL=0 TG_TAGE_NT=4 TG_TAGE_LI=12 TG_IQ_CC=0 TG_FP_BANK96=1"`, `TG_XBAR_SLICE=1`, `TG_MEM_SLICE=1`;
 - `TG_URF` unset;
 - `TG_RELEASE` as wanted: the development features cost area but are not a measure to undo;
 - the window: the three sizes edited in `tg_cfg_smt2.sv`, which has no define for them.
@@ -54,7 +54,7 @@ The two with a cycle cost, the walker's shared PMP checker (DR-139) and FP conve
 
 | Measure (hardware) | Saves a chip | Costs | The way back |
 |---|---|---|---|
-| **The page walker shares the store-address port's PMP checker** (DR-139) | 1.66K LUTs (0.83K a core) | Up to +0.23% cycles on walk-heavy suites | No switch (tg_lsu.sv, tg_ptw.sv). The walker's own checker is dbbd0734's parent. DR-183's `PMP_FILL`, when on, replaces this arrangement with one shared checker per core (above) |
+| **The page walker shares the store-address port's PMP checker** (DR-139) | 1.66K LUTs (0.83K a core) | Up to +0.23% cycles on walk-heavy suites | No switch of its own (tg_lsu.sv, tg_ptw.sv). Since 10-23 DR-183's `PMP_FILL` is on by default and replaces this arrangement with one shared checker per core (above); `PMP_FILL=0` brings it back. The walker's own checker, before DR-139, is dbbd0734's parent |
 | **Rename's payload in a LUTRAM** (DR-185, main 2e2e090f): the fields rename never reads (PC, instruction bits, prediction state, immediate, branch target, the units' controls; about 385 bits a slot) wait in a LUTRAM beside rename instead of the RN and DS registers | 2,908 FFs and 294 LUTs (1,454 and 147 a core, out of context) | None: cycle-identical by construction | No switch back to the registers: they are 196cb8ed's parent. `TG_PAY_WREG` (1, the default) registers decode's write into the LUTRAM; 0 writes it directly, about 1,540 FFs fewer (770 a core) if decode's paths close (spikes-2's preview without the register had 373 failing pins). `PAY_WREG=0` is linted on every configuration and, with hart 1, in the synthesis view (10-22) |
 | **R5: FP→FP and integer→FP conversions on the FMA** (DR-067) | 1,224 LUTs (612 a core) | FCVT takes 5 cycles, not 2 (at most 0.09% IPC); the FMA's slack +0.34 → +0.08 ns | No switch (tg_fpu_misc.sv). The separate conversion paths are 12880f1b's parent |
 | **fpu-2's levers 1a and 9:** the FMA's addend alignment and the divider's multipliers in DSP tiles | 580 LUTs (290 a core), +2 DSPs a core | None: cycle-identical | Not needed: it costs nothing. The old forms are 897bd3a3's first parent (fpu.md still describes them) |
@@ -73,7 +73,7 @@ Levers considered and never taken: DR-185's reserves (unary ops on ALU1 only, ha
 
 Four elaborations on `smt2`, added 10-22 (`tools/ci/lint_all.sh`, verification.md §4.3):
 - the product's combination, `HART1=1 URF=1 RELEASE=1 LAT_INJ=0 COMMIT_TRACE=0`, in the simulation and synthesis views;
-- the bigger chip's, `HART1=1 PMP_ENTRIES=16 TAGE_NT=4 TAGE_LI=12 XBAR_SLICE=1 MEM_SLICE=1 IQ_CC=0 FP_BANK96=1 WIN=96,32,24`, in both views;
+- the bigger chip's, `HART1=1 PMP_ENTRIES=16 PMP_FILL=0 TAGE_NT=4 TAGE_LI=12 XBAR_SLICE=1 MEM_SLICE=1 IQ_CC=0 FP_BANK96=1 WIN=96,32,24`, in both views;
 - DR-185's direct payload write, `PAY_WREG=0`, on every configuration, and `HART1=1 PAY_WREG=0` in the synthesis view: five more, 42–93 s each by hand at load 70;
 - lever 2's LUT form with hart 1 (`HART1=1 IQ_CC=0`), its select's chains in the synthesis view (`HART1=1 IQ_CC=3 SYNTH=1`), and the FP banks of 96 with hart 1 in both views: four more, 9–24 s each by hand (10-22, a quiet host).
 

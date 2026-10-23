@@ -13,7 +13,8 @@
 # synthesized logic reads but only simulation-only code drives is an error). With hart 1, smt2 also elaborates the
 # product's combination (URF=1 and the release form, in both views) and a bigger chip's, every area measure that has a
 # switch off together (PMP_ENTRIES=16, four TAGE tables of 4K, the uncore's slices, a window of ROB 96, LQ 32, SQ 24:
-# WIN=, a copy of the configuration's file; lever 2's LUT form, IQ_CC=0; FP banks of 96, FP_BANK96=1; both views;
+# WIN=, a copy of the configuration's file; lever 2's LUT form, IQ_CC=0; FP banks of 96, FP_BANK96=1; DR-183's three
+# PMP checkers, PMP_FILL=0; both views;
 # docs/spec/area_switches.md), and with hart 1 the other forms of DR-185 (PAY_WREG=0, IQ_CC=0 and 3) and the FP banks
 # of 96 alone (both views). They run JOBS at a time
 # (Verilator's lint is one thread and about 0.6 GB).
@@ -94,6 +95,7 @@ if [ -n "$hart1" ]; then
   if mentioned TG_PMP_ENTRIES && mentioned TG_TAGE_NT && grep -qsw MEM_SLICE "$ROOT/rtl/soc/tanager_soc.sv"; then
     big="HART1=1 PMP_ENTRIES=16 TAGE_NT=4 TAGE_LI=12 XBAR_SLICE=1 MEM_SLICE=1 WIN=96,32,24"
     mentioned TG_IQ_CC && big+=" IQ_CC=0"
+    mentioned TG_PMP_FILL && big+=" PMP_FILL=0"
     mentioned TG_FP_BANK96 && big+=" FP_BANK96=1"
     area+=("$big" "$big SYNTH=1")
   else echo "lint-all: no TG_PMP_ENTRIES, TG_TAGE_NT or tanager_soc MEM_SLICE; skipping the bigger chip's combination"; fi
