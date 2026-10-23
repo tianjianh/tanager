@@ -1978,19 +1978,57 @@ module tg_fetch
     end
   // F1's next block and the streams' waiting blocks: the events in the priority they had with one stream (F2's
   // action or F1's move, then the restarts, then the redirect, last); a stream's next block goes into F1 when F1 is
-  // free for it (without MT always), else it waits
+  // free for it (without MT always), else it waits. The events choose sources (nsel_f, nsel_w), not values, and each PC is
+  // then one flat select of its sources: F1's of 3 + 3 * NS, a waiting block's of five. The shared ones (kref_pc, the
+  // predicted next block, rs_pc, red_pc_s) are computed once. (Area: spikes.md's no-IPC rewrite 2; the chain of
+  // 2:1 selects it replaces is kept below as a simulation reference, compared every cycle)
   logic          f1v_n, ft_n, pw_n;
   logic [63:0]   fpc_n;
   logic [NS-1:0] sv_n;
   logic [NS-1:0][63:0] spc_n;
   logic          f1_mv;                  // F1's block moves into F2
   assign f1_mv = !ka_q && f2_go && f1_live;
+  // F1's sources: its own block (hold), the refetch, its predicted next, a stream's waiting block, restart or redirect
+  localparam int FS_N   = 3 + 3 * NS;
+  localparam int F_HOLD = 0, F_KREF = 1, F_PRED = 2, F_SPC = 3, F_RS = 3 + NS, F_RED = 3 + 2 * NS;
+  // A waiting block's sources: its own (hold), the refetch, F1's predicted next, its stream's restart or redirect
+  localparam int W_HOLD = 0, W_KREF = 1, W_PRED = 2, W_RS = 3, W_RED = 4;
+  logic [FS_N-1:0]    nsel_f;                // one-hot
+  logic [NS-1:0][4:0] nsel_w;                // one-hot each
+  logic [63:0]        pnext;             // F1's predicted next block
+  assign pnext = pred_hit ? pred_tgt : seq_pc;
+  /* verilator lint_off UNUSEDSIGNAL */   // (an index: its low bits)
+  function automatic logic [FS_N-1:0] f_oh(input int i);
+    logic [FS_N-1:0] f;
+    f = '0;
+    f[i] = 1'b1;
+    return f;
+  endfunction
+  function automatic logic [4:0] w_oh(input int i);
+    logic [4:0] w;
+    w = '0;
+    w[i] = 1'b1;
+    return w;
+  endfunction
+  /* verilator lint_on UNUSEDSIGNAL */
+  // stream s's waiting block as F1's source, from where the events so far put it
+  function automatic logic [FS_N-1:0] w2f(input logic [4:0] w, input int s);
+    logic [FS_N-1:0] f;
+    f = '0;
+    f[F_SPC + s] = w[W_HOLD];
+    f[F_KREF]    = w[W_KREF];
+    f[F_PRED]    = w[W_PRED];
+    f[F_RS + s]  = w[W_RS];
+    f[F_RED + s] = w[W_RED];
+    return f;
+  endfunction
   always_comb begin
     logic o, f1r;
     o     = 1'b0;
     f1r   = 1'b0;
-    f1v_n = f1_valid_q; ft_n = ft_q; fpc_n = fpc_q; pw_n = pw_q;
-    sv_n  = sv_s_q;     spc_n = spc_s_q;
+    f1v_n = f1_valid_q; ft_n = ft_q; pw_n = pw_q; sv_n = sv_s_q;
+    nsel_f    = f_oh(F_HOLD);
+    for (int i = 0; i < NS; i++) nsel_w[i] = w_oh(W_HOLD);
     // F1 waits a cycle for its PMP check; any change of fpc_q below ends the wait
     if (f1_base && f1_pwait) pw_n = 1'b1;
     if (ka_q) begin
@@ -1999,21 +2037,21 @@ module tg_fetch
         sv_n[k_s_q] = 1'b0;
       end else if (!k_stop_q) begin                   // refetch stream k (its later blocks go)
         if (!MT || !f1_valid_q || ft_q == k_s_q) begin
-          f1v_n = 1'b1; fpc_n = kref_pc; ft_n = k_s_q; pw_n = 1'b0;
+          f1v_n = 1'b1; nsel_f = f_oh(F_KREF); ft_n = k_s_q; pw_n = 1'b0;
           sv_n[k_s_q] = 1'b0;
         end else begin
-          sv_n[k_s_q] = 1'b1; spc_n[k_s_q] = kref_pc;
+          sv_n[k_s_q] = 1'b1; nsel_w[k_s_q] = w_oh(W_KREF);
         end
       end
     end else if (f1_mv) begin                         // F1's block moves on: the other stream's waiting block, or
       o = MT && !ft_q;                                // its own next
       if (MT && sv_s_q[o] && !blk_s[o]) begin
-        fpc_n = spc_s_q[o]; ft_n = o; sv_n[o] = 1'b0;
-        sv_n[ft_q] = 1'b1; spc_n[ft_q] = pred_hit ? pred_tgt : seq_pc;
+        nsel_f = f_oh(F_SPC + int'(o)); ft_n = o; sv_n[o] = 1'b0;
+        sv_n[ft_q] = 1'b1; nsel_w[ft_q] = w_oh(W_PRED);
       end else begin
         // (G, spikes.md §7.1: f1_fault leaves the select; a faulting block becomes F2's fault block, which stops
         // its stream and drops the block behind it, so the next block's address is never used)
-        fpc_n = pred_hit ? pred_tgt : seq_pc;
+        nsel_f = f_oh(F_PRED);
       end
       pw_n = 1'b0;
     end
@@ -2021,9 +2059,9 @@ module tg_fetch
     for (int t = 0; t < NS; t++) begin
       if (rs_ref[t] || rs_walk[t] || rs_room[t]) begin
         if (!MT || !f1v_n) begin
-          f1v_n = 1'b1; fpc_n = rs_pc[t]; ft_n = 1'(t); pw_n = 1'b0;
+          f1v_n = 1'b1; nsel_f = f_oh(F_RS + t); ft_n = 1'(t); pw_n = 1'b0;
         end else begin
-          sv_n[t] = 1'b1; spc_n[t] = rs_pc[t];
+          sv_n[t] = 1'b1; nsel_w[t] = w_oh(W_RS);
         end
       end
     end
@@ -2031,9 +2069,9 @@ module tg_fetch
     if (MT && (!f1v_n || stop_s_q[ft_n] || blk_s[ft_n])) begin
       o = !ft_n;
       if (sv_n[o] && !blk_s[o]) begin
-        f1v_n = 1'b1; fpc_n = spc_n[o]; ft_n = o; sv_n[o] = 1'b0; pw_n = 1'b0;
+        f1v_n = 1'b1; nsel_f = w2f(nsel_w[o], int'(o)); ft_n = o; sv_n[o] = 1'b0; pw_n = 1'b0;
       end else if (!f1v_n && sv_n[ft_n] && !blk_s[ft_n]) begin
-        f1v_n = 1'b1; fpc_n = spc_n[ft_n]; sv_n[ft_n] = 1'b0; pw_n = 1'b0;
+        f1v_n = 1'b1; nsel_f = w2f(nsel_w[ft_n], int'(ft_n)); sv_n[ft_n] = 1'b0; pw_n = 1'b0;
       end
     end
     // The redirects: each redirected stream's next block is its redirect's PC (its blocks in F1, F2 and F3 go,
@@ -2044,18 +2082,119 @@ module tg_fetch
       if (red_s[t]) begin
         if (!(MT && fl_slp && fl_s[t]) &&
             (!MT || !f1v_n || (!f1r && (ft_n == 1'(t) || stop_s_q[ft_n] || blk_s[ft_n] || red_s[ft_n])))) begin
-          f1v_n = 1'b1; fpc_n = red_pc_s[t]; ft_n = 1'(t); pw_n = 1'b0; f1r = 1'b1;
+          f1v_n = 1'b1; nsel_f = f_oh(F_RED + t); ft_n = 1'(t); pw_n = 1'b0; f1r = 1'b1;
           sv_n[t] = 1'b0;
         end else begin
           // (step 6) a sleep's redirect always waits here, in its stream's slot, which a blocked stream never leaves,
           // so the thread resumes there when it wakes; its old block in F1 goes
           if (MT && fl_slp && fl_s[t] && f1v_n && ft_n == 1'(t)) f1v_n = 1'b0;
-          sv_n[t] = 1'b1; spc_n[t] = red_pc_s[t];
+          sv_n[t] = 1'b1; nsel_w[t] = w_oh(W_RED);
         end
       end
     end
   end
-
+  // The values: one AND-OR select each
+  always_comb begin
+    logic [FS_N-1:0][63:0] fsrc;
+    fsrc[F_HOLD] = fpc_q;
+    fsrc[F_KREF] = kref_pc;
+    fsrc[F_PRED] = pnext;
+    for (int i = 0; i < NS; i++) begin
+      fsrc[F_SPC + i] = spc_s_q[i];
+      fsrc[F_RS + i]  = rs_pc[i];
+      fsrc[F_RED + i] = red_pc_s[i];
+    end
+    fpc_n = '0;
+    for (int i = 0; i < FS_N; i++) fpc_n |= fsrc[i] & {64{nsel_f[i]}};
+    for (int i = 0; i < NS; i++)
+      spc_n[i] = (spc_s_q[i] & {64{nsel_w[i][W_HOLD]}}) | (kref_pc & {64{nsel_w[i][W_KREF]}}) | (pnext & {64{nsel_w[i][W_PRED]}}) |
+                 (rs_pc[i] & {64{nsel_w[i][W_RS]}}) | (red_pc_s[i] & {64{nsel_w[i][W_RED]}});
+  end
+`ifndef SYNTHESIS
+  // The reference: the chain of selects as it was, on the values, compared every cycle
+  logic          f1v_r, ft_r, pw_r;
+  logic [63:0]   fpc_r;
+  logic [NS-1:0] sv_r;
+  logic [NS-1:0][63:0] spc_r;
+  always_comb begin : ref_chain
+    logic o, f1r;
+    o     = 1'b0;
+    f1r   = 1'b0;
+    f1v_r = f1_valid_q; ft_r = ft_q; fpc_r = fpc_q; pw_r = pw_q;
+    sv_r  = sv_s_q;     spc_r = spc_s_q;
+    // F1 waits a cycle for its PMP check; any change of fpc_q below ends the wait
+    if (f1_base && f1_pwait) pw_r = 1'b1;
+    if (ka_q) begin
+      if (k_miss_q || k_walk_q || k_room_q) begin     // stream k parks: its later blocks go
+        if (ft_q == k_s_q) f1v_r = 1'b0;
+        sv_r[k_s_q] = 1'b0;
+      end else if (!k_stop_q) begin                   // refetch stream k (its later blocks go)
+        if (!MT || !f1_valid_q || ft_q == k_s_q) begin
+          f1v_r = 1'b1; fpc_r = kref_pc; ft_r = k_s_q; pw_r = 1'b0;
+          sv_r[k_s_q] = 1'b0;
+        end else begin
+          sv_r[k_s_q] = 1'b1; spc_r[k_s_q] = kref_pc;
+        end
+      end
+    end else if (f1_mv) begin                         // F1's block moves on: the other stream's waiting block, or
+      o = MT && !ft_q;                                // its own next
+      if (MT && sv_s_q[o] && !blk_s[o]) begin
+        fpc_r = spc_s_q[o]; ft_r = o; sv_r[o] = 1'b0;
+        sv_r[ft_q] = 1'b1; spc_r[ft_q] = pred_hit ? pred_tgt : seq_pc;
+      end else begin
+        // (G, spikes.md §7.1: f1_fault leaves the select; a faulting block becomes F2's fault block, which stops
+        // its stream and drops the block behind it, so the next block's address is never used)
+        fpc_r = pred_hit ? pred_tgt : seq_pc;
+      end
+      pw_r = 1'b0;
+    end
+    // Restarts after a refill or a walk
+    for (int t = 0; t < NS; t++) begin
+      if (rs_ref[t] || rs_walk[t] || rs_room[t]) begin
+        if (!MT || !f1v_r) begin
+          f1v_r = 1'b1; fpc_r = rs_pc[t]; ft_r = 1'(t); pw_r = 1'b0;
+        end else begin
+          sv_r[t] = 1'b1; spc_r[t] = rs_pc[t];
+        end
+      end
+    end
+    // MT: an empty F1, or one holding a stopped stream's block, takes a waiting block
+    if (MT && (!f1v_r || stop_s_q[ft_r] || blk_s[ft_r])) begin
+      o = !ft_r;
+      if (sv_r[o] && !blk_s[o]) begin
+        f1v_r = 1'b1; fpc_r = spc_r[o]; ft_r = o; sv_r[o] = 1'b0; pw_r = 1'b0;
+      end else if (!f1v_r && sv_r[ft_r] && !blk_s[ft_r]) begin
+        f1v_r = 1'b1; fpc_r = spc_r[ft_r]; sv_r[ft_r] = 1'b0; pw_r = 1'b0;
+      end
+    end
+    // The redirects: each redirected stream's next block is its redirect's PC (its blocks in F1, F2 and F3 go,
+    // below). F1 takes it when F1 is empty or holds the stream's own block, a stopped stream's or another redirected
+    // stream's old one, and no other redirect of this cycle took F1 already; else it waits
+    f1r = 1'b0;
+    for (int t = 0; t < NS; t++) begin
+      if (red_s[t]) begin
+        if (!(MT && fl_slp && fl_s[t]) &&
+            (!MT || !f1v_r || (!f1r && (ft_r == 1'(t) || stop_s_q[ft_r] || blk_s[ft_r] || red_s[ft_r])))) begin
+          f1v_r = 1'b1; fpc_r = red_pc_s[t]; ft_r = 1'(t); pw_r = 1'b0; f1r = 1'b1;
+          sv_r[t] = 1'b0;
+        end else begin
+          // (step 6) a sleep's redirect always waits here, in its stream's slot, which a blocked stream never leaves,
+          // so the thread resumes there when it wakes; its old block in F1 goes
+          if (MT && fl_slp && fl_s[t] && f1v_r && ft_r == 1'(t)) f1v_r = 1'b0;
+          sv_r[t] = 1'b1; spc_r[t] = red_pc_s[t];
+        end
+      end
+    end
+  end
+  always_ff @(posedge clk)
+    if (!rst) begin
+      assert ($onehot(nsel_f)) else $error("tg_fetch: F1's next-block select is not one-hot");
+      for (int i = 0; i < NS; i++)
+        assert ($onehot(nsel_w[i])) else $error("tg_fetch: a waiting block's select is not one-hot");
+      assert (fpc_n == fpc_r && spc_n == spc_r && f1v_n == f1v_r && ft_n == ft_r && pw_n == pw_r && sv_n == sv_r)
+        else $error("tg_fetch: the flat next-block selects differ from the chain");
+    end
+`endif
   always_ff @(posedge clk) begin
     if (rst) begin
       f1_valid_q  <= 1'b1;
