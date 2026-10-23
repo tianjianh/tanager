@@ -1,0 +1,5 @@
+irq 14 (mmc0): affinity 0-3 effective 0
+irq 13 (eth0): affinity 0-3 effective 0
+mmc0 before:  14:      50361          0          0          0  SiFive PLIC  21 Edge      mmc0
+mmc0 12 s later:  14:      50361          0          0          0  SiFive PLIC  21 Edge      mmc0
+online 0-3

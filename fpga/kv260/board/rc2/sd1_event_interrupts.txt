@@ -1,0 +1,15 @@
+           CPU0       CPU1       CPU2       CPU3       
+ 10:    1502682    1599714    1560869    1537765  RISC-V INTC   5 Edge      riscv-timer
+ 12:       1028          0          0          0  SiFive PLIC  10 Edge      ttyS0
+ 13:       1202          0          0          0  SiFive PLIC  22 Edge      eth0, eth0
+ 14:      50361          0          0          0  SiFive PLIC  21 Edge      mmc0
+ 15:         16          0          0          0  SiFive PLIC  20 Edge      xuartps
+IPI0:      4702       5285       5151       5192  Rescheduling interrupts
+IPI1:    121159     100780      74232      81651  Function call interrupts
+IPI2:         0          0          0          0  CPU stop interrupts
+IPI3:         0          0          0          0  CPU stop (for crash dump) interrupts
+IPI4:         7          9          3          3  IRQ work interrupts
+IPI5:         0          0          0          0  Timer broadcast interrupts
+IPI6:         0          0          0          0  CPU backtrace interrupts
+IPI7:         0          0          0          0  KGDB roundup interrupts
+7.00 5.58 3.85 1/124 62284
