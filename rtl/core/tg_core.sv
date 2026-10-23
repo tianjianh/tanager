@@ -677,6 +677,19 @@ module tg_core
   logic             xret_v, xret_s;
   assign rsv_clr = tr_valid || mret || sret;
   assign priv_cm = MT ? priv_h[rob_hd_tid] : priv;
+  // M9's counters (HPM_N > 0; tg_csr's mhpmevent 3 ..): each hart's events, registered: 3 branch mispredicts (at
+  // execute), 4 ordering replays; 5 and 6 to wire (D$ and TLB misses, with core-2)
+  logic [NUM_THREADS-1:0][HPM_EV-1:0] hpm_ev;
+  if (HPM_N > 0) begin : g_hpm_ev
+    always_ff @(posedge clk)
+      for (int t = 0; t < NUM_THREADS; t++) begin
+        hpm_ev[t][0] <= br_valid && br_misp && rob_tid(br_rob, md) == tid_t'(t);
+        hpm_ev[t][1] <= replay_valid && rob_tid(replay_rob, md) == tid_t'(t);
+        hpm_ev[t][HPM_EV-1:2] <= '0;
+      end
+  end else begin : g_no_hpm_ev
+    assign hpm_ev = '0;
+  end
   tg_csr #(.CORE_ID(CORE_ID)) u_csr (
     .clk, .rst, .flush, .flush_tid, .ex_valid(csr_ex_valid), .ex_pl(csr_ex_pl), .ex_src(csr_ex_src),
     .ex_rdata(csr_ex_rdata), .ex_ill(csr_ex_ill),
@@ -685,7 +698,7 @@ module tg_core
     .trap_target, .irq_target, .xret_v, .xret_s, .xepc_o(xepc), .irq_take, .irq_code, .wfi_wake, .wfi_wake_h, .wfi_arm_h,
     .misa_m, .misa_b,
     .misa_c, .misa_a, .misa_f, .misa_d, .fs, .fc_fflags, .fc_frm, .fc_wvalid, .fc_waddr,
-    .fc_wdata, .fs_dirty, .cm_pc(tr_epc), .priv, .tvm, .tw, .tsr, .satp_sv39,
+    .fc_wdata, .fs_dirty, .hpm_ev, .cm_pc(tr_epc), .priv, .tvm, .tw, .tsr, .satp_sv39,
     .satp_asid, .satp_wr, .pmp_d, .pmp_wr, .pmp_busy, .cold_busy(csr_cold_busy), .dst_h(dst_csr), .priv_h, .priv_d_h, .sum_h, .mxr_h, .sv39_h, .satp_ppn_h,
     .pmp_d_h, .pmp_pal_h, .pmp_lk_h,
     .irq_mei(irq_mei_i), .irq_mti(irq_mti_i), .irq_msi(irq_msi_i), .irq_sei(irq_sei_i),
