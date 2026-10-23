@@ -84,4 +84,18 @@
 
 ## The board now: the four-hart soak on u100
 
-The board is on u100 with the four-hart tree. The four-hart soak ([`../runs/soak4.sh`](../runs/soak4.sh), as on dr187b) runs there from 08:11 UTC, in its own folder (`~/soak4-u100`), with the laptop's stamped loggers and a 12-hour watch. dr187b stays on p1 in `tanager-dr187b-80/` and the two-core 100 MHz image in `tanager-d4r2-100/`. To go back to dr187b, in ARM mode: `FH_BACKUP=tanager-dr187b-80 bash ~/tanager/runs/fh_p1.sh back`.
+The board is on u100 with the four-hart tree. The four-hart soak ([`../runs/soak4.sh`](../runs/soak4.sh), as on dr187b) runs there in its own folder (`~/soak4-u100`), with the laptop's stamped loggers and a 12-hour watch.
+
+**One refused remote fence, in round 5's hart stop (09:02 UTC)** ([`soak4_first.log`](soak4_first.log), [`soak_r5_E_hsm.txt`](soak_r5_E_hsm.txt); the same line on COM5 at 09:01:59.557, [`uart_COM5_boots2.txt`](uart_COM5_boots2.txt)):
+
+    [ 3188.384705] CPU3: off
+    [ 3188.393451] __sbi_rfence_v02_call: hbase = [1] hmask = [0x5] failed (error [-22])
+
+- **What it is:** 9 ms after hart 3 stopped, Linux asked OpenSBI for a remote fence on harts 1 and 3, and OpenSBI refused it, which Linux reports as `-EINVAL`.
+- **No harm followed:** the round came back to `0-3`, `t` was right on every CPU, and later rounds were clean.
+- **How often:** once in 9 rounds of hart stop and start on u100 (3 in the bring-up, 6 in the soak), and never in dr187b's 60.
+- **The likely reading:** a race in Linux's CPU hotplug, a fence aimed at a hart that has just stopped, which u100's timing exposed. It isn't an access fault.
+- **The checks:** the soak's own kernel check didn't watch for SBI errors; `hsm_rounds.sh` caught the line. Then `hart_check.sh`, which read the whole boot's log, failed on it in round 6.
+  - Both are fixed: the soak watches for SBI and HSM errors, and `hart_check.sh` reads only its own step's lines there.
+  - The soak restarted at 09:14 UTC after 6 rounds.
+  - A recurrence would show as a FAIL again. dr187b stays on p1 in `tanager-dr187b-80/` and the two-core 100 MHz image in `tanager-d4r2-100/`. To go back to dr187b, in ARM mode: `FH_BACKUP=tanager-dr187b-80 bash ~/tanager/runs/fh_p1.sh back`.
