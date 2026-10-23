@@ -94,21 +94,28 @@ HART1 ?=
 ifneq ($(filter-out 0 1,$(HART1)),)
   $(error HART1 must be 0, 1 or unset (got "$(HART1)"))
 endif
-TC_SUFFIX := $(if $(TIMING_CUTS),-tc$(TIMING_CUTS))$(if $(DC_MSHRS),-m$(DC_MSHRS))$(if $(QUEUE_DECODE),-qd$(QUEUE_DECODE))$(if $(SPEC_WAKE),-sw$(SPEC_WAKE))$(if $(SPEC_WAKE_FILT),-swf$(SPEC_WAKE_FILT))$(if $(STA_BASE),-sb$(STA_BASE))$(if $(STEER_LA),-sl$(STEER_LA))$(if $(PMP_ENTRIES),-p$(PMP_ENTRIES))$(if $(STORE_PF),-spf$(STORE_PF))$(if $(URF),-urf$(URF))$(if $(STORE_PF_MAX),-spm$(STORE_PF_MAX))$(if $(SOLO_TID),-solo$(SOLO_TID))$(if $(SPLIT),-sp$(SPLIT))$(if $(HART1),-h$(HART1))
+# PMP checks at TLB fill (DR-183, docs/spec/pmp-at-fill.md), 0 or 1 (+define+TG_PMP_FILL, tg_core_pkg::PMP_FILL; soc-2's
+# switch in the core track's files): one shared checker in place of fetch's and the load port's. Not the same cycles.
+PMP_FILL ?=
+ifneq ($(filter-out 0 1,$(PMP_FILL)),)
+  $(error PMP_FILL must be 0, 1 or unset (got "$(PMP_FILL)"))
+endif
+TC_SUFFIX := $(if $(TIMING_CUTS),-tc$(TIMING_CUTS))$(if $(DC_MSHRS),-m$(DC_MSHRS))$(if $(QUEUE_DECODE),-qd$(QUEUE_DECODE))$(if $(SPEC_WAKE),-sw$(SPEC_WAKE))$(if $(SPEC_WAKE_FILT),-swf$(SPEC_WAKE_FILT))$(if $(STA_BASE),-sb$(STA_BASE))$(if $(STEER_LA),-sl$(STEER_LA))$(if $(PMP_ENTRIES),-p$(PMP_ENTRIES))$(if $(STORE_PF),-spf$(STORE_PF))$(if $(URF),-urf$(URF))$(if $(STORE_PF_MAX),-spm$(STORE_PF_MAX))$(if $(SOLO_TID),-solo$(SOLO_TID))$(if $(SPLIT),-sp$(SPLIT))$(if $(HART1),-h$(HART1))$(if $(PMP_FILL),-pf$(PMP_FILL))
 TC_DEF    := $(strip $(if $(TIMING_CUTS),+define+TG_TIMING_CUTS=$(TIMING_CUTS)) $(if $(DC_MSHRS),+define+TG_DC_MSHRS=$(DC_MSHRS)) \
                      $(if $(QUEUE_DECODE),+define+TG_QUEUE_DECODE=$(QUEUE_DECODE)) $(if $(SPEC_WAKE),+define+TG_SPEC_WAKE=$(SPEC_WAKE)) \
                      $(if $(SPEC_WAKE_FILT),+define+TG_SPEC_WAKE_FILT=$(SPEC_WAKE_FILT)) $(if $(STA_BASE),+define+TG_STA_BASE=$(STA_BASE)) \
                      $(if $(STEER_LA),+define+TG_STEER_LA=$(STEER_LA)) $(if $(PMP_ENTRIES),+define+TG_PMP_ENTRIES=$(PMP_ENTRIES)) \
                      $(if $(STORE_PF),+define+TG_STORE_PF=$(STORE_PF)) $(if $(URF),+define+TG_URF=$(URF)) \
                      $(if $(STORE_PF_MAX),+define+TG_STORE_PF_MAX=$(STORE_PF_MAX)) $(if $(SOLO_TID),+define+TG_SOLO_TID=$(SOLO_TID)) \
-                     $(if $(SPLIT),+define+TG_SPLIT=$(SPLIT)) $(if $(HART1),+define+TG_HART1=$(HART1)))
+                     $(if $(SPLIT),+define+TG_SPLIT=$(SPLIT)) $(if $(HART1),+define+TG_HART1=$(HART1)) \
+                     $(if $(PMP_FILL),+define+TG_PMP_FILL=$(PMP_FILL)))
 TC_ARG    := $(strip $(if $(TIMING_CUTS),TIMING_CUTS=$(TIMING_CUTS)) $(if $(DC_MSHRS),DC_MSHRS=$(DC_MSHRS)) \
                      $(if $(QUEUE_DECODE),QUEUE_DECODE=$(QUEUE_DECODE)) $(if $(SPEC_WAKE),SPEC_WAKE=$(SPEC_WAKE)) \
                      $(if $(SPEC_WAKE_FILT),SPEC_WAKE_FILT=$(SPEC_WAKE_FILT)) $(if $(STA_BASE),STA_BASE=$(STA_BASE)) \
                      $(if $(STEER_LA),STEER_LA=$(STEER_LA)) $(if $(PMP_ENTRIES),PMP_ENTRIES=$(PMP_ENTRIES)) \
                      $(if $(STORE_PF),STORE_PF=$(STORE_PF)) $(if $(URF),URF=$(URF)) \
                      $(if $(STORE_PF_MAX),STORE_PF_MAX=$(STORE_PF_MAX)) $(if $(SOLO_TID),SOLO_TID=$(SOLO_TID)) $(if $(SPLIT),SPLIT=$(SPLIT)) \
-                     $(if $(HART1),HART1=$(HART1)))
+                     $(if $(HART1),HART1=$(HART1)) $(if $(PMP_FILL),PMP_FILL=$(PMP_FILL)))
 # The PMP entries of the core this tree builds, for Spike's regions in lockstep (DR-167): PMP_ENTRIES when
 # set, else the package's default, from its one `localparam int PMP_ENTRIES = N;` line, else 16 (the core
 # before the switch). tg_vsim takes the count from the model itself and stops if this reading differs, so
@@ -152,9 +159,16 @@ ifneq ($(filter-out 1 2 3 4,$(TAGE_NT)),)
   $(error TAGE_NT must be 1 to 4 or unset (got "$(TAGE_NT)"))
 endif
 TAGE_SET := $(foreach v,NT LI TW BI,$(if $(TAGE_$(v)),TAGE_$(v)=$(TAGE_$(v))))
+# DR-185's rename payload LUTRAM written through a register (tg_core_pkg's TG_PAY_WREG, 1 by default) or directly
+# (PAY_WREG=0: about 770 flip-flops a core fewer, if decode's paths close): the other form for lint only
+PAY_WREG ?=
+ifneq ($(filter-out 0 1,$(PAY_WREG)),)
+  $(error PAY_WREG must be 0, 1 or unset (got "$(PAY_WREG)"))
+endif
 # The lint-only switches together, for the lint targets; a build that runs programs refuses them.
 LINT_ONLY_DEF := $(DE_DEF) $(if $(ROB_STORE_REPORT_LATE),+define+TG_ROB_STORE_REPORT_LATE=$(ROB_STORE_REPORT_LATE)) \
                  $(if $(COMMIT_TRACE),+define+TG_COMMIT_TRACE=$(COMMIT_TRACE)) \
-                 $(foreach v,NT LI TW BI,$(if $(TAGE_$(v)),+define+TG_TAGE_$(v)=$(TAGE_$(v))))
+                 $(foreach v,NT LI TW BI,$(if $(TAGE_$(v)),+define+TG_TAGE_$(v)=$(TAGE_$(v)))) \
+                 $(if $(PAY_WREG),+define+TG_PAY_WREG=$(PAY_WREG))
 LINT_ONLY_SET := $(if $(DE_STAGE),DE_STAGE=$(DE_STAGE)) $(if $(ROB_STORE_REPORT_LATE),ROB_STORE_REPORT_LATE=$(ROB_STORE_REPORT_LATE)) \
-                 $(if $(filter 0,$(COMMIT_TRACE)),COMMIT_TRACE=0) $(TAGE_SET)
+                 $(if $(filter 0,$(COMMIT_TRACE)),COMMIT_TRACE=0) $(TAGE_SET) $(if $(PAY_WREG),PAY_WREG=$(PAY_WREG))

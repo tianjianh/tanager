@@ -122,6 +122,21 @@ module tg_lsu
   input  logic   [NUM_THREADS-1:0][43:0]            satp_ppn,
   input  pmp_d_t [NUM_THREADS-1:0][PMP_ENTRIES-1:0] pmp_d,
   input  logic   [NUM_THREADS-1:0][PMP_ENTRIES-1:0][2:0] pmp_pal,
+  input  logic   [NUM_THREADS-1:0]                  pmp_lk_h,      // DR-183: a hart's active locked entries
+  // DR-183 (PMP_FILL): fetch's checks on the shared checker. A registered request, held until its response the
+  // cycle after its grant: a page's S/U result and whether a region boundary lies inside it (4 KiB), or one 4-byte
+  // word's
+  input  logic                         pfc_req,
+  input  logic                         pfc_page,       // a page, else a word
+  input  logic                         pfc_tag,        // the response echoes it
+  input  tid_t                         pfc_tid,
+  input  logic [PA_W-1:0]              pfc_pa,
+  input  logic                         pfc_m,          // a word under M's rules (M-mode with a locked entry)
+  output logic                         pfc_rsp_v,
+  output logic                         pfc_rsp_tag,
+  output logic                         pfc_rsp_ok,     // the word may be fetched
+  output logic                         pfc_rsp_nh,     // a region boundary lies inside the page
+  output logic                         pfc_rsp_x,      // the page's S/U execute permission
   input  logic                         tlb_flush,
   input  tid_t                         tlb_flush_tid,  // ... the hart whose entries it clears
   output logic [1:0]                   tlbm_valid,    // DTLB misses at AG (LD, STA)
@@ -301,6 +316,9 @@ module tg_lsu
   logic   [LQ_ENTRIES-1:0]           lq_pav_q;     // physical address known
   sqid_t  [LQ_ENTRIES-1:0]           lq_blk_q;     // blocking store
   logic   [LQ_ENTRIES-1:0]           lq_part_q;    // ... partial overlap (wait until it leaves)
+  // DR-183 (PMP_FILL): the load's PMP check is still to come, the shared checker having been taken in its check
+  // cycle: its replay asks again (a parked MMIO load: the head asks before its issue, mh_req)
+  logic   [LQ_ENTRIES-1:0]           lq_pck_q;
   // DR-149 (DC_MSHRS > 1): an L_MISS load waits for its entry's install (lq_we_q), or, while it
   // has none (lq_wany_q), for any install or the miss side going idle
   logic   [LQ_ENTRIES-1:0]           lq_wany_q;
@@ -690,6 +708,11 @@ module tg_lsu
   logic [PA_W-1:0] lck_pa;                        // the checker's access: a registered PA and size
   logic        lck_dbl;
   tid_t        t_lck;                             // ... and its load's thread
+  logic        mm_hold_p;                         // the head's MMIO issue held by the profile's check (below)
+  logic        lmc_v;                             // DR-183 (PMP_FILL): a parked MMIO load's check this cycle ...
+  logic [LIW-1:0] lmc_lq;                         // ... its entry
+  logic        m1_rck_q, m2_rck_q;                // DR-183 (PMP_FILL): a replay with its check pending, in M1, M2
+  logic        mh_req, mh_gnt;                    // ... the head's MMIO load asks the checker; granted
   logic        l_den, lm_den, mm_hold;            // denied: the load in M2; an MMIO load (check only); the head's
   logic        lm_st;                             // ... MMIO issue held; the denied MMIO load's state write,
   logic [LIW-1:0] lm_lq;                          // ... and its LQ entry
@@ -704,11 +727,21 @@ module tg_lsu
   assign nl_pma  = xl_l ? pma_of({dt_pte[0].ppn, ln_va[11:0]}) : pma_of(ln_va[PA_W-1:0]);
   logic       pmp_hit_ld, pmp_hit_st;
   logic [2:0] pmp_rwx_ld, pmp_rwx_st;
-  tg_pmp #(.S(1)) u_pmp_ld (.pa(lck_pa), .dbl(lck_dbl), .acc(ACC_R),
-                            .m_mode(priv_d[t_lck] == PRIV_M), .d(pmp_d[t_lck]), .ok(nl_chk), .hit(pmp_hit_ld),
-                            .rwx(pmp_rwx_ld));
+  // DR-183 (PMP_FILL): no load checker; the shared one (u_pmp_st) checks a load in a cycle it grants it (l_gnt)
+  logic l_ask, l_gnt, l_nok;     // a load (or a parked MMIO load) asks the checker; granted; an M2 load unchecked
+  logic [0:0] sa_chk;
+  if (!PMP_FILL) begin : g_pmp_ld
+    tg_pmp #(.S(1)) u_pmp_ld (.pa(lck_pa), .dbl(lck_dbl), .acc(ACC_R),
+                              .m_mode(priv_d[t_lck] == PRIV_M), .d(pmp_d[t_lck]), .ok(nl_chk), .hit(pmp_hit_ld),
+                              .rwx(pmp_rwx_ld));
+  end else begin : g_pmp_ldf
+    assign nl_chk     = sa_chk;
+    assign pmp_hit_ld = 1'b0;
+    assign pmp_rwx_ld = '0;
+  end
   assign nl_pmpc = xl_l && dt_pte[0].ph;          // the cached result applies
-  assign nl_pmpd = !nl_pmpc;                      // ... else the checker decides, later
+  // ... else the checker decides, later; with PMP_FILL not M-mode while its hart has no locked entry (DR-183)
+  assign nl_pmpd = !nl_pmpc && !(PMP_FILL && priv_d[t_ln] == PRIV_M && !pmp_lk_h[t_ln]);
   assign nl_acc  = (xl_l ? dt_pte[0].big : ln_va[63:PA_W] != '0) || nl_pma == PMA_NONE ||
                    (nl_pmpc && !dt_pte[0].pr);
   assign nl_mmio = nl_pma == PMA_DEVICE || nl_pma == PMA_ROM;
@@ -856,7 +889,9 @@ module tg_lsu
     end
     m2_val = ext_al(dw, m2_pa_q[2:0], lq_size_q[m2_lq_q], lqc_rd[0].uns);
   end
-  assign m2_out = l_den ? O_FAULT : m2_out_w;     // a PMP denial found after the decision: first
+  // a PMP denial found after the decision: first. DR-183 (PMP_FILL): a load whose check found the shared checker
+  // taken does not complete, and replays with its check pending; one that would not complete keeps its outcome
+  assign m2_out = l_den ? O_FAULT : (l_nok && m2_out_w == O_OK) ? O_RETRY : m2_out_w;
   // PTE reads: the cache's dword (no forwarding: the deciding walk runs with the SQ drained)
   logic m2_ok, pt_rsp, pt_hit, pt_den;
   assign pt_rsp = m2_v_q && m2_pt_q && !kill_t[t_m2];
@@ -867,7 +902,7 @@ module tg_lsu
   logic m2_okw;
   // (m2_out_w == O_OK, written out: the denied-line compare only chooses between two outcomes that
   // are not O_OK, so it stays off the wakeup path)
-  assign m2_okw = m2_v_q && !m2_pt_q && !kill_t[t_m2] &&
+  assign m2_okw = m2_v_q && !m2_pt_q && !kill_t[t_m2] && !l_nok &&
                   (m2_fhit_q ? m2_fcov_q && m2_fdat_q : !m2_clash_q && m2_hit_q);
   assign m2_ok  = m2_okw && !l_den;
   // FP banks of 64 with renaming across both (DR-179): each FP bank has one write port, and P4's stream takes it in
@@ -949,6 +984,10 @@ module tg_lsu
   assign hd_rob  = rob_head[t_hd];
   assign mm_idx  = hl;
   assign mm_cand = lq_v_q[hl] && lq_st_q[hl] == L_MMIO && lqc_rd[2].rob == hd_rob;
+  // DR-183 (PMP_FILL): the head's MMIO load whose check found the shared checker taken waits for it (mm_hold) and
+  // asks again, with its thread's descriptors and privilege, while the MMIO port, and so its exception report, is
+  // free (the DR-176 gate in mm_go stays as it is)
+  assign mm_hold = mm_hold_p || (PMP_FILL && lq_pck_q[hl]);
 
   // Drain: the SQ head once committed. The head ports (the drain, an MMIO store, an atomic) read one thread's head,
   // t_dr_q's (D8): the threads take turns a cycle at a time when both want it (a committed store, or an atomic as their
@@ -1066,6 +1105,8 @@ module tg_lsu
   // probe would (plan §6.2 rule 4).
   typedef enum logic [1:0] { AM_IDLE, AM_REQ, AM_RES, AM_DONE } amstate_e;
   amstate_e          am_st_q;
+  // (DR-183, PMP_FILL: the head's MMIO check, mh_req, above with mm_hold; here, after the atomics' state it reads)
+  assign mh_req  = PMP_FILL && mm_cand && lq_pck_q[hl] && xs_q == X_IDLE && !xr_v_q && am_st_q == AM_IDLE;
   tid_t              am_t_q;                // the FSM's atomic's thread
   robid_t            [NT-1:0] am_rob_q;
   sqid_t             [NT-1:0] am_sq_q;
@@ -1288,7 +1329,6 @@ module tg_lsu
   logic [7:0]     sa_mask;
   pma_e           sa_pma;
   logic           sa_mis, sa_pf, sa_tm, sa_acc, sa_exc, sa_mmio, sa_ok, sa_amo, sa_lr, sa_pmpc;
-  logic [0:0]     sa_chk;
   logic [PA_W-1:0] sa_pa;
   acc_e           sa_at;
   logic [SIW-1:0] sa_idx_ag;                    // AG's entry (its ROB index, size and VA go in at AG)
@@ -1310,9 +1350,13 @@ module tg_lsu
   // a page with a region boundary inside decides as if PMP allowed it, and the checker looks at its
   // registered PA in S2, the next cycle (below).
   assign sa_pmpc = xl_s && dt_pte[1].ph;
+  // ... and which take the checker at their decision: bare ones, and with PMP_FILL not M-mode while its hart has no
+  // locked entry (DR-183)
+  logic sa_pck;
+  assign sa_pck  = !xl_s && !(PMP_FILL && priv_d[t_sn] == PRIV_M && !pmp_lk_h[t_sn]);
   // atomics only in main memory (interfaces.md §2.4)
   assign sa_acc  = (xl_s ? dt_pte[1].big : sn_va[63:PA_W] != '0) ||
-                   (sa_pmpc && !(sa_lr ? dt_pte[1].pr : dt_pte[1].pw)) || (!xl_s && !sa_chk[0]) ||
+                   (sa_pmpc && !(sa_lr ? dt_pte[1].pr : dt_pte[1].pw)) || (sa_pck && !sa_chk[0]) ||
                    sa_pma == PMA_NONE || sa_pma == PMA_ROM || (sa_amo && sa_pma != PMA_MEM);
   assign sa_exc  = sa_mis || sa_pf || (!sa_tm && sa_acc);
   assign sa_mmio = sa_pma == PMA_DEVICE && !sa_amo;
@@ -1328,6 +1372,27 @@ module tg_lsu
                                .ok(sh_st_ok), .hit(sh_st_hit), .rwx(sh_st_rwx));
   logic unused_sh;
   assign unused_sh = ^{sh_ld_hit, sh_ld_rwx, sh_st_hit, sh_st_rwx};
+  // (DR-183, PMP_FILL) An M-mode load or store that skips the check, its hart having no locked entry, must pass one
+  // in full under M's rules
+  if (PMP_FILL) begin : g_shm
+    logic       shm_ld_ok, shm_st_ok, shm_ld_hit, shm_st_hit;
+    logic [2:0] shm_ld_rwx, shm_st_rwx;
+    tg_pmp #(.S(1)) u_pmp_shm_ld (.pa(nl_pa), .dbl(ln_size == 2'd3), .acc(ACC_R), .m_mode(1'b1), .d(pmp_d[t_ln]),
+                                  .ok(shm_ld_ok), .hit(shm_ld_hit), .rwx(shm_ld_rwx));
+    tg_pmp #(.S(1)) u_pmp_shm_st (.pa(sa_pa), .dbl(sn_size == 2'd3), .acc(sa_at), .m_mode(1'b1), .d(pmp_d[t_sn]),
+                                  .ok(shm_st_ok), .hit(shm_st_hit), .rwx(shm_st_rwx));
+    logic unused_shm;
+    assign unused_shm = ^{shm_ld_hit, shm_ld_rwx, shm_st_hit, shm_st_rwx};
+    always_ff @(posedge clk)
+      if (!rst) begin
+        if (ln_v && !xl_l && priv_d[t_ln] == PRIV_M && !pmp_lk_h[t_ln] && !nl_mis)
+          assert (shm_ld_ok) else $error("tg_lsu: an M-mode load skipped PMP (no locked entry), but a full check denies it at PA %h",
+                                         nl_pa);
+        if (sn_v && !xl_s && priv_d[t_sn] == PRIV_M && !pmp_lk_h[t_sn] && !sa_mis)
+          assert (shm_st_ok) else $error("tg_lsu: an M-mode store skipped PMP (no locked entry), but a full check denies it at PA %h",
+                                         sa_pa);
+      end
+  end
   always_ff @(posedge clk)
     if (!rst) begin
       if (ln_v && nl_pmpc && dt_hit[0] && !nl_mis && !nl_pf && !nl_tm)
@@ -1356,22 +1421,117 @@ module tg_lsu
   // thread runs. Another thread's walk or S2 check waits for it (two threads, M7: S2 then waits
   // while the other thread's bare stores decide; nothing enters S2 meanwhile, as they are bare).
   logic [PA_W-1:0] pc_pa;
+  logic [1:0]      pc_lvl;                         // DR-183 (PMP_FILL): the walker's leaf level, in W_PMP
   logic            pc_dbl, pw_chk, w_use, bst;
   logic            s2_amo_q, s2_m_q, s2_dbl_q, s3_den_q;
   acc_e            s2_at_q;
   logic [PA_W-1:0] s2_pa_q;
   robid_t          s2_rob_q, s3_rob_q;
   tid_t            pc_t, s2_t_q, t_pst;            // the walk's thread, S2's store's, the checker's user's
-  assign bst    = sn_v && !xl_s;
+  assign bst    = sn_v && sa_pck;
   assign w_use  = pw_chk && !sn_v;
   assign s2_go  = s2_v_q && !w_use && !bst;
   assign s2_den = s2_go && !sa_chk[0] && !kill_t[s2_t_q];
-  assign t_pst  = bst ? t_sn : w_use ? pc_t : s2_t_q;
-  tg_pmp #(.S(1)) u_pmp_st (.pa(bst ? sn_va[PA_W-1:0] : w_use ? pc_pa : s2_pa_q),
-                            .dbl(bst ? sn_size == 2'd3 : w_use ? pc_dbl : s2_dbl_q),
-                            .acc(bst ? sa_at : w_use ? ACC_R : s2_at_q),
-                            .m_mode(bst ? priv_d[t_sn] == PRIV_M : !w_use && s2_m_q),
-                            .d(pmp_d[t_pst]), .ok(sa_chk), .hit(pmp_hit_st), .rwx(pmp_rwx_st));
+  // DR-183 (PMP_FILL): the cycles none of those takes go, in turn, to the head's MMIO load with its check pending,
+  // a load (new, or a replay with its check pending), and fetch's request. Fetch goes before loads once it has
+  // waited PFC_WAIT cycles, so a stream of load replays cannot starve it. The MMIO load and fetch keep asking; a
+  // load replays and asks again. Fetch's request is not granted again in the cycle of its response
+  localparam int PFC_WAIT = 3;
+  logic          ck_free, pfc_ask, pfc_gnt, pfc_pri;
+  logic [1:0]    pfc_wait_q;
+  logic          pfc_rsp_v_q;
+  assign ck_free = PMP_FILL && !bst && !w_use && !s2_go;
+  assign pfc_ask  = PMP_FILL && pfc_req && !pfc_rsp_v_q;
+  assign pfc_pri  = int'(pfc_wait_q) == PFC_WAIT;
+  assign mh_gnt  = mh_req && ck_free;
+  assign l_gnt   = ck_free && !mh_req && !(pfc_ask && pfc_pri);
+  assign pfc_gnt  = pfc_ask && ck_free && !mh_req && !(l_ask && !pfc_pri);
+  if (!PMP_FILL) begin : g_ck
+    assign t_pst  = bst ? t_sn : w_use ? pc_t : s2_t_q;
+    tg_pmp #(.S(1)) u_pmp_st (.pa(bst ? sn_va[PA_W-1:0] : w_use ? pc_pa : s2_pa_q),
+                              .dbl(bst ? sn_size == 2'd3 : w_use ? pc_dbl : s2_dbl_q),
+                              .acc(bst ? sa_at : w_use ? ACC_R : s2_at_q),
+                              .m_mode(bst ? priv_d[t_sn] == PRIV_M : !w_use && s2_m_q),
+                              .d(pmp_d[t_pst]), .ok(sa_chk), .hit(pmp_hit_st), .rwx(pmp_rwx_st));
+  end else begin : g_ckf
+    logic [PA_W-1:0] ck_pa;
+    logic            ck_dbl, ck_m;
+    acc_e            ck_acc;
+    always_comb begin
+      if (bst) begin
+        ck_pa = sn_va[PA_W-1:0]; ck_dbl = sn_size == 2'd3; ck_acc = sa_at; ck_m = priv_d[t_sn] == PRIV_M;
+      end else if (w_use) begin
+        ck_pa = pc_pa; ck_dbl = pc_dbl; ck_acc = ACC_R; ck_m = 1'b0;
+      end else if (s2_go) begin
+        ck_pa = s2_pa_q; ck_dbl = s2_dbl_q; ck_acc = s2_at_q; ck_m = s2_m_q;
+      end else if (mh_req) begin
+        ck_pa = lq_pa_q[hl]; ck_dbl = lq_size_q[hl] == 2'd3; ck_acc = ACC_R; ck_m = priv_d[t_hd] == PRIV_M;
+      end else if (l_ask && !(pfc_ask && pfc_pri)) begin
+        ck_pa = lck_pa; ck_dbl = lck_dbl; ck_acc = ACC_R; ck_m = priv_d[t_lck] == PRIV_M;
+      end else begin
+        ck_pa = pfc_pa; ck_dbl = 1'b0; ck_acc = ACC_X; ck_m = pfc_m && !pfc_page;
+      end
+    end
+    assign t_pst = bst ? t_sn : w_use ? pc_t : s2_go ? s2_t_q : mh_req ? t_hd :
+                   (l_ask && !(pfc_ask && pfc_pri)) ? t_lck : pfc_tid;
+    tg_pmp #(.S(1)) u_pmp_st (.pa(ck_pa), .dbl(ck_dbl), .acc(ck_acc), .m_mode(ck_m), .d(pmp_d[t_pst]), .ok(sa_chk),
+                              .hit(pmp_hit_st), .rwx(pmp_rwx_st));
+  end
+  // DR-183 (PMP_FILL): DR-182's per-page test beside the checker (tg_ptw keeps its own with the switch off): is a
+  // region boundary inside the page? For the walker's leaf in W_PMP, or fetch's page (4 KiB), whichever is granted
+  logic pg_nh;
+  if (PMP_FILL) begin : g_pg
+    localparam logic [PMP_GW-1:0] AL4K = PMP_GW'((64'd1 << 10) - 1);
+    localparam logic [PMP_GW-1:0] AL2M = PMP_GW'((64'd1 << 19) - 1);
+    localparam logic [PMP_GW-1:0] AL1G = PMP_GW'((64'd1 << 28) - 1);
+    logic [PMP_GW-1:0] pg;
+    logic [1:0]        pg_lvl;
+    tid_t              pg_t;
+    assign pg     = PMP_GW'({w_use ? pc_pa[PA_W-1:12] : pfc_pa[PA_W-1:12], 10'b0});   // the page base, in granules
+    assign pg_lvl = w_use ? pc_lvl : 2'd0;
+    assign pg_t   = w_use ? pc_t : pfc_tid;
+    always_comb begin
+      logic [PMP_GW-1:0] alm;
+      logic              in_pg, sub_pg, bound, msk;
+      alm = (pg_lvl == 2'd2) ? AL1G : (pg_lvl == 2'd1) ? AL2M : AL4K;
+      pg_nh = 1'b0;
+      for (int i = 0; i < PMP_ENTRIES; i++) begin
+        msk    = (pg_lvl == 2'd2) ? pmp_d[pg_t][i].mask[27] :
+                 (pg_lvl == 2'd1) ? pmp_d[pg_t][i].mask[18] : pmp_d[pg_t][i].mask[9];
+        in_pg  = ((pmp_d[pg_t][i].a ^ pg) & ~alm) == '0;
+        sub_pg = pmp_d[pg_t][i].nap && !pmp_d[pg_t][i].above && msk;
+        bound  = (pmp_d[pg_t][i].tor || (i < PMP_ENTRIES - 1 && pmp_d[pg_t][(i + 1) % PMP_ENTRIES].tor)) &&
+                 !pmp_pal[pg_t][i][pg_lvl];
+        if (in_pg && (sub_pg || bound)) pg_nh = 1'b1;
+      end
+    end
+    // Fetch's response, the cycle after its grant
+    logic pfc_tag_q, pfc_ok_q, pfc_nh_q, pfc_x_q;
+    always_ff @(posedge clk) begin
+      pfc_rsp_v_q <= !rst && pfc_gnt;
+      pfc_tag_q   <= pfc_tag;
+      pfc_ok_q    <= sa_chk[0];
+      pfc_nh_q    <= pg_nh;
+      pfc_x_q     <= pmp_hit_st && pmp_rwx_st[0];
+      pfc_wait_q  <= (rst || !pfc_ask || pfc_gnt) ? 2'd0 : pfc_pri ? pfc_wait_q : pfc_wait_q + 2'd1;
+    end
+    assign pfc_rsp_v   = pfc_rsp_v_q;
+    assign pfc_rsp_tag = pfc_tag_q;
+    assign pfc_rsp_ok  = pfc_ok_q;
+    assign pfc_rsp_nh  = pfc_nh_q;
+    assign pfc_rsp_x   = pfc_x_q;
+  end else begin : g_nopg
+    assign pg_nh      = 1'b0;
+    assign pfc_rsp_v_q = 1'b0;
+    assign pfc_wait_q  = '0;
+    assign pfc_rsp_v   = 1'b0;
+    assign pfc_rsp_tag = 1'b0;
+    assign pfc_rsp_ok  = 1'b0;
+    assign pfc_rsp_nh  = 1'b0;
+    assign pfc_rsp_x   = 1'b0;
+    logic unused_pfc;
+    assign unused_pfc = ^{pfc_req, pfc_page, pfc_tag, pfc_tid, pfc_pa, pfc_m, pmp_lk_h, pc_lvl, pfc_gnt};
+  end
   always_ff @(posedge clk) begin
     s2_v_q   <= !rst && ((sa_ok && xl_s && !sa_pmpc) || (s2_v_q && !s2_go && !kill_t[s2_t_q]));
     // (S2 waits with a store at the decision only for another thread's bare store, which does not enter S2)
@@ -1468,6 +1628,10 @@ module tg_lsu
         && !kill_t[x_t]) begin
       exc_valid[2] = 1'b1;
       exc_rob[2]   = lqc_rd[1].rob;
+      exc_cause[2] = EXC_LACCESS;
+    end else if (mh_gnt && !sa_chk[0] && !kill_t[t_hd]) begin  // DR-183: the head's MMIO load, PMP denied
+      exc_valid[2] = 1'b1;
+      exc_rob[2]   = lqc_rd[2].rob;
       exc_cause[2] = EXC_LACCESS;
     end else if ((am_req && am_den) || (am_st_q == AM_REQ && am_pden_q && !kill_t[am_t_q])) begin  // its line or PMP denied it
       exc_valid[2] = 1'b1;
@@ -1610,7 +1774,8 @@ module tg_lsu
   assign pw_tid[2]  = dpf_tid_q;
   tg_ptw u_ptw (
     .clk, .rst, .flush, .flush_tid(t_fl), .satp_ppn, .sum, .mxr, .pmp_d, .pmp_pal,
-    .chk_pa(pc_pa), .chk_dbl(pc_dbl), .chk_tid(pc_t), .chk_req(pw_chk), .chk_gnt(!sn_v), .chk_ok(sa_chk[0]),
+    .chk_pa(pc_pa), .chk_lvl(pc_lvl), .chk_dbl(pc_dbl), .chk_tid(pc_t), .chk_req(pw_chk), .chk_gnt(!sn_v),
+    .chk_ok(sa_chk[0]), .chk_nh(pg_nh),
     .chk_hit(pmp_hit_st), .chk_rwx(pmp_rwx_st),
     .req(pw_req), .req_va(pw_va), .req_acc(pw_at), .req_mode(pw_mode), .req_tid(pw_tid), .ack(pw_ack),
     .pt_req, .pt_pa, .pt_gnt, .pt_rsp, .pt_hit, .pt_den, .pt_data(m2_dword_q),
@@ -1818,6 +1983,8 @@ module tg_lsu
       rp_turn_q <= 1'b0;
       m1_v_q    <= 1'b0;
       m2_v_q    <= 1'b0;
+      m1_rck_q  <= 1'b0;
+      m2_rck_q  <= 1'b0;
       ma3_v_q   <= 1'b0;
       ma4_v_q   <= 1'b0;
       r_v_q     <= 1'b0;
@@ -2000,8 +2167,15 @@ module tg_lsu
         // DR-149 (DC_MSHRS > 1): a missing load waits for any entry until the D$ answers (read only
         // in L_MISS, so the same holds for its enable)
         if (m2_out_w == O_MISS) lq_wany_q[m2_lq_q] <= 1'b1;
+        if (PMP_FILL) lq_pck_q[m2_lq_q] <= l_nok;      // DR-183: its check still to come, or done
       end
       if (lm_st && !kill_t[lq_tid(int'(lm_lq), md)]) lq_st_q[lm_lq] <= L_EXC;    // an MMIO load the PMP checker denied
+      // DR-183 (PMP_FILL): a parked MMIO load's check, and the head's (a denial is its exception, port 2)
+      if (lmc_v) lq_pck_q[lmc_lq] <= !l_gnt;
+      if (mh_gnt) begin
+        lq_pck_q[hl] <= 1'b0;
+        if (!sa_chk[0] && !kill_t[t_hd]) lq_st_q[hl] <= L_EXC;
+      end
 
       // ---- M1 -> M2 ----
       m2_v_q      <= m1_go && !kill_t[t_m1];
@@ -2020,6 +2194,7 @@ module tg_lsu
       m2_fdat_q   <= f_data;
       m2_foh_q    <= f_oh;
       m2_pt_q     <= m1_pt_q;
+      m2_rck_q    <= PMP_FILL && m1_rck_q && m1_go && !kill_t[t_m1];
 
       // ---- AG -> M1 ----
       m1_v_q     <= ag_go;
@@ -2027,8 +2202,10 @@ module tg_lsu
       m1_lq_q    <= ag_lq;
       m1_t_q     <= ag_t;
       m1_pa_q    <= ag_pa;
+      m1_rck_q   <= PMP_FILL && ag_rp && lq_pck_q[ag_lq];
       if (ld_ag_valid && !kill_t[t_ldag]) begin        // AG: into the pipe
         lq_pav_q[ag_lq]  <= 1'b0;
+        lq_pck_q[ag_lq]  <= 1'b0;
         lq_st_q[ag_lq]   <= L_PIPE;
         lq_sq_q[ag_lq]   <= ld_ag_pl.sq;               // (the cold fields: u_lqc)
         lq_size_q[ag_lq] <= ld_ag_pl.mem_size;
@@ -2108,6 +2285,7 @@ module tg_lsu
             lq_v_q[i]    <= 1'b1;
             lq_st_q[i]   <= L_WAIT;
             lq_pav_q[i]  <= 1'b0;
+            lq_pck_q[i]  <= 1'b0;
           end
           if (ds_valid[k] && ds_uop[k].d.cls == C_ST) begin
             logic [SIW-1:0] i;
@@ -2249,8 +2427,14 @@ module tg_lsu
     assign lck_pa  = m2_pa_q;
     assign lck_dbl = m2_dbl_q;
     assign t_lck   = m2_t_q;
-    assign l_den   = m2_pck_q && !nl_chk[0];
-    assign lm_den  = m2_mck_q && !nl_chk[0];
+    // DR-183 (PMP_FILL): on the shared checker, in a cycle it grants (l_gnt); a replay whose check is pending asks
+    // too. Not granted: the load does not complete (l_nok), an MMIO load keeps its check pending (lmc_*)
+    assign l_ask   = PMP_FILL && (m2_pck_q || m2_mck_q || (m2_rck_q && m2_v_q));
+    assign l_nok   = PMP_FILL && (m2_pck_q || m2_rck_q) && !l_gnt;
+    assign lmc_v   = PMP_FILL && m2_mck_q;
+    assign lmc_lq  = m2_lq_q;
+    assign l_den   = (PMP_FILL ? (m2_pck_q || m2_rck_q) && l_gnt : m2_pck_q) && !nl_chk[0];
+    assign lm_den  = (PMP_FILL ? m2_mck_q && l_gnt : m2_mck_q) && !nl_chk[0];
     if (LSU_MMIO_PMP_REG) begin : g_mreg
       // #10: the verdict registered, for the state a cycle later; the head's issue waits while its
       // load checks, then on the registered denial (timing: the checker leaves the LQ state's
@@ -2263,11 +2447,12 @@ module tg_lsu
       end
       assign lm_st   = lm_den_q;
       assign lm_lq   = lm_lq_q;
-      assign mm_hold = (m2_mck_q && m2_lq_q == hl) || (lm_den_q && lm_lq_q == hl);
+      assign mm_hold_p = (m2_mck_q && m2_lq_q == hl) || (lm_den_q && lm_lq_q == hl);
     end else begin : g_mnow
       assign lm_st   = lm_den;
       assign lm_lq   = m2_lq_q;
-      assign mm_hold = lm_den && m2_lq_q == hl;
+      // (DR-183, PMP_FILL: also while the check waits for the shared checker)
+      assign mm_hold_p = (PMP_FILL ? m2_mck_q && !(l_gnt && nl_chk[0]) : lm_den) && m2_lq_q == hl;
     end
     // The store address in M1 this cycle counts as if it were in the SQ already: without the split
     // it would be (written at its AG), so this keeps ordering exact
@@ -2354,12 +2539,21 @@ module tg_lsu
     // its issue can come from this cycle, so it is held on the verdict here and in M2), and the
     // verdict takes effect in M2
     logic m1_pck_q, m1_mck_q, m2_lden_q, m2_mden_q;
+    logic m2_lng_q;                                // DR-183 (PMP_FILL): the M2 load's check was not granted in M1
     always_ff @(posedge clk) begin
       m1_pck_q  <= !rst && !kill_t[t_ldag] && ld_ag_valid && nl_pmpd && nl_go;
       m1_mck_q  <= !rst && !kill_t[t_ldag] && ld_ag_valid && nl_pmpd && !nl_exc && !nl_tm && nl_mmio;
-      m2_lden_q <= !rst && !kill_t[t_m1] && m1_pck_q && !nl_chk[0];
-      m2_mden_q <= !rst && !kill_t[t_m1] && m1_mck_q && !nl_chk[0];
+      m2_lden_q <= !rst && !kill_t[t_m1] && (PMP_FILL ? (m1_pck_q || m1_rck_q) && l_gnt : m1_pck_q) && !nl_chk[0];
+      m2_mden_q <= !rst && !kill_t[t_m1] && (PMP_FILL ? m1_mck_q && l_gnt : m1_mck_q) && !nl_chk[0];
+      m2_lng_q  <= PMP_FILL && !rst && (m1_pck_q || m1_rck_q) && !l_gnt;
     end
+    // DR-183 (PMP_FILL): on the shared checker in M1, as in g_split in M2, with the outcome registered
+    assign l_ask   = PMP_FILL && (m1_pck_q || m1_mck_q || (m1_rck_q && m1_v_q));
+    assign l_nok   = m2_lng_q;
+    logic unused_rck;                              // (the check is in M1 here)
+    assign unused_rck = m2_rck_q;
+    assign lmc_v   = PMP_FILL && m1_mck_q;
+    assign lmc_lq  = m1_lq_q;
     assign lck_pa  = m1_pa_q;
     assign lck_dbl = lq_size_q[m1_lq_q] == 2'd3;
     assign t_lck   = m1_t_q;
@@ -2368,7 +2562,8 @@ module tg_lsu
     assign lm_st   = m2_mden_q;
     assign lm_lq   = m2_lq_q;
     // (#10 here: the hold in M1 does not wait for the verdict)
-    assign mm_hold = (m1_mck_q && (LSU_MMIO_PMP_REG || !nl_chk[0]) && m1_lq_q == hl) ||
+    assign mm_hold_p = (m1_mck_q && (LSU_MMIO_PMP_REG || !(PMP_FILL ? l_gnt && nl_chk[0] : nl_chk[0])) &&
+                        m1_lq_q == hl) ||
                      (m2_mden_q && m2_lq_q == hl);
     assign f_hit    = q_hit;
     assign f_oh     = q_oh;

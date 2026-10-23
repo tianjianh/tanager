@@ -87,6 +87,7 @@ module tg_csr
   output logic   [NUM_THREADS-1:0][43:0]            satp_ppn_h,
   output pmp_d_t [NUM_THREADS-1:0][PMP_ENTRIES-1:0] pmp_d_h,     // PMP region descriptors (registered)
   output logic   [NUM_THREADS-1:0][PMP_ENTRIES-1:0][2:0] pmp_pal_h, // each entry's address aligned to a 1G/2M/4K page
+  output logic   [NUM_THREADS-1:0] pmp_lk_h,   // DR-183 (PMP_FILL): the hart has an active locked entry (else 0)
   // Interrupt inputs (one per hart of the core, by hart: thread t takes line t ^ SOLO_TID) and time
   input  logic [NUM_THREADS-1:0] irq_mei,
   input  logic [NUM_THREADS-1:0] irq_mti,
@@ -360,6 +361,20 @@ module tg_csr
     end
   end
   assign pmp_d    = pmp_d_q[RUN_TID];
+  // DR-183 (PMP_FILL): each hart's active locked entries (L, and A not OFF). M-mode is bound only by those, so while a
+  // hart has none its M accesses need no check. Registered from the descriptors: it settles the cycle after the
+  // last one changes, which fetch still waits out (pchg_q), and the write's flush has emptied the window
+  if (PMP_FILL) begin : g_plk
+    logic [NT-1:0] plk_q;
+    always_ff @(posedge clk)
+      for (int t = 0; t < NT; t++) begin
+        plk_q[t] <= 1'b0;
+        for (int i = 0; i < NPMP; i++) if (pmp_d_q[t][i].l && (pmp_d_q[t][i].tor || pmp_d_q[t][i].nap)) plk_q[t] <= 1'b1;
+      end
+    assign pmp_lk_h = plk_q;
+  end else begin : g_noplk
+    assign pmp_lk_h = '0;
+  end
   // (with hart 1 fetch waits while either hart's descriptors change: rare, and each hart's are its own)
   assign pmp_busy = MT ? (psweep || |pdirty_q || |pchg_q) : (psweep || |pdirty_q[RUN_TID] || pchg_q[RUN_TID]);
   always_comb begin

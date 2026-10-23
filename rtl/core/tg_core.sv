@@ -147,6 +147,11 @@ module tg_core
   logic   [NUM_THREADS-1:0][43:0]            satp_ppn_h;
   pmp_d_t [NUM_THREADS-1:0][PMP_ENTRIES-1:0] pmp_d_h;
   logic   [NUM_THREADS-1:0][PMP_ENTRIES-1:0][2:0] pmp_pal_h;
+  logic   [NUM_THREADS-1:0] pmp_lk_h;                  // DR-183: each hart's active locked entries (tg_csr)
+  // DR-183 (PMP_FILL): fetch's checks on the LSU's shared checker, a registered request and a registered response
+  logic        pfc_req, pfc_page, pfc_tag, pfc_m, pfc_rsp_v, pfc_rsp_tag, pfc_rsp_ok, pfc_rsp_nh, pfc_rsp_x;
+  tid_t        pfc_tid;
+  logic [PA_W-1:0] pfc_pa;
   logic        satp_wr, pmp_wr, pmp_busy, sfence, tlb_flush;
   tid_t        tlb_flush_tid;                // the hart whose TLB entries the flush clears (M7's step 4)
   logic        iw_req, iw_ack, iw_done, iw_ok, it_fill;
@@ -287,6 +292,8 @@ module tg_core
     .upd_valid, .upd_way, .upd_pc, .upd_slot, .upd_target, .upd_inval, .upd_tid,
     .iq_valid, .iq_insn, .iq_take,
     .xl_h(xl_f_q), .dst(de_state_h), .priv_h(priv_f_q), .pmp_d_h, .pmp_busy, .rn_block(rn_blk), .rn_acc,
+    .pmp_lk_h, .pfc_req, .pfc_page, .pfc_tag, .pfc_tid, .pfc_pa, .pfc_m, .pfc_rsp_v, .pfc_rsp_tag, .pfc_rsp_ok, .pfc_rsp_nh,
+    .pfc_rsp_x,
     .tlb_flush, .tlb_flush_tid,
     .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte, .it_fill_tid,
     .iw_req, .iw_va, .iw_tid, .iw_ack, .iw_done, .iw_ok, .iw_cause,
@@ -641,7 +648,8 @@ module tg_core
     .tr_st_data,
     .tr_st_size, .tr_lq, .tr_ld_va, .tr_ld_size, .sq_drained, .mmio_busy, .irq_go(tr_irq), .rsv_clr, .st_dropped,
     .priv(priv_l_q), .priv_d(priv_dl_q), .sum(sum_l_q), .mxr(mxr_l_q), .satp_sv39(sv39_l_q),
-    .satp_ppn(satp_ppn_l_q), .pmp_d(pmp_d_h), .pmp_pal(pmp_pal_h), .tlb_flush, .tlb_flush_tid,
+    .satp_ppn(satp_ppn_l_q), .pmp_d(pmp_d_h), .pmp_pal(pmp_pal_h), .pmp_lk_h, .tlb_flush, .tlb_flush_tid,
+    .pfc_req, .pfc_page, .pfc_tag, .pfc_tid, .pfc_pa, .pfc_m, .pfc_rsp_v, .pfc_rsp_tag, .pfc_rsp_ok, .pfc_rsp_nh, .pfc_rsp_x,
     .tlbm_valid, .tlbm_rob, .hd_tlb, .hd_retry, .hd_fault, .hd_cause, .hd_lva, .hd_sva,
     .iw_req, .iw_va, .iw_tid, .iw_ack, .iw_done, .iw_ok, .iw_cause,
     .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte, .it_fill_tid,
@@ -672,7 +680,7 @@ module tg_core
     .misa_c, .misa_a, .misa_f, .misa_d, .fs, .fc_fflags, .fc_frm, .fc_wvalid, .fc_waddr,
     .fc_wdata, .fs_dirty, .cm_pc(tr_epc), .priv, .tvm, .tw, .tsr, .satp_sv39,
     .satp_asid, .satp_wr, .pmp_d, .pmp_wr, .pmp_busy, .cold_busy(csr_cold_busy), .dst_h(dst_csr), .priv_h, .priv_d_h, .sum_h, .mxr_h, .sv39_h, .satp_ppn_h,
-    .pmp_d_h, .pmp_pal_h,
+    .pmp_d_h, .pmp_pal_h, .pmp_lk_h,
     .irq_mei(irq_mei_i), .irq_mti(irq_mti_i), .irq_msi(irq_msi_i), .irq_sei(irq_sei_i),
     .irq_ssi(irq_ssi_i), .mtime(mtime_i), .h1off_o(h1off));
 
