@@ -137,7 +137,7 @@ stage C in RISC-V mode on the same bitstream. About 3% of that is the SD1 watch.
 - `time` (CSR `0xC01`) reads the core's copy of the ACLINT's `mtime`, which the uncore broadcasts every cycle. No trap, no bus access.
 - `mtime` ticks at 10 MHz from `clk_core` through a phase accumulator. Only `CTRL.TFREEZE` holds it (`--freeze-time`, board lockstep), and both modes leave that at 0.
 - The software is the same in both:
-  - OpenSBI: `fw_jump.bin`, sha256 `b0094d23…`, sets `mcounteren`.
+  - OpenSBI: `fw_jump.bin`, sha256 `b0094d23…` (upstream 1.9; from 10-23 `62349a65…`, with patch set tg1: soc.md §5), sets `mcounteren`.
   - The kernel: 6.12.113+deb13, sets `scounteren`.
   - The command line, from p3's extlinux: `root=LABEL=tanager-root console=ttyS0,115200 earlycon rw iomem=relaxed`.
 - Both modes' boot logs show the same lines: `aclint-mtimer @ 10000000Hz`, Sstc, `sched_clock: 64 bits at 10MHz` and `Switched to clocksource riscv_clocksource`. So the vDSO's `clock_gettime` reads `time` directly in both.

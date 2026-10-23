@@ -64,7 +64,8 @@ DTS_SFX := $(if $(filter-out $(THREADS),$(RUN_THREADS)),-r$(RUN_THREADS))
 # console on the serial line (SERIAL=1, RELEASE=1), where "Boot HART MEDELEG" ends about 2,700 characters in, at
 # 8,680 cycles each (115200 baud at 100 MHz): about 24 M cycles
 MCYC    ?= $(if $(filter 1,$(SERIAL)),60,20)
-OSBI_FW := $(SOC_BUILD)/opensbi/platform/generic/firmware/fw_jump.bin
+OSBI_REV := $(shell sed -n 's/^OPENSBI_REV=\([^ ]*\).*/\1/p' $(REPO)/sw/versions.sh)
+OSBI_FW := $(SOC_BUILD)/opensbi-$(OSBI_REV)/platform/generic/firmware/fw_jump.bin
 FW      ?= $(OSBI_FW)
 DTB     := $(OUTDIR)/dts$(DTS_SFX)/tanager-kv260.dtb
 
