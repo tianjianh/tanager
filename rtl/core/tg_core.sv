@@ -282,6 +282,9 @@ module tg_core
   md_t                              md, mdn;
   logic                             mrs, sph, flush_slp, h1off;
   logic [NUM_THREADS-1:0]           slp, wkr, wk;
+  // M9's counters (TG_HPM): fetch's and the LSU's events, each thread's pulses (registered into hpm_ev below)
+  logic [NUM_THREADS-1:0]           hpm_imiss;
+  logic [NUM_THREADS-1:0][2:0]      hpm_lsu;
   tg_fetch u_fetch (
     .clk, .rst, .boot_pc(64'(boot_addr_i)), .ready(fe_ready),
     .flush, .flush_tid, .flush_pc, .fl_slp(flush_slp), .icinv, .dred, .dred_tid, .dred_pc, .dred_ftq, .dred_slot, .dred_rop, .dred_rlink,
@@ -298,7 +301,7 @@ module tg_core
     .pfc_rsp_x,
     .tlb_flush, .tlb_flush_tid,
     .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte, .it_fill_tid,
-    .iw_req, .iw_va, .iw_tid, .iw_ack, .iw_done, .iw_ok, .iw_cause,
+    .iw_req, .iw_va, .iw_tid, .iw_ack, .iw_done, .iw_ok, .iw_cause, .hpm_imiss,
     .l1i_a_o, .l1i_a_valid_o, .l1i_a_ready_i, .l1i_d_i, .l1i_d_valid_i, .l1i_d_ready_o);
 
   // ---- Decode ----
@@ -652,7 +655,7 @@ module tg_core
     .ds_src2_rdy, .rf_we, .rf_widx,
     .ld_cmp_valid(ld_cmp), .ld_cmp_rob, .ld_cmp_mmio, .st_cmp_valid(st_cmp), .st_cmp_rob,
     .exc_valid(lx_valid), .exc_rob(lx_rob), .exc_cause(lx_cause), .spx_valid, .spx_rob, .sth_v, .sth_rob,
-    .replay_valid, .replay_rob, .snp_valid, .snp_rob, .rob_head(rob_head_t), .hd_tid(rob_hd_tid), .hd_tid_n(rob_hd_tid_n), .cm_tid(cm_tid[0]), .cm_nld, .cm_nst,
+    .replay_valid, .replay_rob, .snp_valid, .snp_rob, .hpm_lsu, .rob_head(rob_head_t), .hd_tid(rob_hd_tid), .hd_tid_n(rob_hd_tid_n), .cm_tid(cm_tid[0]), .cm_nld, .cm_nst,
     .tr_sq, .tr_st_wr, .tr_st_va,
     .tr_st_data,
     .tr_st_size, .tr_lq, .tr_ld_va, .tr_ld_size, .sq_drained, .mmio_busy, .irq_go(tr_irq), .rsv_clr, .st_dropped,
@@ -680,19 +683,25 @@ module tg_core
   assign rsv_clr = tr_valid || mret || sret;
   assign priv_cm = MT ? priv_h[rob_hd_tid] : priv;
   // M9's counters (HPM_N > 0; tg_csr's mhpmevent 3 ..): each hart's events (tg_core_pkg's HPM_EV), registered: 3
-  // branch mispredicts (at execute, wrong-path ones too), 4 ordering replays, 9 CoRR replays (the snoop marking's
-  // reports); 5 to 8 (the L1D's load misses, the TLBs' walks, the I$'s misses) wait for core-2's ports
+  // branch mispredicts (at execute, wrong-path ones too), 4 ordering replays, 5 L1D load misses (a load's first, at M2),
+  // 6 data walks (the walker's head port), 7 fetch's walks, 8 I$ misses (F2 parks a stream on one), 9 CoRR replays
+  // (the snoop marking's reports)
   logic [NUM_THREADS-1:0][HPM_EV-1:0] hpm_ev;
   if (HPM_N > 0) begin : g_hpm_ev
     always_ff @(posedge clk)
       for (int t = 0; t < NUM_THREADS; t++) begin
         hpm_ev[t][0] <= br_valid && br_misp && rob_tid(br_rob, md) == tid_t'(t);
         hpm_ev[t][1] <= replay_valid && rob_tid(replay_rob, md) == tid_t'(t);
-        hpm_ev[t][5:2] <= '0;
+        hpm_ev[t][2] <= hpm_lsu[t][0];
+        hpm_ev[t][3] <= hpm_lsu[t][1];
+        hpm_ev[t][4] <= hpm_lsu[t][2];
+        hpm_ev[t][5] <= hpm_imiss[t];
         hpm_ev[t][6] <= snp_valid && rob_tid(snp_rob, md) == tid_t'(t);
       end
   end else begin : g_no_hpm_ev
     assign hpm_ev = '0;
+    logic unused_hpm_ev;
+    assign unused_hpm_ev = ^{hpm_lsu, hpm_imiss};
   end
   tg_csr #(.CORE_ID(CORE_ID)) u_csr (
     .clk, .rst, .flush, .flush_tid, .ex_valid(csr_ex_valid), .ex_pl(csr_ex_pl), .ex_src(csr_ex_src),
