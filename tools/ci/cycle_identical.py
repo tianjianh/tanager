@@ -114,7 +114,7 @@ def git(*args, env=None):
 PROFILE_VARS = (("TIMING_CUTS", "tc"), ("DC_MSHRS", "dcm"), ("QUEUE_DECODE", "qd"), ("SPEC_WAKE", "sw"),
                 ("STA_BASE", "sb"), ("STEER_LA", "sl"), ("PMP_ENTRIES", "pmp"), ("STORE_PF", "spf"), ("URF", "urf"),
                 ("STORE_PF_MAX", "spm"), ("SOLO_TID", "solo"), ("SPLIT", "sp"), ("HART1", "h1"),
-                ("SPEC_WAKE_FILT", "swf"))
+                ("SPEC_WAKE_FILT", "swf"), ("PMP_FILL", "pf"))
 
 
 def profile_takes(ref, var):
@@ -700,6 +700,10 @@ def main():
                     help="build both sides with M7's hart 1 (step 5: divided free lists; DR-175; smt2 only)")
     ap.add_argument("--branch-hart1", type=int, choices=(0, 1), default=None,
                     help="this side's only (hart 1 changes the cycles: compare two trees that both have it)")
+    ap.add_argument("--pmp-fill", type=int, choices=(0, 1), default=None,
+                    help="build both sides with PMP checks at TLB fill (DR-183, pmp-at-fill.md)")
+    ap.add_argument("--branch-pmp-fill", type=int, choices=(0, 1), default=None,
+                    help="this side's only, for example 0 to show the switch off is cycle-identical to a base without it")
     ap.add_argument("--timeout", type=int, default=3600, help="wall-clock seconds per run before it counts as broken")
     ap.add_argument("--show", type=int, default=5, help="differing runs to explain in detail")
     a = ap.parse_args()
@@ -752,7 +756,8 @@ def main():
             "STORE_PF_MAX": (a.store_pf_max, a.branch_store_pf_max),
             "SOLO_TID": (a.solo_tid, a.branch_solo_tid),
             "SPLIT": (a.split, a.branch_split), "HART1": (a.hart1, a.branch_hart1),
-            "SPEC_WAKE_FILT": (a.spec_wake_filt, a.branch_spec_wake_filt)}
+            "SPEC_WAKE_FILT": (a.spec_wake_filt, a.branch_spec_wake_filt),
+            "PMP_FILL": (a.pmp_fill, a.branch_pmp_fill)}
     prof_base = {v: b for v, (b, _) in both.items() if b is not None}
     prof_branch = {v: br if br is not None else b for v, (b, br) in both.items() if br is not None or b is not None}
     if prof_base or prof_branch:

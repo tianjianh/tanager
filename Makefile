@@ -50,7 +50,7 @@ SYNTH_FLAGS := $(if $(SYNTH),+define+SYNTHESIS -Wno-UNUSED tools/ci/synth_lint/s
 lint:
 	@test -f $(RTL_CFG) || { echo "unknown CFG=$(CFG) (one of: $(CFGS))"; exit 2; }
 	$(VERILATOR) $(LINT_FLAGS) $(TC_DEF) $(LINT_ONLY_DEF) $(if $(LAT_INJ),-GLAT_INJ=$(LAT_INJ)) $(if $(RELEASE),-GRELEASE=$(RELEASE) $(if $(filter 1,$(RELEASE)),-GHOST_DMA=1)) $(if $(XBAR_SLICE),-GXBAR_SLICE=$(XBAR_SLICE)) $(if $(MEM_SLICE),-GMEM_SLICE=$(MEM_SLICE)) $(RTL_CFG) -F $(RTL_F) $(SYNTH_FLAGS)
-	@echo "lint OK: $(CFG)$(if $(LAT_INJ), LAT_INJ=$(LAT_INJ))$(if $(RELEASE), RELEASE=$(RELEASE))$(if $(TIMING_CUTS), TIMING_CUTS=$(TIMING_CUTS))$(if $(DC_MSHRS), DC_MSHRS=$(DC_MSHRS))$(if $(QUEUE_DECODE), QUEUE_DECODE=$(QUEUE_DECODE))$(if $(SPEC_WAKE), SPEC_WAKE=$(SPEC_WAKE))$(if $(SPEC_WAKE_FILT), SPEC_WAKE_FILT=$(SPEC_WAKE_FILT))$(if $(STA_BASE), STA_BASE=$(STA_BASE))$(if $(STEER_LA), STEER_LA=$(STEER_LA))$(if $(PMP_ENTRIES), PMP_ENTRIES=$(PMP_ENTRIES))$(if $(STORE_PF), STORE_PF=$(STORE_PF))$(if $(URF), URF=$(URF))$(if $(STORE_PF_MAX), STORE_PF_MAX=$(STORE_PF_MAX))$(if $(SOLO_TID), SOLO_TID=$(SOLO_TID))$(if $(SPLIT), SPLIT=$(SPLIT))$(if $(HART1), HART1=$(HART1))$(if $(XBAR_SLICE), XBAR_SLICE=$(XBAR_SLICE))$(if $(MEM_SLICE), MEM_SLICE=$(MEM_SLICE))$(if $(strip $(LINT_ONLY_SET)), $(strip $(LINT_ONLY_SET)))$(if $(SYNTH), SYNTH=1)"
+	@echo "lint OK: $(CFG)$(if $(LAT_INJ), LAT_INJ=$(LAT_INJ))$(if $(RELEASE), RELEASE=$(RELEASE))$(if $(TIMING_CUTS), TIMING_CUTS=$(TIMING_CUTS))$(if $(DC_MSHRS), DC_MSHRS=$(DC_MSHRS))$(if $(QUEUE_DECODE), QUEUE_DECODE=$(QUEUE_DECODE))$(if $(SPEC_WAKE), SPEC_WAKE=$(SPEC_WAKE))$(if $(SPEC_WAKE_FILT), SPEC_WAKE_FILT=$(SPEC_WAKE_FILT))$(if $(STA_BASE), STA_BASE=$(STA_BASE))$(if $(STEER_LA), STEER_LA=$(STEER_LA))$(if $(PMP_ENTRIES), PMP_ENTRIES=$(PMP_ENTRIES))$(if $(STORE_PF), STORE_PF=$(STORE_PF))$(if $(URF), URF=$(URF))$(if $(STORE_PF_MAX), STORE_PF_MAX=$(STORE_PF_MAX))$(if $(SOLO_TID), SOLO_TID=$(SOLO_TID))$(if $(SPLIT), SPLIT=$(SPLIT))$(if $(HART1), HART1=$(HART1))$(if $(PMP_FILL), PMP_FILL=$(PMP_FILL))$(if $(XBAR_SLICE), XBAR_SLICE=$(XBAR_SLICE))$(if $(MEM_SLICE), MEM_SLICE=$(MEM_SLICE))$(if $(strip $(LINT_ONLY_SET)), $(strip $(LINT_ONLY_SET)))$(if $(SYNTH), SYNTH=1)"
 
 # DR-140's elaborations, so that every switch's branches compile: the fallback (every switch off), the
 # default (#4, #5 on), and #2, #8 and the commit trace off (DR-146) each on top of the default (lint only;
@@ -68,7 +68,7 @@ lint-all:
 CORE ?= core
 REGRESS_ARGS = CFG=$(CFG) CORE=$(CORE) $(if $(LAT),LAT=$(LAT)) $(if $(SUITES),SUITES="$(SUITES)") \
   $(if $(MARCH),MARCH=$(MARCH)) $(if $(SELFTEST),SELFTEST=$(SELFTEST)) $(if $(RANDN),RANDN=$(RANDN)) \
-  $(if $(JOBS),JOBS=$(JOBS)) $(foreach v,DC_MSHRS QUEUE_DECODE SPEC_WAKE SPEC_WAKE_FILT STA_BASE STEER_LA PMP_ENTRIES STORE_PF URF STORE_PF_MAX SOLO_TID SPLIT HART1,$(if $($(v)),$(v)=$($(v))))
+  $(if $(JOBS),JOBS=$(JOBS)) $(foreach v,DC_MSHRS QUEUE_DECODE SPEC_WAKE SPEC_WAKE_FILT STA_BASE STEER_LA PMP_ENTRIES STORE_PF URF STORE_PF_MAX SOLO_TID SPLIT HART1 PMP_FILL,$(if $($(v)),$(v)=$($(v))))
 regress:
 	@tools/ci/regress.sh $(REGRESS_ARGS) $(if $(TIMING_CUTS),TIMING_CUTS=$(TIMING_CUTS))
 regress-profiles:
@@ -109,6 +109,7 @@ cycle-identical:
 	  $(if $(SOLO_TID),--solo-tid $(SOLO_TID)) $(if $(BRANCH_SOLO_TID),--branch-solo-tid $(BRANCH_SOLO_TID)) \
 	  $(if $(SPLIT),--split $(SPLIT)) $(if $(BRANCH_SPLIT),--branch-split $(BRANCH_SPLIT)) \
 	  $(if $(HART1),--hart1 $(HART1)) $(if $(BRANCH_HART1),--branch-hart1 $(BRANCH_HART1)) \
+	  $(if $(PMP_FILL),--pmp-fill $(PMP_FILL)) $(if $(BRANCH_PMP_FILL),--branch-pmp-fill $(BRANCH_PMP_FILL)) \
 	  $(if $(HARNESS),--harness $(HARNESS))
 
 # The Linux boot under lockstep (docs/spec/verification.md §4.7; DR-173): tb_boot with the commit-trace tap
@@ -124,7 +125,7 @@ BOOT_LS_ARGS = $(if $(BRANCH),--branch "$(BRANCH)") $(if $(MCYC),--mcyc $(MCYC))
   $(if $(SPEC_WAKE_FILT),--spec-wake-filt $(SPEC_WAKE_FILT)) $(if $(STA_BASE),--sta-base $(STA_BASE)) $(if $(STEER_LA),--steer-la $(STEER_LA)) \
   $(if $(PMP_ENTRIES),--pmp-entries $(PMP_ENTRIES)) $(if $(STORE_PF),--store-pf $(STORE_PF)) $(if $(URF),--urf $(URF)) \
   $(if $(STORE_PF_MAX),--store-pf-max $(STORE_PF_MAX)) $(if $(SOLO_TID),--solo-tid $(SOLO_TID)) \
-  $(if $(SPLIT),--split $(SPLIT)) $(if $(HART1),--hart1 $(HART1))
+  $(if $(SPLIT),--split $(SPLIT)) $(if $(HART1),--hart1 $(HART1)) $(if $(PMP_FILL),--pmp-fill $(PMP_FILL))
 boot-lockstep:
 	@python3 tools/ci/boot_lockstep.py $(BOOT_LS_ARGS) $(if $(SHAPE),--shape "$(SHAPE)") $(if $(TIMING),--timing "$(TIMING)")
 boot-lockstep-gate:
