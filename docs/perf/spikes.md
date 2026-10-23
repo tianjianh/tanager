@@ -1792,6 +1792,42 @@ Results: `fpga/spikes/results/product_wt_ns_aslh/`.
 
 Results: `fpga/spikes/results/product_wt2_dr185_aslh/` (with `pin_classes_pay_core0.txt`, `pin_classes_pay_core1.txt` and `path_cells_tage_core0.txt`).
 
+#### The fixes preview, a pair of placements: −0.79 ns at best (2026-10-22)
+
+**Asked** (the coordinator): which families remain once the pending fixes are in, judged as a pair of placements. The snapshot (`snap/product_wt2` d1a72fbe) is main e5b304cd (the L2 bank's registered D output) plus:
+- TAGE 8cf8e262 (fpu-2);
+- DR-183 ecfcc8a5;
+- DR-185 196cb8ed with core-2's `rt_q` fix 28ac2bbc and mode-family fix 2175432b (merged over DR-183's `tg_lsu` as core-2 confirmed);
+- `AltSpreadLogic_high`, `TG_PMP_FILL=1`.
+
+| | Placement 1 (`pv1_aslh`, 1.0 ns) | Placement 2 (`pv1_aslh_u105`, 1.05 ns) |
+|---|---|---|
+| LUTs after `opt_design` / routed | 114,041 / 111,784 (95.4%) | — / 111,609 |
+| FFs routed, CLBs | 57,679, 14,634 | 57,585, 14,592 |
+| WNS after `phys_opt_design` (estimated, with the uncertainty on) | −0.571 ns | −0.230 ns |
+| WNS / TNS on the core clock (ns) | −0.854 / −495.4 (1,973 failing) | **−0.789 / −191.9** (822 failing) |
+| Endpoints within 1 ns | 9,216 in 331 families | 8,063 in 332 families |
+| `clk2x`: within / into / back (ns) | +1.624 / +0.334 / +0.569 | +1.755 / +0.928 / +0.974 |
+
+The pair's verdict: the better WNS is −0.789 ns, and TNS is between −192 and −495 ns. The best routed chip so far.
+
+| Family | Placement 1 | Placement 2 |
+|---|---|---|
+| The LSU's LQ state (`lq_st_q`) from the LQ head and the ROB's `ct_q` (29 levels) | −0.849 (364 endpoints) | −0.789 (355) |
+| fetch's `u_cmp/rt_q` | −0.854 | −0.659 |
+| The payload write register `pay_wd_q` | −0.843 (908) | −0.331 (722) |
+| `occ_t_q` (from the issue queues' `dep_q`) | −0.701 | −0.331 |
+| The walker (`u_ptw`) from `ct_q` | −0.396 | +0.426 |
+| `md_l_q`'s families: `rp_ra_q`, `m2_dword_q`, `sq_av_q` | +0.070, −0.339, −0.270 | −0.407, −0.100, +0.039 |
+| The L2 → crossbar → core response | −0.580 (720) | −0.001 (208) |
+| TAGE | +0.890 (only `tg_tage`'s `q_q`) | +0.834 |
+| DR-183's `g_pmpf`, the ACLINT | none within 1 ns | none |
+
+- **Only the LQ-head family is bad in both placements:** `lq_st_q`, `fh_data_q` and `lx_valid_q` from the LQ head, 24–29 levels. soc-2 takes it after DR-183.
+- **The rest move with the placement by 0.3–0.6 ns.** In placement 2 only 8 families are worse than −0.5 ns: the LQ-head ones, the RAS's `s_cnt_q`/`a_cnt_q` from the ROB's `hw_q`, and one `rt_q` endpoint.
+
+Results: `fpga/spikes/results/product_wt2_pv1_aslh/` and `product_wt2_pv1_aslh_u105/`.
+
 #### The area-pass forms together (0a30d99d): both clear, −2.86 ns in this placement (2026-10-22)
 
 `product_wt_a1_aslh`, "the closest to the final area-pass chip so far" (the coordinator):
