@@ -47,6 +47,10 @@ module tb_soc;
   // hold nothing (the program claims on hart 0's S context) and TTC1 is no source; the DMA port has no line
   // counters or completions; CAPS[9], [10] and [11] read 0
   parameter bit    RELEASE = 1'b0;
+  // The uncore's register slices (tanager_soc XBAR_SLICE and MEM_SLICE, off by default since DR-186): a bigger chip may
+  // want them back for timing (docs/spec/area_switches.md)
+  parameter bit    XBAR_SLICE = XBAR_SLICE_DEF;
+  parameter bit    MEM_SLICE  = MEM_SLICE_DEF;
   // A program runs on the test cores, or with SDIRQ on the real ones too (KIND = "core")
   localparam bit   PROG = KIND == "tcore" || SDIRQ;
 
@@ -111,7 +115,8 @@ module tb_soc;
   tanager_soc #(
     .N_CORES (NUM_CORES), .CLK_HZ (100_000_000), .L2_SETS (16), .L2_MSHR (24),
     .CORE_RST_INIT (1'b1), .UNCORE_RST_INIT (1'b1), .CORE_KIND ((KIND == "trafgen") ? "trafgen" : "core"),
-    .VIRTIO_WINDOW (VIRTIO), .HOST_DMA (HOST_DMA), .LAT_INJ (LAT_INJ), .RELEASE (RELEASE), .BREAK_LOG2 (6)
+    .VIRTIO_WINDOW (VIRTIO), .HOST_DMA (HOST_DMA), .LAT_INJ (LAT_INJ), .RELEASE (RELEASE), .BREAK_LOG2 (6),
+    .XBAR_SLICE (XBAR_SLICE), .MEM_SLICE (MEM_SLICE)
   ) dut (
     .uart_txd_o (), .uart_rxd_i (ps_rxd),
     .clk, .clk2x, .rst, .clk_host, .rst_host,

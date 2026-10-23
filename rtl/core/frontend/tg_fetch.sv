@@ -488,6 +488,14 @@ module tg_fetch
   assign uok = hp;
   logic [1:0]         gh_n, gh_b;         // TAGE_ON: the history bits the block adds (count, values)
   logic [NP-1:0]      gh_cm, gh_pk;       // ... its conditional branches' slots and directions
+  // ... F2's raw terms for them, registered in g_tage (spikes §8.18), by parcel unless noted:
+  logic [NP-1:0]      gh_mb;              // the branches that count if within the block
+  logic [NP-1:0]      gh_lm;              // the block's limit (lim)
+  logic [NP-1:0]      gh_xm;              // the exit (feh)
+  logic [NP-1:0]      gh_wd;              // the wide parcels
+  logic               gh_c3;              // the third branch's cut without the PMP check (c3_v && !f2_chk)
+  logic               gh_sb;              // the straddler's branch, counted
+  logic               gh_sx;              // the straddler is the exit
   logic [NP-1:0]      tdir;               // ... TAGE's direction per slot
   if (!TAGE_ON) begin : g_f2u
     // ---- The micro-BTB alone: the prediction stands or is dropped (the next block) ----
@@ -560,6 +568,13 @@ module tg_fetch
     assign gh_b    = '0;
     assign gh_cm   = '0;
     assign gh_pk   = '0;
+    assign gh_mb   = '0;
+    assign gh_lm   = '0;
+    assign gh_xm   = '0;
+    assign gh_wd   = '0;
+    assign gh_c3   = 1'b0;
+    assign gh_sb   = 1'b0;
+    assign gh_sx   = 1'b0;
     assign fx_tgt  = f2_tgt_q;
     assign ovr_ras = 1'b0;
     assign ovr_s   = 1'b0;
@@ -816,6 +831,19 @@ module tg_fetch
           if (tk && feh[p]) gh_pk[lsl[p]] = 1'b1;
         end
     end
+    // The same, as raw terms registered at the delivery (g_tage forms the count, the bit and the slots from them a
+    // cycle later): bcb[p] is gh_mb[p] && (gh_lm[p] || gh_c3), bs's terms for a branch (a branch starts its parcel).
+    // No tk: a counted branch at the exit is the taken exit (counted means no fault and no PMP cut at or before it,
+    // which is all tk adds to fe_v there), and a counted straddler at the exit likewise
+    for (genvar p = 0; p < NP; p++) begin : g_ghr
+      assign gh_mb[p] = !isf && cbr[p] && !cutm[p];
+    end
+    assign gh_lm = lim;
+    assign gh_c3 = c3_v && !f2_chk;
+    assign gh_xm = feh;
+    assign gh_wd = wide;
+    assign gh_sb = !isf && sx_br;
+    assign gh_sx = fe_s;
 `ifndef SYNTHESIS
     always_ff @(posedge clk) begin
       if (!rst && f2v && f2_hit_q)
@@ -1113,16 +1141,69 @@ module tg_fetch
     localparam int SB  = MT ? 1 : 0;      // the stream's bit in the FTQ's addresses and TAGE's queue (M7)
     logic [IXW-1:0]  tix;
     // Per stream (M7): the speculative history, its pending bits, commit's history, the FTQ's pointers. A delivered
-    // block's history bits go in a cycle later (timing: F2's decision ends at gp_*_q, not at the history's shift):
-    // gh_e, the history with them, is what every reader takes, as gh_q was. Only a block's last branch can be taken
-    // (its exit), so the bits are a count and one value
+    // block's history bits go in a cycle later: gh_e, the history with them, is what every reader takes, as gh_q was.
+    // Only a block's last branch can be taken (its exit), so the bits are a count and one value. Timing (spikes
+    // §8.18): F2's decision ends at its raw terms (hr_*_q); the count, the bit and the block's branch slots and
+    // directions (u_fbr's data) are formed from them in the next cycle, in front of gh_e's shift
     logic [NS-1:0][GH_W-1:0] gh_s_q, cgh_s_q, gh_e_s;
-    logic [NS-1:0][1:0]      gp_n_s_q;
-    logic [NS-1:0]           gp_b_s_q;
+    logic [NS-1:0]           gw_s_q;                  // the stream's block was delivered last cycle: its bits pend
+    logic [NP-1:0]           hr_mb_q, hr_lm_q, hr_xm_q, hr_wd_q;   // F2's raw terms (gh_*)
+    logic                    hr_c3_q, hr_sb_q, hr_sx_q;
+    logic [NP-1:0]           hr_bm;                   // the counted branches by parcel (F2's bcb)
+    logic [NP-1:0]           hr_cm, hr_pk;            // the block's branch slots and directions (F2's gh_cm, gh_pk)
+    logic [1:0]              hr_n;                    // the count (F2's gh_n): at most two, a third branch cuts
+    logic                    hr_b;                    // the newest bit (gh_b[0]): the exit is a taken branch
+    always_ff @(posedge clk) begin
+      hr_mb_q <= gh_mb;
+      hr_lm_q <= gh_lm;
+      hr_xm_q <= gh_xm;
+      hr_wd_q <= gh_wd;
+      hr_c3_q <= gh_c3;
+      hr_sb_q <= gh_sb;
+      hr_sx_q <= gh_sx;
+    end
+    assign hr_bm = hr_mb_q & (hr_lm_q | {NP{hr_c3_q}});
+    always_comb begin
+      logic n1, n2;
+      hr_cm    = '0;
+      hr_pk    = '0;
+      hr_cm[0] = hr_sb_q;
+      hr_pk[0] = hr_sb_q && hr_sx_q;
+      for (int p = 0; p < NP; p++)
+        if (hr_bm[p]) begin
+          hr_cm[SLOT_W'(hr_wd_q[p] ? p + 1 : p)] = 1'b1;
+          if (hr_xm_q[p]) hr_pk[SLOT_W'(hr_wd_q[p] ? p + 1 : p)] = 1'b1;
+        end
+      n1 = hr_sb_q;
+      n2 = 1'b0;
+      for (int p = 0; p < NP; p++) begin
+        n2 = n2 || (n1 && hr_bm[p]);
+        n1 = n1 || hr_bm[p];
+      end
+      hr_n = n2 ? 2'd2 : n1 ? 2'd1 : 2'd0;
+      hr_b = (hr_sb_q && hr_sx_q) || |(hr_bm & hr_xm_q);
+    end
     always_comb
       for (int t = 0; t < NS; t++)
-        gh_e_s[t] = (gp_n_s_q[t] == 2'd0) ? gh_s_q[t]
-                  : (gp_n_s_q[t] == 2'd1) ? {gh_s_q[t][GH_W-2:0], gp_b_s_q[t]} : {gh_s_q[t][GH_W-3:0], 1'b0, gp_b_s_q[t]};
+        gh_e_s[t] = (!gw_s_q[t] || hr_n == 2'd0) ? gh_s_q[t]
+                  : (hr_n == 2'd1) ? {gh_s_q[t][GH_W-2:0], hr_b} : {gh_s_q[t][GH_W-3:0], 1'b0, hr_b};
+`ifndef SYNTHESIS
+    // (spikes §8.18's retiming) the count, the bit and the slots formed a cycle later equal F2's own on every
+    // delivered block (the bit where the count is not zero)
+    logic          ck_v_q, ck_b_q;
+    logic [1:0]    ck_n_q;
+    logic [NP-1:0] ck_cm_q, ck_pk_q;
+    always_ff @(posedge clk) begin
+      ck_v_q  <= !rst && ft_we;
+      ck_n_q  <= gh_n;
+      ck_b_q  <= gh_b[0];
+      ck_cm_q <= gh_cm;
+      ck_pk_q <= gh_pk;
+      if (ck_v_q && !rst)
+        assert (hr_n == ck_n_q && hr_cm == ck_cm_q && hr_pk == ck_pk_q && (ck_n_q == 2'd0 || hr_b == ck_b_q))
+          else $error("tg_fetch: the history's terms formed a cycle later differ from F2's");
+    end
+`endif
     // FTQ pointers, with a wrap bit, per stream; a delivery takes its stream's tail. TAGE's training queue names the
     // blocks of its requests (commit's, with their wrap bits and streams), and its head's indices and tags are read
     // from here: no entry is freed while the queue names it (each stream's oldest in the queue, ft_eh_s)
@@ -1185,18 +1266,17 @@ module tg_fetch
       .clk, .we(ft_we), .waddr(fqa(f2_s_q, ft_tail)), .wdata({gh_e_s[f2_s_q], ras_tos, ras_cnt, ras_top}),
       .raddr(fr_ra), .rdata(fra_rd));
     // D (spikes.md §7.1): the block's branch slots and directions (gh_cm, gh_pk) go into their own LUTRAM a cycle
-    // later, from registers, off F2's decision: decode's redirect reads a block's entry three cycles after its
-    // delivery at the earliest (F3 writes the queue, decode decodes, its redirect is registered)
+    // later, off F2's decision, formed from its raw terms (hr_cm, hr_pk, above): decode's redirect reads a block's
+    // entry three cycles after its delivery at the earliest (F3 writes the queue, decode decodes, its redirect is
+    // registered)
     logic                 fb_we_q;
     logic [SB+FTQW-1:0]   fb_wa_q;
-    logic [2*NP-1:0]      fb_wd_q;
     always_ff @(posedge clk) begin
       fb_we_q <= !rst && ft_we;
       fb_wa_q <= fqa(f2_s_q, ft_tail);
-      fb_wd_q <= {gh_cm, gh_pk};
     end
     tg_ram_lut #(.DEPTH(FTQ_ENTRIES << SB), .WIDTH(2 * NP), .NR(1)) u_fbr (
-      .clk, .we(fb_we_q), .waddr(fb_wa_q), .wdata(fb_wd_q), .raddr(fr_ra), .rdata(frb_rd));
+      .clk, .we(fb_we_q), .waddr(fb_wa_q), .wdata({hr_cm, hr_pk}), .raddr(fr_ra), .rdata(frb_rd));
     assign fr_rd[0] = {fra_rd[0][RWA-1 -: GH_W], frb_rd[0], fra_rd[0][RWA-GH_W-1:0]};
     // the stack's operation at a delivered block's exit, and its repair at decode's redirect
     assign ras_push = ft_we && !f2_isfault && f2_rpush;
@@ -1252,7 +1332,7 @@ module tg_fetch
     always_ff @(posedge clk) begin
       if (rst) begin
         gh_s_q   <= '0;
-        gp_n_s_q <= '0;
+        gw_s_q   <= '0;
         cgh_s_q  <= '0;
         ft_t_s_q <= '0;
         ft_h_s_q <= '0;
@@ -1264,18 +1344,17 @@ module tg_fetch
           cgh_s_q[t] <= c;
           if (fl_s[t]) begin                  // (nothing of the stream retires in its flush's cycle)
             gh_s_q[t]   <= cgh_s_q[t];
-            gp_n_s_q[t] <= '0;
+            gw_s_q[t]   <= 1'b0;
             // every block goes; the training queue may still name the head's and earlier ones
             ft_t_s_q[t] <= ft_h_s_q[t] + 1'b1;
             ft_h_s_q[t] <= ft_h_s_q[t] + 1'b1;
           end else begin
             if (dr_s[t]) begin
               gh_s_q[t]   <= r_gh;
-              gp_n_s_q[t] <= '0;
+              gw_s_q[t]   <= 1'b0;
             end else begin
               gh_s_q[t]   <= gh_e_s[t];
-              gp_n_s_q[t] <= (ft_we && f2_s_q == 1'(t)) ? gh_n : 2'd0;
-              gp_b_s_q[t] <= gh_b[0];
+              gw_s_q[t]   <= ft_we && f2_s_q == 1'(t);
             end
             // decode's redirect keeps its instruction's block and drops the later ones; commit frees
             // the blocks before the youngest retiring instruction's
@@ -1352,7 +1431,7 @@ module tg_fetch
     assign ras_rtop = '0;
     logic unused_tage;
     assign unused_tage = ^{dred_ftq, dred_slot, dred_rop, dred_rlink, c_cbr, c_taken, c_pred, c_ftq, c_slot, c_hv, c_hftq, gh_n, gh_b,
-                           gh_cm, gh_pk, kp_q, kimm_q, ras_v, ras_top, ras_tos, ras_cnt, f2_rpush, f2_rpop,
+                           gh_cm, gh_pk, gh_mb, gh_lm, gh_xm, gh_wd, gh_c3, gh_sb, gh_sx, kp_q, kimm_q, ras_v, ras_top, ras_tos, ras_cnt, f2_rpush, f2_rpop,
                            f2_rlink, krt_q, ks_q};
   end
 

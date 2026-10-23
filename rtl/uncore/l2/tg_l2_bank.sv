@@ -1304,17 +1304,27 @@ module tg_l2_bank
     logic                 last;
   } dhdr_t;
   localparam int DQW = idx_w(DFIFO);
+  localparam logic [DQW:0] DQ_ONE = 1;
 
+  // The bank's D output comes from flip-flops: whether the FIFO holds a beat (df_v_q), the head entry's header
+  // (dh_out), the arbiter's choice (d_idx) and its valid (d_valid_o), and the data's selects (dq_en_q, dq_hi_q).
+  // Each is loaded with the value it takes next cycle, from this cycle's acceptance, so the beats are the
+  // combinational form's, cycle for cycle (asserted below): timing, the FIFO's count and the arbiter's choice left
+  // the paths from the bank through the crossbar into the cores (spikes §8.18, DR-154). The header has a LUTRAM of
+  // its own, read at the entry after the head; the data's is read at the head, as before.
   dbeat_t       df_out;
   logic         df_out_v, df_out_r;
   logic [DQW:0] dq_wp_q, dq_rp_q;
   logic         dq_beat_q;                   // beat within the head entry
   wire  [DQW:0] dq_cnt = dq_wp_q - dq_rp_q;
   wire          rt_d   = rt_out.v && !rt_out.to_wb;
-  dhdr_t        dh_in, dh_out;
+  dhdr_t        dh_in, dh_out, dh_nx, dh_ra;
+  logic         df_v_q;                      // the FIFO holds a beat (dq_cnt != 0)
+  logic         dq_en_q, dq_hi_q;            // the beat carries data (the FIFO's, with data); its upper half
   logic [255:0] dr_out;
-  logic [0:0][DQW-1:0]                 dq_raddr;
-  logic [0:0][$bits(dhdr_t)+256-1:0]   dq_rdata;
+  logic [0:0][DQW-1:0]           dq_raddr, dq_haddr;
+  logic [0:0][255:0]             dq_rdata;
+  logic [0:0][$bits(dhdr_t)-1:0] dq_hdata;
   always_comb begin
     dh_in.opcode  = rt_out.hdr.opcode;
     dh_in.param   = rt_out.hdr.param;
@@ -1328,13 +1338,17 @@ module tg_l2_bank
     dh_in.use_ram = rt_out.use_ram;
     dh_in.last    = rt_out.last;
   end
-  tg_ram_lut #(.DEPTH(DFIFO), .WIDTH($bits(dhdr_t) + 256), .NR(1)) u_dfifo (
-    .clk, .we (rt_d), .waddr (dq_wp_q[DQW-1:0]), .wdata ({dh_in, da_rdata}), .raddr (dq_raddr), .rdata (dq_rdata)
+  tg_ram_lut #(.DEPTH(DFIFO), .WIDTH(256), .NR(1)) u_dfifo (
+    .clk, .we (rt_d), .waddr (dq_wp_q[DQW-1:0]), .wdata (da_rdata), .raddr (dq_raddr), .rdata (dq_rdata)
   );
-  assign dq_raddr[0]      = dq_rp_q[DQW-1:0];
-  assign {dh_out, dr_out} = dq_rdata[0];
+  tg_ram_lut #(.DEPTH(DFIFO), .WIDTH($bits(dhdr_t)), .NR(1)) u_dhdr (
+    .clk, .we (rt_d), .waddr (dq_wp_q[DQW-1:0]), .wdata (dh_in), .raddr (dq_haddr), .rdata (dq_hdata)
+  );
+  assign dq_raddr[0] = dq_rp_q[DQW-1:0];
+  assign dq_haddr[0] = DQW'(dq_rp_q + 1'b1);
+  assign dr_out      = dq_rdata[0];
+  assign dh_ra       = dq_hdata[0];
   wire dq_two = dh_out.nb == 2'd2;
-  wire dq_hi  = dq_two ? dq_beat_q : dh_out.half;
   always_comb begin
     df_out           = '0;
     df_out.d.opcode  = dh_out.opcode;
@@ -1347,23 +1361,34 @@ module tg_l2_bank
     // data: added after the D arbiter
     df_out.last      = dh_out.last && (!dq_two || dq_beat_q);
   end
-  assign df_out_v = dq_cnt != '0;
+  assign df_out_v = df_v_q;
+  wire df_pop  = df_out_v && df_out_r;                 // a beat leaves ...
+  wire dq_adv  = df_pop && (!dq_two || dq_beat_q);     // ... the head entry's last
+  wire beat_nx = df_pop ? dq_two && !dq_beat_q : dq_beat_q;
+  // Next cycle's head: the entry after the head when the head leaves (the entry written now if it was the only
+  // one), else the head (the entry written now if the FIFO is empty)
+  always_comb begin
+    if (dq_adv) dh_nx = dq_cnt == DQ_ONE ? dh_in : dh_ra;
+    else        dh_nx = df_out_v ? dh_out : dh_in;
+  end
+  wire df_v_nx = rt_d || (dq_adv ? dq_cnt > DQ_ONE : df_out_v);
   always_ff @(posedge clk) begin
     if (rst) begin
       dq_wp_q   <= '0;
       dq_rp_q   <= '0;
       dq_beat_q <= 1'b0;
+      df_v_q    <= 1'b0;
     end else begin
       if (rt_d) dq_wp_q <= dq_wp_q + 1'b1;
-      if (df_out_v && df_out_r) begin
-        dq_beat_q <= dq_two && !dq_beat_q;
-        if (!dq_two || dq_beat_q) dq_rp_q <= dq_rp_q + 1'b1;
-      end
+      if (dq_adv) dq_rp_q <= dq_rp_q + 1'b1;
+      dq_beat_q <= beat_nx;
+      df_v_q    <= df_v_nx;
     end
+    dh_out <= dh_nx;
   end
 
   // ReleaseAck queue (from the C path). It holds only the fields that vary, so every stored bit is
-  // read (a FIFO in LUTRAM loses primitives whose outputs are unused).
+  // read. In flip-flops: its head goes straight to the output multiplexer.
   typedef struct packed {
     logic [TL_SIZE_W-1:0] size;
     logic [TL_SRC_W-1:0]  source;
@@ -1372,7 +1397,7 @@ module tg_l2_bank
   tl_d_t rack_out;
   logic  rack_in_v, rack_in_r, rack_out_v, rack_out_r;
   logic [1:0] rack_cnt;
-  tg_fifo #(.T(rack_t), .DEPTH(2)) u_rack (
+  tg_fifo #(.T(rack_t), .DEPTH(2), .STORAGE("reg")) u_rack (
     .clk, .rst,
     .in_valid (rack_in_v), .in_ready (rack_in_r), .in_data (rack_in),
     .out_valid (rack_out_v), .out_ready (rack_out_r), .out_data (rack_q), .count (rack_cnt)
@@ -1385,25 +1410,91 @@ module tg_l2_bank
     rack_out.source = rack_q.source;
   end
   assign rack_in_v = cin_st_q == CI_ACK && cin_rel;
+  wire rack_v_nx = (rack_in_v && rack_in_r) || (rack_out_v && rack_out_r ? rack_cnt == 2'd2 : rack_out_v);
 
-  // D output: response FIFO and ReleaseAcks, multi-beat messages kept contiguous. The arbiter
-  // carries the headers; the data (ReleaseAcks have none) joins after it, so the FIFO's half
-  // select and the arbiter's choice are one level of logic.
-  logic [1:0] dsel_r;
+  // D output: response FIFO (input 0) and ReleaseAcks (input 1), multi-beat messages kept contiguous:
+  // tg_arb's round robin for two inputs, with its state as tg_arb keeps it (dq_ptr_q, dq_lk_q, dq_lki_q), and
+  // its choice registered. The data (ReleaseAcks have none) joins after the header multiplexer.
+  logic       dq_ptr_q, dq_lk_q, dq_lki_q;
   logic       d_idx;
-  tl_d_t      d_hdr;
-  tg_arb #(.N(2), .T(tl_d_t)) u_darb (
-    .clk, .rst,
-    .in_valid ({rack_out_v, df_out_v}), .in_last ({1'b1, df_out.last}), .in_data ({rack_out, df_out.d}),
-    .in_ready (dsel_r), .out_valid (d_valid_o), .out_data (d_hdr), .out_idx (d_idx), .out_ready (d_ready_i)
-  );
+  logic [1:0] dsel_r;
+  wire  [1:0] d_last  = {1'b1, df_out.last};
+  wire        d_go    = d_valid_o && d_ready_i;
+  wire        ptr_nx  = d_go && d_last[d_idx] ? !d_idx : dq_ptr_q;
+  wire        lk_nx   = d_go ? !d_last[d_idx] : dq_lk_q;
+  wire        lki_nx  = d_go && !d_last[d_idx] ? d_idx : dq_lki_q;
+  wire  [1:0] dv_nx   = {rack_v_nx, df_v_nx};
+  wire        idx_nx  = lk_nx ? lki_nx : (ptr_nx ? dv_nx[1] : dv_nx[1] && !dv_nx[0]);
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      dq_ptr_q  <= 1'b0;
+      dq_lk_q   <= 1'b0;
+      dq_lki_q  <= 1'b0;
+      d_idx     <= 1'b0;
+      d_valid_o <= 1'b0;
+    end else begin
+      dq_ptr_q  <= ptr_nx;
+      dq_lk_q   <= lk_nx;
+      dq_lki_q  <= lki_nx;
+      d_idx     <= idx_nx;
+      d_valid_o <= dv_nx[idx_nx];
+    end
+    dq_en_q <= !idx_nx && dh_nx.use_ram;
+    dq_hi_q <= dh_nx.nb == 2'd2 ? beat_nx : dh_nx.half;
+  end
   always_comb begin
-    d_o      = d_hdr;
-    d_o.data = (d_idx == 1'b0 && dh_out.use_ram) ? (dq_hi ? dr_out[255:128] : dr_out[127:0]) : '0;
+    dsel_r        = '0;
+    dsel_r[d_idx] = d_ready_i;
+    d_o           = d_idx ? rack_out : df_out.d;
+    d_o.data      = dq_en_q ? (dq_hi_q ? dr_out[255:128] : dr_out[127:0]) : '0;
   end
   assign df_out_r   = dsel_r[0];
   assign rack_out_r = dsel_r[1];
-  wire unused_d = ^{rack_cnt};
+
+`ifndef SYNTHESIS
+  // The combinational form this replaces: the FIFO's count, its head's header read at the head, and tg_arb.
+  // It must offer the same beat every cycle.
+  dhdr_t dh_ref_m [DFIFO];
+  always_ff @(posedge clk) if (rt_d) dh_ref_m[dq_wp_q[DQW-1:0]] <= dh_in;
+  dhdr_t      dh_ref;
+  tl_d_t      df_ref, d_ref_hdr, d_ref;
+  logic [1:0] dsel_ref;
+  logic       d_ref_v, d_ref_idx;
+  assign dh_ref = dh_ref_m[dq_rp_q[DQW-1:0]];
+  wire dq_two_ref = dh_ref.nb == 2'd2;
+  always_comb begin
+    df_ref         = '0;
+    df_ref.opcode  = dh_ref.opcode;
+    df_ref.param   = dh_ref.param;
+    df_ref.size    = dh_ref.size;
+    df_ref.source  = dh_ref.source;
+    df_ref.sink    = dh_ref.sink;
+    df_ref.denied  = dh_ref.denied;
+    df_ref.corrupt = dh_ref.corrupt;
+  end
+  tg_arb #(.N(2), .T(tl_d_t)) u_darb_ref (
+    .clk, .rst,
+    .in_valid ({rack_out_v, dq_cnt != '0}), .in_last ({1'b1, dh_ref.last && (!dq_two_ref || dq_beat_q)}),
+    .in_data ({rack_out, df_ref}), .in_ready (dsel_ref), .out_valid (d_ref_v), .out_data (d_ref_hdr),
+    .out_idx (d_ref_idx), .out_ready (d_ready_i)
+  );
+  always_comb begin
+    d_ref      = d_ref_hdr;
+    d_ref.data = (d_ref_idx == 1'b0 && dh_ref.use_ram) ?
+                 ((dq_two_ref ? dq_beat_q : dh_ref.half) ? dr_out[255:128] : dr_out[127:0]) : '0;
+  end
+  always_ff @(posedge clk) begin
+    if (!rst) begin
+      assert (df_v_q == (dq_cnt != '0) && d_valid_o == d_ref_v && d_idx == d_ref_idx && dsel_r == dsel_ref)
+        else $error("tg_l2_bank%0d: D output: valid %b/%b, input %b/%b, FIFO %b, count %0d", BANK, d_valid_o,
+                    d_ref_v, d_idx, d_ref_idx, df_v_q, dq_cnt);
+      if (df_v_q) assert (dh_out == dh_ref)
+        else $error("tg_l2_bank%0d: D FIFO head header %h, at the head %h", BANK, dh_out, dh_ref);
+      if (d_ref_v) assert (d_o == d_ref)
+        else $error("tg_l2_bank%0d: D beat %h, combinational %h", BANK, d_o, d_ref);
+    end
+  end
+`endif
 
   // ---------------------------------------------------------------------------------------------
   // E (GrantAck) and AXI B (write-back responses)
