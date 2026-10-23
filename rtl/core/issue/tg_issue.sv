@@ -447,7 +447,7 @@ module tg_issue
     tg_iq #(
       .ROWS(ROWS), .DW(DW), .NCOL(NCOL), .PAYLOAD_W(PW), .CAP(CAP), .STALE(STALE), .CBLK(q == Q_FP),
       .WAKE_NOW(1'b0), .WAKE_ENC(1), .ROBW(ROBW), .DUP_SEL(DUP_SEL), .EARLY_W(EW),
-      .MX(MX), .RA(RA), .PRE_RDY(1'b0), .BANK_CAP(IQ_BANK_RULE != 0), .CC(CC)
+      .MX(MX), .RA(RA), .PRE_RDY(1'b0), .BANK_CAP(IQ_BANK_RULE != 0 || ROWS_AT_RN == 1), .CC(CC)
     ) u_iq (
       .clk, .rst,
       .disp_valid(disp_we[q]), .disp_tid(dtid), .disp_dep(disp_dep), .disp_dep_ph(no_ph),

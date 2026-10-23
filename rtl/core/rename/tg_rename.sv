@@ -856,14 +856,22 @@ module tg_rename
   // steering reads). While the other thread's register holds a group, a group short of rows waits in its own RN
   // register, not at DS, where it would hold that group too; otherwise it goes on and DS waits for the rows, as
   // without hart 1 (the row is taken the cycle it frees: waiting at RN would cost a lone thread a cycle a time,
-  // 1.5-2.3% of CoreMark and Dhrystone)
-  logic iq_rows, rows_need;
+  // 1.5-2.3% of CoreMark and Dhrystone). Split, that let a hog's group short of rows reach DS while its sibling's
+  // register was empty for a cycle, and hold DS for as long as its own rows took (step 7: stride + Dhrystone hung at 250
+  // cycles under the bank rule, DS so held in 60% of cycles). ROWS_AT_RN (tg_core_pkg) 2 keeps a group short of rows at
+  // RN whenever the halves are split; 1 only when its own thread holds all but at most one of a bank it lacks a row in
+  // (tg_issue's bank_left flags, split only: ds_hog); 0 as in step 5d. Merged, a lone thread goes on to DS as before
+  logic iq_rows, rows_need, ds_hog;
   always_comb begin
     iq_rows = 1'b1;
+    ds_hog  = 1'b0;
     for (int k = 0; k < W; k++)
-      if (rn_valid_q[k] && ren[k].has_q && !st_free[ren[k].q][k]) iq_rows = 1'b0;
+      if (rn_valid_q[k] && ren[k].has_q && !st_free[ren[k].q][k]) begin
+        iq_rows = 1'b0;
+        if (ROWS_AT_RN == 1 && !iq_bank_left[ren[k].q][t_rn][k][0]) ds_hog = 1'b1;
+      end
   end
-  assign rows_need = CMT && |rn_v_q[CMT ? !sel_q : 1'b0];
+  assign rows_need = CMT && (|rn_v_q[CMT ? !sel_q : 1'b0] || ds_hog || (ROWS_AT_RN == 2 && md.split));
   assign rn_fire = (|rn_valid_q) && rn_ok && ds_free && !block_q[t_rn] && !flush && ready && start &&
                    irdy_ready && frdy_ready && (!rn_serial || window_empty) && (!rows_need || iq_rows) && !sp_hold &&
                    caps_ok;

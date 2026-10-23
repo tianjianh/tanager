@@ -257,15 +257,26 @@ package tg_core_pkg;
   localparam bit SPLIT = HART1_ON;
 `endif
   // M7's step 7 (DR-175): the issue-queue caps, with hart 1 (tg_issue's flags, rename's check; smt2_report §13.4,
-  // §13.12, §13.15; core-pipeline §5.4). The bank rule TG_IQ_BANK_RULE: 2 (step 7's form, the default), a thread
-  // never takes a row that would leave it holding all of a bank's rows, so its sibling always finds one in every bank;
-  // 1, only while its sibling's group would fire given a row in that bank (rename's rwo); 0, none. And R1, a thread
-  // holds at most IQ_CAP_PCT of each queue's rows (tg_cfg: 100, none, the cap's logic compiled out; TG_IQ_CAP_PCT=50
-  // for R1). Neither applies while the halves are merged (step 6)
+  // §13.12, §13.15; core-pipeline §5.4). The bank rule TG_IQ_BANK_RULE: 1 (step 7's form, the default), a thread does
+  // not take a row that would leave it holding all of a bank's rows while its sibling's group would fire given a row in
+  // that bank (rename's rwo); 2, it never does (its sibling always finds a row in every bank: the best pair figures,
+  // but +3% on the two-hart boot); 0, none. And R1, a thread holds at most IQ_CAP_PCT of each queue's rows (tg_cfg:
+  // 100, none, the cap's logic compiled out; TG_IQ_CAP_PCT=50 for R1). Neither applies while the halves are merged
+  // (step 6)
 `ifdef TG_IQ_BANK_RULE
   localparam int IQ_BANK_RULE = `TG_IQ_BANK_RULE;
 `else
-  localparam int IQ_BANK_RULE = 2;
+  localparam int IQ_BANK_RULE = 1;
+`endif
+  // M7's step 7: where a group short of its issue-queue rows waits with hart 1 (tg_rename's rows_need; step 5d had
+  // 0). 0: at RN while the other thread's RN register holds a group, else on at DS, which takes the row the cycle it
+  // frees; 1: also at RN when its own thread holds all but at most one of a bank it lacks a row in (at DS it would wait
+  // for its own ops, a miss's length, holding the one stage both threads pass); 2: at RN whenever the halves are split
+  // (core-pipeline §5.4). TG_ROWS_AT_RN sets it
+`ifdef TG_ROWS_AT_RN
+  localparam int ROWS_AT_RN = `TG_ROWS_AT_RN;
+`else
+  localparam int ROWS_AT_RN = 2;
 `endif
   // DR-185: rename's payload LUTRAM takes decode's write through a register, landing a cycle later (1, the default:
   // decode's paths end beside decode), or directly (0: about 770 flip-flops a core fewer, if those paths close)
