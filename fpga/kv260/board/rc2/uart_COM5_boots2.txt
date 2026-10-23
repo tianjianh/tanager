@@ -1460,4 +1460,1701 @@
 [17:30:12.086] 
 [17:30:12.086] Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
 [17:30:12.086] permitted by applicable law.
-[17:30:23.085] [?2004htanager@tanager:~$ 
+[17:30:23.085] [?2004htanager@tanager:~$ [  741.567905] CPU1: off
+[17:40:31.158] [  741.615765] CPU2: off
+[17:40:31.158] [  741.657558] CPU3: off
+[17:50:33.797] [ 1344.286846] CPU1: off
+[17:50:33.860] [ 1344.326575] CPU2: off
+[17:50:33.924] [ 1344.360755] CPU3: off
+[18:00:44.528] [ 1954.962516] CPU1: off
+[18:00:44.528] [ 1954.999180] CPU2: off
+[18:00:44.592] [ 1955.034658] CPU3: off
+[18:10:50.462] [ 2560.944728] CPU1: off
+[18:10:50.527] [ 2560.991200] CPU2: off
+[18:10:50.590] [ 2561.042175] CPU3: off
+[18:20:54.668] [ 3165.135041] CPU1: off
+[18:20:54.732] [ 3165.183983] CPU2: off
+[18:20:54.794] [ 3165.221071] CPU3: off
+[18:30:59.078] [ 3769.487502] CPU1: off
+[18:30:59.078] [ 3769.529639] CPU2: off
+[18:30:59.143] [ 3769.578573] CPU3: off
+[18:41:10.074] [ 4380.496048] CPU1: off
+[18:41:10.132] [ 4380.539259] CPU2: off
+[18:41:10.132] [ 4380.590382] CPU3: off
+[18:51:20.604] [ 4991.038936] CPU1: off
+[18:51:20.676] [ 4991.082916] CPU2: off
+[18:51:20.676] [ 4991.129802] CPU3: off
+[19:01:26.388] [ 5596.818958] CPU1: off
+[19:01:26.455] [ 5596.855087] CPU2: off
+[19:01:26.455] [ 5596.898767] CPU3: off
+[19:11:37.791] [ 6208.234957] CPU1: off
+[19:11:37.850] [ 6208.279155] CPU2: off
+[19:11:37.916] [ 6208.318759] CPU3: off
+[19:21:40.484] [ 6810.859079] CPU1: off
+[19:21:40.484] [ 6810.909866] CPU2: off
+[19:21:40.538] [ 6810.960806] CPU3: off
+[19:31:44.933] [ 7415.307269] CPU1: off
+[19:31:44.933] [ 7415.347036] CPU2: off
+[19:31:44.998] [ 7415.402297] CPU3: off
+[19:41:54.259] [ 8024.623257] CPU1: off
+[19:41:54.259] [ 8024.669953] CPU2: off
+[19:41:54.318] [ 8024.710517] CPU3: off
+[19:52:08.757] [ 8639.114867] CPU1: off
+[19:52:08.757] [ 8639.153817] CPU2: off
+[19:52:08.818] [ 8639.204802] CPU3: off
+[20:02:11.661] [ 9242.039000] CPU1: off
+[20:02:11.724] [ 9242.081927] CPU2: off
+[20:02:11.724] [ 9242.123827] CPU3: off
+[20:07:01.666] [ 9532.033563] mmc0: Timeout waiting for hardware interrupt.
+[20:07:01.666] [ 9532.039131] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:07:01.666] [ 9532.045672] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:07:01.666] [ 9532.052226] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000000
+[20:07:01.666] [ 9532.058768] mmc0: sdhci: Argument:  0x012eabe0 | Trn mode: 0x0000002b
+[20:07:01.666] [ 9532.065313] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x0000001f
+[20:07:01.666] [ 9532.071852] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:07:01.666] [ 9532.078388] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x00000207
+[20:07:01.729] [ 9532.084929] mmc0: sdhci: Timeout:   0x00000009 | Int stat: 0x00000002
+[20:07:01.729] [ 9532.091464] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:07:01.729] [ 9532.098005] mmc0: sdhci: ACmd stat: 0x00000000 | Slot int: 0x00000001
+[20:07:01.729] [ 9532.104539] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:07:01.729] [ 9532.111079] mmc0: sdhci: Cmd:       0x0000193a | Max curr: 0x00000000
+[20:07:01.729] [ 9532.117619] mmc0: sdhci: Resp[0]:   0x00000900 | Resp[1]:  0x00747b7f
+[20:07:01.729] [ 9532.124161] mmc0: sdhci: Resp[2]:   0x325b5900 | Resp[3]:  0x00000900
+[20:07:01.729] [ 9532.130700] mmc0: sdhci: Host ctl2: 0x00000000
+[20:07:01.729] [ 9532.135233] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c20c
+[20:07:01.729] [ 9532.142474] mmc0: sdhci: ============================================
+[20:07:11.894] [ 9542.273569] mmc0: Timeout waiting for hardware interrupt.
+[20:07:11.894] [ 9542.279153] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:07:11.894] [ 9542.285701] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:07:11.894] [ 9542.292266] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000000
+[20:07:11.894] [ 9542.298816] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000023
+[20:07:11.894] [ 9542.305360] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x0000001f
+[20:07:11.958] [ 9542.311903] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:07:11.958] [ 9542.318441] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x00000207
+[20:07:11.958] [ 9542.324981] mmc0: sdhci: Timeout:   0x0000000e | Int stat: 0x00018002
+[20:07:11.958] [ 9542.331521] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:07:11.958] [ 9542.338062] mmc0: sdhci: ACmd stat: 0x00000000 | Slot int: 0x00000001
+[20:07:11.958] [ 9542.344598] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:07:11.958] [ 9542.351138] mmc0: sdhci: Cmd:       0x00000c1b | Max curr: 0x00000000
+[20:07:11.958] [ 9542.357692] mmc0: sdhci: Resp[0]:   0x00000900 | Resp[1]:  0x00747b7f
+[20:07:11.958] [ 9542.364301] mmc0: sdhci: Resp[2]:   0x325b5900 | Resp[3]:  0x00000900
+[20:07:11.958] [ 9542.370904] mmc0: sdhci: Host ctl2: 0x00000000
+[20:07:12.022] [ 9542.375499] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c20c
+[20:07:12.022] [ 9542.382809] mmc0: sdhci: ============================================
+[20:07:22.159] [ 9552.513524] mmc0: Timeout waiting for hardware cmd interrupt.
+[20:07:22.159] [ 9552.519412] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:07:22.159] [ 9552.525943] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:07:22.159] [ 9552.532489] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000000
+[20:07:22.159] [ 9552.539030] mmc0: sdhci: Argument:  0x00010000 | Trn mode: 0x00000023
+[20:07:22.159] [ 9552.545571] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x0000001f
+[20:07:22.159] [ 9552.552112] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:07:22.159] [ 9552.558650] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x00000207
+[20:07:22.159] [ 9552.565188] mmc0: sdhci: Timeout:   0x0000000e | Int stat: 0x00018001
+[20:07:22.159] [ 9552.571725] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:07:22.223] [ 9552.578262] mmc0: sdhci: ACmd stat: 0x00000000 | Slot int: 0x00000001
+[20:07:22.223] [ 9552.584802] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:07:22.223] [ 9552.591342] mmc0: sdhci: Cmd:       0x00000d1a | Max curr: 0x00000000
+[20:07:22.223] [ 9552.597880] mmc0: sdhci: Resp[0]:   0x00400900 | Resp[1]:  0x00747b7f
+[20:07:22.223] [ 9552.604419] mmc0: sdhci: Resp[2]:   0x325b5900 | Resp[3]:  0x00000900
+[20:07:22.223] [ 9552.610958] mmc0: sdhci: Host ctl2: 0x00000000
+[20:07:22.223] [ 9552.615491] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c20c
+[20:07:22.223] [ 9552.622728] mmc0: sdhci: ============================================
+[20:07:32.381] [ 9562.753515] mmc0: Timeout waiting for hardware cmd interrupt.
+[20:07:32.381] [ 9562.759489] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:07:32.381] [ 9562.766039] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:07:32.381] [ 9562.772594] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000000
+[20:07:32.381] [ 9562.779139] mmc0: sdhci: Argument:  0x00010000 | Trn mode: 0x00000023
+[20:07:32.381] [ 9562.785684] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x0000001f
+[20:07:32.381] [ 9562.792226] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:07:32.445] [ 9562.798766] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x00000207
+[20:07:32.445] [ 9562.805305] mmc0: sdhci: Timeout:   0x0000000e | Int stat: 0x00018001
+[20:07:32.445] [ 9562.811844] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:07:32.445] [ 9562.818384] mmc0: sdhci: ACmd stat: 0x00000000 | Slot int: 0x00000001
+[20:07:32.445] [ 9562.824921] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:07:32.445] [ 9562.831462] mmc0: sdhci: Cmd:       0x00000d1a | Max curr: 0x00000000
+[20:07:32.445] [ 9562.838001] mmc0: sdhci: Resp[0]:   0x00000900 | Resp[1]:  0x00747b7f
+[20:07:32.445] [ 9562.844545] mmc0: sdhci: Resp[2]:   0x325b5900 | Resp[3]:  0x00000900
+[20:07:32.445] [ 9562.851094] mmc0: sdhci: Host ctl2: 0x00000000
+[20:07:32.445] [ 9562.855628] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c20c
+[20:07:32.506] [ 9562.862870] mmc0: sdhci: ============================================
+[20:07:42.640] [ 9572.993492] mmc0: Timeout waiting for hardware interrupt.
+[20:07:42.640] [ 9572.999052] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:07:42.640] [ 9573.005594] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:07:42.640] [ 9573.012144] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000000
+[20:07:42.640] [ 9573.018684] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000023
+[20:07:42.640] [ 9573.025223] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x0000001f
+[20:07:42.640] [ 9573.031763] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:07:42.640] [ 9573.038300] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x00000207
+[20:07:42.640] [ 9573.044838] mmc0: sdhci: Timeout:   0x00000009 | Int stat: 0x00018002
+[20:07:42.640] [ 9573.051378] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:07:42.642] [ 9573.057917] mmc0: sdhci: ACmd stat: 0x00000000 | Slot int: 0x00000001
+[20:07:42.704] [ 9573.064456] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:07:42.704] [ 9573.070996] mmc0: sdhci: Cmd:       0x00000c1b | Max curr: 0x00000000
+[20:07:42.704] [ 9573.077537] mmc0: sdhci: Resp[0]:   0x00000900 | Resp[1]:  0x00747b7f
+[20:07:42.704] [ 9573.084074] mmc0: sdhci: Resp[2]:   0x325b5900 | Resp[3]:  0x00000900
+[20:07:42.704] [ 9573.090612] mmc0: sdhci: Host ctl2: 0x00000000
+[20:07:42.704] [ 9573.095145] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c20c
+[20:07:42.704] [ 9573.102386] mmc0: sdhci: ============================================
+[20:07:52.853] [ 9583.233470] mmc0: Timeout waiting for hardware interrupt.
+[20:07:52.853] [ 9583.239014] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:07:52.853] [ 9583.245547] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:07:52.853] [ 9583.252093] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000000
+[20:07:52.853] [ 9583.258633] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000023
+[20:07:52.853] [ 9583.265172] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x0000001f
+[20:07:52.917] [ 9583.271715] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:07:52.917] [ 9583.278251] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x00000207
+[20:07:52.917] [ 9583.284789] mmc0: sdhci: Timeout:   0x00000009 | Int stat: 0x00018002
+[20:07:52.917] [ 9583.291328] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:07:52.917] [ 9583.297865] mmc0: sdhci: ACmd stat: 0x00000000 | Slot int: 0x00000001
+[20:07:52.917] [ 9583.304401] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:07:52.917] [ 9583.310943] mmc0: sdhci: Cmd:       0x00000c1b | Max curr: 0x00000000
+[20:07:52.917] [ 9583.317481] mmc0: sdhci: Resp[0]:   0x00000900 | Resp[1]:  0x00747b7f
+[20:07:52.917] [ 9583.324020] mmc0: sdhci: Resp[2]:   0x325b5900 | Resp[3]:  0x00000900
+[20:07:52.917] [ 9583.330559] mmc0: sdhci: Host ctl2: 0x00000000
+[20:07:52.919] [ 9583.335091] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c20c
+[20:07:52.983] [ 9583.342329] mmc0: sdhci: ============================================
+[20:08:03.103] [ 9593.473498] mmc0: Timeout waiting for hardware interrupt.
+[20:08:03.103] [ 9593.479064] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:08:03.103] [ 9593.485602] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:08:03.103] [ 9593.492151] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000000
+[20:08:03.103] [ 9593.498693] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000023
+[20:08:03.103] [ 9593.505234] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x0000001f
+[20:08:03.103] [ 9593.511777] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:08:03.103] [ 9593.518316] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x00000207
+[20:08:03.167] [ 9593.524857] mmc0: sdhci: Timeout:   0x00000009 | Int stat: 0x00018002
+[20:08:03.167] [ 9593.531396] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:08:03.167] [ 9593.537935] mmc0: sdhci: ACmd stat: 0x00000000 | Slot int: 0x00000001
+[20:08:03.167] [ 9593.544473] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:08:03.167] [ 9593.551014] mmc0: sdhci: Cmd:       0x00000c1b | Max curr: 0x00000000
+[20:08:03.167] [ 9593.557550] mmc0: sdhci: Resp[0]:   0x00000900 | Resp[1]:  0x00747b7f
+[20:08:03.167] [ 9593.564090] mmc0: sdhci: Resp[2]:   0x325b5900 | Resp[3]:  0x00000900
+[20:08:03.167] [ 9593.570628] mmc0: sdhci: Host ctl2: 0x00000000
+[20:08:03.167] [ 9593.575161] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c20c
+[20:08:03.167] [ 9593.582401] mmc0: sdhci: ============================================
+[20:08:13.356] [ 9603.713503] mmc0: Timeout waiting for hardware interrupt.
+[20:08:13.356] [ 9603.719025] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:08:13.356] [ 9603.725557] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:08:13.356] [ 9603.732099] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000000
+[20:08:13.356] [ 9603.738638] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000023
+[20:08:13.356] [ 9603.745179] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x0000001f
+[20:08:13.356] [ 9603.751718] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:08:13.356] [ 9603.758254] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x00000207
+[20:08:13.356] [ 9603.764793] mmc0: sdhci: Timeout:   0x00000009 | Int stat: 0x00018002
+[20:08:13.356] [ 9603.771331] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:08:13.419] [ 9603.777870] mmc0: sdhci: ACmd stat: 0x00000000 | Slot int: 0x00000001
+[20:08:13.419] [ 9603.784407] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:08:13.419] [ 9603.790947] mmc0: sdhci: Cmd:       0x00000c1b | Max curr: 0x00000000
+[20:08:13.419] [ 9603.797485] mmc0: sdhci: Resp[0]:   0x00000900 | Resp[1]:  0x00747b7f
+[20:08:13.419] [ 9603.804026] mmc0: sdhci: Resp[2]:   0x325b5900 | Resp[3]:  0x00000900
+[20:08:13.419] [ 9603.810565] mmc0: sdhci: Host ctl2: 0x00000000
+[20:08:13.419] [ 9603.815096] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c20c
+[20:08:13.419] [ 9603.822336] mmc0: sdhci: ============================================
+[20:08:23.601] [ 9613.953483] mmc0: Timeout waiting for hardware interrupt.
+[20:08:23.601] [ 9613.959026] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:08:23.601] [ 9613.965565] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:08:23.601] [ 9613.972112] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000000
+[20:08:23.601] [ 9613.978656] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000023
+[20:08:23.601] [ 9613.985199] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x0000001f
+[20:08:23.601] [ 9613.991741] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:08:23.601] [ 9613.998279] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x00000207
+[20:08:23.601] [ 9614.004818] mmc0: sdhci: Timeout:   0x00000009 | Int stat: 0x00018002
+[20:08:23.601] [ 9614.011359] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:08:23.604] [ 9614.017899] mmc0: sdhci: ACmd stat: 0x00000000 | Slot int: 0x00000001
+[20:08:23.665] [ 9614.024435] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:08:23.665] [ 9614.030975] mmc0: sdhci: Cmd:       0x00000c1b | Max curr: 0x00000000
+[20:08:23.665] [ 9614.037513] mmc0: sdhci: Resp[0]:   0x00000900 | Resp[1]:  0x00747b7f
+[20:08:23.665] [ 9614.044054] mmc0: sdhci: Resp[2]:   0x325b5900 | Resp[3]:  0x00000900
+[20:08:23.665] [ 9614.050595] mmc0: sdhci: Host ctl2: 0x00000000
+[20:08:23.665] [ 9614.055127] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c20c
+[20:08:23.665] [ 9614.062366] mmc0: sdhci: ============================================
+[20:08:33.788] [ 9624.193487] mmc0: Timeout waiting for hardware interrupt.
+[20:08:33.788] [ 9624.199051] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:08:33.851] [ 9624.205586] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:08:33.851] [ 9624.212135] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000000
+[20:08:33.851] [ 9624.218675] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000023
+[20:08:33.851] [ 9624.225218] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x0000001f
+[20:08:33.851] [ 9624.231764] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:08:33.851] [ 9624.238300] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x00000207
+[20:08:33.851] [ 9624.244838] mmc0: sdhci: Timeout:   0x00000009 | Int stat: 0x00018002
+[20:08:33.851] [ 9624.251377] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:08:33.851] [ 9624.257918] mmc0: sdhci: ACmd stat: 0x00000000 | Slot int: 0x00000001
+[20:08:33.851] [ 9624.264453] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:08:33.914] [ 9624.270994] mmc0: sdhci: Cmd:       0x00000c1b | Max curr: 0x00000000
+[20:08:33.914] [ 9624.277533] mmc0: sdhci: Resp[0]:   0x00000900 | Resp[1]:  0x00747b7f
+[20:08:33.914] [ 9624.284074] mmc0: sdhci: Resp[2]:   0x325b5900 | Resp[3]:  0x00000900
+[20:08:33.914] [ 9624.290613] mmc0: sdhci: Host ctl2: 0x00000000
+[20:08:33.914] [ 9624.295144] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c20c
+[20:08:33.914] [ 9624.302384] mmc0: sdhci: ============================================
+[20:08:44.025] [ 9634.433475] mmc0: Timeout waiting for hardware cmd interrupt.
+[20:08:44.025] [ 9634.439335] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:08:44.089] [ 9634.445863] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:08:44.089] [ 9634.452406] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000000
+[20:08:44.089] [ 9634.458948] mmc0: sdhci: Argument:  0x00010000 | Trn mode: 0x00000023
+[20:08:44.089] [ 9634.465489] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x0000001f
+[20:08:44.089] [ 9634.472030] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:08:44.089] [ 9634.478567] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x00000207
+[20:08:44.089] [ 9634.485105] mmc0: sdhci: Timeout:   0x00000009 | Int stat: 0x00018001
+[20:08:44.089] [ 9634.491646] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:08:44.089] [ 9634.498196] mmc0: sdhci: ACmd stat: 0x00000000 | Slot int: 0x00000001
+[20:08:44.155] [ 9634.504755] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:08:44.155] [ 9634.511306] mmc0: sdhci: Cmd:       0x00000d1a | Max curr: 0x00000000
+[20:08:44.155] [ 9634.517846] mmc0: sdhci: Resp[0]:   0x00400900 | Resp[1]:  0x00747b7f
+[20:08:44.155] [ 9634.524388] mmc0: sdhci: Resp[2]:   0x325b5900 | Resp[3]:  0x00000900
+[20:08:44.155] [ 9634.530929] mmc0: sdhci: Host ctl2: 0x00000000
+[20:08:44.155] [ 9634.535461] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c20c
+[20:08:44.155] [ 9634.542700] mmc0: sdhci: ============================================
+[20:08:54.286] [ 9644.673487] mmc0: Timeout waiting for hardware cmd interrupt.
+[20:08:54.286] [ 9644.679356] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:08:54.286] [ 9644.685889] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:08:54.286] [ 9644.692434] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000000
+[20:08:54.286] [ 9644.698977] mmc0: sdhci: Argument:  0x00010000 | Trn mode: 0x00000023
+[20:08:54.350] [ 9644.705520] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x0000001f
+[20:08:54.350] [ 9644.712062] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:08:54.350] [ 9644.718602] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x00000207
+[20:08:54.350] [ 9644.725140] mmc0: sdhci: Timeout:   0x00000009 | Int stat: 0x00018001
+[20:08:54.350] [ 9644.731679] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:08:54.350] [ 9644.738218] mmc0: sdhci: ACmd stat: 0x00000000 | Slot int: 0x00000001
+[20:08:54.350] [ 9644.744755] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:08:54.350] [ 9644.751294] mmc0: sdhci: Cmd:       0x00000d1a | Max curr: 0x00000000
+[20:08:54.350] [ 9644.757830] mmc0: sdhci: Resp[0]:   0x00000900 | Resp[1]:  0x00747b7f
+[20:08:54.350] [ 9644.764370] mmc0: sdhci: Resp[2]:   0x325b5900 | Resp[3]:  0x00000900
+[20:08:54.415] [ 9644.770907] mmc0: sdhci: Host ctl2: 0x00000000
+[20:08:54.415] [ 9644.775438] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c20c
+[20:08:54.415] [ 9644.782677] mmc0: sdhci: ============================================
+[20:09:04.522] [ 9654.913495] mmc0: Timeout waiting for hardware cmd interrupt.
+[20:09:04.522] [ 9654.919419] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:09:04.522] [ 9654.925958] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:09:04.522] [ 9654.932510] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000000
+[20:09:04.586] [ 9654.939053] mmc0: sdhci: Argument:  0x00010000 | Trn mode: 0x00000023
+[20:09:04.586] [ 9654.945598] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x0000001f
+[20:09:04.586] [ 9654.952143] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:09:04.586] [ 9654.958682] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x00000207
+[20:09:04.586] [ 9654.965222] mmc0: sdhci: Timeout:   0x00000009 | Int stat: 0x00018001
+[20:09:04.586] [ 9654.971760] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:09:04.586] [ 9654.978300] mmc0: sdhci: ACmd stat: 0x00000000 | Slot int: 0x00000001
+[20:09:04.586] [ 9654.984836] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:09:04.586] [ 9654.991376] mmc0: sdhci: Cmd:       0x00000d1a | Max curr: 0x00000000
+[20:09:04.586] [ 9654.997914] mmc0: sdhci: Resp[0]:   0x00000900 | Resp[1]:  0x00747b7f
+[20:09:04.649] [ 9655.004454] mmc0: sdhci: Resp[2]:   0x325b5900 | Resp[3]:  0x00000900
+[20:09:04.649] [ 9655.010994] mmc0: sdhci: Host ctl2: 0x00000000
+[20:09:04.649] [ 9655.015528] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c20c
+[20:09:04.649] [ 9655.022770] mmc0: sdhci: ============================================
+[20:09:14.792] [ 9665.153548] mmc0: Timeout waiting for hardware cmd interrupt.
+[20:09:14.792] [ 9665.159437] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:09:14.792] [ 9665.165969] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:09:14.792] [ 9665.172512] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000000
+[20:09:14.792] [ 9665.179052] mmc0: sdhci: Argument:  0x00010000 | Trn mode: 0x00000023
+[20:09:14.792] [ 9665.185593] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x0000001f
+[20:09:14.792] [ 9665.192134] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:09:14.792] [ 9665.198672] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x00000207
+[20:09:14.792] [ 9665.205210] mmc0: sdhci: Timeout:   0x00000009 | Int stat: 0x00018001
+[20:09:14.856] [ 9665.211749] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:09:14.856] [ 9665.218285] mmc0: sdhci: ACmd stat: 0x00000000 | Slot int: 0x00000001
+[20:09:14.856] [ 9665.224821] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:09:14.856] [ 9665.231360] mmc0: sdhci: Cmd:       0x00000d1a | Max curr: 0x00000000
+[20:09:14.856] [ 9665.237899] mmc0: sdhci: Resp[0]:   0x00000900 | Resp[1]:  0x00747b7f
+[20:09:14.856] [ 9665.244439] mmc0: sdhci: Resp[2]:   0x325b5900 | Resp[3]:  0x00000900
+[20:09:14.856] [ 9665.250978] mmc0: sdhci: Host ctl2: 0x00000000
+[20:09:14.856] [ 9665.255510] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c20c
+[20:09:14.856] [ 9665.262750] mmc0: sdhci: ============================================
+[20:09:17.342] [ 9667.713767] INFO: task jbd2/mmcblk0p3-:232 blocked for more than 120 seconds.
+[20:09:17.342] [ 9667.721263]       Tainted: G           OE      6.12.113+deb13-riscv64 #1 Debian 6.12.113-1
+[20:09:17.342] [ 9667.729775] "echo 0 > /proc/sys/kernel/hung_task_timeout_secs" disables this message.
+[20:09:17.342] [ 9667.737804] task:jbd2/mmcblk0p3- state:D stack:0     pid:232   tgid:232   ppid:2      flags:0x00000000
+[20:09:17.342] [ 9667.747406] Call Trace:
+[20:09:17.342] [ 9667.750031] [<ffffffff80a73748>] __schedule+0x39a/0xbb8
+[20:09:17.342] [ 9667.755538] [<ffffffff80a73f8a>] schedule+0x24/0xd4
+[20:09:17.405] [ 9667.760654] [<ffffffff80a7407e>] io_schedule+0x44/0x5c
+[20:09:17.405] [ 9667.766063] [<ffffffff80a74906>] bit_wait_io+0x1c/0x5c
+[20:09:17.405] [ 9667.771515] [<ffffffff80a746ba>] __wait_on_bit+0xb8/0x122
+[20:09:17.405] [ 9667.777163] [<ffffffff80a747b8>] out_of_line_wait_on_bit+0x94/0xb2
+[20:09:17.405] [ 9667.783587] [<ffffffff80364ab8>] __wait_on_buffer+0x3e/0x48
+[20:09:17.405] [ 9667.789499] [<ffffffff0230aac6>] jbd2_journal_commit_transaction+0x10ae/0x18e4 [jbd2]
+[20:09:17.469] [ 9667.815606] [<ffffffff023119b0>] kjournald2+0xc0/0x216 [jbd2]
+[20:09:17.469] [ 9667.838844] [<ffffffff8004943a>] kthread+0xc4/0xe2
+[20:09:17.469] [ 9667.843945] [<ffffffff80a7c5da>] ret_from_fork+0xe/0x1c
+[20:09:17.469] [ 9667.849531] INFO: task systemd-journal:275 blocked for more than 120 seconds.
+[20:09:17.469] [ 9667.856882]       Tainted: G           OE      6.12.113+deb13-riscv64 #1 Debian 6.12.113-1
+[20:09:17.469] [ 9667.865339] "echo 0 > /proc/sys/kernel/hung_task_timeout_secs" disables this message.
+[20:09:17.469] [ 9667.873525] task:systemd-journal state:D stack:0     pid:275   tgid:275   ppid:1      flags:0x00000002
+[20:09:17.469] [ 9667.883143] Call Trace:
+[20:09:17.533] [ 9667.885770] [<ffffffff80a73748>] __schedule+0x39a/0xbb8
+[20:09:17.533] [ 9667.891242] [<ffffffff80a73f8a>] schedule+0x24/0xd4
+[20:09:17.533] [ 9667.896353] [<ffffffff80a7407e>] io_schedule+0x44/0x5c
+[20:09:17.533] [ 9667.901719] [<ffffffff80215094>] folio_wait_bit_common+0x1d2/0x3b0
+[20:09:17.533] [ 9667.908157] [<ffffffff8021528e>] folio_wait_bit+0x1c/0x24
+[20:09:17.533] [ 9667.913826] [<ffffffff8021fb2c>] folio_wait_writeback+0x44/0x7e
+[20:09:17.533] [ 9667.920036] [<ffffffff802156b6>] __filemap_fdatawait_range+0x7a/0xca
+[20:09:17.533] [ 9667.926636] [<ffffffff802173b0>] file_write_and_wait_range+0x8a/0xae
+[20:09:17.676] [ 9667.933262] [<ffffffff024d95ec>] ext4_sync_file+0x7a/0x25e [ext4]
+[20:09:17.676] [ 9668.040481] [<ffffffff8035c826>] vfs_fsync_range+0x36/0x66
+[20:09:17.676] [ 9668.046228] [<ffffffff8035c942>] do_fsync+0x3a/0x78
+[20:09:17.676] [ 9668.051341] [<ffffffff8035cbf4>] __riscv_sys_fsync+0x1e/0x26
+[20:09:17.676] [ 9668.057234] [<ffffffff80a6fa4c>] do_trap_ecall_u+0x94/0x1ea
+[20:09:17.676] [ 9668.063159] [<ffffffff80a7c4c2>] handle_exception+0x14a/0x156
+[20:09:17.676] [ 9668.069305] INFO: task kworker/u18:1:58894 blocked for more than 121 seconds.
+[20:09:17.676] [ 9668.076774]       Tainted: G           OE      6.12.113+deb13-riscv64 #1 Debian 6.12.113-1
+[20:09:17.676] [ 9668.085246] "echo 0 > /proc/sys/kernel/hung_task_timeout_secs" disables this message.
+[20:09:17.740] [ 9668.093249] task:kworker/u18:1   state:D stack:0     pid:58894 tgid:58894 ppid:2      flags:0x00000000
+[20:09:17.740] [ 9668.102910] Workqueue: writeback wb_workfn (flush-179:0)
+[20:09:17.740] [ 9668.108637] Call Trace:
+[20:09:17.740] [ 9668.111249] [<ffffffff80a73748>] __schedule+0x39a/0xbb8
+[20:09:17.740] [ 9668.116721] [<ffffffff80a73f8a>] schedule+0x24/0xd4
+[20:09:17.740] [ 9668.121931] [<ffffffff80a7407e>] io_schedule+0x44/0x5c
+[20:09:17.740] [ 9668.127361] [<ffffffff80a74906>] bit_wait_io+0x1c/0x5c
+[20:09:17.740] [ 9668.132775] [<ffffffff80a746ba>] __wait_on_bit+0xb8/0x122
+[20:09:17.740] [ 9668.138519] [<ffffffff80a747b8>] out_of_line_wait_on_bit+0x94/0xb2
+[20:09:17.803] [ 9668.144996] [<ffffffff02307f1a>] do_get_write_access+0x2e2/0x56e [jbd2]
+[20:09:17.803] [ 9668.169817] [<ffffffff02308230>] jbd2_journal_get_write_access+0x8a/0xd6 [jbd2]
+[20:09:17.932] [ 9668.194667] [<ffffffff024cb7da>] __ext4_journal_get_write_access+0x44/0x15c [ext4]
+[20:09:17.993] [ 9668.303336] [<ffffffff024f5e56>] ext4_mb_mark_context+0x84/0x3d6 [ext4]
+[20:09:18.120] [ 9668.411150] [<ffffffff024f6258>] ext4_mb_mark_diskspace_used+0xb0/0x16e [ext4]
+[20:09:18.250] [ 9668.519348] [<ffffffff024f937a>] ext4_mb_new_blocks+0x170/0xf10 [ext4]
+[20:09:18.376] [ 9668.626831] [<ffffffff024d151e>] ext4_ext_map_blocks+0x648/0x14b0 [ext4]
+[20:09:18.440] [ 9668.734417] [<ffffffff024e549a>] ext4_map_blocks+0x136/0x46e [ext4]
+[20:09:18.569] [ 9668.841559] [<ffffffff024e995a>] ext4_do_writepages+0x62c/0xa6c [ext4]
+[20:09:18.700] [ 9668.948999] [<ffffffff024e9f28>] ext4_writepages+0xc8/0x1a0 [ext4]
+[20:09:18.700] [ 9669.056146] [<ffffffff80222d1c>] do_writepages+0x78/0x298
+[20:09:18.700] [ 9669.061870] [<ffffffff80355890>] __writeback_single_inode+0x42/0x348
+[20:09:18.700] [ 9669.068573] [<ffffffff80355e08>] writeback_sb_inodes+0x272/0x5ee
+[20:09:18.700] [ 9669.074884] [<ffffffff803561e0>] __writeback_inodes_wb+0x5c/0x12a
+[20:09:18.700] [ 9669.081279] [<ffffffff803566b8>] wb_writeback+0x2d2/0x39e
+[20:09:18.700] [ 9669.087065] [<ffffffff80358754>] wb_workfn+0x352/0x40c
+[20:09:18.700] [ 9669.092506] [<ffffffff80040f5e>] process_one_work+0x190/0x330
+[20:09:18.700] [ 9669.098564] [<ffffffff80041b9e>] worker_thread+0x186/0x358
+[20:09:18.700] [ 9669.104354] [<ffffffff8004943a>] kthread+0xc4/0xe2
+[20:09:18.700] [ 9669.109520] [<ffffffff80a7c5da>] ret_from_fork+0xe/0x1c
+[20:09:18.762] [ 9669.115417] INFO: task tg-lbench:61238 blocked for more than 122 seconds.
+[20:09:18.762] [ 9669.122530]       Tainted: G           OE      6.12.113+deb13-riscv64 #1 Debian 6.12.113-1
+[20:09:18.762] [ 9669.131022] "echo 0 > /proc/sys/kernel/hung_task_timeout_secs" disables this message.
+[20:09:18.762] [ 9669.139034] task:tg-lbench       state:D stack:0     pid:61238 tgid:61238 ppid:61234  flags:0x00000002
+[20:09:18.762] [ 9669.148633] Call Trace:
+[20:09:18.762] [ 9669.151305] [<ffffffff80a73748>] __schedule+0x39a/0xbb8
+[20:09:18.762] [ 9669.156871] [<ffffffff80a73f8a>] schedule+0x24/0xd4
+[20:09:18.762] [ 9669.162000] [<ffffffff80a7407e>] io_schedule+0x44/0x5c
+[20:09:18.762] [ 9669.167395] [<ffffffff80a74906>] bit_wait_io+0x1c/0x5c
+[20:09:18.762] [ 9669.172773] [<ffffffff80a746ba>] __wait_on_bit+0xb8/0x122
+[20:09:18.825] [ 9669.178453] [<ffffffff80a747b8>] out_of_line_wait_on_bit+0x94/0xb2
+[20:09:18.825] [ 9669.184895] [<ffffffff02307f1a>] do_get_write_access+0x2e2/0x56e [jbd2]
+[20:09:18.825] [ 9669.209831] [<ffffffff02308230>] jbd2_journal_get_write_access+0x8a/0xd6 [jbd2]
+[20:09:18.951] [ 9669.234918] [<ffffffff024cb7da>] __ext4_journal_get_write_access+0x44/0x15c [ext4]
+[20:09:19.082] [ 9669.343901] [<ffffffff024e8f3a>] ext4_reserve_inode_write+0x5e/0xc2 [ext4]
+[20:09:19.146] [ 9669.452043] [<ffffffff024e91b2>] __ext4_mark_inode_dirty+0x64/0x1e0 [ext4]
+[20:09:19.271] [ 9669.560304] [<ffffffff024ec8d4>] ext4_dirty_inode+0x58/0x7c [ext4]
+[20:09:19.271] [ 9669.667699] [<ffffffff80355468>] __mark_inode_dirty+0x56/0x43c
+[20:09:19.271] [ 9669.674032] [<ffffffff8033813e>] generic_update_time+0x4a/0x60
+[20:09:19.271] [ 9669.680253] [<ffffffff803384ce>] file_modified+0x9a/0x9c
+[20:09:19.402] [ 9669.685969] [<ffffffff024d771c>] ext4_buffered_write_iter+0x5c/0xfa [ext4]
+[20:09:19.528] [ 9669.793982] [<ffffffff024d7816>] ext4_file_write_iter+0x5c/0x734 [ext4]
+[20:09:19.528] [ 9669.901774] [<ffffffff80316ffe>] vfs_write+0x1ec/0x3ba
+[20:09:19.528] [ 9669.907313] [<ffffffff80317346>] ksys_write+0x6a/0xe8
+[20:09:19.528] [ 9669.912744] [<ffffffff803173e4>] __riscv_sys_write+0x20/0x28
+[20:09:19.528] [ 9669.918783] [<ffffffff80a6fa4c>] do_trap_ecall_u+0x94/0x1ea
+[20:09:19.528] [ 9669.924771] [<ffffffff80a7c4c2>] handle_exception+0x14a/0x156
+[20:09:19.528] [ 9669.931297] INFO: task bash:61253 blocked for more than 123 seconds.
+[20:09:19.528] [ 9669.937948]       Tainted: G           OE      6.12.113+deb13-riscv64 #1 Debian 6.12.113-1
+[20:09:19.592] [ 9669.946423] "echo 0 > /proc/sys/kernel/hung_task_timeout_secs" disables this message.
+[20:09:19.592] [ 9669.954430] task:bash            state:D stack:0     pid:61253 tgid:61253 ppid:61233  flags:0x00000002
+[20:09:19.592] [ 9669.964028] Call Trace:
+[20:09:19.592] [ 9669.966674] [<ffffffff80a73748>] __schedule+0x39a/0xbb8
+[20:09:19.592] [ 9669.972166] [<ffffffff80a73f8a>] schedule+0x24/0xd4
+[20:09:19.592] [ 9669.977389] [<ffffffff80a7407e>] io_schedule+0x44/0x5c
+[20:09:19.592] [ 9669.982937] [<ffffffff80a74906>] bit_wait_io+0x1c/0x5c
+[20:09:19.592] [ 9669.988361] [<ffffffff80a746ba>] __wait_on_bit+0xb8/0x122
+[20:09:19.592] [ 9669.994075] [<ffffffff80a747b8>] out_of_line_wait_on_bit+0x94/0xb2
+[20:09:19.656] [ 9670.000612] [<ffffffff02307f1a>] do_get_write_access+0x2e2/0x56e [jbd2]
+[20:09:19.656] [ 9670.025376] [<ffffffff02308230>] jbd2_journal_get_write_access+0x8a/0xd6 [jbd2]
+[20:09:19.784] [ 9670.050188] [<ffffffff024cb7da>] __ext4_journal_get_write_access+0x44/0x15c [ext4]
+[20:09:19.865] [ 9670.159039] [<ffffffff024e8f3a>] ext4_reserve_inode_write+0x5e/0xc2 [ext4]
+[20:09:19.992] [ 9670.266955] [<ffffffff024e91b2>] __ext4_mark_inode_dirty+0x64/0x1e0 [ext4]
+[20:09:20.118] [ 9670.374891] [<ffffffff024ec8d4>] ext4_dirty_inode+0x58/0x7c [ext4]
+[20:09:20.118] [ 9670.482005] [<ffffffff80355468>] __mark_inode_dirty+0x56/0x43c
+[20:09:20.118] [ 9670.488200] [<ffffffff8033813e>] generic_update_time+0x4a/0x60
+[20:09:20.118] [ 9670.494396] [<ffffffff8033b698>] touch_atime+0xdc/0x11e
+[20:09:20.118] [ 9670.499932] [<ffffffff8032fa3e>] iterate_dir+0x156/0x1a4
+[20:09:20.118] [ 9670.505581] [<ffffffff8032fc28>] __riscv_sys_getdents64+0x6c/0x130
+[20:09:20.118] [ 9670.512033] [<ffffffff80a6fa4c>] do_trap_ecall_u+0x94/0x1ea
+[20:09:20.118] [ 9670.517942] [<ffffffff80a7c4c2>] handle_exception+0x14a/0x156
+[20:09:24.996] [ 9675.393491] mmc0: Timeout waiting for hardware cmd interrupt.
+[20:09:24.996] [ 9675.399381] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:09:24.996] [ 9675.405916] mmc0: sdhci: Sys addr:  0x00000000 | Version:  0x00001002
+[20:09:25.059] [ 9675.412460] mmc0: sdhci: Blk size:  0x00000000 | Blk cnt:  0x00000000
+[20:09:25.059] [ 9675.418997] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000000
+[20:09:25.059] [ 9675.425533] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000001
+[20:09:25.059] [ 9675.432072] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:09:25.059] [ 9675.438609] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:09:25.059] [ 9675.445149] mmc0: sdhci: Timeout:   0x00000000 | Int stat: 0x00000001
+[20:09:25.059] [ 9675.451686] mmc0: sdhci: Int enab:  0x00ff0083 | Sig enab: 0x00ff0083
+[20:09:25.059] [ 9675.458226] mmc0: sdhci: ACmd stat: 0x00000000 | Slot int: 0x00000001
+[20:09:25.059] [ 9675.464763] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:09:25.059] [ 9675.471303] mmc0: sdhci: Cmd:       0x00000000 | Max curr: 0x00000000
+[20:09:25.121] [ 9675.477840] mmc0: sdhci: Resp[0]:   0x00000000 | Resp[1]:  0x00000000
+[20:09:25.121] [ 9675.484376] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000000
+[20:09:25.121] [ 9675.490912] mmc0: sdhci: Host ctl2: 0x00000000
+[20:09:25.121] [ 9675.495443] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x0000000000000000
+[20:09:25.121] [ 9675.502679] mmc0: sdhci: ============================================
+[20:09:35.282] [ 9685.633507] mmc0: Timeout waiting for hardware cmd interrupt.
+[20:09:35.282] [ 9685.639396] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:09:35.282] [ 9685.645931] mmc0: sdhci: Sys addr:  0x00000000 | Version:  0x00001002
+[20:09:35.282] [ 9685.652480] mmc0: sdhci: Blk size:  0x00000000 | Blk cnt:  0x00000000
+[20:09:35.282] [ 9685.659020] mmc0: sdhci: Argument:  0x000001aa | Trn mode: 0x00000000
+[20:09:35.282] [ 9685.665558] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000001
+[20:09:35.282] [ 9685.672095] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:09:35.282] [ 9685.678635] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:09:35.282] [ 9685.685172] mmc0: sdhci: Timeout:   0x00000000 | Int stat: 0x00000001
+[20:09:35.282] [ 9685.691709] mmc0: sdhci: Int enab:  0x00ff0083 | Sig enab: 0x00ff0083
+[20:09:35.346] [ 9685.698250] mmc0: sdhci: ACmd stat: 0x00000000 | Slot int: 0x00000001
+[20:09:35.346] [ 9685.704786] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:09:35.346] [ 9685.711329] mmc0: sdhci: Cmd:       0x0000081a | Max curr: 0x00000000
+[20:09:35.346] [ 9685.717865] mmc0: sdhci: Resp[0]:   0x000001aa | Resp[1]:  0x00000000
+[20:09:35.346] [ 9685.724404] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000000
+[20:09:35.346] [ 9685.730938] mmc0: sdhci: Host ctl2: 0x00000000
+[20:09:35.346] [ 9685.735469] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x0000000000000000
+[20:09:35.346] [ 9685.742705] mmc0: sdhci: ============================================
+[20:09:45.487] [ 9695.873514] mmc0: Timeout waiting for hardware cmd interrupt.
+[20:09:45.487] [ 9695.879391] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:09:45.487] [ 9695.885925] mmc0: sdhci: Sys addr:  0x00000000 | Version:  0x00001002
+[20:09:45.487] [ 9695.892474] mmc0: sdhci: Blk size:  0x00000000 | Blk cnt:  0x00000000
+[20:09:45.487] [ 9695.899017] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000000
+[20:09:45.567] [ 9695.905555] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000001
+[20:09:45.567] [ 9695.912095] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:09:45.567] [ 9695.918634] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:09:45.567] [ 9695.925173] mmc0: sdhci: Timeout:   0x00000000 | Int stat: 0x00000001
+[20:09:45.567] [ 9695.931710] mmc0: sdhci: Int enab:  0x00ff0083 | Sig enab: 0x00ff0083
+[20:09:45.567] [ 9695.938253] mmc0: sdhci: ACmd stat: 0x00000000 | Slot int: 0x00000001
+[20:09:45.567] [ 9695.944788] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:09:45.567] [ 9695.951330] mmc0: sdhci: Cmd:       0x0000371a | Max curr: 0x00000000
+[20:09:45.567] [ 9695.957870] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[20:09:45.567] [ 9695.964409] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000000
+[20:09:45.567] [ 9695.970944] mmc0: sdhci: Host ctl2: 0x00000000
+[20:09:45.567] [ 9695.975474] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x0000000000000000
+[20:09:45.633] [ 9695.982712] mmc0: sdhci: ============================================
+[20:09:55.733] [ 9706.113495] mmc0: Timeout waiting for hardware cmd interrupt.
+[20:09:55.733] [ 9706.119368] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:09:55.733] [ 9706.125902] mmc0: sdhci: Sys addr:  0x00000000 | Version:  0x00001002
+[20:09:55.733] [ 9706.132451] mmc0: sdhci: Blk size:  0x00000000 | Blk cnt:  0x00000000
+[20:09:55.733] [ 9706.138991] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000000
+[20:09:55.733] [ 9706.145530] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000001
+[20:09:55.796] [ 9706.152072] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:09:55.796] [ 9706.158611] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:09:55.796] [ 9706.165151] mmc0: sdhci: Timeout:   0x00000000 | Int stat: 0x00000001
+[20:09:55.796] [ 9706.171689] mmc0: sdhci: Int enab:  0x00ff0083 | Sig enab: 0x00ff0083
+[20:09:55.796] [ 9706.178230] mmc0: sdhci: ACmd stat: 0x00000000 | Slot int: 0x00000001
+[20:09:55.796] [ 9706.184765] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:09:55.796] [ 9706.191306] mmc0: sdhci: Cmd:       0x0000371a | Max curr: 0x00000000
+[20:09:55.796] [ 9706.197846] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[20:09:55.796] [ 9706.204383] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000000
+[20:09:55.860] [ 9706.210918] mmc0: sdhci: Host ctl2: 0x00000000
+[20:09:55.860] [ 9706.215450] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x0000000000000000
+[20:09:55.860] [ 9706.222687] mmc0: sdhci: ============================================
+[20:10:05.966] [ 9716.353553] mmc0: Timeout waiting for hardware cmd interrupt.
+[20:10:05.966] [ 9716.359475] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:10:05.966] [ 9716.366012] mmc0: sdhci: Sys addr:  0x00000000 | Version:  0x00001002
+[20:10:05.966] [ 9716.372558] mmc0: sdhci: Blk size:  0x00000000 | Blk cnt:  0x00000000
+[20:10:06.028] [ 9716.379096] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000000
+[20:10:06.028] [ 9716.385633] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000001
+[20:10:06.028] [ 9716.392176] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:10:06.028] [ 9716.398713] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:10:06.028] [ 9716.405254] mmc0: sdhci: Timeout:   0x00000000 | Int stat: 0x00000001
+[20:10:06.028] [ 9716.411791] mmc0: sdhci: Int enab:  0x00ff0083 | Sig enab: 0x00ff0083
+[20:10:06.028] [ 9716.418331] mmc0: sdhci: ACmd stat: 0x00000000 | Slot int: 0x00000001
+[20:10:06.028] [ 9716.424866] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:10:06.028] [ 9716.431406] mmc0: sdhci: Cmd:       0x0000371a | Max curr: 0x00000000
+[20:10:06.028] [ 9716.437946] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[20:10:06.091] [ 9716.444485] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000000
+[20:10:06.091] [ 9716.451019] mmc0: sdhci: Host ctl2: 0x00000000
+[20:10:06.091] [ 9716.455551] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x0000000000000000
+[20:10:06.091] [ 9716.462789] mmc0: sdhci: ============================================
+[20:10:16.242] [ 9726.593517] mmc0: Timeout waiting for hardware cmd interrupt.
+[20:10:16.242] [ 9726.599390] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:10:16.242] [ 9726.605924] mmc0: sdhci: Sys addr:  0x00000000 | Version:  0x00001002
+[20:10:16.242] [ 9726.612471] mmc0: sdhci: Blk size:  0x00000000 | Blk cnt:  0x00000000
+[20:10:16.242] [ 9726.619012] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000000
+[20:10:16.242] [ 9726.625552] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000001
+[20:10:16.242] [ 9726.632090] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:10:16.242] [ 9726.638630] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:10:16.242] [ 9726.645168] mmc0: sdhci: Timeout:   0x00000000 | Int stat: 0x00000001
+[20:10:16.242] [ 9726.651704] mmc0: sdhci: Int enab:  0x00ff0083 | Sig enab: 0x00ff0083
+[20:10:16.305] [ 9726.658247] mmc0: sdhci: ACmd stat: 0x00000000 | Slot int: 0x00000001
+[20:10:16.305] [ 9726.664783] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:10:16.305] [ 9726.671325] mmc0: sdhci: Cmd:       0x0000371a | Max curr: 0x00000000
+[20:10:16.305] [ 9726.677863] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[20:10:16.305] [ 9726.684402] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000000
+[20:10:16.305] [ 9726.690937] mmc0: sdhci: Host ctl2: 0x00000000
+[20:10:16.305] [ 9726.695469] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x0000000000000000
+[20:10:16.305] [ 9726.702704] mmc0: sdhci: ============================================
+[20:10:16.305] [ 9726.710090] mmc0: tried to HW reset card, got error -110
+[20:10:16.305] [ 9726.715688] mmcblk0: recovery failed!
+[20:10:16.369] [ 9726.719676] I/O error, dev mmcblk0, sector 19835872 op 0x1:(WRITE) flags 0x0 phys_seg 1 prio class 2
+[20:10:16.369] [ 9726.729086] EXT4-fs warning (device mmcblk0p3): ext4_end_bio:353: I/O error 10 writing to inode 15927 starting block 2479484)
+[20:10:16.369] [ 9726.740668] Buffer I/O error on device mmcblk0p3, logical block 644220
+[20:10:26.464] [ 9736.833489] mmc0: Timeout waiting for hardware interrupt.
+[20:10:26.464] [ 9736.839013] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:10:26.464] [ 9736.845546] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:10:26.464] [ 9736.852092] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000008
+[20:10:26.464] [ 9736.858633] mmc0: sdhci: Argument:  0x012eac10 | Trn mode: 0x0000002b
+[20:10:26.464] [ 9736.865180] mmc0: sdhci: Present:   0x01f70001 | Host ctl: 0x00000019
+[20:10:26.464] [ 9736.871725] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:10:26.464] [ 9736.878265] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:10:26.526] [ 9736.884806] mmc0: sdhci: Timeout:   0x00000009 | Int stat: 0x01008000
+[20:10:26.526] [ 9736.891346] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:10:26.526] [ 9736.897884] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[20:10:26.526] [ 9736.904422] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:10:26.526] [ 9736.910963] mmc0: sdhci: Cmd:       0x0000193a | Max curr: 0x00000000
+[20:10:26.526] [ 9736.917502] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[20:10:26.526] [ 9736.924040] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[20:10:26.526] [ 9736.930575] mmc0: sdhci: Host ctl2: 0x00000000
+[20:10:26.526] [ 9736.935108] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c200
+[20:10:26.526] [ 9736.942348] mmc0: sdhci: ============================================
+[20:10:36.678] [ 9747.073498] mmc0: Timeout waiting for hardware interrupt.
+[20:10:36.678] [ 9747.079067] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:10:36.678] [ 9747.085605] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:10:36.678] [ 9747.092151] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000008
+[20:10:36.741] [ 9747.098691] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000023
+[20:10:36.741] [ 9747.105232] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[20:10:36.741] [ 9747.111776] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:10:36.741] [ 9747.118316] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:10:36.741] [ 9747.124858] mmc0: sdhci: Timeout:   0x0000000e | Int stat: 0x01018002
+[20:10:36.741] [ 9747.131397] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:10:36.741] [ 9747.137935] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[20:10:36.741] [ 9747.144475] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:10:36.741] [ 9747.151014] mmc0: sdhci: Cmd:       0x00000c1b | Max curr: 0x00000000
+[20:10:36.804] [ 9747.157553] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[20:10:36.804] [ 9747.164090] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[20:10:36.804] [ 9747.170628] mmc0: sdhci: Host ctl2: 0x00000000
+[20:10:36.804] [ 9747.175159] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c200
+[20:10:36.804] [ 9747.182400] mmc0: sdhci: ============================================
+[20:10:46.963] [ 9757.313488] mmc0: Timeout waiting for hardware cmd interrupt.
+[20:10:46.963] [ 9757.319359] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:10:46.963] [ 9757.325896] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:10:46.963] [ 9757.332444] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000008
+[20:10:46.963] [ 9757.338985] mmc0: sdhci: Argument:  0x00010000 | Trn mode: 0x00000023
+[20:10:46.963] [ 9757.345527] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[20:10:46.963] [ 9757.352069] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:10:46.963] [ 9757.358609] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:10:46.963] [ 9757.365153] mmc0: sdhci: Timeout:   0x0000000e | Int stat: 0x01018000
+[20:10:46.963] [ 9757.371693] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:10:46.963] [ 9757.378234] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[20:10:47.026] [ 9757.384770] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:10:47.026] [ 9757.391311] mmc0: sdhci: Cmd:       0x00000d1a | Max curr: 0x00000000
+[20:10:47.026] [ 9757.397849] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[20:10:47.026] [ 9757.404386] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[20:10:47.026] [ 9757.410925] mmc0: sdhci: Host ctl2: 0x00000000
+[20:10:47.026] [ 9757.415457] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c200
+[20:10:47.026] [ 9757.422698] mmc0: sdhci: ============================================
+[20:10:57.183] [ 9767.553503] mmc0: Timeout waiting for hardware cmd interrupt.
+[20:10:57.183] [ 9767.559412] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:10:57.183] [ 9767.565946] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:10:57.183] [ 9767.572493] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000008
+[20:10:57.183] [ 9767.579032] mmc0: sdhci: Argument:  0x00010000 | Trn mode: 0x00000023
+[20:10:57.183] [ 9767.585572] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[20:10:57.183] [ 9767.592112] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:10:57.247] [ 9767.598662] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:10:57.247] [ 9767.605219] mmc0: sdhci: Timeout:   0x0000000e | Int stat: 0x01018000
+[20:10:57.247] [ 9767.611762] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:10:57.247] [ 9767.618301] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[20:10:57.247] [ 9767.624852] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:10:57.247] [ 9767.631457] mmc0: sdhci: Cmd:       0x00000d1a | Max curr: 0x00000000
+[20:10:57.247] [ 9767.638050] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[20:10:57.247] [ 9767.644640] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[20:10:57.247] [ 9767.651225] mmc0: sdhci: Host ctl2: 0x00000000
+[20:10:57.247] [ 9767.655798] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c200
+[20:10:57.309] [ 9767.663092] mmc0: sdhci: ============================================
+[20:11:07.402] [ 9777.793591] mmc0: Timeout waiting for hardware interrupt.
+[20:11:07.402] [ 9777.799159] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:11:07.402] [ 9777.805696] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:11:07.402] [ 9777.812247] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000008
+[20:11:07.465] [ 9777.818791] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000023
+[20:11:07.465] [ 9777.825333] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[20:11:07.465] [ 9777.831875] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:11:07.465] [ 9777.838415] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:11:07.465] [ 9777.844955] mmc0: sdhci: Timeout:   0x00000009 | Int stat: 0x01018002
+[20:11:07.465] [ 9777.851495] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:11:07.465] [ 9777.858036] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[20:11:07.465] [ 9777.864573] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:11:07.465] [ 9777.871114] mmc0: sdhci: Cmd:       0x00000c1b | Max curr: 0x00000000
+[20:11:07.465] [ 9777.877654] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[20:11:07.530] [ 9777.884193] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[20:11:07.530] [ 9777.890730] mmc0: sdhci: Host ctl2: 0x00000000
+[20:11:07.530] [ 9777.895263] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c200
+[20:11:07.530] [ 9777.902504] mmc0: sdhci: ============================================
+[20:11:17.679] [ 9788.033528] mmc0: Timeout waiting for hardware interrupt.
+[20:11:17.679] [ 9788.039043] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:11:17.679] [ 9788.045576] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:11:17.679] [ 9788.052118] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000008
+[20:11:17.679] [ 9788.058658] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000023
+[20:11:17.679] [ 9788.065197] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[20:11:17.679] [ 9788.071740] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:11:17.679] [ 9788.078280] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:11:17.679] [ 9788.084823] mmc0: sdhci: Timeout:   0x00000009 | Int stat: 0x01018002
+[20:11:17.679] [ 9788.091362] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:11:17.788] [ 9788.097902] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[20:11:17.788] [ 9788.104439] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:11:17.788] [ 9788.110981] mmc0: sdhci: Cmd:       0x00000c1b | Max curr: 0x00000000
+[20:11:17.788] [ 9788.117519] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[20:11:17.788] [ 9788.124058] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[20:11:17.788] [ 9788.130596] mmc0: sdhci: Host ctl2: 0x00000000
+[20:11:17.788] [ 9788.135129] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c200
+[20:11:17.788] [ 9788.142367] mmc0: sdhci: ============================================
+[20:11:20.200] [ 9790.593704] INFO: task jbd2/mmcblk0p3-:232 blocked for more than 243 seconds.
+[20:11:20.200] [ 9790.601131]       Tainted: G           OE      6.12.113+deb13-riscv64 #1 Debian 6.12.113-1
+[20:11:20.200] [ 9790.609655] "echo 0 > /proc/sys/kernel/hung_task_timeout_secs" disables this message.
+[20:11:20.263] [ 9790.617739] task:jbd2/mmcblk0p3- state:D stack:0     pid:232   tgid:232   ppid:2      flags:0x00000000
+[20:11:20.263] [ 9790.627396] Call Trace:
+[20:11:20.263] [ 9790.630058] [<ffffffff80a73748>] __schedule+0x39a/0xbb8
+[20:11:20.263] [ 9790.635601] [<ffffffff80a73f8a>] schedule+0x24/0xd4
+[20:11:20.263] [ 9790.640751] [<ffffffff80a7407e>] io_schedule+0x44/0x5c
+[20:11:20.263] [ 9790.646234] [<ffffffff80a74906>] bit_wait_io+0x1c/0x5c
+[20:11:20.263] [ 9790.651669] [<ffffffff80a746ba>] __wait_on_bit+0xb8/0x122
+[20:11:20.263] [ 9790.657346] [<ffffffff80a747b8>] out_of_line_wait_on_bit+0x94/0xb2
+[20:11:20.263] [ 9790.663893] [<ffffffff80364ab8>] __wait_on_buffer+0x3e/0x48
+[20:11:20.327] [ 9790.669800] [<ffffffff0230aac6>] jbd2_journal_commit_transaction+0x10ae/0x18e4 [jbd2]
+[20:11:20.327] [ 9790.695971] [<ffffffff023119b0>] kjournald2+0xc0/0x216 [jbd2]
+[20:11:20.327] [ 9790.719318] [<ffffffff8004943a>] kthread+0xc4/0xe2
+[20:11:20.327] [ 9790.724424] [<ffffffff80a7c5da>] ret_from_fork+0xe/0x1c
+[20:11:20.327] [ 9790.730326] INFO: task systemd-journal:275 blocked for more than 243 seconds.
+[20:11:20.327] [ 9790.737759]       Tainted: G           OE      6.12.113+deb13-riscv64 #1 Debian 6.12.113-1
+[20:11:20.390] [ 9790.746234] "echo 0 > /proc/sys/kernel/hung_task_timeout_secs" disables this message.
+[20:11:20.390] [ 9790.754306] task:systemd-journal state:D stack:0     pid:275   tgid:275   ppid:1      flags:0x00000006
+[20:11:20.390] [ 9790.763906] Call Trace:
+[20:11:20.390] [ 9790.766560] [<ffffffff80a73748>] __schedule+0x39a/0xbb8
+[20:11:20.390] [ 9790.772053] [<ffffffff80a73f8a>] schedule+0x24/0xd4
+[20:11:20.390] [ 9790.777265] [<ffffffff80a7407e>] io_schedule+0x44/0x5c
+[20:11:20.390] [ 9790.782791] [<ffffffff80215094>] folio_wait_bit_common+0x1d2/0x3b0
+[20:11:20.390] [ 9790.789289] [<ffffffff8021528e>] folio_wait_bit+0x1c/0x24
+[20:11:20.390] [ 9790.795103] [<ffffffff8021fb2c>] folio_wait_writeback+0x44/0x7e
+[20:11:20.390] [ 9790.801353] [<ffffffff802156b6>] __filemap_fdatawait_range+0x7a/0xca
+[20:11:20.453] [ 9790.808080] [<ffffffff802173b0>] file_write_and_wait_range+0x8a/0xae
+[20:11:20.518] [ 9790.814724] [<ffffffff024d95ec>] ext4_sync_file+0x7a/0x25e [ext4]
+[20:11:20.518] [ 9790.921983] [<ffffffff8035c826>] vfs_fsync_range+0x36/0x66
+[20:11:20.518] [ 9790.927765] [<ffffffff8035c942>] do_fsync+0x3a/0x78
+[20:11:20.518] [ 9790.932909] [<ffffffff8035cbf4>] __riscv_sys_fsync+0x1e/0x26
+[20:11:20.581] [ 9790.938842] [<ffffffff80a6fa4c>] do_trap_ecall_u+0x94/0x1ea
+[20:11:20.581] [ 9790.944746] [<ffffffff80a7c4c2>] handle_exception+0x14a/0x156
+[20:11:20.581] [ 9790.951212] INFO: task kworker/1:0H:58852 blocked for more than 122 seconds.
+[20:11:20.581] [ 9790.958553]       Tainted: G           OE      6.12.113+deb13-riscv64 #1 Debian 6.12.113-1
+[20:11:20.581] [ 9790.967022] "echo 0 > /proc/sys/kernel/hung_task_timeout_secs" disables this message.
+[20:11:20.581] [ 9790.975028] task:kworker/1:0H    state:D stack:0     pid:58852 tgid:58852 ppid:2      flags:0x00000000
+[20:11:20.581] [ 9790.984647] Workqueue: kblockd blk_mq_timeout_work
+[20:11:20.581] [ 9790.989781] Call Trace:
+[20:11:20.581] [ 9790.992323] [<ffffffff80a73748>] __schedule+0x39a/0xbb8
+[20:11:20.644] [ 9790.997898] [<ffffffff80a73f8a>] schedule+0x24/0xd4
+[20:11:20.644] [ 9791.003065] [<ffffffff80a79fc6>] schedule_timeout+0x11c/0x152
+[20:11:20.644] [ 9791.009134] [<ffffffff80a74aba>] __wait_for_common+0x174/0x266
+[20:11:20.644] [ 9791.015290] [<ffffffff80a74bd2>] wait_for_completion+0x26/0x2e
+[20:11:20.644] [ 9791.021564] [<ffffffff800ba19c>] __synchronize_srcu+0xa2/0xd0
+[20:11:20.644] [ 9791.027666] [<ffffffff800ba2c0>] synchronize_srcu+0xc4/0x100
+[20:11:20.644] [ 9791.033635] [<ffffffff804ca190>] blk_mq_timeout_work+0x11e/0x172
+[20:11:20.644] [ 9791.039938] [<ffffffff80040f5e>] process_one_work+0x190/0x330
+[20:11:20.644] [ 9791.046000] [<ffffffff80041b9e>] worker_thread+0x186/0x358
+[20:11:20.644] [ 9791.051775] [<ffffffff8004943a>] kthread+0xc4/0xe2
+[20:11:20.707] [ 9791.056845] [<ffffffff80a7c5da>] ret_from_fork+0xe/0x1c
+[20:11:20.707] [ 9791.062674] INFO: task kworker/u18:1:58894 blocked for more than 244 seconds.
+[20:11:20.707] [ 9791.070092]       Tainted: G           OE      6.12.113+deb13-riscv64 #1 Debian 6.12.113-1
+[20:11:20.707] [ 9791.078563] "echo 0 > /proc/sys/kernel/hung_task_timeout_secs" disables this message.
+[20:11:20.707] [ 9791.086567] task:kworker/u18:1   state:D stack:0     pid:58894 tgid:58894 ppid:2      flags:0x00000000
+[20:11:20.707] [ 9791.096168] Workqueue: writeback wb_workfn (flush-179:0)
+[20:11:20.707] [ 9791.101903] Call Trace:
+[20:11:20.707] [ 9791.104448] [<ffffffff80a73748>] __schedule+0x39a/0xbb8
+[20:11:20.707] [ 9791.110012] [<ffffffff80a73f8a>] schedule+0x24/0xd4
+[20:11:20.707] [ 9791.115182] [<ffffffff80a7407e>] io_schedule+0x44/0x5c
+[20:11:20.707] [ 9791.120615] [<ffffffff80a74906>] bit_wait_io+0x1c/0x5c
+[20:11:20.771] [ 9791.126121] [<ffffffff80a746ba>] __wait_on_bit+0xb8/0x122
+[20:11:20.771] [ 9791.131807] [<ffffffff80a747b8>] out_of_line_wait_on_bit+0x94/0xb2
+[20:11:20.771] [ 9791.138276] [<ffffffff02307f1a>] do_get_write_access+0x2e2/0x56e [jbd2]
+[20:11:20.771] [ 9791.163131] [<ffffffff02308230>] jbd2_journal_get_write_access+0x8a/0xd6 [jbd2]
+[20:11:20.899] [ 9791.188001] [<ffffffff024cb7da>] __ext4_journal_get_write_access+0x44/0x15c [ext4]
+[20:11:21.028] [ 9791.296758] [<ffffffff024f5e56>] ext4_mb_mark_context+0x84/0x3d6 [ext4]
+[20:11:21.155] [ 9791.404511] [<ffffffff024f6258>] ext4_mb_mark_diskspace_used+0xb0/0x16e [ext4]
+[20:11:21.218] [ 9791.513054] [<ffffffff024f937a>] ext4_mb_new_blocks+0x170/0xf10 [ext4]
+[20:11:21.346] [ 9791.620589] [<ffffffff024d151e>] ext4_ext_map_blocks+0x648/0x14b0 [ext4]
+[20:11:21.472] [ 9791.728267] [<ffffffff024e549a>] ext4_map_blocks+0x136/0x46e [ext4]
+[20:11:21.536] [ 9791.835488] [<ffffffff024e995a>] ext4_do_writepages+0x62c/0xa6c [ext4]
+[20:11:21.663] [ 9791.942964] [<ffffffff024e9f28>] ext4_writepages+0xc8/0x1a0 [ext4]
+[20:11:21.663] [ 9792.050258] [<ffffffff80222d1c>] do_writepages+0x78/0x298
+[20:11:21.663] [ 9792.055954] [<ffffffff80355890>] __writeback_single_inode+0x42/0x348
+[20:11:21.663] [ 9792.062686] [<ffffffff80355e08>] writeback_sb_inodes+0x272/0x5ee
+[20:11:21.663] [ 9792.069006] [<ffffffff803561e0>] __writeback_inodes_wb+0x5c/0x12a
+[20:11:21.663] [ 9792.075402] [<ffffffff803566b8>] wb_writeback+0x2d2/0x39e
+[20:11:21.726] [ 9792.081103] [<ffffffff80358754>] wb_workfn+0x352/0x40c
+[20:11:21.726] [ 9792.086545] [<ffffffff80040f5e>] process_one_work+0x190/0x330
+[20:11:21.726] [ 9792.092613] [<ffffffff80041b9e>] worker_thread+0x186/0x358
+[20:11:21.726] [ 9792.098400] [<ffffffff8004943a>] kthread+0xc4/0xe2
+[20:11:21.726] [ 9792.103476] [<ffffffff80a7c5da>] ret_from_fork+0xe/0x1c
+[20:11:21.726] [ 9792.109345] INFO: task tg-lbench:61238 blocked for more than 245 seconds.
+[20:11:21.726] [ 9792.116525]       Tainted: G           OE      6.12.113+deb13-riscv64 #1 Debian 6.12.113-1
+[20:11:21.726] [ 9792.125012] "echo 0 > /proc/sys/kernel/hung_task_timeout_secs" disables this message.
+[20:11:21.726] [ 9792.133023] task:tg-lbench       state:D stack:0     pid:61238 tgid:61238 ppid:61234  flags:0x00000002
+[20:11:21.790] [ 9792.142676] Call Trace:
+[20:11:21.790] [ 9792.145240] [<ffffffff80a73748>] __schedule+0x39a/0xbb8
+[20:11:21.790] [ 9792.150798] [<ffffffff80a73f8a>] schedule+0x24/0xd4
+[20:11:21.790] [ 9792.155930] [<ffffffff80a7407e>] io_schedule+0x44/0x5c
+[20:11:21.790] [ 9792.161322] [<ffffffff80a74906>] bit_wait_io+0x1c/0x5c
+[20:11:21.790] [ 9792.166803] [<ffffffff80a746ba>] __wait_on_bit+0xb8/0x122
+[20:11:21.790] [ 9792.172446] [<ffffffff80a747b8>] out_of_line_wait_on_bit+0x94/0xb2
+[20:11:21.790] [ 9792.178937] [<ffffffff02307f1a>] do_get_write_access+0x2e2/0x56e [jbd2]
+[20:11:21.852] [ 9792.203979] [<ffffffff02308230>] jbd2_journal_get_write_access+0x8a/0xd6 [jbd2]
+[20:11:21.979] [ 9792.229185] [<ffffffff024cb7da>] __ext4_journal_get_write_access+0x44/0x15c [ext4]
+[20:11:22.043] [ 9792.338079] [<ffffffff024e8f3a>] ext4_reserve_inode_write+0x5e/0xc2 [ext4]
+[20:11:22.171] [ 9792.446446] [<ffffffff024e91b2>] __ext4_mark_inode_dirty+0x64/0x1e0 [ext4]
+[20:11:22.298] [ 9792.554683] [<ffffffff024ec8d4>] ext4_dirty_inode+0x58/0x7c [ext4]
+[20:11:22.298] [ 9792.662038] [<ffffffff80355468>] __mark_inode_dirty+0x56/0x43c
+[20:11:22.298] [ 9792.668306] [<ffffffff8033813e>] generic_update_time+0x4a/0x60
+[20:11:22.298] [ 9792.674601] [<ffffffff803384ce>] file_modified+0x9a/0x9c
+[20:11:22.426] [ 9792.680293] [<ffffffff024d771c>] ext4_buffered_write_iter+0x5c/0xfa [ext4]
+[20:11:22.489] [ 9792.788201] [<ffffffff024d7816>] ext4_file_write_iter+0x5c/0x734 [ext4]
+[20:11:22.489] [ 9792.895911] [<ffffffff80316ffe>] vfs_write+0x1ec/0x3ba
+[20:11:22.489] [ 9792.901572] [<ffffffff80317346>] ksys_write+0x6a/0xe8
+[20:11:22.553] [ 9792.907036] [<ffffffff803173e4>] __riscv_sys_write+0x20/0x28
+[20:11:22.553] [ 9792.913092] [<ffffffff80a6fa4c>] do_trap_ecall_u+0x94/0x1ea
+[20:11:22.553] [ 9792.919096] [<ffffffff80a7c4c2>] handle_exception+0x14a/0x156
+[20:11:22.553] [ 9792.925289] Future hung task reports are suppressed, see sysctl kernel.hung_task_warnings
+[20:11:27.893] [ 9798.273483] mmc0: Timeout waiting for hardware interrupt.
+[20:11:27.893] [ 9798.279034] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:11:27.893] [ 9798.285570] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:11:27.893] [ 9798.292113] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000008
+[20:11:27.893] [ 9798.298651] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000023
+[20:11:27.956] [ 9798.305193] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[20:11:27.956] [ 9798.311733] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:11:27.956] [ 9798.318271] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:11:27.956] [ 9798.324810] mmc0: sdhci: Timeout:   0x00000009 | Int stat: 0x01018002
+[20:11:27.956] [ 9798.331348] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:11:27.956] [ 9798.337887] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[20:11:27.956] [ 9798.344423] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:11:27.956] [ 9798.350963] mmc0: sdhci: Cmd:       0x00000c1b | Max curr: 0x00000000
+[20:11:27.956] [ 9798.357501] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[20:11:27.956] [ 9798.364038] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[20:11:28.019] [ 9798.370575] mmc0: sdhci: Host ctl2: 0x00000000
+[20:11:28.019] [ 9798.375105] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c200
+[20:11:28.019] [ 9798.382344] mmc0: sdhci: ============================================
+[20:11:38.146] [ 9808.513560] mmc0: Timeout waiting for hardware interrupt.
+[20:11:38.146] [ 9808.519132] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:11:38.146] [ 9808.525673] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:11:38.146] [ 9808.532224] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000008
+[20:11:38.146] [ 9808.538766] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000023
+[20:11:38.146] [ 9808.545309] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[20:11:38.146] [ 9808.551851] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:11:38.146] [ 9808.558390] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:11:38.210] [ 9808.564930] mmc0: sdhci: Timeout:   0x00000009 | Int stat: 0x01018002
+[20:11:38.210] [ 9808.571469] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:11:38.210] [ 9808.578009] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[20:11:38.210] [ 9808.584546] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:11:38.210] [ 9808.591085] mmc0: sdhci: Cmd:       0x00000c1b | Max curr: 0x00000000
+[20:11:38.210] [ 9808.597624] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[20:11:38.210] [ 9808.604161] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[20:11:38.210] [ 9808.610697] mmc0: sdhci: Host ctl2: 0x00000000
+[20:11:38.210] [ 9808.615228] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c200
+[20:11:38.210] [ 9808.622468] mmc0: sdhci: ============================================
+[20:11:48.369] [ 9818.753495] mmc0: Timeout waiting for hardware interrupt.
+[20:11:48.369] [ 9818.759006] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:11:48.369] [ 9818.765538] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:11:48.369] [ 9818.772080] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000008
+[20:11:48.369] [ 9818.778620] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000023
+[20:11:48.434] [ 9818.785159] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[20:11:48.434] [ 9818.791700] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:11:48.434] [ 9818.798237] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:11:48.434] [ 9818.804773] mmc0: sdhci: Timeout:   0x00000009 | Int stat: 0x01018002
+[20:11:48.434] [ 9818.811311] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:11:48.434] [ 9818.817849] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[20:11:48.434] [ 9818.824385] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:11:48.434] [ 9818.830926] mmc0: sdhci: Cmd:       0x00000c1b | Max curr: 0x00000000
+[20:11:48.434] [ 9818.837468] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[20:11:48.494] [ 9818.844006] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[20:11:48.494] [ 9818.850542] mmc0: sdhci: Host ctl2: 0x00000000
+[20:11:48.494] [ 9818.855074] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c200
+[20:11:48.494] [ 9818.862313] mmc0: sdhci: ============================================
+[20:11:58.639] [ 9828.993543] mmc0: Timeout waiting for hardware interrupt.
+[20:11:58.639] [ 9828.999067] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:11:58.639] [ 9829.005600] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:11:58.639] [ 9829.012146] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000008
+[20:11:58.639] [ 9829.018688] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000023
+[20:11:58.639] [ 9829.025227] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[20:11:58.639] [ 9829.031768] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:11:58.639] [ 9829.038305] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:11:58.639] [ 9829.044842] mmc0: sdhci: Timeout:   0x00000009 | Int stat: 0x01018002
+[20:11:58.639] [ 9829.051380] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:11:58.702] [ 9829.057922] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[20:11:58.702] [ 9829.064457] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:11:58.702] [ 9829.070996] mmc0: sdhci: Cmd:       0x00000c1b | Max curr: 0x00000000
+[20:11:58.702] [ 9829.077535] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[20:11:58.702] [ 9829.084073] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[20:11:58.702] [ 9829.090609] mmc0: sdhci: Host ctl2: 0x00000000
+[20:11:58.702] [ 9829.095140] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c200
+[20:11:58.702] [ 9829.102378] mmc0: sdhci: ============================================
+[20:12:08.833] [ 9839.233530] mmc0: Timeout waiting for hardware cmd interrupt.
+[20:12:08.833] [ 9839.239447] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:12:08.833] [ 9839.245985] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:12:08.897] [ 9839.252534] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000008
+[20:12:08.897] [ 9839.259080] mmc0: sdhci: Argument:  0x00010000 | Trn mode: 0x00000023
+[20:12:08.897] [ 9839.265625] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[20:12:08.897] [ 9839.272167] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:12:08.897] [ 9839.278706] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:12:08.897] [ 9839.285247] mmc0: sdhci: Timeout:   0x00000009 | Int stat: 0x01018000
+[20:12:08.897] [ 9839.291785] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:12:08.897] [ 9839.298326] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[20:12:08.897] [ 9839.304867] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:12:08.959] [ 9839.311440] mmc0: sdhci: Cmd:       0x00000d1a | Max curr: 0x00000000
+[20:12:08.959] [ 9839.318055] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[20:12:08.959] [ 9839.324657] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[20:12:08.959] [ 9839.331255] mmc0: sdhci: Host ctl2: 0x00000000
+[20:12:08.959] [ 9839.335842] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c200
+[20:12:08.959] [ 9839.343150] mmc0: sdhci: ============================================
+[20:12:19.112] [ 9849.473504] mmc0: Timeout waiting for hardware cmd interrupt.
+[20:12:19.112] [ 9849.479394] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:12:19.112] [ 9849.485927] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:12:19.112] [ 9849.492473] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000008
+[20:12:19.112] [ 9849.499014] mmc0: sdhci: Argument:  0x00010000 | Trn mode: 0x00000023
+[20:12:19.112] [ 9849.505557] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[20:12:19.112] [ 9849.512099] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:12:19.112] [ 9849.518636] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:12:19.175] [ 9849.525174] mmc0: sdhci: Timeout:   0x00000009 | Int stat: 0x01018000
+[20:12:19.175] [ 9849.531714] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:12:19.175] [ 9849.538252] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[20:12:19.175] [ 9849.544789] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:12:19.175] [ 9849.551330] mmc0: sdhci: Cmd:       0x00000d1a | Max curr: 0x00000000
+[20:12:19.175] [ 9849.557867] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[20:12:19.175] [ 9849.564404] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[20:12:19.175] [ 9849.570941] mmc0: sdhci: Host ctl2: 0x00000000
+[20:12:19.175] [ 9849.575474] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c200
+[20:12:19.175] [ 9849.582714] mmc0: sdhci: ============================================
+[20:12:29.325] [ 9859.713581] mmc0: Timeout waiting for hardware cmd interrupt.
+[20:12:29.325] [ 9859.719493] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:12:29.325] [ 9859.726030] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:12:29.325] [ 9859.732581] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000008
+[20:12:29.389] [ 9859.739124] mmc0: sdhci: Argument:  0x00010000 | Trn mode: 0x00000023
+[20:12:29.389] [ 9859.745669] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[20:12:29.389] [ 9859.752213] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:12:29.389] [ 9859.758749] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:12:29.389] [ 9859.765288] mmc0: sdhci: Timeout:   0x00000009 | Int stat: 0x01018000
+[20:12:29.389] [ 9859.771827] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:12:29.389] [ 9859.778366] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[20:12:29.389] [ 9859.784901] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:12:29.389] [ 9859.791439] mmc0: sdhci: Cmd:       0x00000d1a | Max curr: 0x00000000
+[20:12:29.389] [ 9859.797977] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[20:12:29.451] [ 9859.804515] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[20:12:29.451] [ 9859.811050] mmc0: sdhci: Host ctl2: 0x00000000
+[20:12:29.451] [ 9859.815581] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c200
+[20:12:29.451] [ 9859.822821] mmc0: sdhci: ============================================
+[20:12:39.556] [ 9869.953502] mmc0: Timeout waiting for hardware cmd interrupt.
+[20:12:39.556] [ 9869.959430] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:12:39.556] [ 9869.965968] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:12:39.620] [ 9869.972515] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000008
+[20:12:39.620] [ 9869.979055] mmc0: sdhci: Argument:  0x00010000 | Trn mode: 0x00000023
+[20:12:39.620] [ 9869.985613] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[20:12:39.620] [ 9869.992179] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:12:39.620] [ 9869.998721] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:12:39.620] [ 9870.005264] mmc0: sdhci: Timeout:   0x00000009 | Int stat: 0x01018000
+[20:12:39.620] [ 9870.011807] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:12:39.620] [ 9870.018350] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[20:12:39.620] [ 9870.024893] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:12:39.620] [ 9870.031445] mmc0: sdhci: Cmd:       0x00000d1a | Max curr: 0x00000000
+[20:12:39.682] [ 9870.037986] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[20:12:39.682] [ 9870.044526] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[20:12:39.682] [ 9870.051063] mmc0: sdhci: Host ctl2: 0x00000000
+[20:12:39.682] [ 9870.055594] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c200
+[20:12:39.682] [ 9870.062834] mmc0: sdhci: ============================================
+[20:12:39.682] [ 9870.069961] mmcblk0: recovery failed!
+[20:12:39.682] [ 9870.074047] I/O error, dev mmcblk0, sector 19835920 op 0x1:(WRITE) flags 0x0 phys_seg 1 prio class 2
+[20:12:39.682] [ 9870.083517] EXT4-fs warning (device mmcblk0p3): ext4_end_bio:353: I/O error 10 writing to inode 15927 starting block 2479490)
+[20:12:39.746] [ 9870.095165] Buffer I/O error on device mmcblk0p3, logical block 644226
+[20:12:41.860] [ 9872.211801] systemd[1]: Started session-26.scope - Session 26 of User tanager.
+[20:12:49.836] [ 9880.193503] mmc0: Timeout waiting for hardware interrupt.
+[20:12:49.836] [ 9880.199091] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:12:49.836] [ 9880.205634] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:12:49.836] [ 9880.212186] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000008
+[20:12:49.836] [ 9880.218729] mmc0: sdhci: Argument:  0x012eac40 | Trn mode: 0x0000002b
+[20:12:49.836] [ 9880.225274] mmc0: sdhci: Present:   0x01f70001 | Host ctl: 0x00000019
+[20:12:49.836] [ 9880.231816] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:12:49.836] [ 9880.238357] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:12:49.836] [ 9880.244897] mmc0: sdhci: Timeout:   0x00000009 | Int stat: 0x01018000
+[20:12:49.900] [ 9880.251436] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:12:49.900] [ 9880.257975] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[20:12:49.900] [ 9880.264513] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:12:49.900] [ 9880.271054] mmc0: sdhci: Cmd:       0x0000193a | Max curr: 0x00000000
+[20:12:49.900] [ 9880.277590] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[20:12:49.900] [ 9880.284128] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[20:12:49.900] [ 9880.290666] mmc0: sdhci: Host ctl2: 0x00000000
+[20:12:49.900] [ 9880.295199] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c200
+[20:12:49.900] [ 9880.302437] mmc0: sdhci: ============================================
+[20:13:00.053] [ 9890.433490] mmc0: Timeout waiting for hardware interrupt.
+[20:13:00.053] [ 9890.439028] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:13:00.053] [ 9890.445568] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:13:00.053] [ 9890.452120] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000008
+[20:13:00.053] [ 9890.458664] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000023
+[20:13:00.117] [ 9890.465206] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[20:13:00.117] [ 9890.471750] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:13:00.117] [ 9890.478290] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:13:00.117] [ 9890.484828] mmc0: sdhci: Timeout:   0x0000000e | Int stat: 0x01018002
+[20:13:00.117] [ 9890.491365] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:13:00.117] [ 9890.497903] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[20:13:00.117] [ 9890.504439] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:13:00.117] [ 9890.510979] mmc0: sdhci: Cmd:       0x00000c1b | Max curr: 0x00000000
+[20:13:00.117] [ 9890.517521] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[20:13:00.117] [ 9890.524060] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[20:13:00.181] [ 9890.530598] mmc0: sdhci: Host ctl2: 0x00000000
+[20:13:00.181] [ 9890.535129] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c200
+[20:13:00.181] [ 9890.542369] mmc0: sdhci: ============================================
+[20:13:10.291] [ 9900.673487] mmc0: Timeout waiting for hardware cmd interrupt.
+[20:13:10.291] [ 9900.679405] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:13:10.291] [ 9900.685937] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:13:10.291] [ 9900.692481] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000008
+[20:13:10.291] [ 9900.699022] mmc0: sdhci: Argument:  0x00010000 | Trn mode: 0x00000023
+[20:13:10.353] [ 9900.705563] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[20:13:10.353] [ 9900.712105] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:13:10.353] [ 9900.718644] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:13:10.353] [ 9900.725183] mmc0: sdhci: Timeout:   0x0000000e | Int stat: 0x01018000
+[20:13:10.353] [ 9900.731723] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:13:10.353] [ 9900.738261] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[20:13:10.353] [ 9900.744800] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:13:10.353] [ 9900.751339] mmc0: sdhci: Cmd:       0x00000d1a | Max curr: 0x00000000
+[20:13:10.353] [ 9900.757878] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[20:13:10.353] [ 9900.764416] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[20:13:10.416] [ 9900.770954] mmc0: sdhci: Host ctl2: 0x00000000
+[20:13:10.416] [ 9900.775486] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c200
+[20:13:10.416] [ 9900.782726] mmc0: sdhci: ============================================
+[20:13:20.524] [ 9910.913499] mmc0: Timeout waiting for hardware cmd interrupt.
+[20:13:20.524] [ 9910.919374] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:13:20.524] [ 9910.925909] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:13:20.524] [ 9910.932456] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000008
+[20:13:20.585] [ 9910.938998] mmc0: sdhci: Argument:  0x00010000 | Trn mode: 0x00000023
+[20:13:20.585] [ 9910.945542] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[20:13:20.585] [ 9910.952082] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:13:20.585] [ 9910.958620] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:13:20.585] [ 9910.965160] mmc0: sdhci: Timeout:   0x0000000e | Int stat: 0x01018000
+[20:13:20.585] [ 9910.971699] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:13:20.585] [ 9910.978238] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[20:13:20.585] [ 9910.984774] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:13:20.585] [ 9910.991312] mmc0: sdhci: Cmd:       0x00000d1a | Max curr: 0x00000000
+[20:13:20.585] [ 9910.997851] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[20:13:20.648] [ 9911.004388] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[20:13:20.648] [ 9911.010926] mmc0: sdhci: Host ctl2: 0x00000000
+[20:13:20.648] [ 9911.015459] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c200
+[20:13:20.648] [ 9911.022698] mmc0: sdhci: ============================================
+[20:13:30.803] [ 9921.153500] mmc0: Timeout waiting for hardware interrupt.
+[20:13:30.803] [ 9921.159078] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:13:30.803] [ 9921.165618] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:13:30.803] [ 9921.172170] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000008
+[20:13:30.803] [ 9921.178713] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000023
+[20:13:30.803] [ 9921.185254] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[20:13:30.803] [ 9921.191797] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:13:30.803] [ 9921.198336] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:13:30.803] [ 9921.204874] mmc0: sdhci: Timeout:   0x00000009 | Int stat: 0x01018002
+[20:13:30.803] [ 9921.211412] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:13:30.868] [ 9921.217953] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[20:13:30.868] [ 9921.224490] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:13:30.868] [ 9921.231030] mmc0: sdhci: Cmd:       0x00000c1b | Max curr: 0x00000000
+[20:13:30.868] [ 9921.237569] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[20:13:30.868] [ 9921.244107] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[20:13:30.868] [ 9921.250644] mmc0: sdhci: Host ctl2: 0x00000000
+[20:13:30.868] [ 9921.255176] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c200
+[20:13:30.868] [ 9921.262415] mmc0: sdhci: ============================================
+[20:13:40.997] [ 9931.393529] mmc0: Timeout waiting for hardware interrupt.
+[20:13:40.997] [ 9931.399113] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:13:40.997] [ 9931.405661] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:13:41.061] [ 9931.412224] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000008
+[20:13:41.061] [ 9931.418769] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000023
+[20:13:41.061] [ 9931.425312] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[20:13:41.061] [ 9931.431854] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:13:41.061] [ 9931.438392] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:13:41.061] [ 9931.444932] mmc0: sdhci: Timeout:   0x00000009 | Int stat: 0x01018002
+[20:13:41.061] [ 9931.451481] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:13:41.061] [ 9931.458041] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[20:13:41.061] [ 9931.464579] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:13:41.061] [ 9931.471124] mmc0: sdhci: Cmd:       0x00000c1b | Max curr: 0x00000000
+[20:13:41.124] [ 9931.477665] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[20:13:41.124] [ 9931.484206] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[20:13:41.124] [ 9931.490753] mmc0: sdhci: Host ctl2: 0x00000000
+[20:13:41.124] [ 9931.495306] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c200
+[20:13:41.124] [ 9931.502558] mmc0: sdhci: ============================================
+[20:13:44.110] [ 9934.465222] systemd[1]: Started session-27.scope - Session 27 of User tanager.
+[20:13:51.280] [ 9941.633493] mmc0: Timeout waiting for hardware interrupt.
+[20:13:51.280] [ 9941.639075] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:13:51.280] [ 9941.645615] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:13:51.280] [ 9941.652168] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000008
+[20:13:51.280] [ 9941.658712] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000023
+[20:13:51.280] [ 9941.665255] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[20:13:51.280] [ 9941.671796] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:13:51.280] [ 9941.678334] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:13:51.280] [ 9941.684875] mmc0: sdhci: Timeout:   0x00000009 | Int stat: 0x01018002
+[20:13:51.280] [ 9941.691416] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:13:51.344] [ 9941.697957] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[20:13:51.344] [ 9941.704496] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:13:51.344] [ 9941.711038] mmc0: sdhci: Cmd:       0x00000c1b | Max curr: 0x00000000
+[20:13:51.344] [ 9941.717578] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[20:13:51.344] [ 9941.724119] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[20:13:51.344] [ 9941.730657] mmc0: sdhci: Host ctl2: 0x00000000
+[20:13:51.344] [ 9941.735189] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c200
+[20:13:51.344] [ 9941.742428] mmc0: sdhci: ============================================
+[20:13:56.922] [ 9947.318022] systemd[1]: session-27.scope: Deactivated successfully.
+[20:13:59.294] [ 9949.681645] systemd[1]: Started session-28.scope - Session 28 of User tanager.
+[20:14:00.698] [ 9951.094423] systemd[1]: session-28.scope: Deactivated successfully.
+[20:14:00.763] [ 9951.116630] systemd[1]: session-28.scope: Consumed 1.412s CPU time, 2.8M memory peak.
+[20:14:01.465] [ 9951.873565] mmc0: Timeout waiting for hardware interrupt.
+[20:14:01.465] [ 9951.879129] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:14:01.529] [ 9951.885668] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:14:01.529] [ 9951.892219] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000008
+[20:14:01.529] [ 9951.898760] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000023
+[20:14:01.529] [ 9951.905301] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[20:14:01.529] [ 9951.911841] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:14:01.529] [ 9951.918379] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:14:01.529] [ 9951.924917] mmc0: sdhci: Timeout:   0x00000009 | Int stat: 0x01018002
+[20:14:01.529] [ 9951.931457] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:14:01.529] [ 9951.937995] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[20:14:01.593] [ 9951.944531] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:14:01.593] [ 9951.951069] mmc0: sdhci: Cmd:       0x00000c1b | Max curr: 0x00000000
+[20:14:01.593] [ 9951.957606] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[20:14:01.593] [ 9951.964142] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[20:14:01.593] [ 9951.970678] mmc0: sdhci: Host ctl2: 0x00000000
+[20:14:01.593] [ 9951.975210] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c200
+[20:14:01.593] [ 9951.982449] mmc0: sdhci: ============================================
+[20:14:03.188] [ 9953.581054] systemd[1]: Started session-29.scope - Session 29 of User tanager.
+[20:14:03.694] [ 9954.072854] systemd[1]: session-29.scope: Deactivated successfully.
+[20:14:11.733] [ 9962.113484] mmc0: Timeout waiting for hardware interrupt.
+[20:14:11.733] [ 9962.119068] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:14:11.733] [ 9962.125608] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:14:11.733] [ 9962.132160] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000008
+[20:14:11.733] [ 9962.138702] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000023
+[20:14:11.797] [ 9962.145245] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[20:14:11.797] [ 9962.151788] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:14:11.797] [ 9962.158326] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:14:11.797] [ 9962.164865] mmc0: sdhci: Timeout:   0x00000009 | Int stat: 0x01018002
+[20:14:11.797] [ 9962.171405] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:14:11.797] [ 9962.177946] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[20:14:11.797] [ 9962.184484] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:14:11.797] [ 9962.191026] mmc0: sdhci: Cmd:       0x00000c1b | Max curr: 0x00000000
+[20:14:11.797] [ 9962.197570] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[20:14:11.797] [ 9962.204109] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[20:14:11.862] [ 9962.210647] mmc0: sdhci: Host ctl2: 0x00000000
+[20:14:11.862] [ 9962.215178] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c200
+[20:14:11.862] [ 9962.222418] mmc0: sdhci: ============================================
+[20:14:21.952] [ 9972.353487] mmc0: Timeout waiting for hardware interrupt.
+[20:14:21.952] [ 9972.359011] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:14:22.013] [ 9972.365552] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:14:22.013] [ 9972.372108] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000008
+[20:14:22.013] [ 9972.378650] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000023
+[20:14:22.013] [ 9972.385191] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[20:14:22.013] [ 9972.391732] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:14:22.013] [ 9972.398268] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:14:22.013] [ 9972.404806] mmc0: sdhci: Timeout:   0x00000009 | Int stat: 0x01018002
+[20:14:22.013] [ 9972.411344] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:14:22.013] [ 9972.417883] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[20:14:22.078] [ 9972.424420] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:14:22.078] [ 9972.430958] mmc0: sdhci: Cmd:       0x00000c1b | Max curr: 0x00000000
+[20:14:22.078] [ 9972.437496] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[20:14:22.078] [ 9972.444035] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[20:14:22.078] [ 9972.450569] mmc0: sdhci: Host ctl2: 0x00000000
+[20:14:22.078] [ 9972.455102] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c200
+[20:14:22.078] [ 9972.462338] mmc0: sdhci: ============================================
+[20:14:32.209] [ 9982.593484] mmc0: Timeout waiting for hardware cmd interrupt.
+[20:14:32.209] [ 9982.599367] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:14:32.209] [ 9982.605900] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:14:32.209] [ 9982.612443] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000008
+[20:14:32.272] [ 9982.618982] mmc0: sdhci: Argument:  0x00010000 | Trn mode: 0x00000023
+[20:14:32.272] [ 9982.625522] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[20:14:32.272] [ 9982.632062] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:14:32.272] [ 9982.638600] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:14:32.272] [ 9982.645138] mmc0: sdhci: Timeout:   0x00000009 | Int stat: 0x01018000
+[20:14:32.272] [ 9982.651675] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:14:32.272] [ 9982.658213] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[20:14:32.272] [ 9982.664749] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:14:32.272] [ 9982.671288] mmc0: sdhci: Cmd:       0x00000d1a | Max curr: 0x00000000
+[20:14:32.272] [ 9982.677827] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[20:14:32.335] [ 9982.684362] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[20:14:32.335] [ 9982.690900] mmc0: sdhci: Host ctl2: 0x00000000
+[20:14:32.335] [ 9982.695430] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c200
+[20:14:32.335] [ 9982.702666] mmc0: sdhci: ============================================
+[20:14:42.455] [ 9992.833483] mmc0: Timeout waiting for hardware cmd interrupt.
+[20:14:42.455] [ 9992.839397] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:14:42.455] [ 9992.845931] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:14:42.455] [ 9992.852475] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000008
+[20:14:42.455] [ 9992.859017] mmc0: sdhci: Argument:  0x00010000 | Trn mode: 0x00000023
+[20:14:42.455] [ 9992.865559] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[20:14:42.518] [ 9992.872099] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:14:42.518] [ 9992.878636] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:14:42.518] [ 9992.885176] mmc0: sdhci: Timeout:   0x00000009 | Int stat: 0x01018000
+[20:14:42.518] [ 9992.891715] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:14:42.518] [ 9992.898254] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[20:14:42.518] [ 9992.904790] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:14:42.518] [ 9992.911331] mmc0: sdhci: Cmd:       0x00000d1a | Max curr: 0x00000000
+[20:14:42.518] [ 9992.917870] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[20:14:42.518] [ 9992.924409] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[20:14:42.581] [ 9992.930948] mmc0: sdhci: Host ctl2: 0x00000000
+[20:14:42.581] [ 9992.935481] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c200
+[20:14:42.581] [ 9992.942720] mmc0: sdhci: ============================================
+[20:14:52.693] [10003.073485] mmc0: Timeout waiting for hardware cmd interrupt.
+[20:14:52.693] [10003.079350] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[20:14:52.693] [10003.085881] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[20:14:52.693] [10003.092423] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000008
+[20:14:52.693] [10003.098963] mmc0: sdhci: Argument:  0x00010000 | Trn mode: 0x00000023
+[20:14:52.757] [10003.105508] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[20:14:52.757] [10003.112049] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[20:14:52.757] [10003.118588] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[20:14:52.757] [10003.125126] mmc0: sdhci: Timeout:   0x00000009 | Int stat: 0x01018000
+[20:14:52.757] [10003.131664] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[20:14:52.757] [10003.138202] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[20:14:52.757] [10003.144739] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[20:14:52.757] [10003.151278] mmc0: sdhci: Cmd:       0x00000d1a | Max curr: 0x00000000
+[20:14:52.757] [10003.157815] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[20:14:52.757] [10003.164351] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[20:14:52.822] [10003.170888] mmc0: sdhci: Host ctl2: 0x00000000
+[20:14:52.822] [10003.175419] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x000000050889c200
+[20:14:52.822] [10003.182655] mmc0: sdhci: ============================================
+[20:14:57.718] [10008.079074] systemd[1]: systemd-journald.service: State 'stop-watchdog' timed out. Killing.
+[20:14:57.718] [10008.089334] systemd[1]: systemd-journald.service: Killing process 275 (systemd-journal) with signal SIGKILL.
+[20:14:57.974] [10008.359388] systemd[1]: Started session-30.scope - Session 30 of User tanager.
+[20:14:58.480] [10008.855841] systemd[1]: session-30.scope: Deactivated successfully.
+[20:15:00.960] [10011.349366] systemd[1]: Started session-31.scope - Session 31 of User tanager.
+[20:15:02.232] [10012.639247] sysrq: Resetting
+[20:17:49.422] 
+[20:17:49.422] OpenSBI v1.9
+[20:17:49.422]    ____                    _____ ____ _____
+[20:17:49.422]   / __ \                  / ____|  _ \_   _|
+[20:17:49.422]  | |  | |_ __   ___ _ __ | (___ | |_) || |
+[20:17:49.422]  | |  | | '_ \ / _ \ '_ \ \___ \|  _ < | |
+[20:17:49.422]  | |__| | |_) |  __/ | | |____) | |_) || |_
+[20:17:49.422]   \____/| .__/ \___|_| |_|_____/|____/_____|
+[20:17:49.422]         | |
+[20:17:49.422]         |_|
+[20:17:49.422] 
+[20:17:49.486] Platform Name               : Tanager on KV260
+[20:17:49.486] Platform Features           : medeleg
+[20:17:49.486] Platform HART Count         : 4
+[20:17:49.486] Platform HART Protection    : pmp
+[20:17:49.486] Platform IPI Device         : aclint-mswi
+[20:17:49.486] Platform Timer Device       : aclint-mtimer @ 10000000Hz
+[20:17:49.486] Platform Console Device     : uart8250
+[20:17:49.486] Platform HSM Device         : ---
+[20:17:49.486] Platform PMU Device         : ---
+[20:17:49.486] Platform Reboot Device      : syscon-reboot
+[20:17:49.486] Platform Shutdown Device    : syscon-poweroff
+[20:17:49.486] Platform Suspend Device     : ---
+[20:17:49.486] Platform CPPC Device        : ---
+[20:17:49.486] Firmware Base               : 0x80000000
+[20:17:49.486] Firmware Size               : 357 KB
+[20:17:49.486] Firmware RW Offset          : 0x40000
+[20:17:49.550] Firmware RW Size            : 101 KB
+[20:17:49.550] Firmware Heap Offset        : 0x4d000
+[20:17:49.550] Firmware Heap Size          : 49 KB (total), 0 KB (reserved), 13 KB (used), 34 KB (free)
+[20:17:49.550] Firmware Scratch Size       : 4096 B (total), 504 B (used), 3592 B (free)
+[20:17:49.550] Runtime SBI Version         : 3.0
+[20:17:49.550] Standard SBI Extensions     : ipi,pmu,srst,sse,hsm,rfnc,fwft,time,base,legacy,dbcn,dbtr
+[20:17:49.550] Experimental SBI Extensions : none
+[20:17:49.550] 
+[20:17:49.550] Domain0 Name                : root
+[20:17:49.550] Domain0 Boot HART           : 0
+[20:17:49.550] Domain0 HARTs               : 0x0*,0x1*,0x2*,0x3*
+[20:17:49.550] Domain0 Region00            : 0x0000000080040000-0x000000008005ffff M: (F,R,W) S/U: ()
+[20:17:49.550] Domain0 Region01            : 0x0000000080000000-0x000000008003ffff M: (F,R,X) S/U: ()
+[20:17:49.550] Domain0 Region02            : 0x0000000010000000-0x0000000010000fff M: (I,R,W) S/U: (R,W)
+[20:17:49.613] Domain0 Region03            : 0x00000000ff5e0000-0x00000000ff5e0fff M: (I,R,W) S/U: (R,W)
+[20:17:49.613] Domain0 Region04            : 0x0000000002000000-0x000000000200ffff M: (I,R,W) S/U: ()
+[20:17:49.613] Domain0 Region05            : 0x000000000c000000-0x000000000fffffff M: (I,R,W) S/U: (R,W)
+[20:17:49.613] Domain0 Region06            : 0x0000000000000000-0xffffffffffffffff M: () S/U: (R,W,X)
+[20:17:49.613] Domain0 Next Address        : 0x0000000080200000
+[20:17:49.613] Domain0 Next Arg1           : 0x0000000082200000
+[20:17:49.613] Domain0 Next Mode           : S-mode
+[20:17:49.613] Domain0 SysReset            : yes
+[20:17:49.613] Domain0 SysSuspend          : yes
+[20:17:49.613] 
+[20:17:49.613] Boot HART ID                : 0
+[20:17:49.613] Boot HART Domain            : root
+[20:17:49.613] Boot HART Priv Version      : v1.12
+[20:17:49.676] Boot HART Base ISA          : rv64imafdcb
+[20:17:49.676] Boot HART ISA Extensions    : sstc,zicntr,sdtrig,f,d
+[20:17:49.676] Boot HART PMP Count         : 8
+[20:17:49.676] Boot HART PMP Granularity   : 2 bits
+[20:17:49.676] Boot HART PMP Address Bits  : 54
+[20:17:49.676] Boot HART MHPM Info         : 0 (0x00000000)
+[20:17:49.676] Boot HART Debug Triggers    : 1 triggers
+[20:17:49.676] Boot HART MIDELEG           : 0x0000000000000222
+[20:17:49.676] Boot HART MEDELEG           : 0x000000000000b108
+[20:17:49.741] 
+[20:17:49.741] 
+[20:17:49.741] U-Boot 2026.07 (Oct 19 2026 - 03:25:00 -0700)
+[20:17:49.741] 
+[20:17:49.741] CPU:   tanager,tanager
+[20:17:49.741] Model: Tanager on KV260
+[20:17:49.741] DRAM:  1 GiB
+[20:17:49.741] using memory 0xbee92000-0xbf6b2000 for malloc()
+[20:17:49.803] Core:  29 devices, 14 uclasses, devicetree: board
+[20:17:49.868] MMC:   mmc@ff170000: 0
+[20:17:49.868] Loading Environment from nowhere... OK
+[20:17:49.930] In:    serial,usbkbd
+[20:17:49.930] Out:   serial,vidconsole
+[20:17:49.930] Err:   serial,vidconsole
+[20:17:49.930] No USB controllers found
+[20:17:49.930] Net:   No ethernet found.
+[20:17:49.930] [?25h
+[20:17:49.930] Working FDT set to bee8f7a0
+[20:17:49.930] [2KHit any key to stop autoboot: 2[2KHit any key to stop autoboot: 1[2KHit any key to stop autoboot: 0
+[20:17:51.960] Retrieving file: /boot/extlinux/extlinux.conf
+[20:17:52.088] U-Boot menu
+[20:17:52.088] 1:	Debian GNU/Linux 13 (trixie) 6.12.113+deb13-riscv64
+[20:17:52.088] 2:	Debian GNU/Linux 13 (trixie) 6.12.113+deb13-riscv64 (rescue target)
+[20:17:52.088] 3:	Debian GNU/Linux 13 (trixie) 6.12.111+deb13-riscv64
+[20:17:52.088] 4:	Debian GNU/Linux 13 (trixie) 6.12.111+deb13-riscv64 (rescue target)
+[20:17:52.088] Enter choice: 1:	Debian GNU/Linux 13 (trixie) 6.12.113+deb13-riscv64
+[20:17:57.106] Retrieving file: /boot/vmlinux-6.12.113+deb13-riscv64
+[20:18:02.187] Retrieving file: /boot/initrd.img-6.12.113+deb13-riscv64
+[20:18:09.063] append: root=LABEL=tanager-root console=ttyS0,115200 earlycon rw
+[20:18:09.063] Moving Image from 0x84000000 to 0x80200000, end=0x8206b000
+[20:18:09.318] ## Flattened Device Tree blob at bee8f7a0
+[20:18:09.318]    Booting using the fdt blob at 0xbee8f7a0
+[20:18:09.318] Working FDT set to bee8f7a0
+[20:18:09.318]    Loading Device Tree to 00000000bde7e000, end 00000000bde8360d ... OK
+[20:18:09.318] Working FDT set to bde7e000
+[20:18:09.318] No RNG device
+[20:18:09.318] 
+[20:18:09.318] Starting kernel ...
+[20:18:09.318] 
+[20:18:09.445] [    0.000000] Linux version 6.12.113+deb13-riscv64 (debian-kernel@lists.debian.org) (riscv64-linux-gnu-gcc-14 (Debian 14.2.0-19) 14.2.0, GNU ld (GNU Binutils for Debian) 2.44) #1 SMP Debian 6.12.113-1 (2026-10-15)
+[20:18:09.509] [    0.000000] Machine model: Tanager on KV260
+[20:18:09.509] [    0.000000] SBI specification v3.0 detected
+[20:18:09.509] [    0.000000] SBI implementation ID=0x1 Version=0x10009
+[20:18:09.509] [    0.000000] SBI TIME extension detected
+[20:18:09.509] [    0.000000] SBI IPI extension detected
+[20:18:09.509] [    0.000000] SBI RFENCE extension detected
+[20:18:09.509] [    0.000000] SBI SRST extension detected
+[20:18:09.509] [    0.000000] SBI DBCN extension detected
+[20:18:09.509] [    0.000000] efi: UEFI not found.
+[20:18:09.509] [    0.000000] earlycon: ns16550a0 at MMIO 0x0000000010000000 (options '')
+[20:18:09.509] [    0.000000] printk: legacy bootconsole [ns16550a0] enabled
+[20:18:09.509] [    0.000000] OF: reserved mem: 0x0000000080000000..0x000000008003ffff (256 KiB) nomap non-reusable mmode_resv1@80000000
+[20:18:09.572] [    0.000000] OF: reserved mem: 0x0000000080040000..0x000000008005ffff (128 KiB) nomap non-reusable mmode_resv0@80040000
+[20:18:09.572] [    0.000000] NUMA: Faking a node at [mem 0x0000000080000000-0x00000000bfffffff]
+[20:18:09.572] [    0.000000] NODE_DATA(0) allocated [mem 0xbfdf1ac0-0xbfdf3eff]
+[20:18:09.762] [    0.000000] Zone ranges:
+[20:18:09.762] [    0.000000]   DMA32    [mem 0x0000000080000000-0x00000000bfffffff]
+[20:18:09.762] [    0.000000]   Normal   empty
+[20:18:09.762] [    0.000000]   Device   empty
+[20:18:09.762] [    0.000000] Movable zone start for each node
+[20:18:09.826] [    0.000000] Early memory node ranges
+[20:18:09.826] [    0.000000]   node   0: [mem 0x0000000080000000-0x000000008005ffff]
+[20:18:09.826] [    0.000000]   node   0: [mem 0x0000000080060000-0x00000000bfffffff]
+[20:18:09.826] [    0.000000] Initmem setup node 0 [mem 0x0000000080000000-0x00000000bfffffff]
+[20:18:09.826] [    0.000000] SBI HSM extension detected
+[20:18:09.826] [    0.000000] riscv: base ISA extensions acdfim
+[20:18:09.826] [    0.000000] riscv: ELF capabilities acdfim
+[20:18:09.890] [    0.000000] percpu: Embedded 32 pages/cpu s90712 r8192 d32168 u131072
+[20:18:09.890] [    0.000000] Kernel command line: root=LABEL=tanager-root console=ttyS0,115200 earlycon rw
+[20:18:09.890] [    0.000000] Dentry cache hash table entries: 131072 (order: 8, 1048576 bytes, linear)
+[20:18:09.890] [    0.000000] Inode-cache hash table entries: 65536 (order: 7, 524288 bytes, linear)
+[20:18:09.890] [    0.000000] Fallback order for Node 0: 0 
+[20:18:09.890] [    0.000000] Built 1 zonelists, mobility grouping on.  Total pages: 262144
+[20:18:09.897] [    0.000000] Policy zone: DMA32
+[20:18:09.969] [    0.000000] mem auto-init: stack:all(zero), heap alloc:on, heap free:off
+[20:18:10.287] [    0.000000] SLUB: HWalign=64, Order=0-3, MinObjects=0, CPUs=4, Nodes=1
+[20:18:11.051] [    0.000000] ftrace: allocating 39559 entries in 155 pages
+[20:18:11.051] [    0.000000] ftrace: allocated 155 pages with 5 groups
+[20:18:11.051] [    0.000000] rcu: Hierarchical RCU implementation.
+[20:18:11.114] [    0.000000] rcu: 	RCU restricting CPUs from NR_CPUS=128 to nr_cpu_ids=4.
+[20:18:11.114] [    0.000000] 	Rude variant of Tasks RCU enabled.
+[20:18:11.114] [    0.000000] 	Tracing variant of Tasks RCU enabled.
+[20:18:11.114] [    0.000000] rcu: RCU calculated value of scheduler-enlistment delay is 25 jiffies.
+[20:18:11.114] [    0.000000] rcu: Adjusting geometry for rcu_fanout_leaf=16, nr_cpu_ids=4
+[20:18:11.114] [    0.000000] RCU Tasks Rude: Setting shift to 2 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=4.
+[20:18:11.114] [    0.000000] RCU Tasks Trace: Setting shift to 2 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=4.
+[20:18:11.303] [    0.000000] NR_IRQS: 64, nr_irqs: 64, preallocated irqs: 0
+[20:18:11.303] [    0.000000] riscv-intc: 64 local interrupts mapped
+[20:18:11.303] [    0.000000] riscv: providing IPIs using SBI IPI extension
+[20:18:11.303] [    0.000000] rcu: srcu_init: Setting srcu_struct sizes based on contention.
+[20:18:11.303] [    0.000000] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645041785100000 ns
+[20:18:11.303] [    0.000000] clocksource: riscv_clocksource: mask: 0xffffffffffffffff max_cycles: 0x24e6a1710, max_idle_ns: 440795202120 ns
+[20:18:11.367] [    0.000007] sched_clock: 64 bits at 10MHz, resolution 100ns, wraps every 4398046511100ns
+[20:18:11.367] [    0.008362] riscv-timer: Timer interrupt in S-mode is available via sstc extension
+[20:18:11.367] [    0.020121] Console: colour dummy device 80x25
+[20:18:11.367] [    0.044195] Calibrating delay loop (skipped), value calculated using timer frequency.. 20.00 BogoMIPS (lpj=40000)
+[20:18:11.367] [    0.054861] pid_max: default: 32768 minimum: 301
+[20:18:11.431] [    0.099079] LSM: initializing lsm=lockdown,capability,landlock,yama,apparmor,tomoyo,bpf,ipe,ima,evm
+[20:18:11.431] [    0.114335] landlock: Up and running.
+[20:18:11.431] [    0.118210] Yama: disabled by default; enable with sysctl kernel.yama.*
+[20:18:11.495] [    0.128201] AppArmor: AppArmor initialized
+[20:18:11.495] [    0.133503] TOMOYO Linux initialized
+[20:18:11.495] [    0.144292] LSM support for eBPF active
+[20:18:11.495] [    0.163233] Mount-cache hash table entries: 2048 (order: 2, 16384 bytes, linear)
+[20:18:11.495] [    0.171052] Mountpoint-cache hash table entries: 2048 (order: 2, 16384 bytes, linear)
+[20:18:11.557] [    0.233430] ASID allocator using 16 bits (65536 entries)
+[20:18:11.557] [    0.240314] rcu: Hierarchical SRCU implementation.
+[20:18:11.557] [    0.245354] rcu: 	Max phase no-delay instances is 1000.
+[20:18:11.620] [    0.254104] Timer migration: 1 hierarchy levels; 8 children per group; 1 crossnode level
+[20:18:11.620] [    0.268274] EFI services will not be available.
+[20:18:11.620] [    0.276663] smp: Bringing up secondary CPUs ...
+[20:18:11.620] [    0.304398] smp: Brought up 1 node, 4 CPUs
+[20:18:11.812] [    0.460179] node 0 deferred pages initialised in 136ms
+[20:18:11.812] [    0.466005] Memory: 916128K/1048576K available (10729K kernel code, 5220K rwdata, 10240K rodata, 2687K init, 708K bss, 127588K reserved, 0K cma-reserved)
+[20:18:11.812] [    0.492747] devtmpfs: initialized
+[20:18:11.876] [    0.535338] futex hash table entries: 1024 (order: 4, 65536 bytes, linear)
+[20:18:11.876] [    0.568133] pinctrl core: initialized pinctrl subsystem
+[20:18:11.939] [    0.579817] DMI not present or invalid.
+[20:18:11.939] [    0.595897] NET: Registered PF_NETLINK/PF_ROUTE protocol family
+[20:18:11.939] [    0.606795] DMA: preallocated 128 KiB GFP_KERNEL pool for atomic allocations
+[20:18:11.939] [    0.615274] DMA: preallocated 128 KiB GFP_KERNEL|GFP_DMA32 pool for atomic allocations
+[20:18:11.939] [    0.624014] audit: initializing netlink subsys (disabled)
+[20:18:11.939] [    0.631545] audit: type=2000 audit(0.536:1): state=initialized audit_enabled=0 res=1
+[20:18:12.003] [    0.637920] thermal_sys: Registered thermal governor 'fair_share'
+[20:18:12.003] [    0.639539] thermal_sys: Registered thermal governor 'bang_bang'
+[20:18:12.003] [    0.645831] thermal_sys: Registered thermal governor 'step_wise'
+[20:18:12.003] [    0.652133] thermal_sys: Registered thermal governor 'user_space'
+[20:18:12.003] [    0.658373] thermal_sys: Registered thermal governor 'power_allocator'
+[20:18:12.003] [    0.665205] cpuidle: using governor ladder
+[20:18:12.003] [    0.676600] cpuidle: using governor menu
+[20:18:12.067] [    0.741092] cpu1: Ratio of byte access time to unaligned word access is 0.00, unaligned accesses are slow
+[20:18:12.067] [    0.753513] cpu3: Ratio of byte access time to unaligned word access is 0.01, unaligned accesses are slow
+[20:18:12.131] [    0.753513] cpu2: Ratio of byte access time to unaligned word access is 0.01, unaligned accesses are slow
+[20:18:12.196] [    0.830418] cpu0: Ratio of byte access time to unaligned word access is 0.00, unaligned accesses are slow
+[20:18:12.321] [    0.994202] HugeTLB: registered 1.00 GiB page size, pre-allocated 0 pages
+[20:18:12.321] [    1.001303] HugeTLB: 16380 KiB vmemmap can be freed for a 1.00 GiB page
+[20:18:12.321] [    1.008188] HugeTLB: registered 2.00 MiB page size, pre-allocated 0 pages
+[20:18:12.321] [    1.015237] HugeTLB: 28 KiB vmemmap can be freed for a 2.00 MiB page
+[20:18:12.512] [    1.174487] ACPI: Interpreter disabled.
+[20:18:12.512] [    1.180656] iommu: Default domain type: Translated
+[20:18:12.512] [    1.185696] iommu: DMA domain TLB invalidation policy: strict mode
+[20:18:12.512] [    1.200549] pps_core: LinuxPPS API ver. 1 registered
+[20:18:12.512] [    1.205746] pps_core: Software ver. 5.3.6 - Copyright 2005-2007 Rodolfo Giometti <giometti@linux.it>
+[20:18:12.576] [    1.215327] PTP clock support registered
+[20:18:12.576] [    1.233206] NetLabel: Initializing
+[20:18:12.576] [    1.236813] NetLabel:  domain hash size = 128
+[20:18:12.576] [    1.241373] NetLabel:  protocols = UNLABELED CIPSOv4 CALIPSO
+[20:18:12.576] [    1.248015] NetLabel:  unlabeled traffic allowed by default
+[20:18:12.576] [    1.257159] vgaarb: loaded
+[20:18:12.638] [    1.272323] clocksource: Switched to clocksource riscv_clocksource
+[20:18:12.893] [    1.558331] VFS: Disk quotas dquot_6.6.0
+[20:18:12.893] [    1.564683] VFS: Dquot-cache hash table entries: 512 (order 0, 4096 bytes)
+[20:18:12.893] [    1.585094] AppArmor: AppArmor Filesystem Enabled
+[20:18:12.956] [    1.590984] pnp: PnP ACPI: disabled
+[20:18:13.082] [    1.722959] NET: Registered PF_INET protocol family
+[20:18:13.082] [    1.730335] IP idents hash table entries: 16384 (order: 5, 131072 bytes, linear)
+[20:18:13.528] [    2.209772] tcp_listen_portaddr_hash hash table entries: 512 (order: 1, 8192 bytes, linear)
+[20:18:13.528] [    2.220358] Table-perturb hash table entries: 65536 (order: 6, 262144 bytes, linear)
+[20:18:13.594] [    2.228858] TCP established hash table entries: 8192 (order: 4, 65536 bytes, linear)
+[20:18:13.594] [    2.239131] TCP bind hash table entries: 8192 (order: 6, 262144 bytes, linear)
+[20:18:13.594] [    2.248023] TCP: Hash tables configured (established 8192 bind 8192)
+[20:18:13.594] [    2.259172] MPTCP token hash table entries: 1024 (order: 3, 24576 bytes, linear)
+[20:18:13.594] [    2.269273] UDP hash table entries: 512 (order: 2, 16384 bytes, linear)
+[20:18:13.594] [    2.276649] UDP-Lite hash table entries: 512 (order: 2, 16384 bytes, linear)
+[20:18:13.655] [    2.287980] NET: Registered PF_UNIX/PF_LOCAL protocol family
+[20:18:13.655] [    2.294268] NET: Registered PF_XDP protocol family
+[20:18:13.655] [    2.299693] PCI: CLS 0 bytes, default 64
+[20:18:13.655] [    2.307234] Trying to unpack rootfs image as initramfs...
+[20:18:13.655] [    2.320448] Initialise system trusted keyrings
+[20:18:13.655] [    2.325970] Key type blacklist registered
+[20:18:13.655] [    2.332470] workingset: timestamp_bits=44 max_order=18 bucket_order=0
+[20:18:13.655] [    2.339581] zbud: loaded
+[20:18:13.720] [    2.362917] fuse: init (API version 7.41)
+[20:18:13.720] [    2.378354] integrity: Platform Keyring initialized
+[20:18:13.720] [    2.383742] integrity: Machine keyring initialized
+[20:18:14.927] [    3.618813] Key type asymmetric registered
+[20:18:14.990] [    3.623318] Asymmetric key parser 'x509' registered
+[20:18:24.407] [   13.054222] Freeing initrd memory: 41104K
+[20:18:24.726] [   13.356035] Block layer SCSI generic (bsg) driver version 0.4 loaded (major 247)
+[20:18:24.726] [   13.365539] io scheduler mq-deadline registered
+[20:18:24.790] [   13.459830] riscv-plic: interrupt-controller@c000000: mapped 31 interrupts with 4 handlers for 8 contexts.
+[20:18:24.790] [   13.478849] ledtrig-cpu: registered to indicate activity on CPUs
+[20:18:24.853] [   13.491751] SBI CPPC extension NOT detected!!
+[20:18:24.853] [   13.506951] Serial: 8250/16550 driver, 4 ports, IRQ sharing disabled
+[20:18:24.853] [   13.538783] printk: legacy console [ttyS0] disabled
+[20:18:24.917] [   13.547918] 10000000.serial: ttyS0 at MMIO 0x10000000 (irq = 12, base_baud = 230400) is a 16550A
+[20:18:24.917] [   13.557400] printk: legacy console [ttyS0] enabled
+[20:18:24.917] [   13.557400] printk: legacy console [ttyS0] enabled
+[20:18:24.917] [   13.567607] printk: legacy bootconsole [ns16550a0] disabled
+[20:18:24.917] [   13.567607] printk: legacy bootconsole [ns16550a0] disabled
+[20:18:24.917] [   13.595031] mousedev: PS/2 mouse device common for all mice
+[20:18:24.980] [   13.612857] riscv-pmu-sbi: SBI PMU extension is available
+[20:18:24.980] [   13.618649] riscv-pmu-sbi: 16 firmware and 2 hardware counters
+[20:18:24.980] [   13.624706] riscv-pmu-sbi: Perf sampling/filtering is not supported as sscof extension is not available
+[20:18:24.980] [   13.652937] NET: Registered PF_INET6 protocol family
+[20:18:25.297] [   13.926192] Segment Routing with IPv6
+[20:18:25.297] [   13.930820] In-situ OAM (IOAM) with IPv6
+[20:18:25.297] [   13.935740] mip6: Mobile IPv6
+[20:18:25.297] [   13.939290] NET: Registered PF_PACKET protocol family
+[20:18:25.297] [   13.945882] mpls_gso: MPLS GSO support
+[20:18:25.425] [   14.081417] registered taskstats version 1
+[20:18:25.425] [   14.097036] Loading compiled-in X.509 certificates
+[20:18:26.507] [   15.142605] Loaded X.509 cert 'Build time autogenerated kernel key: f0b5082483965175d0cc59b2c14f8a0a7df90aa8'
+[20:18:26.634] [   15.299924] Demotion targets for Node 0: null
+[20:18:26.634] [   15.315594] Key type .fscrypt registered
+[20:18:26.634] [   15.319752] Key type fscrypt-provisioning registered
+[20:18:27.862] [   16.502934] Key type encrypted registered
+[20:18:27.862] [   16.507258] AppArmor: AppArmor sha256 policy hashing enabled
+[20:18:27.862] [   16.513284] ima: No TPM chip found, activating TPM-bypass!
+[20:18:27.862] [   16.518994] ima: Allocated hash algorithm: sha256
+[20:18:27.862] [   16.524184] ima: No architecture policies found
+[20:18:27.862] [   16.529574] evm: Initialising EVM extended attributes:
+[20:18:27.862] [   16.534877] evm: security.selinux
+[20:18:27.862] [   16.538347] evm: security.SMACK64 (disabled)
+[20:18:27.862] [   16.542772] evm: security.SMACK64EXEC (disabled)
+[20:18:27.862] [   16.547540] evm: security.SMACK64TRANSMUTE (disabled)
+[20:18:27.862] [   16.552746] evm: security.SMACK64MMAP (disabled)
+[20:18:27.862] [   16.557520] evm: security.apparmor
+[20:18:27.926] [   16.561114] evm: security.ima
+[20:18:27.926] [   16.564176] evm: security.capability
+[20:18:27.926] [   16.567941] evm: HMAC attrs: 0x1
+[20:18:29.201] [   17.842165] clk: Disabling unused clocks
+[20:18:29.201] [   17.852588] PM: genpd: Disabling unused power domains
+[20:18:29.459] [   18.115797] Freeing unused kernel image (initmem) memory: 2684K
+[20:18:29.459] [   18.124595] Run /init as init process
+[20:18:29.652] Loading, please wait...
+[20:18:30.415] Starting systemd-udevd version 257.13-1~deb13u1
+[20:18:42.486] [   31.126434] sdhci: Secure Digital Host Controller Interface driver
+[20:18:42.486] [   31.132848] sdhci: Copyright(c) Pierre Ossman
+[20:18:43.588] [   32.242439] sdhci-pltfm: SDHCI platform and OF driver helper
+[20:18:44.039] [   32.689592] sdhci_of_arasan: loading out-of-tree module taints kernel.
+[20:18:44.039] [   32.696753] sdhci_of_arasan: module verification failed: signature and/or required key missing - tainting kernel
+[20:18:44.352] [   33.037468] mmc0: SDHCI controller on ff170000.mmc [ff170000.mmc] using ADMA 64-bit
+[20:18:44.414] [   33.096881] mmc0: new high speed SDHC card at address 0001
+[20:18:44.731] [   33.401067] macb ff0e0000.ethernet eth0: Cadence GEM rev 0x50070106 at 0xff0e0000 irq 13 (00:0a:35:2a:df:d8)
+[20:18:45.495] [   34.130979] mmcblk0: mmc0:0001 SD 14.6 GiB
+[20:18:45.495] [   34.158495]  mmcblk0: p1 p2 p3
+[20:18:46.454] Begin: Loading essential drivers ... done.
+[20:18:47.540] Begin: Running /scripts/init-premount ... done.
+[20:18:47.540] Begin: Mounting root file system ... Begin: Running /scripts/local-top ... done.
+[20:18:47.540] Begin: Running /scripts/local-premount ... done.
+[20:18:48.112] Begin: Will now check root file system ... fsck from util-linux 2.41.5
+[20:18:48.300] [/sbin/fsck.ext4 (1) -- /dev/mmcblk0p3] fsck.ext4 -a -C0 /dev/mmcblk0p3 
+[20:18:48.427] tanager-root: recovering journal
+[20:18:52.665] tanager-root: clean, 44236/499712 files, 600398/1981696 blocks
+[20:18:52.729] done.
+[20:19:04.931] [   53.601941] EXT4-fs (mmcblk0p3): mounted filesystem 45d8e126-fa57-4bee-8133-ba472bb7b0c6 r/w with ordered data mode. Quota mode: none.
+[20:19:04.931] done.
+[20:19:04.995] Begin: Running /scripts/local-bottom ... done.
+[20:19:04.995] Begin: Running /scripts/init-bottom ... done.
+[20:19:07.358] [   56.011954] Not activating Mandatory Access Control as /sbin/tomoyo-init does not exist.
+[20:19:08.712] [   57.372665] systemd[1]: System time advanced to timestamp on /var/lib/systemd/timesync/clock: Fri 2026-10-23 09:58:23 UTC
+[20:19:09.619] [   58.262659] systemd[1]: Inserted module 'autofs4'
+[20:19:10.893] [!p]104[?7h[   59.545270] systemd[1]: systemd 257.13-1~deb13u1 running in system mode (+PAM +AUDIT +SELINUX +APPARMOR +IMA +IPE +SMACK +SECCOMP +GCRYPT -GNUTLS +OPENSSL +ACL +BLKID +CURL +ELFUTILS +FIDO2 +IDN2 -IDN +IPTC +KMOD +LIBCRYPTSETUP +LIBCRYPTSETUP_PLUGINS +LIBFDISK +PCRE2 +PWQUALITY +P11KIT +QRENCODE +TPM2 +BZIP2 +LZ4 +XZ +ZLIB +ZSTD +BPF_FRAMEWORK +BTF -XKBCOMMON -UTMP +SYSVINIT +LIBARCHIVE)
+[20:19:10.893] [   59.580649] systemd[1]: Detected architecture riscv64.
+[20:19:10.957] 
+[20:19:10.957] [0;1;39mWelcome to [0m[1mDebian GNU/Linux 13 (trixie)[0m[0;1;39m![0m
+[20:19:10.957] 
+[20:19:11.020] [   59.654472] systemd[1]: Hostname set to <tanager>.
+[20:19:17.293] [   65.951856] systemd[1]: bpf-restrict-fs: LSM BPF program attached
+[20:19:25.511] [   74.148494] systemd[1]: Queued start job for default target graphical.target.
+[20:19:26.147] [   74.793601] systemd[1]: Created slice system-getty.slice - Slice /system/getty.
+[20:19:26.147] [[0;32m  OK  [0m] Created slice [0;1;39msystem-getty.slice[0m - Slice /system/getty.
+[20:19:26.210] [   74.851098] systemd[1]: Created slice system-modprobe.slice - Slice /system/modprobe.
+[20:19:26.210] [[0;32m  OK  [0m] Created slice [0;1;39msystem-modprobe.slice[0m - Slice /system/modprobe.
+[20:19:26.210] [   74.901562] systemd[1]: Created slice system-serial\x2dgetty.slice - Slice /system/serial-getty.
+[20:19:26.276] [[0;32m  OK  [0m] Created slice [0;1;39msystem-serial\x2dget???slice[0m - Slice /system/serial-getty.
+[20:19:26.276] [   74.952722] systemd[1]: Created slice user.slice - User and Session Slice.
+[20:19:26.276] [[0;32m  OK  [0m] Created slice [0;1;39muser.slice[0m - User and Session Slice.
+[20:19:26.338] [   74.982821] systemd[1]: Started systemd-ask-password-console.path - Dispatch Password Requests to Console Directory Watch.
+[20:19:26.338] [[0;32m  OK  [0m] Started [0;1;39msystemd-ask-password-conso???[0mequests to Console Directory Watch.
+[20:19:26.338] [   75.018547] systemd[1]: Started systemd-ask-password-wall.path - Forward Password Requests to Wall Directory Watch.
+[20:19:26.402] [[0;32m  OK  [0m] Started [0;1;39msystemd-ask-password-wall.???[0md Requests to Wall Directory Watch.
+[20:19:26.402] [   75.059272] systemd[1]: Set up automount proc-sys-fs-binfmt_misc.automount - Arbitrary Executable File Formats File System Automount Point.
+[20:19:26.402] [[0;32m  OK  [0m] Set up automount [0;1;39mproc-sys-fs-binfm???[0mormats File System Automount Point.
+[20:19:26.402] [   75.090625] systemd[1]: Expecting device dev-ttyS0.device - /dev/ttyS0...
+[20:19:26.465]          Expecting device [0;1;39mdev-ttyS0.device[0m - /dev/ttyS0...
+[20:19:26.465] [   75.115469] systemd[1]: Reached target paths.target - Path Units.
+[20:19:26.465] [[0;32m  OK  [0m] Reached target [0;1;39mpaths.target[0m - Path Units.
+[20:19:26.465] [   75.137918] systemd[1]: Reached target remote-fs.target - Remote File Systems.
+[20:19:26.465] [[0;32m  OK  [0m] Reached target [0;1;39mremote-fs.target[0m - Remote File Systems.
+[20:19:26.528] [   75.161886] systemd[1]: Reached target slices.target - Slice Units.
+[20:19:26.528] [[0;32m  OK  [0m] Reached target [0;1;39mslices.target[0m - Slice Units.
+[20:19:26.528] [   75.182569] systemd[1]: Reached target swap.target - Swaps.
+[20:19:26.528] [[0;32m  OK  [0m] Reached target [0;1;39mswap.target[0m - Swaps.
+[20:19:26.591] [   75.275880] systemd[1]: Listening on systemd-creds.socket - Credential Encryption/Decryption.
+[20:19:26.657] [[0;32m  OK  [0m] Listening on [0;1;39msystemd-creds.socket[0m - Credential Encryption/Decryption.
+[20:19:26.657] [   75.307345] systemd[1]: Listening on systemd-initctl.socket - initctl Compatibility Named Pipe.
+[20:19:26.657] [[0;32m  OK  [0m] Listening on [0;1;39msystemd-initctl.socke???[0m- initctl Compatibility Named Pipe.
+[20:19:26.657] [   75.341423] systemd[1]: Listening on systemd-journald-dev-log.socket - Journal Socket (/dev/log).
+[20:19:26.720] [[0;32m  OK  [0m] Listening on [0;1;39msystemd-journald-dev-???socket[0m - Journal Socket (/dev/log).
+[20:19:26.720] [   75.378044] systemd[1]: Listening on systemd-journald.socket - Journal Sockets.
+[20:19:26.720] [[0;32m  OK  [0m] Listening on [0;1;39msystemd-journald.socket[0m - Journal Sockets.
+[20:19:26.783] [   75.413613] systemd[1]: Listening on systemd-networkd.socket - Network Service Netlink Socket.
+[20:19:26.783] [[0;32m  OK  [0m] Listening on [0;1;39msystemd-networkd.socket[0m - Network Service Netlink Socket.
+[20:19:26.783] [   75.442101] systemd[1]: systemd-pcrextend.socket - TPM PCR Measurements skipped, unmet condition check ConditionSecurity=measured-uki
+[20:19:26.783] [   75.455690] systemd[1]: systemd-pcrlock.socket - Make TPM PCR Policy skipped, unmet condition check ConditionSecurity=measured-uki
+[20:19:26.846] [   75.475365] systemd[1]: Listening on systemd-udevd-control.socket - udev Control Socket.
+[20:19:26.846] [[0;32m  OK  [0m] Listening on [0;1;39msystemd-udevd-control.socket[0m - udev Control Socket.
+[20:19:26.846] [   75.506068] systemd[1]: Listening on systemd-udevd-kernel.socket - udev Kernel Socket.
+[20:19:26.846] [[0;32m  OK  [0m] Listening on [0;1;39msystemd-udevd-kernel.socket[0m - udev Kernel Socket.
+[20:19:26.910] [   75.598039] systemd[1]: Mounting dev-hugepages.mount - Huge Pages File System...
+[20:19:26.974]          Mounting [0;1;39mdev-hugepages.mount[0m - Huge Pages File System...
+[20:19:27.037] [   75.689343] systemd[1]: Mounting dev-mqueue.mount - POSIX Message Queue File System...
+[20:19:27.037]          Mounting [0;1;39mdev-mqueue.mount[0m - POSIX Message Queue File System...
+[20:19:27.164] [   75.832046] systemd[1]: Mounting run-lock.mount - Legacy Locks Directory /run/lock...
+[20:19:27.164]          Mounting [0;1;39mrun-lock.mount[0m - Legacy Locks Directory /run/lock...
+[20:19:27.357] [   76.029734] systemd[1]: Mounting sys-kernel-debug.mount - Kernel Debug File System...
+[20:19:27.421]          Mounting [0;1;39msys-kernel-debug.mount[0m - Kernel Debug File System...
+[20:19:27.672] [   76.313760] systemd[1]: Mounting sys-kernel-tracing.mount - Kernel Trace File System...
+[20:19:27.672]          Mounting [0;1;39msys-kernel-tracing.mount[0m - Kernel Trace File System...
+[20:19:27.990] [   76.622853] systemd[1]: Mounting tmp.mount - Temporary Directory /tmp...
+[20:19:27.990]          Mounting [0;1;39mtmp.mount[0m - Temporary Directory /tmp...
+[20:19:28.307] [   76.983783] systemd[1]: Starting kmod-static-nodes.service - Create List of Static Device Nodes...
+[20:19:28.307]          Starting [0;1;39mkmod-static-nodes.service[0m???eate List of Static Device Nodes...
+[20:19:28.498] [   77.147194] systemd[1]: Starting modprobe@configfs.service - Load Kernel Module configfs...
+[20:19:28.498]          Starting [0;1;39mmodprobe@configfs.service[0m - Load Kernel Module configfs...
+[20:19:28.750] [   77.438573] systemd[1]: Starting modprobe@drm.service - Load Kernel Module drm...
+[20:19:28.814]          Starting [0;1;39mmodprobe@drm.service[0m - Load Kernel Module drm...
+[20:19:28.942] [   77.632704] systemd[1]: Starting modprobe@efi_pstore.service - Load Kernel Module efi_pstore...
+[20:19:29.005]          Starting [0;1;39mmodprobe@efi_pstore.servi???[0m - Load Kernel Module efi_pstore...
+[20:19:29.196] [   77.845542] systemd[1]: Starting modprobe@fuse.service - Load Kernel Module fuse...
+[20:19:29.196]          Starting [0;1;39mmodprobe@fuse.service[0m - Load Kernel Module fuse...
+[20:19:29.260] [   77.893871] systemd[1]: systemd-fsck-root.service - File System Check on Root Device skipped, unmet condition check ConditionPathExists=!/run/initramfs/fsck-root
+[20:19:29.260] [   77.945318] systemd[1]: systemd-hibernate-clear.service - Clear Stale Hibernate Storage Info skipped, unmet condition check ConditionPathExists=/sys/firmware/efi/efivars/HibernateLocation-8cf2644b-4b0b-428f-9387-6d876050dc67
+[20:19:29.766] [   78.421398] systemd[1]: Starting systemd-journald.service - Journal Service...
+[20:19:29.766]          Starting [0;1;39msystemd-journald.service[0m - Journal Service...
+[20:19:30.660] [   79.351480] systemd[1]: Starting systemd-modules-load.service - Load Kernel Modules...
+[20:19:30.722]          Starting [0;1;39msystemd-modules-load.service[0m - Load Kernel Modules...
+[20:19:31.043] [   79.707845] systemd[1]: Starting systemd-network-generator.service - Generate Network Units from Kernel Command Line...
+[20:19:31.043]          Starting [0;1;39msystemd-network-generator???[0mk Units from Kernel Command Line...
+[20:19:31.107] [   79.747378] systemd[1]: systemd-pcrmachine.service - TPM PCR Machine ID Measurement skipped, unmet condition check ConditionSecurity=measured-uki
+[20:19:31.490] [   80.141181] systemd[1]: Starting systemd-remount-fs.service - Remount Root and Kernel File Systems...
+[20:19:31.490]          Starting [0;1;39msystemd-remount-fs.servic???[0munt Root and Kernel File Systems...
+[20:19:31.567] [   80.195456] systemd[1]: systemd-tpm2-setup-early.service - Early TPM SRK Setup skipped, unmet condition check ConditionSecurity=measured-uki
+[20:19:31.888] [   80.560077] systemd[1]: Starting systemd-udev-load-credentials.service - Load udev Rules from Credentials...
+[20:19:31.951]          Starting [0;1;39msystemd-udev-load-credent???[0mLoad udev Rules from Credentials...
+[20:19:32.335] [   80.971233] systemd[1]: Starting systemd-udev-trigger.service - Coldplug All udev Devices...
+[20:19:32.335]          Starting [0;1;39msystemd-udev-trigger.service[0m - Coldplug All udev Devices...
+[20:19:33.438] [   82.094264] systemd-journald[278]: Collecting audit messages is disabled.
+[20:19:33.628] [   82.282470] systemd[1]: Mounted dev-hugepages.mount - Huge Pages File System.
+[20:19:33.628] [[0;32m  OK  [0m] Mounted [0;1;39mdev-hugepages.mount[0m - Huge Pages File System.
+[20:19:33.694] [   82.361042] systemd[1]: Mounted dev-mqueue.mount - POSIX Message Queue File System.
+[20:19:33.694] [[0;32m  OK  [0m] Mounted [0;1;39mdev-mqueue.mount[0m - POSIX Message Queue File System.
+[20:19:33.819] [   82.504481] EXT4-fs (mmcblk0p3): re-mounted 45d8e126-fa57-4bee-8133-ba472bb7b0c6.
+[20:19:34.073] [   82.710334] systemd[1]: Mounted run-lock.mount - Legacy Locks Directory /run/lock.
+[20:19:34.073] [[0;32m  OK  [0m] Mounted [0;1;39mrun-lock.mount[0m - Legacy Locks Directory /run/lock.
+[20:19:34.073] [   82.755664] systemd[1]: Mounted sys-kernel-debug.mount - Kernel Debug File System.
+[20:19:34.137] [[0;32m  OK  [0m] Mounted [0;1;39msys-kernel-debug.mount[0m - Kernel Debug File System.
+[20:19:34.137] [   82.797404] systemd[1]: Mounted sys-kernel-tracing.mount - Kernel Trace File System.
+[20:19:34.137] [[0;32m  OK  [0m] Mounted [0;1;39msys-kernel-tracing.mount[0m - Kernel Trace File System.
+[20:19:34.200] [   82.841990] systemd[1]: Mounted tmp.mount - Temporary Directory /tmp.
+[20:19:34.200] [[0;32m  OK  [0m] Mounted [0;1;39mtmp.mount[0m - Temporary Directory /tmp.
+[20:19:35.364] [   84.051527] systemd[1]: Finished kmod-static-nodes.service - Create List of Static Device Nodes.
+[20:19:35.428] [[0;32m  OK  [0m] Finished [0;1;39mkmod-static-nodes.service[0m???Create List of Static Device Nodes.
+[20:19:35.428] [   84.112535] systemd[1]: Started systemd-journald.service - Journal Service.
+[20:19:35.493] [[0;32m  OK  [0m] Started [0;1;39msystemd-journald.service[0m - Journal Service.
+[20:19:35.749] [[0;32m  OK  [0m] Finished [0;1;39mmodprobe@configfs.service[0m - Load Kernel Module configfs.
+[20:19:35.813] [[0;32m  OK  [0m] Finished [0;1;39mmodprobe@efi_pstore.service[0m - Load Kernel Module efi_pstore.
+[20:19:35.874] [[0;32m  OK  [0m] Finished [0;1;39mmodprobe@fuse.service[0m - Load Kernel Module fuse.
+[20:19:35.874] [[0;32m  OK  [0m] Finished [0;1;39msystemd-modules-load.service[0m - Load Kernel Modules.
+[20:19:37.658] [[0;32m  OK  [0m] Finished [0;1;39msystemd-network-generator???[0mork Units from Kernel Command Line.
+[20:19:37.803] [[0;32m  OK  [0m] Finished [0;1;39msystemd-remount-fs.servic???[0mmount Root and Kernel File Systems.
+[20:19:37.930] [[0;32m  OK  [0m] Finished [0;1;39msystemd-udev-load-credent???[0m- Load udev Rules from Credentials.
+[20:19:38.379] [[0;32m  OK  [0m] Finished [0;1;39mmodprobe@drm.service[0m - Load Kernel Module drm.
+[20:19:38.698] [[0;32m  OK  [0m] Reached target [0;1;39mnetwork-pre.target[0m - Preparation for Network.
+[20:19:38.823]          Mounting [0;1;39msys-fs-fuse-connections.mount[0m - FUSE Control File System...
+[20:19:38.950]          Mounting [0;1;39msys-kernel-config.mount[0m - Kernel Configuration File System...
+[20:19:39.206]          Starting [0;1;39msystemd-journal-flush.ser???[0msh Journal to Persistent Storage...
+[20:19:39.461]          Starting [0;1;39msystemd-random-seed.service[0m - Load/Save OS Random Seed...
+[20:19:39.843]          Starting [0;1;39msystemd-sysctl.service[0m - Apply Kernel Variables...
+[20:19:40.165]          Starting [0;1;39msystemd-tmpfiles-setup-de???[0m Device Nodes in /dev gracefully...
+[20:19:40.548] [[0;32m  OK  [0m] Mounted [0;1;39msys-fs-fuse-connections.mount[0m - FUSE Control File System.
+[20:19:40.548] [[0;32m  OK  [0m] Mounted [0;1;39msys-kernel-config.mount[0m - Kernel Configuration File System.
+[20:19:41.316] [   89.993360] systemd-journald[278]: Received client request to flush runtime journal.
+[20:19:41.572] [   90.227031] systemd-journald[278]: /var/log/journal/1a88577bf2ac49f3a195cc7bcccf479f/system.journal: Realtime clock jumped backwards relative to last journal entry, rotating.
+[20:19:41.572] [   90.255080] systemd-journald[278]: Rotating system journal.
+[20:19:42.017] [[0;32m  OK  [0m] Finished [0;1;39msystemd-sysctl.service[0m - Apply Kernel Variables.
+[20:19:42.146] [   90.820675] random: crng init done
+[20:19:42.273] [[0;32m  OK  [0m] Finished [0;1;39msystemd-random-seed.service[0m - Load/Save OS Random Seed.
+[20:19:42.784] [[0;32m  OK  [0m] Finished [0;1;39msystemd-tmpfiles-setup-de???[0mic Device Nodes in /dev gracefully.
+[20:19:42.991]          Starting [0;1;39msystemd-resolved.service[0m - Network Name Resolution...
+[20:19:43.120]          Starting [0;1;39msystemd-timesyncd.service[0m - Network Time Synchronization...
+[20:19:43.183]          Starting [0;1;39msystemd-tmpfiles-setup-de???[0meate Static Device Nodes in /dev...
+[20:19:44.970] [[0m[0;31m*     [0m] (1 of 6) Job systemd-tmpfiles-setup???ice/start running (19s / no limit)
+[20:19:45.354] M[K[[0;32m  OK  [0m] Finished [0;1;39msystemd-tmpfiles-setup-de???[0mCreate Static Device Nodes in /dev.
+[20:19:45.354] [K[[0;32m  OK  [0m] Finished [0;1;39msystemd-udev-trigger.service[0m - Coldplug All udev Devices.
+[20:19:45.545] [[0;32m  OK  [0m] Reached target [0;1;39mlocal-fs-pre.target[0m???Preparation for Local File Systems.
+[20:19:45.545] [[0;32m  OK  [0m] Reached target [0;1;39mlocal-fs.target[0m - Local File Systems.
+[20:19:45.738] [[0;32m  OK  [0m] Listening on [0;1;39msystemd-sysext.socket[0m??? System Extension Image Management.
+[20:19:45.819]          Starting [0;1;39mifupdown-pre.service[0m - He???synchronize boot up for ifupdown...
+[20:19:46.209]          Starting [0;1;39msystemd-udevd.service[0m - R???ager for Device Events and Files...
+[20:19:46.468]          Starting [0;1;39mtanager-mode-confirm.serv???[0mrm RISC-V mode on clean shutdown...
+[20:19:46.848] [[0;32m  OK  [0m] Finished [0;1;39mifupdown-pre.service[0m - He???o synchronize boot up for ifupdown.
+[20:19:47.104]          Starting [0;1;39mnetworking.service[0m - Raise network interfaces...
+[20:19:48.060] [[0;32m  OK  [0m] Finished [0;1;39mtanager-mode-confirm.serv???[0mfirm RISC-V mode on clean shutdown.
+[20:19:49.352] [[0;32m  OK  [0m] Started [0;1;39msystemd-timesyncd.service[0m - Network Time Synchronization.
+[20:19:49.605] [[0;32m  OK  [0m] Reached target [0;1;39mtime-set.target[0m - System Time Set.
+[20:19:51.585] [[0;32m  OK  [0m] Finished [0;1;39mnetworking.service[0m - Raise network interfaces.
+[20:19:51.775] [[0;32m  OK  [0m] Finished [0;1;39msystemd-journal-flush.ser???[0mlush Journal to Persistent Storage.
+[20:19:51.842] [[0;32m  OK  [0m] Started [0;1;39msystemd-resolved.service[0m - Network Name Resolution.
+[20:19:51.904] [[0;32m  OK  [0m] Started [0;1;39msystemd-udevd.service[0m - Ru???anager for Device Events and Files.
+[20:19:52.222] [[0;32m  OK  [0m] Reached target [0;1;39mnss-lookup.target[0m - Host and Network Name Lookups.
+[20:19:52.413]          Starting [0;1;39msystemd-networkd.service[0m - Network Configuration...
+[20:19:52.542]          Starting [0;1;39msystemd-tmpfiles-setup.se???[0mate System Files and Directories...
+[20:19:54.661] [[0;32m  OK  [0m] Found device [0;1;39mdev-ttyS0.device[0m - /dev/ttyS0.
+[20:19:55.301] [[0;32m  OK  [0m] Finished [0;1;39msystemd-tmpfiles-setup.se???[0mreate System Files and Directories.
+[20:19:55.441] [[0;32m  OK  [0m] Reached target [0;1;39msysinit.target[0m - System Initialization.
+[20:19:55.506] [[0;32m  OK  [0m] Started [0;1;39mapt-daily.timer[0m - Daily apt download activities.
+[20:19:55.506] [[0;32m  OK  [0m] Started [0;1;39mapt-daily-upgrade.timer[0m - ???y apt upgrade and clean activities.
+[20:19:55.571] [[0;32m  OK  [0m] Started [0;1;39mdpkg-db-backup.timer[0m - Daily dpkg database backup timer.
+[20:19:55.571] [[0;32m  OK  [0m] Started [0;1;39me2scrub_all.timer[0m - Period???Metadata Check for All Filesystems.
+[20:19:55.634] [[0;32m  OK  [0m] Started [0;1;39mfstrim.timer[0m - Discard unused filesystem blocks once a week.
+[20:19:55.634] [[0;32m  OK  [0m] Started [0;1;39mlogrotate.timer[0m - Daily rotation of log files.
+[20:19:55.698] [[0;32m  OK  [0m] Started [0;1;39msystemd-tmpfiles-clean.tim???[0my Cleanup of Temporary Directories.
+[20:19:55.698] [[0;32m  OK  [0m] Reached target [0;1;39mtimers.target[0m - Timer Units.
+[20:19:55.762] [[0;32m  OK  [0m] Listening on [0;1;39mdbus.socket[0m - D-Bus System Message Bus Socket.
+[20:19:55.954] [[0;32m  OK  [0m] Listening on [0;1;39msshd-unix-local.socke???[0mtemd-ssh-generator, AF_UNIX Local).
+[20:19:55.954] [[0;32m  OK  [0m] Listening on [0;1;39msystemd-hostnamed.socket[0m - Hostname Service Socket.
+[20:19:55.954] [[0;32m  OK  [0m] Reached target [0;1;39msockets.target[0m - Socket Units.
+[20:19:56.036] [[0;32m  OK  [0m] Reached target [0;1;39mbasic.target[0m - Basic System.
+[20:19:56.113] [[0;32m  OK  [0m] Started [0;1;39mcron.service[0m - Regular background program processing daemon.
+[20:19:56.304]          Starting [0;1;39mdbus.service[0m - D-Bus System Message Bus...
+[20:19:56.496]          Starting [0;1;39me2scrub_reap.service[0m - Re???ne ext4 Metadata Check Snapshots...
+[20:19:57.072]          Starting [0;1;39msystemd-logind.service[0m - User Login Management...
+[20:20:00.709] [[0;32m  OK  [0m] Started [0;1;39mdbus.service[0m - D-Bus System Message Bus.
+[20:20:01.092] [[0;32m  OK  [0m] Finished [0;1;39me2scrub_reap.service[0m - Re???line ext4 Metadata Check Snapshots.
+[20:20:03.714] [  112.365379] ff010000.serial: ttyPS0 at MMIO 0xff010000 (irq = 15, base_baud = 6249999) is a xuartps
+[20:20:04.287] [[0;32m  OK  [0m] Started [0;1;39msystemd-logind.service[0m - User Login Management.
+[20:20:04.732] [[0;32m  OK  [0m] Listening on [0;1;39msystemd-rfkill.socket[0m???ll Switch Status /dev/rfkill Watch.
+[20:20:06.964] [[0;1;31m*[0m[0;31m*    [0m] Job systemd-networkd.service/start running (41s / 10min 26s)
+[20:20:07.474] M[K[[0;31m*[0;1;31m*[0m[0;31m*   [0m] Job systemd-networkd.service/start running (41s / 10min 26s)
+[20:20:07.983] M[K[ [0;31m*[0;1;31m*[0m[0;31m*  [0m] Job systemd-networkd.service/start running (42s / 10min 26s)
+[20:20:08.433] M[K[  [0;31m*[0;1;31m*[0m[0;31m* [0m] Job systemd-networkd.service/start running (42s / 10min 26s)
+[20:20:08.943] M[K[   [0;31m*[0;1;31m*[0m[0;31m*[0m] Job systemd-networkd.service/start running (43s / 10min 26s)
+[20:20:09.455] M[K[    [0;31m*[0;1;31m*[0m] Job systemd-networkd.service/start running (43s / 10min 26s)
+[20:20:09.984] M[K[     [0;31m*[0m] Job systemd-networkd.service/start running (44s / 10min 26s)
+[20:20:10.429] M[K[    [0;31m*[0;1;31m*[0m] Job systemd-networkd.service/start running (44s / 10min 26s)
+[20:20:10.939] M[K[   [0;31m*[0;1;31m*[0m[0;31m*[0m] Job systemd-networkd.service/start running (45s / 10min 26s)
+[20:20:11.450] M[K[  [0;31m*[0;1;31m*[0m[0;31m* [0m] Job systemd-networkd.service/start running (45s / 10min 26s)
+[20:20:11.578] [  120.268088] cfg80211: Loading compiled-in X.509 certificates for regulatory database
+[20:20:11.961] M[K[ [0;31m*[0;1;31m*[0m[0;31m*  [0m] Job systemd-networkd.service/start running (46s / 10min 26s)
+[20:20:12.155] [  120.801661] Loaded X.509 cert 'benh@debian.org: 577e021cb980e0e820821ba7b54b4961b8b4fadf'
+[20:20:12.155] [  120.821509] Loaded X.509 cert 'romain.perier@gmail.com: 3abbc6ec146e09d1b6016ab9d6cf71dd233f0328'
+[20:20:12.155] [  120.841583] Loaded X.509 cert 'sforshee: 00b28ddf47aef9cea7'
+[20:20:12.216] [  120.858406] Loaded X.509 cert 'wens: 61c038651aabdcf94bd0ac7ff06c7248db18c600'
+[20:20:12.216] [  120.866931] platform regulatory.0: firmware: failed to load regulatory.db (-2)
+[20:20:12.216] [  120.875426] platform regulatory.0: firmware: failed to load regulatory.db (-2)
+[20:20:12.216] [  120.883844] platform regulatory.0: firmware: failed to load regulatory.db (-2)
+[20:20:12.216] [  120.891535] platform regulatory.0: Direct firmware load for regulatory.db failed with error -2
+[20:20:12.216] [  120.900538] cfg80211: failed to load regulatory.db
+[20:20:12.473] M[K[[0;31m*[0;1;31m*[0m[0;31m*   [0m] Job systemd-networkd.service/start running (46s / 10min 26s)
+[20:20:12.919] M[K[[0;1;31m*[0m[0;31m*    [0m] Job systemd-networkd.service/start running (47s / 10min 26s)
+[20:20:13.429] M[K[[0m[0;31m*     [0m] Job systemd-networkd.service/start running (47s / 10min 26s)
+[20:20:13.937] M[K[[0;1;31m*[0m[0;31m*    [0m] Job systemd-networkd.service/start running (48s / 10min 26s)
+[20:20:14.449] M[K[[0;31m*[0;1;31m*[0m[0;31m*   [0m] Job systemd-networkd.service/start running (48s / 10min 26s)
+[20:20:14.962] M[K[ [0;31m*[0;1;31m*[0m[0;31m*  [0m] Job systemd-networkd.service/start running (49s / 10min 26s)
+[20:20:15.091] M[K[[0;32m  OK  [0m] Started [0;1;39msystemd-networkd.service[0m - Network Configuration.
+[20:20:15.091] [K[[0;32m  OK  [0m] Reached target [0;1;39mnetwork.target[0m - Network.
+[20:20:15.217] [  123.864851] macb ff0e0000.ethernet eth0: PHY [ff0e0000.ethernet-ffffffff:01] driver [TI DP83867] (irq=POLL)
+[20:20:15.217] [  123.875144] macb ff0e0000.ethernet eth0: configuring for phy/rgmii-id link mode
+[20:20:15.217] [  123.894342] macb ff0e0000.ethernet: gem-ptp-timer ptp clock registered.
+[20:20:15.281]          Starting [0;1;39mssh.service[0m - OpenBSD Secure Shell server...
+[20:20:15.474]          Starting [0;1;39msystemd-networkd-persiste???[0mtent Storage in systemd-networkd...
+[20:20:15.601]          Starting [0;1;39msystemd-user-sessions.service[0m - Permit User Sessions...
+[20:20:16.633] [[0;32m  OK  [0m] Finished [0;1;39msystemd-networkd-persiste???[0mistent Storage in systemd-networkd.
+[20:20:16.696] [[0;32m  OK  [0m] Finished [0;1;39msystemd-user-sessions.service[0m - Permit User Sessions.
+[20:20:16.888] [[0;32m  OK  [0m] Started [0;1;39mgetty@tty1.service[0m - Getty on tty1.
+[20:20:17.018] [[0;32m  OK  [0m] Started [0;1;39mserial-getty@ttyPS0.service[0m - Serial Getty on ttyPS0.
+[20:20:17.081] [[0;32m  OK  [0m] Started [0;1;39mserial-getty@ttyS0.service[0m - Serial Getty on ttyS0.
+[20:20:17.160] [[0;32m  OK  [0m] Reached target [0;1;39mgetty.target[0m - Login Prompts.
+[20:20:18.304] [  126.963175] macb ff0e0000.ethernet eth0: Link is Up - 1Gbps/Full - flow control off
+[20:20:18.494] [[0;32m  OK  [0m] Started [0;1;39mssh.service[0m - OpenBSD Secure Shell server.
+[20:20:18.577] [[0;32m  OK  [0m] Reached target [0;1;39mmulti-user.target[0m - Multi-User System.
+[20:20:18.585] [[0;32m  OK  [0m] Reached target [0;1;39mgraphical.target[0m - Graphical Interface.
+[20:20:18.969] [!p]104[?7h[6n[32766;32766H[6n[!p]104[?7h[6n[32766;32766H[6n
+[20:20:20.238] Debian GNU/Linux 13 tanager ttyS0
+[20:20:20.238] 
+[20:20:20.238] tanager login: tanager (automatic login)
+[20:20:20.238] 
+[20:20:20.682] Linux tanager 6.12.113+deb13-riscv64 #1 SMP Debian 6.12.113-1 (2026-10-15) riscv64
+[20:20:20.682] 
+[20:20:20.682] The programs included with the Debian GNU/Linux system are free software;
+[20:20:20.682] the exact distribution terms for each program are described in the
+[20:20:20.682] individual files in /usr/share/doc/*/copyright.
+[20:20:20.682] 
+[20:20:20.682] Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+[20:20:20.682] permitted by applicable law.
+[20:20:29.892] [  138.562838] systemd-journald[278]: File /var/log/journal/1a88577bf2ac49f3a195cc7bcccf479f/user-1000.journal corrupted or uncleanly shut down, renaming and replacing.
+[20:20:31.612] [?2004htanager@tanager:~$ 

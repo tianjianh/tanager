@@ -93,9 +93,33 @@ With the older build (one run, [`memgap_rc2_pre-c.txt`](memgap_rc2_pre-c.txt)), 
   - The per-thread figure (about 156 MiB/s, against d4r2's 182 with one binary) is a limit inside each core's write path.
   - It isn't the PS DDR controller: one core's two threads share that limit (1.12×).
 
+## The soak: SD1's interrupt lost after 15 hotplug rounds (20:07 UTC), and u100 back
+
+The four-hart soak ([`soak4.log`](soak4.log)) ran on rc2 from 17:30 UTC on its second four-hart boot.
+- **It passed 15 rounds:** 47 stress passes, 47 DR-141 sets, 15 `hart_check`s and 15 rounds of hart stop and start. Its 7 notes were CoreMark's timing rule.
+- **Then, 27 s into round 16's step C** (the stress and the DR-141 set, both unpinned), the SD card's interrupt stopped arriving. This was 4.6 min after round 15's hart stop and start.
+
+**What the board showed** ([`uart_COM5_boots2.txt`](uart_COM5_boots2.txt), [`sd1_event_dmesg.txt`](sd1_event_dmesg.txt), [`sd1_event_irq.txt`](sd1_event_irq.txt), [`sd1_event_interrupts.txt`](sd1_event_interrupts.txt)):
+- **The first line:** `mmc0: Timeout waiting for hardware interrupt` at 9532.03 s (20:07:01 UTC), then the same every 10 s: 41 times by the reset, with one `Timeout waiting for hardware cmd interrupt`.
+- **The first register dump:**
+  - `Int stat: 0x00000002` (Transfer Complete pending) with `Int enab` and `Sig enab` both `0x03ff008b`, so SD1 was raising its interrupt.
+  - Later dumps add the error bits as the driver retries (`Int stat: 0x01018002`).
+- **The interrupt never reached Linux:**
+  - `mmc0` (PLIC source 21, IRQ 14) stayed at 50,361 on CPU0 over 12 s while the driver timed out.
+  - Its affinity was 0-3 with effective CPU0, all four CPUs were online, and the timer interrupts kept counting on every CPU.
+- **Blocked tasks:** `jbd2/mmcblk0p3`, `systemd-journal`, kworkers, `tg-lbench` and `bash` were reported blocked for more than 120 s (10 such reports). The I/O to the root never came back.
+- **What it looks like:** DR-176's lost SD1 interrupt (d4r1, a PLIC claim read twice by a replayed MMIO read), fixed in d4r2. u100 and dr187b never showed it, in 89 soak rounds and 66 + 40 hotplug rounds between them. rc2 adds step 7, core-2's marg3 and CoRR snoop marking, and soc-2's checker requests from registers.
+- **For soc-2 and core-2,** together with the kernel log and the console.
+
+**The way back** (the coordinator's instruction: if rc2 destabilizes, back to u100):
+1. **Saved first:** the soak log, the kernel log and `/proc/interrupts`, read over SSH while the shell still answered from the page cache.
+2. **The reset:** sysrq's immediate reboot at 20:15 UTC, because a clean reboot would hang syncing the card. The unconfirmed RISC-V boot then fell back to ARM mode (`tanager-mode: ARM mode`), as DR-172 designs.
+3. **u100's files back on p1:** `FH_BACKUP=tanager-u100 bash ~/tanager/runs/fh_p1.sh back`, logged in the change log.
+4. **u100 booted** with four harts at 20:17 UTC. The initramfs replayed the root's journal (`tanager-root: recovering journal`), with no ext4 or I/O error after, and `hart_check.sh` gave 0 fails ([`u100_back_hartcheck.txt`](u100_back_hartcheck.txt)).
+
 ## The board now
 
-rc2 with the four-hart tree, running the four-hart soak (`~/soak4-rc2`, from 17:30 UTC) with a 12-hour watch. The fallbacks:
-- **u100,** in ARM mode: `FH_BACKUP=tanager-u100 bash ~/tanager/runs/fh_p1.sh back`;
-- **dr187b:** `FH_BACKUP=tanager-dr187b-80 …`;
+u100 with the four-hart tree and tg1, idle. rc2's package stays on the A53 (`~/tanager/rc2u100-riscv-pkg/`) for a rerun:
+- **rc2 again,** in ARM mode: `FH_BACKUP=tanager-u100 bash ~/tanager/runs/fh_p1.sh install ~/tanager/rc2u100-riscv-pkg/rc2u100-riscv`;
+- **dr187b:** `FH_BACKUP=tanager-dr187b-80 bash ~/tanager/runs/fh_p1.sh back`;
 - **the two-core 100 MHz image:** `bash ~/tanager/runs/fh_p1.sh back`.
