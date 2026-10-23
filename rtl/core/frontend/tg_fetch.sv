@@ -90,6 +90,8 @@ module tg_fetch
   input  logic [TKW-1:0]            iq_take,
   input  logic [TKW-1:0]            iq_take_t,  // ... decode's take if rename takes its group, and if not
   input  logic [TKW-1:0]            iq_take_n,
+  input  logic                      iq_tnz_t,   // ... whether each is nonzero (decode's, for the read thread's choice)
+  input  logic                      iq_tnz_n,
   input  logic                      de_take,    // rename takes decode's group (iq_take is the choice)
   // Translation and PMP (M3)
   input  logic [NUM_THREADS-1:0] xl_h,   // per hart (F1's block's thread's is used): fetch translates: S or U, Sv39
@@ -1217,6 +1219,7 @@ module tg_fetch
     .blk_valid(f3_valid_q), .blk_tid(f3_tid), .parcel(f3_parcel), .start(f3_start_q), .marks(f3_marks_q),
     .carry_out(f3_carry_q), .meta(f3_mq),
     .blk_ready, .out_tid(cq_tid), .out_valid(cq_valid), .out_insn(cq_insn), .take(iq_take), .take_t(iq_take_t), .take_n(iq_take_n), .tk(de_take),
+    .tz_t(iq_tnz_t), .tz_n(iq_tnz_n),
     .occ_o(q_occ));
 
   // ---- Pipeline control ----
@@ -1687,7 +1690,11 @@ module tg_fetch
   logic            am_rd;
   assign am_rd    = MT && am_go && ((rda_q != 2'd3 && miss_pa_q[PA_W-1:6] == rdl_q) ||
                                     (vda_q != 2'd3 && miss_pa_q[PA_W-1:6] == vdl_q));
-  assign r_start  = rs_q == R_IDLE && (miss_any || am_go) && !rst && !pf_wait && !pv_go && !(am_rd && !miss_any);
+  // (no refill starts during a sweep, nor in the cycle a fourth FENCE.I starts one: the sweep owns the valid RAM's
+  // write port, so a refill's writes would be lost, and with hart 1 the other stream's miss can come then; a refill
+  // already running is poisoned by the FENCE.I)
+  assign r_start  = rs_q == R_IDLE && (miss_any || am_go) && !rst && !pf_wait && !pv_go && !(am_rd && !miss_any) &&
+                    ivs_done && !(icinv && gpend_q == 2'd3);
   assign tr_go    = IPF_ON && (r_start || pv_go) && mline[11:6] != 6'h3F && (ps_q == P_IDLE || ps_q == P_HELD);
   assign p_inv_go = IPF_ON && ps_q == P_INV && ivs_done && !r_start && !tag_we && !pv_go;
   assign gp_go    = !gps_q[SET_W] && ivs_done && !r_start && !tag_we && !pv_go && !p_inv_go;
@@ -1939,6 +1946,9 @@ module tg_fetch
       assert ($onehot0({r_start, tag_we, pv_go, p_inv_go})) else $error("tg_fetch: two valid-RAM writers in a cycle");
       if (IPF_ON && pv_go) assert (!iv_v[1][pway_q]) else $error("tg_fetch: the held line's way is valid at its validation");
     end
+    // a FENCE.I's sweep owns the valid RAM's write port: no other write comes then, as it would be lost
+    if (ivref_ok_q && !rst && !ivs_done)
+      assert (!(r_start || tag_we || pv_go || p_inv_go)) else $error("tg_fetch: a valid-RAM write during the sweep");
   end
 `endif
 

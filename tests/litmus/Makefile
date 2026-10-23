@@ -3,10 +3,11 @@
 #   git clone https://github.com/litmus-tests/litmus-tests-riscv $(LITMUS); git -C $(LITMUS) checkout 08728ed
 #   make -C tests/litmus [CFG=st|smt2] [HARTS=...] [LAT=board] [ITERS=100] [FAMILY=SAFE,CO] [SAMPLE=N]   the SoC (tb_boot)
 #   make -C tests/litmus replay [HARTS=0,1|0,1,2,3] [ITERS=100]    Spike against Spike: the harness's own check
-#   make -C tests/litmus vsim CFG=smt2 HARTS=0,1                  one core's two threads (tg_vsim; M7, once hart 1 fetches)
+#   make -C tests/litmus vsim CFG=smt2 HARTS=0,1 [LAT=N]          one core's two threads (tg_vsim; M7, once hart 1 fetches)
 # HARTS: the harts that run a test's threads, in order: 0,1 is one thread of each of two st cores, 0,2 the same on
 # smt2 cores (hart 1 does not fetch until M7's step 5), 0,1 under vsim the two threads of one smt2 core, 0,1,2,3 all
-# four. A test with more threads than HARTS is left out. LAT is tb_boot's DDR timing (run_litmus.py --lat).
+# four. A test with more threads than HARTS is left out. LAT is tb_boot's DDR timing (run_litmus.py --lat; board+N: the
+# latency injector's N cycles on top of the board's), or with vsim tg_vsim's memory latency (a number; else its default).
 # Failing batches are kept, with a command that reruns them, in $TANAGER_BUILD/<worktree>/litmus/<run>/failures.
 LITMUS   ?= $(HOME)/src/tanager/litmus-tests-riscv
 LITMUS_REV := 08728ed
@@ -38,7 +39,7 @@ HSFX  := h$(subst $(comma),,$(HARTS))
 run: check-suite
 	@$(MAKE) --no-print-directory -s -C $(ROOT)/tests/unit/boot build CFG=$(CFG) CORES=2 VTHREADS=1 JOBS=$(JOBS) $(TC_ARG) \
 	  $(if $(L2TAG),TAG=$(L2TAG) MEM_PARAMS="-GL2_SETS_TB=$(L2_SETS)")
-	$(RUN) --tb $(TB) --lat $(LAT) --workdir $(TANAGER_BUILD)/$(WT)/litmus/$(CFG)$(TC_SUFFIX)-$(HSFX) \
+	$(RUN) --tb $(TB) --lat $(LAT) --workdir $(TANAGER_BUILD)/$(WT)/litmus/$(CFG)$(TC_SUFFIX)-$(HSFX)$(if $(filter-out board,$(LAT)),-$(LAT)) \
 	  --name "litmus $(CFG)$(TC_SUFFIX), harts $(HARTS), $(LAT) timing"
 
 replay: check-suite
@@ -48,8 +49,9 @@ replay: check-suite
 
 vsim: check-suite
 	@$(MAKE) --no-print-directory -s -C $(ROOT)/sim CFG=$(CFG) CORE=core $(TC_ARG) build
-	$(RUN) --vsim $(TANAGER_BUILD)/$(WT)/sim/$(CFG)-core$(TC_SUFFIX)/tg_vsim \
-	  --workdir $(TANAGER_BUILD)/$(WT)/litmus/vsim-$(CFG)$(TC_SUFFIX)-$(HSFX) --name "litmus, tg_vsim $(CFG), harts $(HARTS)"
+	$(RUN) --vsim $(TANAGER_BUILD)/$(WT)/sim/$(CFG)-core$(TC_SUFFIX)/tg_vsim $(if $(filter-out board,$(LAT)),--lat $(LAT)) \
+	  --workdir $(TANAGER_BUILD)/$(WT)/litmus/vsim-$(CFG)$(TC_SUFFIX)-$(HSFX)$(if $(filter-out board,$(LAT)),-lat$(LAT)) \
+	  --name "litmus, tg_vsim $(CFG), harts $(HARTS)$(if $(filter-out board,$(LAT)), lat $(LAT))"
 
 check-suite:
 	@test -f $(LITMUS)/model-results/herd.logs || { echo "no litmus-tests-riscv at $(LITMUS) (see the top of this Makefile)"; exit 2; }

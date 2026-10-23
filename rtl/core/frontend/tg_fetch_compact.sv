@@ -67,6 +67,8 @@ module tg_fetch_compact
   input  logic [idx_w(RD + 1)-1:0] take_t,     // ... if rename takes decode's group (tk), and if not: take is the
   input  logic [idx_w(RD + 1)-1:0] take_n,     // choice (asserted). The counts and the head run on both beside
   input  logic                     tk,         // rename's decision, which picks last (timing)
+  input  logic                     tz_t,       // ... whether take_t and take_n are nonzero (asserted), made by decode
+  input  logic                     tz_n,       // without its count: the read thread's switch needs no more
   output logic [NUM_THREADS-1:0][idx_w(DEPTH):0] occ_o   // MT (5e): each thread's entries, registered (fetch's room)
 );
   localparam bit MT = HART1_ON && NUM_THREADS > 1;   // a queue per thread (two threads)
@@ -276,8 +278,11 @@ module tg_fetch_compact
   logic        rt_n;
   assign occ_wr = occ_t_q[rq] + ((wq == rq) ? w : '0);
   assign occ_wo = occ_t_q[ro] + ((wq == ro) ? w : '0);
-  logic        tz;                                  // decode takes from the reader: by rename's decision, picked last
-  assign tz     = tk ? take_t != '0 : take_n != '0;
+  // decode takes from the reader: by rename's decision, picked last, from decode's nonzero flags (timing: from the
+  // counts, the queue's read, decode's group rules and its redirect test ran into every bank's copy of rt_q, spikes
+  // 8.18's near-final chip, placement 2: rt_b_q from head_t_q, -0.720 ns, the chip's worst)
+  logic        tz;
+  assign tz     = tk ? tz_t : tz_n;
   assign rt_n   = (MT && !fq[ro] && occ_wo != '0 && acc_t[ro] && (tz || fq[rq] || occ_wr == '0 || !acc_t[rq]))
                   ? ro : rt_q;
   always_ff @(posedge clk) begin
@@ -321,6 +326,8 @@ module tg_fetch_compact
     if (!rst && !fq[rq]) assert (int'(take) <= RD && (QW + 1)'(take) <= rocc)
       else $error("tg_fetch_compact: take beyond the valid entries");
     if (!rst) assert (take == (tk ? take_t : take_n)) else $error("tg_fetch_compact: decode's take is not its choice by tk");
+    if (!rst) assert (tz_t == (take_t != '0) && tz_n == (take_n != '0))
+      else $error("tg_fetch_compact: decode's nonzero flags are not its counts'");
     // the switch as it was written before, from the next counts
     if (!rst) assert (rt_n == ((MT && occ_n[ro] != '0 && acc_t[ro] && (take != '0 || occ_n[rq] == '0 || !acc_t[rq])) ? ro
                                                                                                                  : rt_q))

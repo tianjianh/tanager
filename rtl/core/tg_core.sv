@@ -201,6 +201,7 @@ module tg_core
   logic [DECODE_WIDTH-1:0]   iq_valid;
   fe_insn_t [DECODE_WIDTH-1:0] iq_insn;
   logic [idx_w(DECODE_WIDTH + 1)-1:0] iq_take, iq_take_t, iq_take_n;
+  logic                               iq_tnz_t, iq_tnz_n;    // decode's takes are nonzero (the queue's read thread)
   logic                    de_take;                   // (declared ahead of fetch, which reads it)
   // Fetch's own copy of the privilege and of whether it translates, a cycle behind tg_csr's: they
   // change only as a trap, an xRET or a serialising CSR write commits, and the flush that follows
@@ -291,7 +292,7 @@ module tg_core
     .ras_push(fras_push), .ras_pop(fras_pop), .ras_link(fras_link),
     .ras_rv(fras_rv), .ras_rwr(fras_rwr), .ras_rtos(fras_rtos), .ras_rcnt(fras_rcnt), .ras_rtop(fras_rtop),
     .upd_valid, .upd_way, .upd_pc, .upd_slot, .upd_target, .upd_inval, .upd_tid,
-    .iq_valid, .iq_insn, .iq_take, .iq_take_t, .iq_take_n, .de_take,
+    .iq_valid, .iq_insn, .iq_take, .iq_take_t, .iq_take_n, .iq_tnz_t, .iq_tnz_n, .de_take,
     .xl_h(xl_f_q), .dst(de_state_h), .priv_h(priv_f_q), .pmp_d_h, .pmp_busy, .rn_block(rn_blk), .rn_acc,
     .pmp_lk_h, .pfc_req, .pfc_page, .pfc_tag, .pfc_tid, .pfc_pa, .pfc_m, .pfc_rsp_v, .pfc_rsp_tag, .pfc_rsp_ok, .pfc_rsp_nh,
     .pfc_rsp_x,
@@ -302,10 +303,11 @@ module tg_core
 
   // ---- Decode ----
   logic [DECODE_WIDTH-1:0] de_valid;
+  logic                    de_nz;          // |de_valid, made without decode's group rules (rename's choices)
   uop_t [DECODE_WIDTH-1:0] de_uop;
   tg_decode_stage u_de (
     .clk, .rst, .flush, .dst_h(de_state_h),
-    .iq_valid, .iq_insn, .iq_take, .iq_take_t, .iq_take_n, .de_valid, .de_uop, .de_take,
+    .iq_valid, .iq_insn, .iq_take, .iq_take_t, .iq_take_n, .iq_tnz_t, .iq_tnz_n, .de_valid, .de_nz, .de_uop, .de_take,
     .dred, .dred_tid, .dred_pc, .dred_ftq, .dred_slot, .dred_rop, .dred_rlink, .ras_v, .ras_top, .ras_push, .ras_pop,
     .ras_link);
   if (RAS_ON) begin : g_ras
@@ -446,7 +448,7 @@ module tg_core
   logic                             rn_ready;
   tg_rename u_rn (
     .clk, .rst, .ready(rn_ready), .start(init_done && fe_ready && lsu_ready), .flush, .flush_tid,
-    .de_valid, .de_uop, .de_take, .blk_o(rn_blk), .acc_o(rn_acc),
+    .de_valid, .de_nz, .de_uop, .de_take, .blk_o(rn_blk), .acc_o(rn_acc),
     .rob_head(rob_head_t), .lq_head(lq_head_t), .sq_head(sq_head_t), .sq_cmt(sq_cmt_t), .iq_bank_free,
     .iq_bank_free2, .iq_room_ge, .iq_bank_left, .w_vec, .busy(iq_busy),
     .rf_we, .rf_widx, .llt_rel, .tag_free, .div_done, .div_done_tid,
@@ -530,6 +532,8 @@ module tg_core
   // ---- Load/store unit ----
   logic             ld_cmp, ld_cmp_mmio, replay_valid, sq_drained, mmio_busy, st_dropped;
   robid_t           ld_cmp_rob, replay_rob;
+  logic             snp_valid;            // CoRR (architecture_plan §4.9): the LSU's snoop marking's replay report
+  robid_t           snp_rob;
   logic [1:0]       st_cmp;
   robid_t [1:0]     st_cmp_rob;
   // The store reports as the ROB takes them: with ROB_STORE_REPORT_LATE (DR-140 #2) a cycle later,
@@ -560,10 +564,10 @@ module tg_core
   robid_t           spx_rob;
   logic [1:0]       sth_v;                // ... and the stores commit stops before meanwhile
   robid_t [1:0]     sth_rob;
-  logic [2:0]       cmh_v;                // commit holds: those stores, and the replayed load while
-  robid_t [2:0]     cmh_rob;              // its mark is on its way (a harmless hold with #2)
-  assign cmh_v   = {replay_valid, sth_v};
-  assign cmh_rob = {replay_rob, sth_rob};
+  logic [3:0]       cmh_v;                // commit holds: those stores, and the replayed load while
+  robid_t [3:0]     cmh_rob;              // its mark is on its way (a harmless hold with #2), the ordering
+  assign cmh_v   = {snp_valid, replay_valid, sth_v};   // search's and CoRR's snoop report's
+  assign cmh_rob = {snp_rob, replay_rob, sth_rob};
   logic [3:0]       lx_valid, lx_valid_q;
   robid_t [3:0]     lx_rob, lx_rob_q;
   logic [3:0][3:0]  lx_cause, lx_cause_q;
@@ -648,7 +652,7 @@ module tg_core
     .ds_src2_rdy, .rf_we, .rf_widx,
     .ld_cmp_valid(ld_cmp), .ld_cmp_rob, .ld_cmp_mmio, .st_cmp_valid(st_cmp), .st_cmp_rob,
     .exc_valid(lx_valid), .exc_rob(lx_rob), .exc_cause(lx_cause), .spx_valid, .spx_rob, .sth_v, .sth_rob,
-    .replay_valid, .replay_rob, .rob_head(rob_head_t), .hd_tid(rob_hd_tid), .hd_tid_n(rob_hd_tid_n), .cm_tid(cm_tid[0]), .cm_nld, .cm_nst,
+    .replay_valid, .replay_rob, .snp_valid, .snp_rob, .rob_head(rob_head_t), .hd_tid(rob_hd_tid), .hd_tid_n(rob_hd_tid_n), .cm_tid(cm_tid[0]), .cm_nld, .cm_nst,
     .tr_sq, .tr_st_wr, .tr_st_va,
     .tr_st_data,
     .tr_st_size, .tr_lq, .tr_ld_va, .tr_ld_size, .sq_drained, .mmio_busy, .irq_go(tr_irq), .rsv_clr, .st_dropped,
@@ -709,6 +713,8 @@ module tg_core
     .cmh_v, .cmh_rob,
     .replay_valid,
     .replay_rob,
+    .snp_valid,
+    .snp_rob,
     .tlbm_valid, .tlbm_rob, .hd_tlb, .hd_retry, .hd_fault, .hd_cause, .hd_lva, .hd_sva,
     .sq_drained, .mmio_busy,
     .cm_valid, .cm_rd_en, .cm_rd_fp, .cm_rd, .cm_dst, .cm_old, .cm_ras_push, .cm_ras_pop, .cm_ras_link,

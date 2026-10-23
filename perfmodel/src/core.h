@@ -162,6 +162,10 @@ struct SqEntry {
 // and the ordering flushes a store's low-bit match raises.
 #define TG_AREA_STATS(X) X(alu_p0) X(alu_p1) X(alu_p2) X(alu_full_ops) X(alu_cap_moves) X(alu_row_moves) \
   X(alu_reg_moves) X(pa_ld_false) X(pa_ld_retries) X(pa_viol_false)
+// M9's planning counters (reported with itt_entries, mdp 2 or m9_counts): F2 redirects from the indirect target table;
+// indirect jumps that took its target, and of them the right ones; ones the micro-BTB missed and it didn't hold;
+// committed loads and stores not aligned to their size (each would trap without hardware misaligned access).
+#define TG_M9_STATS(X) X(f2o_itt) X(itt_used) X(itt_right) X(itt_none) X(ld_misaligned) X(st_misaligned)
 
 struct Stats {
 #define TG_SDECL(n) uint64_t n = 0;
@@ -170,6 +174,7 @@ struct Stats {
   TG_LEVER_STATS(TG_SDECL)
   TG_M7_STATS(TG_SDECL)
   TG_AREA_STATS(TG_SDECL)
+  TG_M9_STATS(TG_SDECL)
 #undef TG_SDECL
 };
 
@@ -219,6 +224,7 @@ class Core {
     // block read, whether the next read has the whole history (after a redirect, a flush or an I$ miss), and a
     // block the fetch queue cut short (its rest reads nothing new)
     uint64_t bgh = 0, bt_h0 = 0;
+    uint64_t itt_path = 0;         // itt_entries: the last few indirect targets, hashed
     bool bt_exact = true, bt_partial = false;
     BlockTage::Ix bt_ix;
     uint64_t bt_blk = 0;
@@ -405,6 +411,9 @@ class Core {
   void bt_edge();
   PcCounters sfb_tab_;
   PcTable hitpred_, waittab_;
+  struct Itt { uint64_t target = 0; uint16_t tag = 0; bool v = false; };
+  std::vector<Itt> itt_;            // itt_entries: the indirect target table
+  std::vector<uint8_t> itt_bad_;    // ... and, by PC, whether the micro-BTB's target was wrong last time
 
   uint64_t t_ = 0;
   uint64_t age_next_ = 1;
