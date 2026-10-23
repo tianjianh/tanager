@@ -207,6 +207,7 @@ module tg_rename
   logic [W-1:0]          ds_valid_q;
   uop_t [W-1:0]          ds_uop_q;
   ren_t [W-1:0]          ds_ren_q;
+  logic [W-1:0][N_IQ-1:0] ds_qoh_q;        // DS's slots' queues, one-hot (none without a queue): ds_ren_q's has_q and q
   // DR-185: the fields rename never reads (the payload: the PC, the instruction, the prediction state, the immediate,
   // the branch target, the units' controls) wait in a LUTRAM beside rename, not in the RN and DS registers. Decode
   // writes a group's payload as the group enters its thread's RN register; DS reads it as the group dispatches. A
@@ -611,7 +612,7 @@ module tg_rename
       for (int k = 0; k < W; k++)
         st_free[p][k] = !STEER_LA ? iq_bank_free[p][k]
                       : iq_bank_free2[p][k] ||
-                        (iq_bank_free[p][k] && !(ds_valid_q[k] && ds_ren_q[k].has_q && int'(ds_ren_q[k].q) == p));
+                        (iq_bank_free[p][k] && !(ds_valid_q[k] && ds_qoh_q[k][p]));
 
   // M7 step 7's caps (DR-175; smt2_report §13.15): R1, a thread holds at most IQ_CAP_PCT of each queue's rows; R2, it
   // takes no row that would leave it holding all of a bank's rows while its sibling's waiting group (the sibling's RN
@@ -653,11 +654,14 @@ module tg_rename
         logic dk;
         dn = 0;
         for (int k = 0; k < W; k++) begin
-          dk = ds_valid_q[k] && t_ds == tid_t'(t) && ds_ren_q[k].has_q && int'(ds_ren_q[k].q) == q;
+          dk = ds_valid_q[k] && t_ds == tid_t'(t) && ds_qoh_q[k][q];
           dn += int'(dk);
           bank_ok[t][q][k] = !sib_need[t][q][k] || iq_bank_left[q][t][k][dk];
         end
-        for (int c = 0; c <= W; c++) cap_ok[t][q][c] = dn + c < 2 * W && iq_room_ge[q][t][dn + c];
+        // Without R1 (IQ_CAP_PCT 100, step 7's form) tg_iq's room flags are ones, and every index a valid uop reads has
+        // dn + c <= 2W - 1 (its group's earlier rows c <= W - 1, DS's dn <= W): cap_ok is ones, and no DS row count
+        // reaches the steering, the fire check or rdy (the chip's ds_ren_q -> rn_fire -> decode family, §8.18)
+        for (int c = 0; c <= W; c++) cap_ok[t][q][c] = IQ_CAP_PCT >= 100 || (dn + c < 2 * W && iq_room_ge[q][t][dn + c]);
       end
   end
 
@@ -1202,6 +1206,17 @@ module tg_rename
         end
     end
   end
+  // DS's queue one-hot is ds_ren_q's has_q and q (both load while DS is free), for a valid slot, from the first reset
+  logic qoh_rs_q;
+  initial qoh_rs_q = 1'b0;
+  always @(posedge clk) if (rst) qoh_rs_q <= 1'b1;
+  always_ff @(posedge clk)
+    if (qoh_rs_q && !rst)
+      for (int k = 0; k < W; k++)
+        for (int q = 0; q < N_IQ; q++)
+          if (ds_valid_q[k])
+            assert (ds_qoh_q[k][q] == (ds_ren_q[k].has_q && int'(ds_ren_q[k].q) == q))
+              else $error("tg_rename: DS slot %0d's queue one-hot differs from its queue", k);
   // (DR-179) FP destinations renamed across, on stderr at the end with hart 1: P4's results into F1, FP loads into F0
   longint unsigned nfx[2];
   logic [1:0][idx_w(W+1)-1:0] fx_n;
@@ -1728,6 +1743,8 @@ module tg_rename
     if (ds_free) begin
       ds_uop_q <= rn_uop_q;
       ds_ren_q <= ren;
+      for (int k = 0; k < W; k++)
+        for (int q = 0; q < N_IQ; q++) ds_qoh_q[k][q] <= ren[k].has_q && int'(ren[k].q) == q;
       ds_s_q   <= rn_s_q[CMT ? sel_q : 1'b0];
 `ifndef SYNTHESIS
       ds_sh_q  <= rn_sh_q[CMT ? sel_q : 1'b0];

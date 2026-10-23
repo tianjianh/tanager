@@ -43,7 +43,9 @@ BR2_TARGET_ROOTFS_CPIO=y
 BR2_TARGET_ROOTFS_CPIO_GZIP=y
 BR2_TARGET_ROOTFS_INITRAMFS=y
 # BR2_TARGET_ROOTFS_TAR is not set
-# OpenSBI 1.9, generic platform, fw_jump: kernel at 0x8020_0000, FDT relocated to 0x8220_0000
+# OpenSBI 1.9, generic platform, fw_jump: kernel at 0x8020_0000, FDT relocated to 0x8220_0000, with Tanager's
+# patches (patches/opensbi, as sw/build_opensbi.sh applies them; soc.md §5)
+BR2_GLOBAL_PATCH_DIR="$(BR2_EXTERNAL_TANAGER_PATH)/patches"
 BR2_TARGET_OPENSBI=y
 BR2_TARGET_OPENSBI_CUSTOM_VERSION=y
 BR2_TARGET_OPENSBI_CUSTOM_VERSION_VALUE="1.9"
