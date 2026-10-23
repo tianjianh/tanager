@@ -47,6 +47,8 @@ The hardwired rows below need RTL work first.
 
 ## Hardwired: the way back is RTL work
 
+The two with a cycle cost, the walker's shared PMP checker (DR-139) and FP conversions on the FMA (R5), stay as they are: the user decided on 10-22 to keep them documented here, with their way back, and to build no switches ("no need to do a switch now; just keep it in the doc").
+
 | Measure (hardware) | Saves a chip | Costs | The way back |
 |---|---|---|---|
 | **FP banks of 64 with renaming across banks** (DR-179) instead of banks of 96 | 3,260 LUTs (1,630 a core) | FP pairs −0.18 / +0.14 / −0.34%; a select on each FP bank's write port; a rename rule only smt2-study's model has proved | No switch: `FXB = EXT_FD && HART1_ON` (tg_rename.sv) and `FP_PREGS_PER_BANK = 64` (tg_cfg_smt2.sv). The banks of 96 were one configuration line (caf4f560) that d33cf028 replaced; restoring the line alone leaves the crossing logic in, an untested combination. A switch (96 and `FXB` 0 together) is planned with fpu-2 and core-2 (the audit's gap 1). `sim/profile.mk` still says "FP banks of 96" |
