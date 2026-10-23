@@ -1884,6 +1884,12 @@ Results: `fpga/spikes/results/product_wt_rc1/` holds the two summaries and the i
     - the caps: `cap_ok` indexed by `dn`, and `bank_ok`;
     - the greedy ALU queue choice with its per-queue counts;
     - `caps_ok`, then `rn_fire`, then decode's enable.
+  - **The path's net names agree.** They are kept where the cells' are not. In order:
+    - `ds_ren[0][has_q]`;
+    - a net of `rwo_q[1]`'s input cone (step 7's `rwo`, from the caps);
+    - the inputs of `ds_ren_q`'s `q` and `sq` (the steering);
+    - the free lists' `head_q`, a map table's and `ltail_q`'s inputs (rename's fire);
+    - decode's `de_take`, then two of decode's LUTs into `dred_pc`'s CE.
 - **The other families are the near-final chip's, moved by the placement:**
   - **u100's worst:** core 1's fetch queue read, through decode, into rename's RN register (`rn_u_q`, `pay_wd_q`) from `head_t_q`. It is 18–19 levels at −1.43 ns with 73–75% wire. The near-final placement 1 has the same depth at +0.34 to +0.69. The path's cells are fetch's queue LUTRAM, decode and the RN register's input; none of step 7's logic is in it ([`path_rename.txt`](../../fpga/spikes/results/product_wt3_s7_u100/path_rename.txt)).
   - **Core 0's LSU state, from `sv39_l_q`:** through the walker and the shared PMP checker (`u_csr/g_pg`), 27 levels at −1.42 ns in u100 ([`path_lsu.txt`](../../fpga/spikes/results/product_wt3_s7_u100/path_lsu.txt)). In u105 the LSU state comes from `priv_dl_q` and `lq_pck_q`, at −0.53.
