@@ -593,7 +593,8 @@ module tg_iq
   assign unused = ^{(STALE == 1) ? '0 : {disp_dep_ph, w1}, (STALE != 1) ? '0 : col_clr,
                     WAKE_NOW ? '0 : disp_wake_oh, (STALE == 1) ? '0 : dep1_q,
                     MX ? '0 : {disp_mdep, mx_issued, mx_free}, mdep_q,
-                    PRE_RDY ? '0 : w_next, rdyw_q, CBLK ? '0 : {disp_cblk, cls_block, cblk_q}};
+                    PRE_RDY ? '0 : w_next, rdyw_q, CBLK ? '0 : {disp_cblk, cls_block, cblk_q},
+                    (CAP < ROWS || BANK_CAP) ? 1'b0 : cap_on};
 
 `ifndef SYNTHESIS
   // A port writes only when its bank has a free row.

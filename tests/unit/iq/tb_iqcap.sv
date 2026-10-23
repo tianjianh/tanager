@@ -103,7 +103,7 @@ module tb_iqcap;
         if (errors < 20) $display("cycle %0d: thread %0d holds %0d rows, occ_q %0d", cyc, t, cnt[t], occ_q[t]);
       end
       for (int m = 1; m <= RMAX; m++) begin
-        if (room_ge_q[t][m-1] != (!cap_prev || cnt[t] + m <= CAP)) begin
+        if (room_ge_q[t][m-1] != (!cap_prev || CAP >= ROWS || cnt[t] + m <= CAP)) begin   // (no cap at 100%)
           errors++;
           if (errors < 20) $display("cycle %0d: thread %0d, %0d rows, cap %0d, caps %b: room_ge[%0d] %b", cyc, t,
                                     cnt[t], CAP, cap_prev, m, room_ge_q[t][m-1]);
