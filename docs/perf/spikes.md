@@ -1909,6 +1909,57 @@ Results: `fpga/spikes/results/product_wt_rc1/` holds the two summaries and the i
 
 Results: `fpga/spikes/results/product_wt3_s7_u100/` and `product_wt3_s7_u105/`. The DS family's worst path is u105's [`path_ds.txt`](../../fpga/spikes/results/product_wt3_s7_u105/path_ds.txt). The routed checkpoints are in `~/tanager-build/track-spikes-72f833/vivado/product_wt3_s7_u100/` and `_u105/`.
 
+#### fpu-2's cut of the DS family: the family is gone, −0.422 ns overall (2026-10-23)
+
+**Asked** (the coordinator, 10-23): "run one placement now at 1.05 ns on fpu-2's cut", with soc-2's ckm (1cff68aa, the `priv_dl_q` fix) and without core-2's marg branches. "Report the ds_ren_q family first, then the families worse than −0.5 ns as usual."
+- **The cut, as built:** fpu-2's newer head 6fb83dcf, at fpu-2's request; the b3c78865 job was stopped in the queue before Vivado started. It is b3c78865 plus core-2's suggestion:
+  - `cap_ok` is constant with the cap at 100%;
+  - DS's queues are a registered one-hot (`ds_qoh_q`);
+  - the bank rule's sibling need reads a class-to-queue mask registered beside the RN group (`rn_need_q`).
+- **Snapshot:** `snap/product_wt` 06830a4861a8, which is main 1fbc0685, 6fb83dcf, 1cff68aa and the measurement commit, pinned by `claude/spikes-2-board-s7d`. Against the step-7 build only `tg_rename` and `tg_lsu` differ.
+
+| | `s7d_u105` (1.05 ns) | for comparison: `s7_u105` |
+|---|---|---|
+| LUTs after synthesis / `opt_design` / routed | 118,148 / 114,325 / 112,019 (95.6%) | 118,494 / 114,386 / 112,071 |
+| FFs routed, CLBs, control sets, DSPs | 57,908, 14,640 (all), 2,929, 140 | 57,823, 14,632, 2,809, 140 |
+| WNS / TNS after `phys_opt_design` (estimated, with the uncertainty on) | **+0.006 / 0.000** | −0.287 / −79.1 |
+| Routing | level 6, no trade, 1.0 h | level 5, no trade, 1.3 h |
+| **WNS / TNS on the core clock (ns)** | **−0.422 / −73.1** (490 failing) | −0.561 / −296.2 (1,448 failing) |
+| WHS (ns) | +0.008 | +0.005 |
+| `clk2x`: within / into / back (ns) | +2.035 / +1.167 / +1.131 | +1.816 / +1.093 / +1.094 |
+| Endpoints within 1 ns | 6,651 in 281 families | 11,233 in 441 families |
+
+- **The DS family is gone.** The worst path from `ds_ren_q` is now +1.732 ns at 17 levels, into decode's `dred_rlink` CE. Before the cut it was −0.561 at 31 levels and −0.807 at 32.
+- **The cut's new registers are clear as starts.**
+  - `ds_qoh_q`: +1.090 ns (23 levels, into core 1's `rt_b_q`), and +1.48 into decode's `dred_*`.
+  - `rn_need_q`: +1.085 (the same endpoint), and +1.42 into `dred_*`.
+  - So the next cut fpu-2 named, `sib_need` into `bank_ok`, isn't needed.
+- **`rn_need_q`'s own input is near the top.** Its D input is −0.416 (core 1, from fetch's `rt_b_q`, 20 levels, 70 endpoints) and −0.408 (core 0, from `head_t_q`, 21). That is the fetch queue's path through decode into the RN register, beside `rn_u_q` (−0.367) and `pay_wd_q` (−0.266).
+- **No family is worse than −0.5 ns.** The worst:
+  - core 1's fetch `rt_b_q` and `rt_q` from rename's free list `count_q`: −0.422 and −0.413, 26 levels. It is the worst rename start into fetch; into decode's `dred_*` the worst rename start is +0.129;
+  - the `rn_need_q` inputs above;
+  - core 0's decode `dred_*` from the issue queues' `dep_q`: −0.40 to −0.36, 23 levels;
+  - the LSU's `lq_st_q`: core 0 from `lq_pck_q` −0.361, core 1 from `priv_dl_q` −0.356.
+- **soc-2's `priv_dl_q` family keeps its depth.** It is core 1's `priv_dl_q` into `lq_st_q`'s CE: 25 levels, 314 endpoints, against 25 levels at −0.535 in the step-7 build. Both builds trace the same chain ([`path_table_priv.txt`](../../fpga/spikes/results/product_wt_s7d_u105/path_table_priv.txt), and the step-7 build's in `product_wt3_s7_u105/`):
+  1. `priv_dl_q`;
+  2. the walker's `g_plk.plk_q` net;
+  3. the checker's `pfc_x_q` match and the store checker `g_ckf.u_pmp_st`'s two CARRY8s;
+  4. `pfc_ok_q`'s cone;
+  5. `sa_chk[0]`, then a 128-fanout net, into `lq_st_q`'s CE.
+- **The router lost the margin.** With the uncertainty on, the placement estimated +0.006 ns and TNS 0; routing at congestion level 6 ended 1.47 ns lower.
+  - The step-7 pair lost 1.47 ns (u100, level 6) and 1.32 ns (u105, level 5).
+  - The near-final pair lost 0 (u100, level 5) and 1.13 ns (u105).
+  - At 95.6% of the LUTs and every CLB used, the router's detours are now most of the spread.
+- **The floorplan is OK:** l2b0 100%/78%, **L2 bank 1 102%/79%**, xbar 36%/31%.
+
+Results: `fpga/spikes/results/product_wt_s7d_u105/` holds the reports and the families. It also has `report_timing_*.txt` with their `path_table_*.txt`, from these starts:
+- `ds` (`ds_ren_q`), `qoh` (`ds_qoh_q`) and `need` (`rn_need_q`) to anything;
+- `toneed`, fetch into `rn_need_q`;
+- `rnde`, rename into `dred_*`;
+- `priv` (`priv_dl_q`).
+
+The routed checkpoint is `~/tanager-build/track-spikes-72f833/vivado/product_wt_s7d_u105/routed.dcp`.
+
 #### core-2's A/B: the read thread with and without per-bank copies (2026-10-22)
 
 The fixes preview's base with core-2's newer heads (`snap/product_wt` and `snap/product_wt3`): e5b304cd, TAGE 8cf8e262, DR-183 ecfcc8a5, and core-2's walker fix a6abdc5d. The walker fix registers the head lookup's VPN, so DTLB port 2 starts at one register. Then:
