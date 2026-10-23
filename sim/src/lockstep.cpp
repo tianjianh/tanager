@@ -836,14 +836,17 @@ class lockstep_impl_t {
     return true;
   }
 
-  // Puts back the writes hw_reapply_plan chose; each keeps the bytes it now replaces as its old ones, and where
-  // memory still holds its own bytes (beyond the access, untouched since), the ones it replaced before
-  void hw_reapply(const std::vector<uint64_t>& qs) {
+  // Puts back the writes hw_reapply_plan chose for the access [pa, pa+n); each keeps the bytes it now replaces as its
+  // old ones, and where memory still holds its own bytes (beyond the access, untouched since), the ones it replaced
+  // before. Within the access memory's byte is the atomic's (or an earlier write's put back), even where it equals
+  // the write's own: seed 463583 of the coordinator's stress check (10-23), a swap's 0x00 under an sd's 0x00 left
+  // the sd's old byte from before the swap, and a later read past the sd expected it.
+  void hw_reapply(const std::vector<uint64_t>& qs, uint64_t pa, unsigned n) {
     for (uint64_t q : qs) {
       hart_write_t& e = hw_[q - hw_base_];
       uint8_t* m = mem_at(e.pa);
       for (unsigned b = 0; b < e.len; b++)
-        if (m[b] != e.nw[b]) e.old[b] = m[b], m[b] = e.nw[b];
+        if (m[b] != e.nw[b] || (e.pa + b >= pa && e.pa + b < pa + n)) e.old[b] = m[b], m[b] = e.nw[b];
       hw_moved_.push_back(q);
       if (!late_.empty()) late_drop(e);  // it reached memory here, whatever later writes it might have followed
     }
@@ -930,7 +933,7 @@ class lockstep_impl_t {
     memcpy(mem_at(pa), before, n);  // Spike's memory as the AMO found it, for the late landers it read
     late_settle(hi, pa, n, late, got);
     memcpy(mem_at(pa), &res, n);
-    hw_reapply(qs);
+    hw_reapply(qs, pa, n);
     st.st_val = res;  // the store data compare that follows checks the RTL's against it
     if (w) memcpy(w->old, got, n);
     adopt_rd(h, r);
@@ -1047,7 +1050,7 @@ class lockstep_impl_t {
     memcpy(mem_at(w.pa), w.old, n);  // as the AMO found it, under the late landers
     if (settle) late_settle(hi, w.pa, n, f.late, f.word);
     memcpy(mem_at(w.pa), &f.res, n);
-    hw_reapply(f.qs);
+    hw_reapply(f.qs, w.pa, n);
     memcpy(w.old, f.word, n);
     st.st_val = f.res;
     if (f.np) hart_loads_old_++;
@@ -1068,7 +1071,7 @@ class lockstep_impl_t {
     hw_reapply_plan(size_t(&h - harts_.data()), pa, st.st_size, from, nullptr, cycle, true, sim, qs,
                     h.lr_val_ok ? h.lr_val : nullptr, h.lr_pa, h.lr_n);
     if (qs.empty()) return;
-    hw_reapply(qs);
+    hw_reapply(qs, pa, st.st_size);
     hart_reapplied_++;
   }
 
