@@ -218,17 +218,39 @@ A recommendation follows: what M9 builds and in what order, what waits for v2, a
   - That is an upper end, since the kernel is a regular 34-bytecode loop.
   - The pairs have almost no indirect jumps (0.06 per 1K).
 - **(c) DR-159's block BTB:** CoreMark +2.2%, the suite unchanged, about 0.6K LUTs a core.
-- **The boot (to measure in M9):** the RTL boot profile counts 6.5 mispredicts per 1K (about 5% of the first 20M
-  cycles, 9 cycles each), but not their kind.
-  - Method: mark the non-return JALR mispredict flushes in the profile's bind, with a shadow 256-entry path table
-    updated at commit, as §6.11's shadow micro-BTBs were.
-  - Bound meanwhile: about +0.4% of the boot for each tenth of its mispredicts the table fixes.
+- **The boot, measured on the RTL** (smt2-study, area_recovery §7.12, claude/tgsim-rtl-cal b0dca59a). The method:
+  - tb_boot runs the board's shape (two cores, thread 0 each) to TANAGER-BOOT-OK.
+  - (a) is measured by building it.
+  - (b) replays the RTL's own indirect-jump stream through a shadow table, with each fixed mispredict costed to its
+    32nd younger retirement.
+
+  | | Core 0 | Core 1 |
+  |---|---|---|
+  | Indirect-jump mispredicts per 1K (of all) | 4.08 (of 7.99) | 3.38 (of 7.01) |
+  | (b) the path table, on busy cycles | **+2.91%** | **+2.42%** |
+  | (b) on all cycles | +1.84% | +1.49% |
+
+  - (a), the 128-entry micro-BTB, measured: +0.35% of the boot's cycles. With (a) built, (b) still adds +1.6–2.5%.
+  - On the RTL's suite, (b) is +0.14% (18 programs) and (a) +0.37% (nsichneu +7.9%, Dhrystone −1.4%). The
+    interpreters: (b) +87% (switch) and +31% (threaded), (a) 0.
+  - So the boot gains 3 to 6 times DR-190's 0.5%. Most of its indirect mispredicts are at one-target kernel PCs (far
+    calls), and the interpreters need the path.
+- **The table's shape (smt2-study's recommendation):** split the same storage into a 128-entry path half and a
+  128-entry PC half, one more index and tag compare.
+
+  | Variant | Boot | Switch / threaded |
+  |---|---|---|
+  | path 256 (the plan) | +2.9% | +87% / +31% |
+  | **path 128 + PC 128 (the same storage)** | **+4.1%** | +81% / +31% |
+  | PC 256 | +4.6% | 0 / 0 |
+  | path 256 + PC 256 (twice the storage) | +5.0% | +87% / +31% |
 - **Cost of (b):** one RAMB36 a core (256 × tag + target fits; 23 are free) and about 100 LUTs (smt2-study's desk
   estimate), i.e. about 0.2K LUTs and 2 BRAM a chip. As LUTRAM, about 400 a core.
 - **Timing risk medium:** fetch's next-PC families (rt_q, qs_q) are near the chip's top. A late F2 override, as TAGE's,
   keeps the table off F1's loop.
 - **Switch:** yes.
-- **Decided (the coordinator under DR-154, 01e2c013):** M9 builds (b), the 256-entry path table, in its BRAM form, as an
+- **Decided (the coordinator under DR-154, 01e2c013):** M9 builds (b), the 256-entry path table (now best split as path 128
+  + PC 128, above), in its BRAM form, as an
   F2 override behind a switch. DR-190's "0.5%, else the 128-entry micro-BTB" did not fit the numbers, since its
   fallback loses.
   - Debian runs interpreters (apt's Python, Perl and shell maintainer scripts), and there (b) roughly halves or better
