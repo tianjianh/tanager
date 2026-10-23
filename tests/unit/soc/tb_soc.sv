@@ -47,6 +47,10 @@ module tb_soc;
   // hold nothing (the program claims on hart 0's S context) and TTC1 is no source; the DMA port has no line
   // counters or completions; CAPS[9], [10] and [11] read 0
   parameter bit    RELEASE = 1'b0;
+  // The uncore's register slices (tanager_soc XBAR_SLICE and MEM_SLICE, off by default since DR-186): a bigger chip may
+  // want them back for timing (docs/spec/area_switches.md)
+  parameter bit    XBAR_SLICE = XBAR_SLICE_DEF;
+  parameter bit    MEM_SLICE  = MEM_SLICE_DEF;
   // A program runs on the test cores, or with SDIRQ on the real ones too (KIND = "core")
   localparam bit   PROG = KIND == "tcore" || SDIRQ;
 
@@ -111,7 +115,8 @@ module tb_soc;
   tanager_soc #(
     .N_CORES (NUM_CORES), .CLK_HZ (100_000_000), .L2_SETS (16), .L2_MSHR (24),
     .CORE_RST_INIT (1'b1), .UNCORE_RST_INIT (1'b1), .CORE_KIND ((KIND == "trafgen") ? "trafgen" : "core"),
-    .VIRTIO_WINDOW (VIRTIO), .HOST_DMA (HOST_DMA), .LAT_INJ (LAT_INJ), .RELEASE (RELEASE), .BREAK_LOG2 (6)
+    .VIRTIO_WINDOW (VIRTIO), .HOST_DMA (HOST_DMA), .LAT_INJ (LAT_INJ), .RELEASE (RELEASE), .BREAK_LOG2 (6),
+    .XBAR_SLICE (XBAR_SLICE), .MEM_SLICE (MEM_SLICE)
   ) dut (
     .uart_txd_o (), .uart_rxd_i (ps_rxd),
     .clk, .clk2x, .rst, .clk_host, .rst_host,
@@ -267,8 +272,9 @@ module tb_soc;
   always @(posedge clk) sd_irq <= SDIRQ && |(sd_st & sd_sig);
   // SDIRQ on the real cores with +ipi_race=N: an IPI to hart 0 (its MSIP in the ACLINT, OpenSBI's IPI) made
   // pending in the very cycle hart 0's LSU issues its Nth PLIC claim of context 1 (S-mode, sd_irq_smt2s/v), as
-  // an IPI can land while Linux's plic_handle_irq claims. MSIP to the hart's interrupt selection is
-  // combinational, so set mid-cycle it is taken that cycle; hart 0's M-mode handler clears it.
+  // an IPI can land while Linux's plic_handle_irq claims. The ACLINT's output register (msi_q) to the hart's
+  // interrupt selection is combinational, so set mid-cycle with msip_q behind it, it is taken that cycle;
+  // hart 0's M-mode handler clears it.
   // Under TB_SOC_CORE only (the Makefile's, with KIND=core): Verilator resolves these names even in a generate
   // branch that is off, and the test cores and the traffic generators have no LSU
   int ipi_race_at = 0, claims_seen = 0, ipi_injected = 0;
@@ -281,6 +287,7 @@ module tb_soc;
         claims_seen++;
         if (claims_seen == ipi_race_at) begin
           dut.u_uncore.u_aclint.msip_q[0] = 1'b1;
+          dut.u_uncore.u_aclint.msi_q[0]  = 1'b1;
           ipi_injected++;
           $display("[%0t] ipi_race: an IPI to hart 0 in the cycle its claim number %0d issues", $time, claims_seen);
         end

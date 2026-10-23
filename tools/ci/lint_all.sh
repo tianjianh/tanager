@@ -10,7 +10,10 @@
 # SYNTH=1), each on top of the default; the PMP entries the
 # package does not default to (PMP_ENTRIES=8 or 16, DR-167); and the default's
 # synthesis view (SYNTH=1: +define+SYNTHESIS, where a signal that
-# synthesized logic reads but only simulation-only code drives is an error). They run JOBS at a time
+# synthesized logic reads but only simulation-only code drives is an error). With hart 1, smt2 also elaborates the
+# product's combination (URF=1 and the release form, in both views) and a bigger chip's, every area measure that has a
+# switch off together (PMP_ENTRIES=16, four TAGE tables of 4K, the uncore's slices, a window of ROB 96, LQ 32, SQ 24:
+# WIN=, a copy of the configuration's file; both views; docs/spec/area_switches.md). They run JOBS at a time
 # (Verilator's lint is one thread and about 0.6 GB).
 # An elaboration whose define no RTL file mentions is the default's, so it is skipped.
 # With them, the forward-reference check (tools/ci/fwdref.sh: Verilator's JSON dump of the synthesis
@@ -59,6 +62,8 @@ if mentioned TG_STORE_PF_MAX; then  # the count other than the package's default
             "$ROOT/rtl/core/tg_core_pkg.sv")
   profiles+=("STORE_PF_MAX=$([ "$spm_def" = 3 ] && echo 2 || echo 3)")
 else echo "lint-all: no RTL mentions TG_STORE_PF_MAX; skipping STORE_PF_MAX"; fi
+# DR-185's rename payload written straight into its LUTRAM (PAY_WREG=0; the package registers the write)
+if mentioned TG_PAY_WREG; then profiles+=("PAY_WREG=0"); else echo "lint-all: no RTL mentions TG_PAY_WREG; skipping PAY_WREG=0"; fi
 profiles+=("SYNTH=1")
 # DR-177's release builds, without the two latency injectors (tanager_soc LAT_INJ, a parameter), in both views
 if grep -qsw LAT_INJ "$ROOT/rtl/soc/tanager_soc.sv"; then profiles+=("LAT_INJ=0" "LAT_INJ=0 SYNTH=1")
@@ -74,6 +79,21 @@ solo=""; if mentioned TG_SOLO_TID; then solo=1; else echo "lint-all: no RTL ment
 split=""; if mentioned TG_SPLIT; then split=1; else echo "lint-all: no RTL mentions TG_SPLIT; skipping SPLIT=1"; fi
 # ... and hart 1 (HART1=1, step 5)
 hart1=""; if mentioned TG_HART1; then hart1=1; else echo "lint-all: no RTL mentions TG_HART1; skipping HART1=1"; fi
+# With hart 1 (the four-hart chip), the area switches together (docs/spec/area_switches.md): the product's (URF=1 and
+# the release form) and a bigger chip's, every area measure with a switch off (PMP_ENTRIES=16, TAGE's four tables of
+# 2^12, the uncore's register slices, a larger window), each in both views
+area=()
+if [ -n "$hart1" ]; then
+  if mentioned TG_URF && grep -qsw RELEASE "$ROOT/rtl/soc/tanager_soc.sv"; then
+    area+=("HART1=1 URF=1 RELEASE=1 LAT_INJ=0 COMMIT_TRACE=0" "HART1=1 URF=1 RELEASE=1 LAT_INJ=0 COMMIT_TRACE=0 SYNTH=1")
+  else echo "lint-all: no TG_URF or tanager_soc RELEASE; skipping the product's combination"; fi
+  if mentioned TG_PMP_ENTRIES && mentioned TG_TAGE_NT && grep -qsw MEM_SLICE "$ROOT/rtl/soc/tanager_soc.sv"; then
+    big="HART1=1 PMP_ENTRIES=16 TAGE_NT=4 TAGE_LI=12 XBAR_SLICE=1 MEM_SLICE=1 WIN=96,32,24"
+    area+=("$big" "$big SYNTH=1")
+  else echo "lint-all: no TG_PMP_ENTRIES, TG_TAGE_NT or tanager_soc MEM_SLICE; skipping the bigger chip's combination"; fi
+  # DR-185's direct payload write with hart 1 (its rows are per thread), as synthesis reads it
+  if mentioned TG_PAY_WREG; then area+=("HART1=1 PAY_WREG=0 SYNTH=1"); fi
+fi
 tasks=()
 for c in $CFGS; do
   for p in "${profiles[@]}"; do tasks+=("$c${p:+ $p}"); done
@@ -81,6 +101,7 @@ for c in $CFGS; do
   case "$c" in smt2*) [ -n "$solo" ] && tasks+=("$c SOLO_TID=1")
                      [ -n "$split" ] && tasks+=("$c SPLIT=1") && { [ -z "$solo" ] || tasks+=("$c SPLIT=1 SOLO_TID=1"); }
                      [ -n "$hart1" ] && tasks+=("$c HART1=1") && { [ -z "$solo" ] || tasks+=("$c HART1=1 SOLO_TID=1"); } ;; esac
+  [ "$c" = smt2 ] && for p in "${area[@]}"; do tasks+=("$c $p"); done
 done
 
 # One line per elaboration as it finishes: PASS|FAIL <cfg> [<define>]
@@ -89,7 +110,22 @@ lint_one() {
   local log="$LOGS/$1" p
   for p in "${@:2}"; do log+="-${p/=/}"; done   # a profile may set several variables (URF=1 SYNTH=1)
   log+=".log"
-  local cmd=(make --no-print-directory -C "$ROOT" lint CFG="$1" "${@:2}")
+  local args=() p
+  for p in "${@:2}"; do
+    case "$p" in
+      WIN=*)   # WIN=ROB,LQ,SQ: the configuration's file with those window sizes, in the log directory
+        local rob lq sq cfg
+        IFS=, read -r rob lq sq <<< "${p#WIN=}"
+        cfg="$LOGS/tg_cfg_$1_win$rob-$lq-$sq.sv"
+        sed -E -e "s/(localparam int ROB_ENTRIES *= *)[0-9]+;/\1$rob;/" -e "s/(localparam int LQ_ENTRIES *= *)[0-9]+;/\1$lq;/" \
+          -e "s/(localparam int SQ_ENTRIES *= *)[0-9]+;/\1$sq;/" "$ROOT/rtl/common/cfg/tg_cfg_$1.sv" > "$cfg"
+        grep -q "ROB_ENTRIES *= *$rob;" "$cfg" && grep -q "LQ_ENTRIES *= *$lq;" "$cfg" && grep -q "SQ_ENTRIES *= *$sq;" "$cfg" ||
+          { echo "FAIL $* (tg_cfg_$1.sv has no ROB_ENTRIES, LQ_ENTRIES and SQ_ENTRIES lines to set)"; return; }
+        args+=("RTL_CFG=$cfg") ;;
+      *) args+=("$p") ;;
+    esac
+  done
+  local cmd=(make --no-print-directory -C "$ROOT" lint CFG="$1" "${args[@]}")
   # FWDREF=1|0: the forward-reference check with the timing cuts on (the default) or off
   case "${2:-}" in
     FWDREF=1) cmd=("$ROOT/tools/ci/fwdref.sh" CFG="$1") ;;

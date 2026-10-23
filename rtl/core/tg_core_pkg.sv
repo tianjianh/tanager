@@ -267,6 +267,13 @@ package tg_core_pkg;
 `else
   localparam int IQ_BANK_RULE = 2;
 `endif
+  // DR-185: rename's payload LUTRAM takes decode's write through a register, landing a cycle later (1, the default:
+  // decode's paths end beside decode), or directly (0: about 770 flip-flops a core fewer, if those paths close)
+`ifdef TG_PAY_WREG
+  localparam bit PAY_WREG = `TG_PAY_WREG;
+`else
+  localparam bit PAY_WREG = 1'b1;
+`endif
   // M7's step 6 (D2): with hart 1 the split is a mode set at run time (md_t, tg_rename's md_q). Split: the halves.
   // Merged: thread run owns every entry while its sibling sleeps with an empty window (threading.md). Without hart 1
   // the mode is the constant MD_C: merged with RUN_TID as before M7, or TG_SPLIT's test mode.

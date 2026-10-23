@@ -1,0 +1,24 @@
+== fh_p1 install /home/ubuntu/tanager/dr187b-riscv-pkg/dr187b-riscv 2026-10-20 20:58:12 UTC, A53 up 5422.75 s
+b0094d235a36f8bd b0094d235a36f8bd fw_jump.bin (package, p1)
+459992b884a8a3e0 459992b884a8a3e0 payload.bin (package, p1)
+8aa45e615548e570 8aa45e615548e570 riscv.cmd (package, p1)
+200bb40ca1fe71ad 200bb40ca1fe71ad riscv.scr (package, p1)
+15cd197cd1338300 15cd197cd1338300 tanager-h01.dtb (package, p1)
+71c82c6b11a45df2 71c82c6b11a45df2 tanager.bit.bin (package, p1)
+18afd230a9f577f1 18afd230a9f577f1 tanager.dtb (package, p1)
+kept from before:
+  tanager.dtb.pre-pmpfix
+== fh_p1 tree /home/ubuntu/tanager/dr187b-riscv-pkg/dr187b-riscv/tanager/tanager-h01.dtb 2026-10-20 20:58:14 UTC, A53 up 5424.92 s
+tanager.dtb is now tanager-h01.dtb (15cd197cd1338300)
+== fh_p1 status 2026-10-20 20:58:14 UTC, A53 up 5425.07 s
+-- tanager/:
+b0094d235a36f8bd fw_jump.bin
+459992b884a8a3e0 payload.bin
+8aa45e615548e570 riscv.cmd
+200bb40ca1fe71ad riscv.scr
+15cd197cd1338300 tanager-h01.dtb
+71c82c6b11a45df2 tanager.bit.bin
+15cd197cd1338300 tanager.dtb
+45ba89a91ea1b278 tanager.dtb.pre-pmpfix
+-- tanager-d4r2-100/:
+b0094d235a36f8bd fw_jump.bin

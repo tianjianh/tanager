@@ -119,6 +119,20 @@ set opt_dir [expr {[info exists ::env(TG_OPT_DIRECTIVE)] ? $::env(TG_OPT_DIRECTI
 if {$opt_dir ni {Default Explore ExploreArea ExploreWithRemap ExploreSequentialArea AddRemap RuntimeOptimized NoBramPowerOpt}} {
   puts "ERROR: TG_OPT_DIRECTIVE must be one of opt_design's directives (fpga/kv260/README.md)"; exit 1
 }
+# place_design's directive (DR-187, the coordinator, 10-22): unset gives the plain place_design (Default).
+# AltSpreadLogic_high made the product chip route where the default left it congested (spikes 8.18).
+# summary.txt records it as place=. Checked here, before synthesis.
+set place_dir [expr {[info exists ::env(TG_PLACE_DIRECTIVE)] ? $::env(TG_PLACE_DIRECTIVE) : "Default"}]
+if {$place_dir ni {Default Explore EarlyBlockPlacement WLDrivenBlockPlacement ExtraNetDelay_high ExtraNetDelay_low
+                   AltSpreadLogic_high AltSpreadLogic_medium AltSpreadLogic_low ExtraPostPlacementOpt ExtraTimingOpt
+                   RuntimeOptimized Quick}} {
+  puts "ERROR: TG_PLACE_DIRECTIVE must be one of place_design's directives (fpga/kv260/README.md)"; exit 1
+}
+# TG_CHECKPOINT=1 (DR-187): post_opt.dcp after opt_design (with the place-and-route uncertainty set) and
+# post_place.dcp after phys_opt_design, in the run directory, so another placement or a reroute starts from one
+# of them instead of from synthesis. Off by default (each is several hundred MB).
+set ckpt [expr {[info exists ::env(TG_CHECKPOINT)] ? $::env(TG_CHECKPOINT) : 0}]
+if {$ckpt ni {0 1}} { puts "ERROR: TG_CHECKPOINT must be 0 or 1 (fpga/kv260/README.md)"; exit 1 }
 foreach {v g lo hi} {TG_FAN_TTC tg_kv260_fan_ttc 0 3 TG_FAN_WAVE tg_kv260_fan_bit 0 2 TG_FAN_INVERT tg_kv260_fan_invert 0 1} {
   if {[info exists ::env($v)]} { set ::$g $::env($v) }
   set val [set ::$g]
@@ -297,8 +311,9 @@ if {$pr_unc > 0} {
     set pr_unc 0
   }
 }
-stamp "place_design"
-place_design
+if {$ckpt} { stamp "write_checkpoint post_opt"; write_checkpoint -force ./post_opt.dcp }
+stamp "place_design ($place_dir)"
+place_design -directive $place_dir
 if {$fp_on} {
   # each pblock's own LUTs against its sites, and its cells placed outside: FLOORPLAN_OK, _WARN (above 85%) or _TIGHT
   # (above 90%) in the log, the reports in reports/util_pblocks.rpt
@@ -307,6 +322,7 @@ if {$fp_on} {
 }
 stamp "phys_opt_design"
 phys_opt_design
+if {$ckpt} { stamp "write_checkpoint post_place"; write_checkpoint -force ./post_place.dcp }
 stamp "route_design"
 route_design
 if {$pr_unc > 0} { set_clock_uncertainty -setup 0 $core_clk }   ;# the reports at the real period
@@ -362,6 +378,7 @@ puts $fh "commit=$commit"
 puts $fh "profile=$profile defines=[expr {$defines eq {} ? {-} : $defines}] synth=$synth_dir"
 puts $fh "pr_unc=$pr_unc (ns of setup uncertainty on clk_core for placement and routing, taken back before the reports)$pr_unc_note"
 puts $fh "opt=$opt_dir (opt_design's directive, DR-166)"
+puts $fh "place=$place_dir (place_design's directive, DR-187)"
 if {$urf} { puts $fh "urf=1 (DR-174: the integer register file in UltraRAM, clk2x at [expr {2 * $core_mhz}] MHz)" }
 puts $fh "uncore=[expr {$unc_set eq {} ? {-} : $unc_set}]"
 if {[info exists ::env(TG_LAT_INJ)] && !$::env(TG_LAT_INJ)} {
