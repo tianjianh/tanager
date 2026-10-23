@@ -40,6 +40,8 @@ module tg_decode_stage
   input  logic [W-1:0]        iq_valid,
   input  fe_insn_t [W-1:0]    iq_insn,
   output logic [TKW-1:0]      iq_take,
+  output logic [TKW-1:0]      iq_take_t,    // ... the take if rename takes the group (de_take), and if not:
+  output logic [TKW-1:0]      iq_take_n,    // iq_take is the choice (timing: the queue's counts run on both)
   // To rename
   output logic [W-1:0]        de_valid,
   output uop_t [W-1:0]        de_uop,
@@ -367,6 +369,7 @@ module tg_decode_stage
     end
     // DE2 hands on `used` slots; the `left` after them move to the front; the queue fills the rest
     int used, left, acc;
+    logic [TKW-1:0] acc_t, acc_n;                     // the take if rename takes the group, and if not
     always_comb begin
       int cnt1, iqn;
       cnt1 = 0;
@@ -375,11 +378,15 @@ module tg_decode_stage
         cnt1 += int'(v1_q[j]);
         iqn  += int'(iq_valid[j]);
       end
-      used = de_take ? int'(nq) : 0;
-      left = cnt1 - used;
-      acc  = (dred || flush) ? 0 : ((iqn < W - left) ? iqn : W - left);
+      used  = de_take ? int'(nq) : 0;
+      left  = cnt1 - used;
+      acc   = (dred || flush) ? 0 : ((iqn < W - left) ? iqn : W - left);
+      acc_t = TKW'((dred || flush) ? 0 : ((iqn < W - (cnt1 - int'(nq))) ? iqn : W - (cnt1 - int'(nq))));
+      acc_n = TKW'((dred || flush) ? 0 : ((iqn < W - cnt1) ? iqn : W - cnt1));
     end
-    assign iq_take = TKW'(acc);
+    assign iq_take   = TKW'(acc);
+    assign iq_take_t = acc_t;
+    assign iq_take_n = acc_n;
     always_ff @(posedge clk) begin
       if (rst || flush || dred) begin
         v1_q <= '0;
@@ -424,7 +431,9 @@ module tg_decode_stage
     assign xd = d;
     assign xseq = seq_d;
     assign xtgt = tgt_d;
-    assign iq_take = de_take ? n : '0;
+    assign iq_take   = de_take ? n : '0;
+    assign iq_take_t = n;
+    assign iq_take_n = '0;
   end
 
   // The last instruction taken redirects: flush the front end next cycle
