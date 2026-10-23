@@ -297,7 +297,9 @@ package tg_core_pkg;
 `else
   localparam int HPM_N = 0;
 `endif
-  localparam int HPM_EV = 4;
+  // tg_core's events, mhpmevent 3 + e for hpm_ev[e]: 3 branch mispredicts (at execute, wrong-path ones too), 4 ordering
+  // replays, 5 L1D load misses, 6 data-side TLB walks, 7 instruction-side TLB walks, 8 I$ misses, 9 CoRR replays
+  localparam int HPM_EV = 7;
   // DR-185: rename's payload LUTRAM takes decode's write through a register, landing a cycle later (1, the default:
   // decode's paths end beside decode), or directly (0: about 770 flip-flops a core fewer, if those paths close)
 `ifdef TG_PAY_WREG

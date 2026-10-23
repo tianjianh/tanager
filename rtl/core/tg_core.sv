@@ -679,15 +679,17 @@ module tg_core
   logic             xret_v, xret_s;
   assign rsv_clr = tr_valid || mret || sret;
   assign priv_cm = MT ? priv_h[rob_hd_tid] : priv;
-  // M9's counters (HPM_N > 0; tg_csr's mhpmevent 3 ..): each hart's events, registered: 3 branch mispredicts (at
-  // execute), 4 ordering replays; 5 and 6 to wire (D$ and TLB misses, with core-2)
+  // M9's counters (HPM_N > 0; tg_csr's mhpmevent 3 ..): each hart's events (tg_core_pkg's HPM_EV), registered: 3
+  // branch mispredicts (at execute, wrong-path ones too), 4 ordering replays, 9 CoRR replays (the snoop marking's
+  // reports); 5 to 8 (the L1D's load misses, the TLBs' walks, the I$'s misses) wait for core-2's ports
   logic [NUM_THREADS-1:0][HPM_EV-1:0] hpm_ev;
   if (HPM_N > 0) begin : g_hpm_ev
     always_ff @(posedge clk)
       for (int t = 0; t < NUM_THREADS; t++) begin
         hpm_ev[t][0] <= br_valid && br_misp && rob_tid(br_rob, md) == tid_t'(t);
         hpm_ev[t][1] <= replay_valid && rob_tid(replay_rob, md) == tid_t'(t);
-        hpm_ev[t][HPM_EV-1:2] <= '0;
+        hpm_ev[t][5:2] <= '0;
+        hpm_ev[t][6] <= snp_valid && rob_tid(snp_rob, md) == tid_t'(t);
       end
   end else begin : g_no_hpm_ev
     assign hpm_ev = '0;
