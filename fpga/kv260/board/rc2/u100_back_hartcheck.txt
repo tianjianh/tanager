@@ -1,0 +1,54 @@
+[   53.601941] EXT4-fs (mmcblk0p3): mounted filesystem 45d8e126-fa57-4bee-8133-ba472bb7b0c6 r/w with ordered data mode. Quota mode: none.
+[   82.504481] EXT4-fs (mmcblk0p3): re-mounted 45d8e126-fa57-4bee-8133-ba472bb7b0c6.
+HARTCHECK-BEGIN u100-back 2026-10-23T10:00:01Z up 155.81
+6.12.113+deb13-riscv64
+root=LABEL=tanager-root console=ttyS0,115200 earlycon rw
+online CPUs: 0-3 (nproc 4)
+cpu0 = hart 0, siblings 0-1
+cpu1 = hart 1, siblings 0-1
+cpu2 = hart 2, siblings 2-3
+cpu3 = hart 3, siblings 2-3
+[   18.124595] Run /init as init process
+Startup finished in 56.913s (kernel) + 1min 10.252s (userspace) = 2min 7.166s 
+== kernel messages
+dmesg PASS no trouble lines
+[    0.000000] SBI specification v3.0 detected
+[    0.000000] SBI implementation ID=0x1 Version=0x10009
+[    0.000000] SBI TIME extension detected
+[    0.000000] SBI IPI extension detected
+[    0.000000] SBI RFENCE extension detected
+[    0.000000] SBI SRST extension detected
+[    0.000000] SBI DBCN extension detected
+[    0.000000] SBI HSM extension detected
+[    0.000000] riscv: providing IPIs using SBI IPI extension
+[    0.000000] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645041785100000 ns
+[    0.000000] clocksource: riscv_clocksource: mask: 0xffffffffffffffff max_cycles: 0x24e6a1710, max_idle_ns: 440795202120 ns
+[    0.276663] smp: Bringing up secondary CPUs ...
+== each hart alone
+coremark-a cpu0 (hart 0) PASS 453.932855 iterations/s
+t cpu0 (hart 0) PASS 2.94 s
+coremark-a cpu1 (hart 1) PASS 453.497055 iterations/s
+t cpu1 (hart 1) PASS 2.93 s
+coremark-a cpu2 (hart 2) PASS 453.286732 iterations/s
+t cpu2 (hart 2) PASS 2.93 s
+coremark-a cpu3 (hart 3) PASS 453.403095 iterations/s
+t cpu3 (hart 3) PASS 2.93 s
+== pairs of harts
+mt cpu0+cpu1 PASS
+pingpong cpu0+cpu1: 1216.0 ns/round-trip
+mt cpu0+cpu2 PASS
+pingpong cpu0+cpu2: 1965.7 ns/round-trip
+mt cpu0+cpu3 PASS
+pingpong cpu0+cpu3: 1967.0 ns/round-trip
+mt cpu1+cpu2 PASS
+pingpong cpu1+cpu2: 1959.8 ns/round-trip
+mt cpu1+cpu3 PASS
+pingpong cpu1+cpu3: 2283.1 ns/round-trip
+mt cpu2+cpu3 PASS
+pingpong cpu2+cpu3: 1213.1 ns/round-trip
+== all harts at once
+proj, 4 at a time PASS 10.68 s
+sysbench cpu, 4 threads:     events per second:   124.65
+sysbench threads, 4 threads:     total number of events:              895
+dmesg after the checks PASS no new lines
+HARTCHECK-END u100-back fails=0 2026-10-23T10:03:26Z up 360.46

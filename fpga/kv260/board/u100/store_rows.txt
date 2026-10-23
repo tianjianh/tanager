@@ -1,0 +1,27 @@
+STOREROWS-BEGIN 2026-10-23T10:12:52Z 6.12.113+deb13-riscv64 online=0-3 load=0.21 0.28 0.40
+TGLB cpu0 memset-1048576 run=1 cycles=37005541 instret=11314924 ticks=3700554 ns=370056700 ops=64 bytes=67108864
+TGLB cpu0 memset-1048576 run=2 cycles=36570425 instret=11214162 ticks=3657043 ns=365704300 ops=64 bytes=67108864
+TGLB cpu0 memset-1048576 run=3 cycles=37040176 instret=11382696 ticks=3704018 ns=370401800 ops=64 bytes=67108864
+TGLB cpu0 memset-1048576 run=4 cycles=36638291 instret=11234528 ticks=3663829 ns=366382900 ops=64 bytes=67108864
+TGLB cpu0 memset-1048576 run=5 cycles=36594354 instret=11186209 ticks=3659436 ns=365943500 ops=64 bytes=67108864
+TGLB cpu0 pagefault run=1 cycles=81635167 instret=22368963 ticks=8163518 ns=816352600 ops=16384 mib=64 faults=33
+TGLB cpu0 pagefault run=2 cycles=81687351 instret=22303595 ticks=8168735 ns=816873600 ops=16384 mib=64 faults=32
+TGLB cpu0 pagefault run=3 cycles=81462242 instret=22193326 ticks=8146224 ns=814622500 ops=16384 mib=64 faults=32
+TGLB cpu0 pagefault run=4 cycles=81091635 instret=22207460 ticks=8109164 ns=810916400 ops=16384 mib=64 faults=32
+TGLB cpu0 pagefault run=5 cycles=82037310 instret=22495210 ticks=8203730 ns=820373000 ops=16384 mib=64 faults=32
+TGLB cpu2 memset-1048576 run=1 cycles=34327074 instret=11124291 ticks=3432708 ns=343271500 ops=64 bytes=67108864
+TGLB cpu2 memset-1048576 run=2 cycles=34436824 instret=11346469 ticks=3443682 ns=344368400 ops=64 bytes=67108864
+TGLB cpu2 memset-1048576 run=3 cycles=34030119 instret=11096673 ticks=3403012 ns=340301200 ops=64 bytes=67108864
+TGLB cpu2 memset-1048576 run=4 cycles=34161916 instret=11146894 ticks=3416192 ns=341619100 ops=64 bytes=67108864
+TGLB cpu2 memset-1048576 run=5 cycles=33840469 instret=11081343 ticks=3384047 ns=338404600 ops=64 bytes=67108864
+TGLB cpu2 pagefault run=1 cycles=81572718 instret=22317208 ticks=8157271 ns=815728900 ops=16384 mib=64 faults=33
+TGLB cpu2 pagefault run=2 cycles=81696742 instret=22264585 ticks=8169675 ns=816967500 ops=16384 mib=64 faults=32
+TGLB cpu2 pagefault run=3 cycles=81561594 instret=22223527 ticks=8156160 ns=815615900 ops=16384 mib=64 faults=32
+TGLB cpu2 pagefault run=4 cycles=81299168 instret=22228269 ticks=8129917 ns=812991700 ops=16384 mib=64 faults=32
+TGLB cpu2 pagefault run=5 cycles=81934979 instret=22468325 ticks=8193498 ns=819349800 ops=16384 mib=64 faults=32
+== medians, cycles per operation
+cpu0 memset-1048576: median 572473 cycles/op over 5 runs (571413 to 578753)
+cpu0 pagefault: median 4983 cycles/op over 5 runs (4949 to 5007)
+cpu2 memset-1048576: median 533780 cycles/op over 5 runs (528757 to 538075)
+cpu2 pagefault: median 4979 cycles/op over 5 runs (4962 to 5001)
+STOREROWS-END 2026-10-23T10:13:04Z
