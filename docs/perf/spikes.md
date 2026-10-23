@@ -1852,6 +1852,54 @@ Results: `fpga/spikes/results/product_wt2_fin1_u100/` and `product_wt2_fin1_u105
 
 Results: `fpga/spikes/results/product_wt_rc1/` holds the two summaries and the images' md5s; the reports are `product_wt2_fin1_u100/` and `_u105/`'s. The image and checkpoint are in `~/tanager-build/track-spikes-72f833/vivado/product_wt_rc1_u100/`.
 
+#### Step 7 on main: neither placement closes, −0.561 ns at best (2026-10-23)
+
+**Asked** (the coordinator, 10-23): "Launch the board pair now", on main 002ea157. That is M7 step 7 (the bank rule on the sibling's need, `ROWS_AT_RN` 2, no per-thread cap), with PMP_FILL on by default. "Write the passing placement's bitstream right away for soc-2." Snapshot: `snap/product_wt3` 189e60d07f37 (main 002ea157 and the measurement commit 0a30d99d), pinned by `claude/spikes-2-board-s7`.
+
+| | Placement 1 (`s7_u100`, 1.0 ns) | **Placement 2** (`s7_u105`, 1.05 ns) |
+|---|---|---|
+| LUTs after `opt_design` / routed | 114,386 / 111,918 (95.6%) | 114,386 / 112,071 (95.7%) |
+| FFs routed, CLBs, control sets, DSPs | 57,822, 14,618, 2,854, 140 | 57,823, 14,632, 2,809, 140 |
+| WNS after `phys_opt_design` (estimated, with the uncertainty on) | −0.964 ns | −0.287 ns |
+| Routing | level 6, no trade, 1.3 h | level 5, no trade, 1.3 h |
+| **WNS / TNS on the core clock (ns)** | −1.431 / −1,662.6 (3,302 failing) | **−0.561 / −296.2** (1,448 failing) |
+| WHS (ns) | +0.006 | +0.005 |
+| `clk2x`: within / into / back (ns) | +1.345 / +1.517 / +1.119 | +1.816 / +1.093 / +1.094 |
+| Endpoints within 1 ns | 13,545 in 450 families | 11,233 in 441 families |
+
+- **The pair's verdict: it doesn't close, so no bitstream was written.** The better placement misses 100 MHz by 0.561 ns. Against the near-final pair (+0.257 / −0.720), the better WNS is 0.82 ns worse. The second placement is better than the near-final pair's second (TNS −296 against −502).
+- **Step 7's area in the chip.** The release candidate's netlist differs from this one by step 7 alone. Against it, step 7 adds:
+  - +825 LUTs after synthesis, +746 after `opt_design` and +559 routed, for both cores;
+  - about 373 a core after `opt_design`, against 161 out of context.
+- **A new family, from step 7's logic: rename's DS register into decode's stall.** In core 0, `ds_ren_q`'s `q` and `has_q` reach:
+  - the clock enables of decode's redirect registers (`dred_pc`, `dred_rlink`, `dred_ftq`, `dred_rop`, `dred_slot`, `dred_tid`);
+  - fetch's `qs_q`.
+
+  Its slack and its cause:
+  - **Slack:** 31–32 levels, 56–57% wire, at −0.807 ns (u100) and −0.561 ns (u105's worst endpoint). In neither near-final placement is any path from `ds_ren_q` within 1 ns.
+  - **Depth, not placement.** The worst path stays in one cluster (u105: SLICE_X13–18, Y53–62). It is 4.32 ns of logic and 5.79 ns of wire, about 0.19 ns a net. A third placement is unlikely to clear it alone.
+  - **Where the logic is.** 29 of its 31 LUTs are under `u_rn`; their names are smeared by flatten rebuilt. The last two are decode's.
+  - **The likely chain**, from the RTL (core-2 and fpu-2 own the check):
+    - the DS group's rows in each queue: step 7's `dk`/`dn`, besides STEER_LA's `st_free`;
+    - the caps: `cap_ok` indexed by `dn`, and `bank_ok`;
+    - the greedy ALU queue choice with its per-queue counts;
+    - `caps_ok`, then `rn_fire`, then decode's enable.
+- **The other families are the near-final chip's, moved by the placement:**
+  - **u100's worst:** core 1's fetch queue read, through decode, into rename's RN register (`rn_u_q`, `pay_wd_q`) from `head_t_q`. It is 18–19 levels at −1.43 ns with 73–75% wire. The near-final placement 1 has the same depth at +0.34 to +0.69. The path's cells are fetch's queue LUTRAM, decode and the RN register's input; none of step 7's logic is in it ([`path_rename.txt`](../../fpga/spikes/results/product_wt3_s7_u100/path_rename.txt)).
+  - **Core 0's LSU state, from `sv39_l_q`:** through the walker and the shared PMP checker (`u_csr/g_pg`), 27 levels at −1.42 ns in u100 ([`path_lsu.txt`](../../fpga/spikes/results/product_wt3_s7_u100/path_lsu.txt)). In u105 the LSU state comes from `priv_dl_q` and `lq_pck_q`, at −0.53.
+  - **u105's others:**
+    - core 0's `pay_wd_q` from `head_t_q` (−0.559, as deep as the DS family's worst);
+    - the decode family from the issue queues' `dep_q` (core 1's `dred_pc`, −0.558);
+    - the L2's responses into the I$ valid bits and fetch's `fpc_q` (−0.55);
+    - the free list's `count_q` from the ROB head (−0.54).
+- **The floorplan is OK:** l2b0 100%/76%, **L2 bank 1 103%/80%**, xbar 33%/28% (before `opt_design` / its own LUTs after placement; warn above 105/85%). Against the near-final pair, L2 bank 1's own share after placement moves from 79% to 80%, and before `opt_design` it is unchanged.
+- **The board image stays the near-final one.** That is the release candidate's, and so main's before step 7.
+- **What would close step 7:**
+  1. Take the DS family out of rename's fire. One direction: tg_issue counts the DS group's rows into the flags it registers, so the caps come from registers alone.
+  2. Then one more pair: the rest is the near-final chip's spread, in which one of two placements closed. In u105, without the DS family, the worst is −0.559 ns, all from those families.
+
+Results: `fpga/spikes/results/product_wt3_s7_u100/` and `product_wt3_s7_u105/`. The DS family's worst path is u105's [`path_ds.txt`](../../fpga/spikes/results/product_wt3_s7_u105/path_ds.txt). The routed checkpoints are in `~/tanager-build/track-spikes-72f833/vivado/product_wt3_s7_u100/` and `_u105/`.
+
 #### core-2's A/B: the read thread with and without per-bank copies (2026-10-22)
 
 The fixes preview's base with core-2's newer heads (`snap/product_wt` and `snap/product_wt3`): e5b304cd, TAGE 8cf8e262, DR-183 ecfcc8a5, and core-2's walker fix a6abdc5d. The walker fix registers the head lookup's VPN, so DTLB port 2 starts at one register. Then:
