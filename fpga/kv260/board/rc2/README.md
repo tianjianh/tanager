@@ -108,7 +108,7 @@ The four-hart soak ([`soak4.log`](soak4.log)) ran on rc2 from 17:30 UTC on its s
   - `mmc0` (PLIC source 21, IRQ 14) stayed at 50,361 on CPU0 over 12 s while the driver timed out.
   - Its affinity was 0-3 with effective CPU0, all four CPUs were online, and the timer interrupts kept counting on every CPU.
 - **Blocked tasks:** `jbd2/mmcblk0p3`, `systemd-journal`, kworkers, `tg-lbench` and `bash` were reported blocked for more than 120 s (10 such reports). The I/O to the root never came back.
-- **What it looks like:** DR-176's lost SD1 interrupt (d4r1, a PLIC claim read twice by a replayed MMIO read), fixed in d4r2. u100 and dr187b never showed it, in 89 soak rounds and 66 + 40 hotplug rounds between them. rc2 adds step 7, core-2's marg3 and CoRR snoop marking, and soc-2's checker requests from registers.
+- **What it looks like:** DR-176's lost SD1 interrupt (d4r1, a PLIC claim read twice by a replayed MMIO read), fixed in d4r2. u100 and dr187b never showed it, in 99 soak rounds (dr187b 56, u100 43) and 136 rounds of hart stop and start (dr187b 59, u100 77) between them. rc2 adds step 7, core-2's marg3 and CoRR snoop marking, and soc-2's checker requests from registers.
 - **For soc-2 and core-2,** together with the kernel log and the console.
 
 **The way back** (the coordinator's instruction: if rc2 destabilizes, back to u100):
