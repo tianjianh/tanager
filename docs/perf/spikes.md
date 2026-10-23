@@ -2021,6 +2021,81 @@ Results: `fpga/spikes/results/product_wt3_rc2_u100/` and `product_wt3_rc2_u105/`
 
 The images and checkpoints are in `~/tanager-build/track-spikes-72f833/vivado/product_wt3_rc2_u100/` and `_u105/`.
 
+#### The release pair on coord/rc3: neither placement closes; congestion and the router's trade (2026-10-23)
+
+**Asked** (the coordinator, 10-23): "go for the release pair, on ref coord/rc3 = 234fc366": main 490a7e27 (no RTL since d9d700ec) with core-2's three MRs merged (marg3 763c5170, icsweep 679ceb2c, CoRR b095eca3), the tree main will have. The same product form and flow as rc2, in a new snapshot folder.
+- **Snapshot:** `snap/product_wt4` 64fa49e9b982, pinned by `claude/spikes-2-board-rc3`; `coord/rc3` and the measurement commit. Lint in the product's view and fwdref are clean.
+- **The RTL against rc2's:** two changes, the FENCE.I sweep's gate on fetch's refill start (`tg_fetch`, 8 lines) and CoRR's `lq_io_q` (b30b57b3: a device load is never marked, a register per LQ entry; `tg_lsu`, 5 lines).
+
+| | `rc3_u100` (1.0 ns) | `rc3_u105` (1.05 ns) | for comparison: `rc2_u100` / `rc2_u105` |
+|---|---|---|---|
+| LUTs after synthesis / `opt_design` / routed | 119,477 / 115,333 / 112,762 (96.3%) | 119,477 / 115,333 / 112,773 (96.3%) | 119,066 / 114,885 / 112,360 and 112,315 |
+| FFs routed, CLBs, control sets | 58,034, 14,638, 2,867 | 58,050, 14,639, 2,851 | 57,976 / 57,981 |
+| WNS estimated in placement, at its start / after `phys_opt_design` (uncertainty on) | −1.631 / −0.270 | −1.201 / **0.000** | −0.482 / +0.412 and −1.055 / +0.464 |
+| Routing | level 6, **the router trades timing for routability** (Route 35-447), 1.8 h | the same, 1.8 h | level 6 and 5, no trade |
+| **WNS / TNS on the core clock (ns)** | −1.104 / −893.6 (2,608 failing) | −0.959 / −421.9 (1,502 failing) | +0.296 / 0 and +0.188 / 0 |
+| WHS (ns) | +0.002 | +0.010 | +0.010 / +0.011 |
+| `clk2x`: within / into / back (ns) | +1.630 / +0.572 / +0.943 | +2.297 / +1.096 / +0.923 | |
+| Endpoints within 1 ns | 11,007 in 475 families | 11,305 in 457 families | 2,332 and 2,552 |
+
+- **Both placements fail, and both hit the router's congestion trade.**
+  - u105 left placement at 0.000 ns with the 1.05 ns uncertainty on, which would be +1.05 after the takeback.
+  - At congestion level 6, the router then put "the successful completion of routing all nets over timing optimizations" and lost 2.0 ns (u100: 1.8 ns). rc2's routing traded nothing.
+- **Why rc3 places worse: synthesis re-rolled the netlist.**
+  - The two changes are about a dozen lines, but synthesis gives +411 LUTs and +47 FFs ([`hier_diff_synth_vs_rc2.txt`](../../fpga/spikes/results/product_wt4_rc3_u100/hier_diff_synth_vs_rc2.txt)), spread over the chip:
+    - fetch +335 a core, the LSU +223 / +264 (the walker +97 / +157);
+    - decode −137, ex −115, a RAS −70, the ROB −60;
+    - the uncore +52 with no RTL change.
+  - After routing, the L2 is +175, of which bank 0 is +130 ([`hier_diff_routed_vs_rc2.txt`](../../fpga/spikes/results/product_wt4_rc3_u100/hier_diff_routed_vs_rc2.txt)).
+  - With `flatten_hierarchy rebuilt` and AreaOptimized_high, a small change moves logic everywhere. At 96.3% of the LUTs, with every CLB used, that is enough to tip the router into its trade.
+  - L2 bank 1 is now 104% before `opt_design`, against the 105% warning.
+- **Neither change is on a failing path (u100):**
+  - into `lq_io_q` +1.302, from it +5.971;
+  - from the sweep's `ivs_q` +1.890 and `gpend_q` +1.980; into them +6.91 / +3.64;
+  - the I$ valid family runs through `refill_done` and the valid RAM's read-modify-write, with none of the gate's nets.
+  - CoRR's event capture is the closest new logic, at +0.105 (into `ev1_tm_q`, mostly wire).
+- **The failing families are the recurring ones, moved by the placement:** the LSU's state and data, the walker's `chk_pa_q`, the I$ valid RAM and TAGE (below), plus the D$ data RAM from `lq_st_q` (u105: −0.782, 8 levels, 86% wire).
+
+**The recurring families** (the coordinator: "so closure stops being a lottery"). Their worst slack in the last six placements:
+
+| Family | fin1 u100 | s7d u105 | rc2 u100 | rc2 u105 | rc3 u100 | rc3 u105 |
+|---|---|---|---|---|---|---|
+| (WNS) | +0.257 | −0.422 | +0.296 | +0.188 | −1.104 | −0.959 |
+| the LSU state `lq_st_q` | +0.274 | −0.361 | +0.322 | +0.218 | −1.080 | −0.959 |
+| `m2_foh_q` | +0.324 | +0.147 | +0.344 | +0.363 | −1.096 | −0.773 |
+| the load data `r_data_q` | +0.267 | +0.188 | +0.529 | +0.925 | −1.066 | −0.954 |
+| the walker's `chk_pa_q` | +0.585 | +0.223 | +0.801 | +0.411 | −1.104 | −0.696 |
+| the I$ valid RAM | +0.261 | −0.248 | +0.349 | +0.420 | −1.086 | −0.746 |
+| TAGE's tables | +0.761 | > +1.0 | > +1.0 | > +1.0 | −0.998 | +0.552 |
+
+Each family runs 16–26 levels with 62–75% of its delay in wire, so the placement decides it. Their chains are in rc3_u100's [`path_table_family_*.txt`](../../fpga/spikes/results/product_wt4_rc3_u100/), traced with net names because the cells' are smeared.
+1. **The LSU state and load data** (`lq_st_q`, `r_data_q`, `lx_valid_q`; 19–24 levels). The chain:
+   - the split store pipe's valid (`sn_v_q`, `sn_pck_q`) and the AMO FSM;
+   - the shared PMP checker's request select, with a 780-fanout operand-select net;
+   - the operand muxes and the two CARRY8 compares (`g_ckf.u_pmp_st`), then `pfc_ok` and `sa_chk`;
+   - `m2_rck_q`'s cone (fanout 89), into the LQ entries' state CE and the load result.
+
+   **Fix:** register the checker's verdict and update the LQ state and the load result a cycle later for checked accesses. That cuts every family at `sa_chk`. Registering and replicating the select would also help. **Owner:** soc-2 (DR-183's checker), with core-2 for the LSU side. **Effort:** about a day with checks. It is not cycle-identical, so DR-183's boot-cost bar applies.
+2. **`m2_foh_q`** (16–21 levels). The chain: the store's thread `sn_t_q`, the DTLB leaf LUTRAM's read address, the leaf data, the forward-hit compare (`m2_fhit`), then `m2_foh_q`.
+
+   **Fix:** the leaf read address from registers, as core-2 did for the walker's DTLB port. **Owner:** core-2. **Effort:** half a day; cycle-identical by construction if the select is known a cycle ahead.
+3. **The walker's `chk_pa_q`** (18–20 levels). The chain: the DTLB CAM's valid bits `v_q`, the match (`g_early.mq`), the hit's leaf LUTRAM read, then the walker's address mux into `chk_pa_q`.
+
+   **Fix:** load `chk_pa_q` from a registered DTLB result. That costs a cycle on a PTE read's PMP check, which is rare. **Owner:** soc-2 (DR-183's walker check), with core-2. **Effort:** half a day.
+4. **The I$ valid RAM** (20–26 levels). The chain: the L2's response (`d_idx`, `dh_out`), `refill_done`, the valid RAM's read address, the RAMD64E read, the way and valid merge (8–10 LUTs), into the valid RAM's write data: a read-modify-write in one cycle.
+
+   **Fix:** register `refill_done`, or keep the set's valid bits from the refill's start so the write doesn't depend on a read in the same cycle. **Owner:** core-2. **Effort:** about a day; the sweep's new assert helps check it.
+5. **TAGE's tables** (13–14 levels). The chain is the BRAM read, the update, then the BRAM write. It fails only in a congested placement.
+
+   **Fix:** register the read data before the update. **Owner:** fpu-2. **Effort:** half a day; lowest priority.
+- **The order:** 1 (the most endpoints, and within 0.4 ns in every placement), 4, 2 and 3, then 5. Fixing 1 to 4 would bring the bad placements' worst to about −0.1 ns, and the good ones' to about +1 ns.
+
+**The trials** (the coordinator: two at once, the budget at 58 while they run), from `snap/product_wt2` a1589f00712c, pinned by `claude/spikes-2-board-rc3t`. That is `coord/rc3`, the measurement commit, and measurement-only knobs: `TG_PHYS_DIRECTIVE`, `TG_ROUTE_DIRECTIVE`, and `TG_INCR_DCP`/`TG_INCR_DIRECTIVE` (incremental implementation). Unset, the flow is main's.
+- **`rc3i_u100`:** incremental implementation from rc2_u100's routed checkpoint (+0.296), with the `TimingClosure` directive, at 1.0 ns. The reuse rates go to `reports/incremental_reuse*.rpt`. There is no incremental synthesis: no synthesized rc2 checkpoint was kept, so reuse depends on how many cell names survived the re-rolled synthesis.
+- **`rc3_u110`:** a fresh placement at 1.10 ns.
+
+Results: `fpga/spikes/results/product_wt4_rc3_u100/` (with the comparisons and the family chains) and `product_wt4_rc3_u105/`. The checkpoints are in `~/tanager-build/track-spikes-72f833/vivado/product_wt4_rc3_u100/` and `_u105/`.
+
 #### core-2's A/B: the read thread with and without per-bank copies (2026-10-22)
 
 The fixes preview's base with core-2's newer heads (`snap/product_wt` and `snap/product_wt3`): e5b304cd, TAGE 8cf8e262, DR-183 ecfcc8a5, and core-2's walker fix a6abdc5d. The walker fix registers the head lookup's VPN, so DTLB port 2 starts at one register. Then:
