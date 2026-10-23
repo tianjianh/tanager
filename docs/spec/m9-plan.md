@@ -1,7 +1,9 @@
 # M9 plan: hardening and the v1 release
 
 Status: approved by the user on 2026-10-23 as recommended below (DR-190), including Sscofpmf up to 1.4K LUTs a chip
-and the debug module in development builds only — fpu-2 (for the coordinator)
+and the debug module in development builds only. With smt2-study's numbers (§5, §6), the coordinator ruled under
+DR-154 (01e2c013): M9 builds the 256-entry path table, and the 16-entry load-wait table waits until after v1, with
+store sets (the user) — fpu-2 (for the coordinator)
 
 ## Purpose
 M9's row in the plan (architecture_plan.md §11) reads "Sscofpmf/perf, Svpbmt, Zicbo*, misaligned hardware, store sets,
@@ -34,9 +36,9 @@ A recommendation follows: what M9 builds and in what order, what waits for v2, a
 | Zicbom | cbo.* illegal | nothing (all DMA coherent) | 0.6–1.0K | medium | v2 |
 | Zicboz | cbo.* illegal | faster page zeroing in the kernel | 0.8–1.6K | medium | measure first; v1.x if clear_page matters |
 | Zicbop | hints run as no-ops | nothing (6.12 has no Zicbop support) | 0 as now | — | nothing to build |
-| Misaligned hardware | traps, OpenSBI emulates | rare in Debian's binaries | 1.6–3.0K | high | v2 [user]; count on the board first |
-| Store sets | replay on violation | ≤ 0.09% of the boot | 1.2–2.0K | medium | v2 [user] |
-| Indirect predictor | 64-entry micro-BTB | interpreters, IFUNC calls, jump tables | 0.3–0.5K, +2 BRAM | medium | **M9** if smt2-study's numbers hold |
+| Misaligned hardware | traps, OpenSBI emulates | rare in Debian (0 in smt2-study's 49 programs) | 1.6–3.0K | high | v2 [user]; count on the board first |
+| Store sets | replay on violation | ≤ 0.08% of the boot; a 16-entry load-wait table +0.58% on the suite (Dhrystone +4.7%) | 0.1–0.3K (wait table); 1.2–2.0K (full) | medium | after v1 (the user): the wait table and full store sets |
+| Indirect predictor | 64-entry micro-BTB | interpreters +47–98%, the suite +0.20% (smt2-study); the boot to measure | 0.2K + 2 BRAM | medium | **M9**: the 256-entry path table (the coordinator, 01e2c013) |
 | virtio-net | stage C (development) | product uses GEM3 with Debian's `macb` | 0 | — | done; document |
 | Debug module + OpenOCD | absent | halt, step, registers, memory over JTAG | 1.5–2.5K | low–medium | **M9**, development builds only [user] |
 | Documentation | narrative README only | — | 0 | — | **M9** |
@@ -157,6 +159,9 @@ A recommendation follows: what M9 builds and in what order, what waits for v2, a
 - **Cost:** about 800–1,500 LUTs a core (1.6–3.0K a chip), **[user]**. **Timing risk high:** the load alignment sits on
   the LSU's load-to-use loop, and the LSU families are among the chip's worst.
 - **Switch:** yes.
+- **smt2-study (area_recovery §7.11):** 0 misaligned loads or stores in 49 programs (91.6M instructions; the counter
+  checked on a known-count kernel). GCC splits any misaligned access it can see, so traps come only from hidden
+  misalignment: casts, packed structures, network headers.
 - **Recommendation:** v2. First count the emulations on the board, which costs nothing: `perf stat` with OpenSBI's
   firmware events for misaligned loads and stores, over a Debian boot and a workload, at about 200–400 cycles each.
   Build it only if the count matters.
@@ -170,11 +175,25 @@ A recommendation follows: what M9 builds and in what order, what waits for v2, a
   - `STA_BASE` (DR-169) issues a store's address on its base alone, so most addresses are known early.
 - **Measured (area_recovery.md):** "Ordering replays cost 0.09% of the boot's cycles" (1,158 replays from 35 load PCs).
   "DTLB retries cost 30 times as much" (2.31–2.45%). So the predictor is parked.
-- **Linux:** nothing functional. The boot's bound is 0.09%. The suite: smt2-study is measuring (pending).
-- **Cost:** about 600–1,000 LUTs a core (1.2–2.0K a chip), **[user]**. Timing risk medium: load issue gains a
-  dependency on a store's SQ index.
-- **Recommendation:** v2, unless smt2-study finds violation storms in a workload. The same LSU effort buys more as the
-  DTLB retry from the LQ (+1.62%, area_recovery §9).
+- **smt2-study (tgsim, area_recovery §7.11; 30 and 120 cycles agree within 0.2 points):**
+
+  | Program | Ordering flushes / 1K | Cycles a flush | 16-entry load-wait table | Perfect store sets (bound) |
+  |---|---|---|---|---|
+  | dhrystone | 1.13 | 27 | +4.70% | +5.32% |
+  | embench sglib-combined | 1.57 | 18 | +2.89% | +3.45% |
+  | coremark A | 0.04 | 26 | +0.16% | +0.18% |
+  | **the suite's score** | 0.13 over all | | **+0.58%** | +0.66% |
+
+  - The other 30 programs and the 16 working-set kernels have under 0.005 flushes per 1K and gain under 0.05%.
+  - The boot's bound stays the RTL's 0.07 replays per 1K, 0.08% of its cycles.
+- **So most of the suite's gain is in a 16-entry load-wait table:** a load PC that caused an ordering flush waits for
+  the older stores' addresses.
+  - It costs about 50–150 LUTs a core (smt2-study's desk estimate, 0.1–0.3K a chip), against 600–1,000 a core for full
+    store sets.
+  - It is a benchmark gain (Dhrystone, sglib), not a Linux one.
+- **Timing risk:** medium. Load issue gains a wait condition on the LSU's near-critical families.
+- **Decided:** the load-wait table and full store sets wait until after v1 (the user, with DR-190; the coordinator
+  offered the wait table for M9 if they want it).
 
 ## 6. Indirect-target predictor
 - **Today:**
@@ -185,20 +204,37 @@ A recommendation follows: what M9 builds and in what order, what waits for v2, a
   - C++ virtual calls;
   - jump tables;
   - interpreters' dispatch loops: Python, Perl and shell, i.e. apt and Debian's maintainer scripts.
-- **Candidates:**
-  - (a) a 128-entry micro-BTB: +0.6% on the boot for 130–150 LUTs a core (area_recovery.md);
-  - (b) the plan's 256-entry path-hashed target table, indexed by the PC with recent indirect targets, overriding the
-    micro-BTB in F2;
-  - (c) DR-159's block BTB: CoreMark +2.2%, the suite unchanged, about 0.6K LUTs a core.
-- **Cost of (b):** one RAMB36 a core (256 × tag + target fits; 23 are free) and about 150–250 LUTs. About 0.3–0.5K LUTs
-  and 2 BRAM a chip.
+- **smt2-study (tgsim, area_recovery §7.11), IPC against today's 64-entry micro-BTB:**
+
+  | Config | The suite's score (33 programs) | 42 pairs WS at 30 / 120 / 250 | Switch interpreter | Threaded interpreter |
+  |---|---|---|---|---|
+  | (a) micro-BTB 128 | −0.11% | −0.09 / +0.04 / +0.04% | 0 | 0 |
+  | **(b) 256-entry table, path (PC xor the last 4 indirect targets)** | **+0.20%** (wikisort +4.4%, cubic +1.4%, CoreMark A +0.8%) | +0.00 / +0.02 / +0.02% | **+98%** | **+47%** |
+  | 256-entry table, block history | +0.19% | — | +4.2% | +0.04% |
+  | (a) and (b) | +0.07% | — | +98% | +47% |
+
+  - **Interpreters:** today the micro-BTB mispredicts 97% of a switch interpreter's dispatches and 58% of threaded
+    code's, at 14–17 cycles each. The path table removes 82% and 67% of them.
+  - That is an upper end, since the kernel is a regular 34-bytecode loop.
+  - The pairs have almost no indirect jumps (0.06 per 1K).
+- **(c) DR-159's block BTB:** CoreMark +2.2%, the suite unchanged, about 0.6K LUTs a core.
+- **The boot (to measure in M9):** the RTL boot profile counts 6.5 mispredicts per 1K (about 5% of the first 20M
+  cycles, 9 cycles each), but not their kind.
+  - Method: mark the non-return JALR mispredict flushes in the profile's bind, with a shadow 256-entry path table
+    updated at commit, as §6.11's shadow micro-BTBs were.
+  - Bound meanwhile: about +0.4% of the boot for each tenth of its mispredicts the table fixes.
+- **Cost of (b):** one RAMB36 a core (256 × tag + target fits; 23 are free) and about 100 LUTs (smt2-study's desk
+  estimate), i.e. about 0.2K LUTs and 2 BRAM a chip. As LUTRAM, about 400 a core.
 - **Timing risk medium:** fetch's next-PC families (rt_q, qs_q) are near the chip's top. A late F2 override, as TAGE's,
   keeps the table off F1's loop.
 - **Switch:** yes.
-- **Value:** smt2-study is modelling (a) and (b) on the boot, the suite and an interpreter workload (pending).
-- **Recommendation:**
-  - M9 builds (b) if it gives at least 0.5% on the boot or the suite.
-  - Otherwise (a), the cheapest measured gain.
+- **Decided (the coordinator under DR-154, 01e2c013):** M9 builds (b), the 256-entry path table, in its BRAM form, as an
+  F2 override behind a switch. DR-190's "0.5%, else the 128-entry micro-BTB" did not fit the numbers, since its
+  fallback loses.
+  - Debian runs interpreters (apt's Python, Perl and shell maintainer scripts), and there (b) roughly halves or better
+    the dispatch cost.
+  - (a) drops out (−0.11%).
+  - The boot's share is measured in M9, before the switch defaults on.
 
 ## 7. virtio-net
 - **Today it is done, in two forms:**
@@ -281,25 +317,26 @@ A recommendation follows: what M9 builds and in what order, what waits for v2, a
 2. **Sscofpmf with 4 counters a hart (§1),** behind `TG_HPM`. Build it as a prototype and measure it out of context.
    The coordinator's call if it stays under 1,200 LUTs a chip, else the user's. It gives the board `perf record`, and
    us profiling without simulation binds.
-3. **The indirect-target predictor (§6),** once smt2-study's numbers land: (b) at ≥ 0.5%, else (a).
+3. **The indirect-target predictor (§6):** the 256-entry path table (interpreters +47–98%, the suite +0.20%), one BRAM36
+   a core, behind a switch (decided, 01e2c013). The boot's share is measured when it is built, under DR-184's band rule.
 4. **The debug module (§8),** in development builds only. [user]: about 1.5–2.5K LUTs there, nothing in the release.
 
-**v2 (or when a measurement asks for it):**
+**After v1 (or when a measurement asks for it):**
+- The 16-entry load-wait table (§5): the suite +0.58% (Dhrystone +4.7%) for 0.1–0.3K (the user, with store sets).
 - Svpbmt: conformance only.
 - Zicbom: unused with coherent DMA.
 - Real Zicbop prefetches.
 - Misaligned hardware [user]: rare in Debian, high timing risk; count first.
-- Store sets [user]: ≤ 0.09% of the boot.
+- Full store sets [user]: the boot's bound is 0.08%.
 - Sdtrig.
 - Zicboz: v1.x if page zeroing shows over about 1% of the boot.
 
-**The area plan.** M9's release-chip additions are §1 (0.7–1.4K) and §6 (0.3–0.5K): about 1.0–1.9K LUTs a chip. They
-are paid by:
+**The area plan.** M9's release-chip additions are §1 (0.7–1.4K) and §6 (about 0.2K and 2 BRAM), with §5's wait table
+(0.1–0.3K) if taken: about 0.9–1.9K LUTs a chip. They are paid by:
 
 | Source | LUTs a chip | Cost | Owner |
 |---|---|---|---|
-| FP divide/sqrt operand formation in the DSP tiles' input selects (parked) | −0.4 to −0.8K | none (same cycles) | fpu |
-| P4's bypass selects as one encoded select per bit (parked) | −0.2 to −0.4K | none | fpu |
+| The divide/sqrt's remaining fabric arithmetic in DSP tiles: F2's pack adders (63 and 31 bits) in DSP ALUs, and the S2 and F1 shifts' fine levels | −0.3 to −0.5K | none (same cycles); the shifts carry a timing risk | fpu |
 | Unary ops on ALU1 only (DR-185's reserve) | −0.36K | ≤ 0.04% | fpu/core |
 | CSR enables into cold LUTRAM (spikes §8.18) | −0.2K | none | core |
 | Fetch's next-PC select (spikes §8.18) | −0.4 to −0.6K | none | core |
@@ -307,16 +344,26 @@ are paid by:
 | The DMA port through a core's crossbar port (held) | −0.2 to −0.3K | none | soc |
 | The L2's same-set rule (soc.md's reserve levers; reverted in fc1031e) | −0.52K | ≈ 0: 4 bubbles in the boot's first 60M cycles | soc |
 
-- The first two are mine and no-IPC; together −0.6 to −1.2K. With the unary-ops move they cover the low end of M9's
-  additions. The next three cover the high end.
+- **Correction (10-23):** this draft first listed the divide/sqrt's operand formation in the DSPs' input selects and P4's
+  bypass selects at −0.6 to −1.2K a chip, from the area pass's early estimates.
+  - The RTL already has both selects as one encoded 4:1 per bit (fpga_friendly.md T7): the ring's x1/y1/x2/y2, RF's
+    rf_val and EX0's bypass. A DSP's A/D split with INMODE still takes one LUT a bit, so neither saves anything.
+  - What remains is the fpu row above, about −0.3 to −0.5K.
+- The fpu row and the unary-ops move together give −0.66 to −0.86K, about M9's low end (0.9K). The core and soc rows
+  cover the rest: §1's high end needs about two of them, decided by their owners.
 - Taking the sources before the additions keeps the chip's fill at or below rc2's 95.9%. The timing margin, not the
   LUT count, is the binding limit.
 - The debug module lives in development builds, which need their own room check.
 
 ## Pending
-- smt2-study (tgsim on home-wsl): the indirect predictor's (a) and (b), the store-set bound on the suite, and a count of
-  misaligned accesses.
-- On the board: misaligned emulations through OpenSBI's firmware events, and the boot's page-zeroing cycles.
+- **smt2-study's tgsim numbers are in** (area_recovery §7.11; perfmodel/results/m9_plan.json; scripts/m9_plan.py;
+  claude/tgsim-rtl-cal 547b024a).
+- **To measure in M9, on the RTL boot profile or the board:**
+  - the share of the boot's mispredicts that are non-return indirect jumps, with a shadow path table (§6);
+  - an interpreter loop (Perl, or a maintainer script);
+  - misaligned emulations through OpenSBI's firmware events (Debian's 6.12), or `perf stat -e alignment-faults` where
+    the kernel takes the traps (§4);
+  - the boot's page-zeroing cycles (§3).
 
 ## Sources (published documentation only; DR-138)
 - **The RISC-V ISA manual,** privileged and unprivileged (Sscofpmf, Smcntrpmf, Svpbmt, the CMO extensions, Zama16b,
@@ -345,6 +392,7 @@ are paid by:
 - **glibc's NEWS:** https://sourceware.org/git/?p=glibc.git;a=blob_plain;f=NEWS;hb=HEAD
 - **Debian's RISC-V port and trixie's release notes:** https://wiki.debian.org/RISC-V ;
   https://www.debian.org/releases/trixie/release-notes/whats-new.en.html
+- **smt2-study's tgsim runs:** docs/perf/area_recovery.md §7.11 (claude/tgsim-rtl-cal 547b024a).
 - **In this repository:**
   - architecture_plan.md §7.4 and §11;
   - decisions.md (DR-063, DR-138, DR-147, DR-154, DR-159, DR-169, DR-180, DR-185);
