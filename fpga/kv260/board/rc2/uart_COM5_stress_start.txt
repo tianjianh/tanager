@@ -1,0 +1,11 @@
+﻿
+===== COM5 scripted session opened 2026-10-23T09:28:14.6281196-07:00 =====
+
+[?2004l[?2004htanager@tanager:~$ uptime ; nproc ; cat /sys/devices/system/cpu/online
+[?2004l 06:29:01 up 6 min,  2 users,  load average: 1.47, 1.49, 0.79
+4
+0-3
+[?2004htanager@tanager:~$ bash ~/stress/stress.sh
+[?2004lSTRESS start 2026-10-23T06:29:07Z up=403.97
+
+===== COM5 scripted session closed 2026-10-23T09:28:25.7736348-07:00, exit 0 =====

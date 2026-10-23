@@ -42,8 +42,11 @@ module tg_decode_stage
   output logic [TKW-1:0]      iq_take,
   output logic [TKW-1:0]      iq_take_t,    // ... the take if rename takes the group (de_take), and if not:
   output logic [TKW-1:0]      iq_take_n,    // iq_take is the choice (timing: the queue's counts run on both)
+  output logic                iq_tnz_t,     // ... whether each is nonzero, made without the count (timing: the
+  output logic                iq_tnz_n,     // queue's read-thread choice needs only that, not decode's group)
   // To rename
   output logic [W-1:0]        de_valid,
+  output logic                de_nz,        // |de_valid, made without the group's rules (timing: rename's choices)
   output uop_t [W-1:0]        de_uop,
   input  logic                de_take,
   // Decode-time redirect (registered)
@@ -314,6 +317,16 @@ module tg_decode_stage
     end
   end
 
+  // A group's first instruction always goes when it is there (the rules, n above, end the group only after it), so
+  // decode hands rename a group exactly when its first slot is valid outside a redirect or a flush. Timing: rename
+  // picks its next-cycle choices and de_take by this (de_any); from de_valid, the queue's read and decode's group
+  // rules ran into acc_o, then the queue's read-thread copies (spikes 8.18's near-final chip, placement 2: rt_b_q
+  // from head_t_q, -0.720 ns, through rename)
+  assign de_nz = xv[0] && !(dred || flush);
+`ifndef SYNTHESIS
+  always_ff @(posedge clk)
+    if (!rst) assert (de_nz == |de_valid) else $error("tg_decode_stage: de_nz is not |de_valid");
+`endif
   for (genvar j = 0; j < W; j++) begin : g_out
     assign de_valid[j] = TKW'(j) < n;
     always_comb begin
@@ -387,6 +400,8 @@ module tg_decode_stage
     assign iq_take   = TKW'(acc);
     assign iq_take_t = acc_t;
     assign iq_take_n = acc_n;
+    assign iq_tnz_t  = acc_t != '0;
+    assign iq_tnz_n  = acc_n != '0;
     always_ff @(posedge clk) begin
       if (rst || flush || dred) begin
         v1_q <= '0;
@@ -434,26 +449,65 @@ module tg_decode_stage
     assign iq_take   = de_take ? n : '0;
     assign iq_take_t = n;
     assign iq_take_n = '0;
+    // a group's first instruction always goes when it is there, so the count is nonzero exactly when the queue's
+    // first slot is valid outside a redirect or a flush (the group's rules, n above, end it only after that one)
+    assign iq_tnz_t  = iq_valid[0] && !(dred || flush);
+    assign iq_tnz_n  = 1'b0;
   end
+`ifndef SYNTHESIS
+  always_ff @(posedge clk)
+    if (!rst)
+      assert (iq_tnz_t == (iq_take_t != '0) && iq_tnz_n == (iq_take_n != '0))
+        else $error("tg_decode_stage: the take's nonzero flags are not its counts'");
+`endif
 
-  // The last instruction taken redirects: flush the front end next cycle
+  // The last instruction taken redirects: flush the front end next cycle. Only the flag waits for rename's take
+  // (de_take); the redirect's operands load from decode's own count, the group's last instruction's, since fetch
+  // reads them only while the flag is set (its redirect, its history's and stack's repairs, the FTQ's tail). Timing:
+  // the take had been the enable of every operand flip-flop (spikes 8.18's near-final chip, placement 2: dred_rlink,
+  // dred_ftq and dred_pc from the issue queues' dep_q through rename's allocation, -0.53 ns)
   always_ff @(posedge clk) begin
     if (rst || flush) begin
       dred <= 1'b0;
     end else begin
       dred <= 1'b0;
-      for (int j = 0; j < W; j++) begin
-        if (de_take && n == TKW'(j + 1) && redir[j]) begin
-          dred      <= 1'b1;
-          dred_tid  <= xq[j].tid;
-          dred_pc   <= npc[j];
-          dred_ftq  <= xq[j].ftq;
-          dred_slot <= xq[j].pc[SLOT_W:1] + SLOT_W'(!xq[j].rvc);
-          // (RAS_FE: a call or return fetch could not see, as one that straddles into its block)
-          dred_rop   <= RAS_FE ? rop_e[j] : 2'b00;
-          dred_rlink <= xseq[j][38:1];
-        end
-      end
+      for (int j = 0; j < W; j++)
+        if (de_take && n == TKW'(j + 1) && redir[j]) dred <= 1'b1;
     end
   end
+  always_ff @(posedge clk)
+    for (int j = 0; j < W; j++)
+      if (n == TKW'(j + 1)) begin
+        dred_tid  <= xq[j].tid;
+        dred_pc   <= npc[j];
+        dred_ftq  <= xq[j].ftq;
+        dred_slot <= xq[j].pc[SLOT_W:1] + SLOT_W'(!xq[j].rvc);
+        // (RAS_FE: a call or return fetch could not see, as one that straddles into its block)
+        dred_rop   <= RAS_FE ? rop_e[j] : 2'b00;
+        dred_rlink <= xseq[j][38:1];
+      end
+`ifndef SYNTHESIS
+  // The operands' old form, loaded with the flag under the take, equal to them whenever the flag is set
+  tid_t              o_tid;
+  logic [63:0]       o_pc;
+  logic [FTQW-1:0]   o_ftq;
+  logic [SLOT_W-1:0] o_slot;
+  logic [1:0]        o_rop;
+  logic [38:1]       o_rlink;
+  always_ff @(posedge clk)
+    if (!(rst || flush))
+      for (int j = 0; j < W; j++)
+        if (de_take && n == TKW'(j + 1) && redir[j]) begin
+          o_tid   <= xq[j].tid;
+          o_pc    <= npc[j];
+          o_ftq   <= xq[j].ftq;
+          o_slot  <= xq[j].pc[SLOT_W:1] + SLOT_W'(!xq[j].rvc);
+          o_rop   <= RAS_FE ? rop_e[j] : 2'b00;
+          o_rlink <= xseq[j][38:1];
+        end
+  always_ff @(posedge clk)
+    if (rs_seen_q && !rst && dred)
+      assert ({dred_tid, dred_pc, dred_ftq, dred_slot, dred_rop, dred_rlink} == {o_tid, o_pc, o_ftq, o_slot, o_rop, o_rlink})
+        else $error("tg_decode_stage: decode's redirect operands are not their old form's");
+`endif
 endmodule

@@ -18,5 +18,9 @@ for c in 0 1 2 3; do
   r=$(taskset -c $c "$T"); [ "$r" = 5007905533300608 ] && echo "t on cpu$c after the rounds: PASS" || { echo "t on cpu$c after the rounds: FAIL ($r)"; fails=$((fails + 1)); }
 done
 echo "== the kernel's lines during the rounds:"; dmesg | tail -n +$((k0 + 1))
-t=$(dmesg | tail -n +$((k0 + 1)) | grep -c -i -E "fail|error|timeout|unable|oops|bug|stall|warn")
-echo "HSM-END fails=$fails trouble-lines=$t online=$(cat /sys/devices/system/cpu/online) $(date -u +%T)"
+# Known (u100, 10-23; fpga/kv260/README.md's known issues): OpenSBI 1.9 refuses a remote fence that names a hart just
+# stopped. Expected in a hotplug round until our OpenSBI patch, so counted apart; every other such line is trouble.
+KNOWN='__sbi_rfence_v02_call: hbase = \[[0-9]+\] hmask = \[0x[0-9a-f]+\] failed \(error \[-22\]\)'
+known=$(dmesg | tail -n +$((k0 + 1)) | grep -c -E "$KNOWN")
+t=$(dmesg | tail -n +$((k0 + 1)) | grep -v -E "$KNOWN" | grep -c -i -E "fail|error|timeout|unable|oops|bug|stall|warn")
+echo "HSM-END fails=$fails trouble-lines=$t known=$known online=$(cat /sys/devices/system/cpu/online) $(date -u +%T)"

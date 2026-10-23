@@ -30,16 +30,24 @@ while read -r c h; do echo "cpu$c = hart $h, siblings $(cat /sys/devices/system/
 dmesg | grep -m1 "Run /init as init process"; systemd-analyze 2>&1 | head -1
 echo "== kernel messages"
 dmesg > dmesg.txt
-k=$(grep -c -i -E "Oops|BUG:|Kernel panic|rcu.*(stall|detected)|soft lockup|hard lockup|hung_task|blocked for more than|Unable to handle|sbi.*(fail|error)|hsm.*(fail|error)|failed to (start|come online)|CPU[0-9]+: failed" dmesg.txt)
-[ "$k" = 0 ] && ok "dmesg" "no trouble lines" || { bad "dmesg" "$k trouble lines:"; grep -i -E "Oops|BUG:|Kernel panic|rcu.*(stall|detected)|soft lockup|hard lockup|hung_task|blocked for more than|Unable to handle|sbi.*(fail|error)|hsm.*(fail|error)|failed to (start|come online)|CPU[0-9]+: failed" dmesg.txt | head -20; }
+# HC_DMESG_FROM=N skips the boot's first N kernel lines: a soak passes the count at its step's start, so that a line
+# already counted in an earlier step doesn't fail every later one. Default 0: the whole boot.
+TROUBLE="Oops|BUG:|Kernel panic|rcu.*(stall|detected)|soft lockup|hard lockup|hung_task|blocked for more than|Unable to handle|sbi.*(fail|error)|hsm.*(fail|error)|failed to (start|come online)|CPU[0-9]+: failed"
+k=$(tail -n +$(( ${HC_DMESG_FROM:-0} + 1 )) dmesg.txt | grep -c -i -E "$TROUBLE")
+[ "$k" = 0 ] && ok "dmesg" "no trouble lines${HC_DMESG_FROM:+ after line $HC_DMESG_FROM}" || { bad "dmesg" "$k trouble lines:"; tail -n +$(( ${HC_DMESG_FROM:-0} + 1 )) dmesg.txt | grep -i -E "$TROUBLE" | head -20; }
 grep -E "smp: |SBI|riscv-pmu|timebase|clocksource" dmesg.txt | head -12
 echo "== each hart alone"
 printf '%s\n' '#include <stdio.h>' 'int main(void){unsigned long s=0;for(unsigned long i=0;i<100000000UL;i++)s+=i^(i>>3);printf("%lu\n",s);return 0;}' > t.c
 gcc -O2 -o t t.c && cp $H/stress/mt.c . && gcc -O2 -pthread -o mt mt.c || bad "build" "t.c or mt.c does not build"
 while read -r c h; do
-  out=$(taskset -c "$c" $H/baseline/bin/coremark-a 0 1 2>&1)
+  out=$(taskset -c "$c" $H/baseline/bin/coremark-a 0 1 2>&1); echo "$out" > "coremark_cpu$c.txt"
   ips=$(echo "$out" | awk -F': *' '/Iterations\/Sec/ { print $2 }')
-  echo "$out" | grep -q "Correct operation validated" && ok "coremark-a cpu$c (hart $h)" "$ips iterations/s" || bad "coremark-a cpu$c (hart $h)" "$(echo "$out" | grep -i -E "error|valid" | head -3 | tr '\n' ' ')"
+  # A CRC error ("[0]ERROR! list crc ...") is a wrong result. "Must execute for at least 10 secs" alone is CoreMark's
+  # timing rule: its sizing picked too few iterations after a slow calibration, so it is a note, not a failure.
+  if echo "$out" | grep -q "Correct operation validated"; then ok "coremark-a cpu$c (hart $h)" "$ips iterations/s"
+  elif echo "$out" | grep -q "Must execute for at least 10 secs" && ! echo "$out" | grep -q -E "ERROR! *(seed|list|matrix|state)|\]ERROR"; then
+    ok "coremark-a cpu$c (hart $h)" "$ips iterations/s (note: under 10 s, CoreMark's timing rule; CRCs right)"
+  else bad "coremark-a cpu$c (hart $h)" "$(echo "$out" | grep -i -E "error|valid" | head -3 | tr '\n' ' ')"; fi
   s=$(date +%s.%N); r=$(taskset -c "$c" ./t); e=$(awk -v a="$s" -v b="$(date +%s.%N)" 'BEGIN { printf "%.2f", b - a }')
   [ "$r" = 5007905533300608 ] && ok "t cpu$c (hart $h)" "$e s" || bad "t cpu$c (hart $h)" "printed $r"
 done < harts.txt
@@ -60,7 +68,7 @@ rm -f "$P"/*; rmdir "$P"; cd "$D"
 echo "sysbench cpu, $n threads: $(sysbench cpu --threads=$n --time=10 run | grep -E 'events per second')"
 echo "sysbench threads, $n threads: $(sysbench threads --threads=$n --time=10 run | grep -E 'total number of events')"
 k2=$(dmesg | wc -l); k1=$(wc -l < dmesg.txt)
-[ "$k2" -le "$k1" ] && ok "dmesg after the checks" "no new lines" || { echo "new kernel lines during the checks:"; dmesg | tail -n +$((k1 + 1)) | head -20; dmesg | tail -n +$((k1 + 1)) | grep -q -i -E "Oops|BUG:|panic|stall|lockup|hung|Unable to handle" && bad "dmesg after the checks" "trouble" || ok "dmesg after the checks" "new lines, none of them trouble"; }
+[ "$k2" -le "$k1" ] && ok "dmesg after the checks" "no new lines" || { echo "new kernel lines during the checks:"; dmesg | tail -n +$((k1 + 1)) | head -20; dmesg | tail -n +$((k1 + 1)) | grep -q -i -E "$TROUBLE" && bad "dmesg after the checks" "trouble" || ok "dmesg after the checks" "new lines, none of them trouble"; }
 echo "HARTCHECK-END $T fails=$fails $(date -u +%FT%TZ) up $(cut -d' ' -f1 /proc/uptime)"
 } 2>&1 | tee "$D/hartcheck_$T.txt"
 chown -R tanager:tanager "$H/hartcheck"
