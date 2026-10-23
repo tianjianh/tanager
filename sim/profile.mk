@@ -88,7 +88,8 @@ ifneq ($(filter-out 0 1,$(SPLIT)),)
 endif
 # M7's hart 1 (DR-175, step 5), 0 or 1 (+define+TG_HART1, tg_core_pkg::HART1_ON; the core track's switch; smt2 builds
 # only; with SOLO_TID=1 hart 0 runs as tid 1): the split window, each register bank's free list divided between the
-# harts with transfers, hart 1's homes and FP banks of 96; from step 5c hart 1 runs. Until then hart 0 runs alone. Not
+# harts with transfers, hart 1's homes and FP banks of 64 with renaming across them (DR-179; TG_FP_BANK96=1, by hand,
+# gives DR-175's banks of 96); from step 5c hart 1 runs. Until then hart 0 runs alone. Not
 # the same cycles.
 HART1 ?=
 ifneq ($(filter-out 0 1,$(HART1)),)
