@@ -713,7 +713,9 @@ module tg_csr
         logic [CNW-1:0] ev;
         logic [63:0]    ldv;
         assign ld  = cm_csr && pv && wt == tid_t'(t) && pa == 12'hB03 + 12'(i);
-        assign ldv = MT ? pw_d_q[t] : pd;
+        // The hart's own pending write: in the load's second cycle nothing commits, so wt (and pd) may name the other
+        // thread (SOLO_TID=1: thread 0, whose pw_d_q stays zero)
+        assign ldv = pw_d_q[t];
         always_comb begin
           ev = '0;
           if (ev_q[t][i] == EW'(1))      ev = CNW'(1);                                   // cycles
