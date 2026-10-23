@@ -1,5 +1,7 @@
 # Out-of-context synthesis of one RTL module, for area and timing studies (SoC track).
 #   TANAGER_VIVADO_MEM_GB=4 tools/vivado_run.sh <run-dir> fpga/kv260/tcl/ooc_synth.tcl <repo-root> <cfg> <top> <mhz> [GEN=VAL ...]
+# TG_DEFINES (space-separated NAME=VALUE): Verilog defines for the run, as build.tcl takes them (for example
+# "TG_HART1=1 TG_URF=1 TG_COMMIT_TRACE=0" for the product's core).
 # Writes reports/ooc_utilization.rpt (hierarchical, not flattened), reports/ooc_timing.rpt and,
 # with TG_OOC_CONES=1, reports/ooc_cones.txt.
 set root [lindex $argv 0]
@@ -14,7 +16,9 @@ tg_read_rtl $root $cfg
 set_param general.maxThreads 8
 set gargs {}
 foreach g $gens { lappend gargs -generic $g }
-synth_design -top $top -part $part -mode out_of_context -flatten_hierarchy none {*}$gargs
+set dargs {}
+if {[info exists ::env(TG_DEFINES)]} { foreach d $::env(TG_DEFINES) { lappend dargs -verilog_define $d } }
+synth_design -top $top -part $part -mode out_of_context -flatten_hierarchy none {*}$gargs {*}$dargs
 create_clock -name clk -period [expr {1000.0 / $mhz}] [get_ports clk]
 report_utilization -hierarchical -hierarchical_depth 3 -file reports/ooc_utilization.rpt
 report_utilization -file reports/ooc_utilization_flat.rpt
@@ -27,7 +31,7 @@ set luts ?; set lutram ?; set ffs ?
 regexp {\|\s*CLB LUTs\*?\s*\|\s*(\d+)} $txt -> luts
 regexp {\|\s*LUT as Memory\s*\|\s*(\d+)} $txt -> lutram
 regexp {\|\s*CLB Registers\s*\|\s*(\d+)} $txt -> ffs
-puts "TG_OOC $top $gens LUT=$luts LUTRAM=$lutram FF=$ffs WNS=$wns"
+puts "TG_OOC $top $gens [expr {[info exists ::env(TG_DEFINES)] ? $::env(TG_DEFINES) : {}}] LUT=$luts LUTRAM=$lutram FF=$ffs WNS=$wns"
 
 # Optional (TG_OOC_CONES=1): LUTs in the input cone of each register group of the top module, for
 # attributing logic that synthesis flattens into one module. A register group is one RTL variable
