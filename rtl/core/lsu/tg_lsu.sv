@@ -1922,12 +1922,13 @@ module tg_lsu
   assign pw_tid[1]  = t_iw;
   assign pw_tid[2]  = dpf_tid_q;
   // M9's counters (TG_HPM), each thread's events as they happen: a load's first miss at M2 (its replays while the line
-  // comes do not count again; the walker's PTE reads aside), and a walk the walker takes for the head (a data access's)
-  // or for fetch
+  // comes do not count again; the walker's PTE reads aside), and a walk the walker takes for the head or the data
+  // prefetch (a data access's), or for fetch. tg_ptw acks one request a cycle (by priority), so each is one pulse
   always_comb
     for (int t = 0; t < NT; t++) begin
       hpm_lsu[t][0] = lm_req && !m2_pt_q && !lq_mc_q[m2_lq_q] && t_m2 == tid_t'(t);
-      hpm_lsu[t][1] = pw_req[0] && pw_ack[0] && pw_tid[0] == tid_t'(t);
+      hpm_lsu[t][1] = (pw_req[0] && pw_ack[0] && pw_tid[0] == tid_t'(t)) ||
+                      (pw_req[2] && pw_ack[2] && pw_tid[2] == tid_t'(t));
       hpm_lsu[t][2] = pw_req[1] && pw_ack[1] && pw_tid[1] == tid_t'(t);
     end
   tg_ptw u_ptw (

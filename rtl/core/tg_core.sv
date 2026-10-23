@@ -684,8 +684,8 @@ module tg_core
   assign priv_cm = MT ? priv_h[rob_hd_tid] : priv;
   // M9's counters (HPM_N > 0; tg_csr's mhpmevent 3 ..): each hart's events (tg_core_pkg's HPM_EV), registered: 3
   // branch mispredicts (at execute, wrong-path ones too), 4 ordering replays, 5 L1D load misses (a load's first, at M2),
-  // 6 data walks (the walker's head port), 7 fetch's walks, 8 I$ misses (F2 parks a stream on one), 9 CoRR replays
-  // (the snoop marking's reports)
+  // 6 data walks (the head's and the data prefetch's), 7 fetch's walks, 8 I$ misses (F2 parks a stream on one), 9 CoRR
+  // replays (the snoop marking's reports)
   logic [NUM_THREADS-1:0][HPM_EV-1:0] hpm_ev;
   if (HPM_N > 0) begin : g_hpm_ev
     always_ff @(posedge clk)
