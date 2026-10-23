@@ -1217,6 +1217,10 @@ module tg_rename
         end
     end
   end
+  // (step 7's timing) the two registered masks' checks below start at the first reset (as tg_lsu's rs_q)
+  logic qoh_rs_q;                   // the core has been reset
+  initial qoh_rs_q = 1'b0;
+  always @(posedge clk) if (rst) qoh_rs_q <= 1'b1;
   // RN's need masks are their slots' class masks (both load as decode hands a group over), for a valid slot
   always_ff @(posedge clk)
     if (qoh_rs_q && !rst)
@@ -1226,9 +1230,6 @@ module tg_rename
             assert (rn_need_q[t][k] == cls_qmask(rn_u_q[t][k].d.cls))
               else $error("tg_rename: RN register %0d slot %0d's need mask differs from its class", t, k);
   // DS's queue one-hot is ds_ren_q's has_q and q (both load while DS is free), for a valid slot, from the first reset
-  logic qoh_rs_q;
-  initial qoh_rs_q = 1'b0;
-  always @(posedge clk) if (rst) qoh_rs_q <= 1'b1;
   always_ff @(posedge clk)
     if (qoh_rs_q && !rst)
       for (int k = 0; k < W; k++)
