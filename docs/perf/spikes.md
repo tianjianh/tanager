@@ -1792,6 +1792,45 @@ Results: `fpga/spikes/results/product_wt_ns_aslh/`.
 
 Results: `fpga/spikes/results/product_wt2_dr185_aslh/` (with `pin_classes_pay_core0.txt`, `pin_classes_pay_core1.txt` and `path_cells_tage_core0.txt`).
 
+#### core-2's A/B: the read thread with and without per-bank copies (2026-10-22)
+
+The fixes preview's base with core-2's newer heads (`snap/product_wt` and `snap/product_wt3`): e5b304cd, TAGE 8cf8e262, DR-183 ecfcc8a5, and core-2's walker fix a6abdc5d. The walker fix registers the head lookup's VPN, so DTLB port 2 starts at one register. Then:
+- **A** (`product_wt_abA_aslh`): `rt_q` and `occ_t_q` on decode's take, d5696350.
+- **B** (`product_wt3_abB_aslh`): the same with per-bank copies of the read thread, 9e82b799.
+
+Both use `AltSpreadLogic_high` and one placement each, at TG_PR_UNC 1.0.
+
+| | A | B |
+|---|---|---|
+| LUTs after `opt_design` / routed | 113,779 / 111,481 | 113,718 / 111,228 |
+| FFs routed, CLBs | 57,646, 14,635 | 57,650, 14,599 |
+| WNS after `phys_opt_design` (estimated, with 1.0 ns on) | −0.415 ns | −0.923 ns |
+| Routing | **congested:** the router put routability ahead of timing | no trade |
+| WNS / TNS on the core clock (ns) | −1.721 / −3,787 (7,743 failing) | **−0.803 / −964.3** (3,351 failing) |
+| `clk2x`: within / into / back (ns) | +0.333 / −0.778 (a one-level URF enable, a routing detour) / +0.759 | +1.617 / +0.770 / +0.825 |
+
+| Family | Preview, placement 1 / 2 | A | B |
+|---|---|---|---|
+| `pay_wd_q` | −0.843 / −0.331 | −0.558 | −0.498 |
+| fetch's `rt_q` | −0.854 / −0.659 | −1.292 | −0.545 |
+| `occ_t_q` | −0.701 / −0.331 | −0.556 | −0.056 |
+| `head_t_q` | −0.588 / −0.079 | −0.635 | +0.006 |
+| The walker's `chk_pa_q` / `base_q` from `ct_q` | +0.479 / +0.426 | none within 1 ns | none within 1 ns |
+| The LQ state (`lq_st_q`) | −0.849 / −0.789 | −1.702 | −0.802 |
+| The L2 → crossbar → core response | −0.580 / −0.001 | −1.355 | −0.803 |
+
+- **The walker fix works.** No path from `ct_q` into `chk_pa_q` or `base_q` is within 1 ns in either.
+- **A's congested route spoiled its timing.** A's placement was the better one before routing, so A against B is undecided on one run each. B routed cleanly and has the best `occ_t_q` and `head_t_q` of any run.
+- **B's worst families** (−0.80 ns):
+  - the L2's response into core 1's I$ valid bits (from the bank's `d_idx`, 20 levels);
+  - the LQ state from the LQ head (31);
+  - decode's `dred_pc` from the issue queues' `dep_q`;
+  - the LSU's `fh_data_q` from `ct_q`;
+  - fetch's `kimm_q` from the I$ data.
+- **To decide A against B,** a second placement of each (1.05 ns) would make two pairs.
+
+Results: `fpga/spikes/results/product_wt_abA_aslh/` and `product_wt3_abB_aslh/`.
+
 #### The fixes preview, a pair of placements: −0.79 ns at best (2026-10-22)
 
 **Asked** (the coordinator): which families remain once the pending fixes are in, judged as a pair of placements. The snapshot (`snap/product_wt2` d1a72fbe) is main e5b304cd (the L2 bank's registered D output) plus:
