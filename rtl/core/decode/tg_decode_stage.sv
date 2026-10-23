@@ -46,6 +46,7 @@ module tg_decode_stage
   output logic                iq_tnz_n,     // queue's read-thread choice needs only that, not decode's group)
   // To rename
   output logic [W-1:0]        de_valid,
+  output logic                de_nz,        // |de_valid, made without the group's rules (timing: rename's choices)
   output uop_t [W-1:0]        de_uop,
   input  logic                de_take,
   // Decode-time redirect (registered)
@@ -316,6 +317,16 @@ module tg_decode_stage
     end
   end
 
+  // A group's first instruction always goes when it is there (the rules, n above, end the group only after it), so
+  // decode hands rename a group exactly when its first slot is valid outside a redirect or a flush. Timing: rename
+  // picks its next-cycle choices and de_take by this (de_any); from de_valid, the queue's read and decode's group
+  // rules ran into acc_o, then the queue's read-thread copies (spikes 8.18's near-final chip, placement 2: rt_b_q
+  // from head_t_q, -0.720 ns, through rename)
+  assign de_nz = xv[0] && !(dred || flush);
+`ifndef SYNTHESIS
+  always_ff @(posedge clk)
+    if (!rst) assert (de_nz == |de_valid) else $error("tg_decode_stage: de_nz is not |de_valid");
+`endif
   for (genvar j = 0; j < W; j++) begin : g_out
     assign de_valid[j] = TKW'(j) < n;
     always_comb begin

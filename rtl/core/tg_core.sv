@@ -303,10 +303,11 @@ module tg_core
 
   // ---- Decode ----
   logic [DECODE_WIDTH-1:0] de_valid;
+  logic                    de_nz;          // |de_valid, made without decode's group rules (rename's choices)
   uop_t [DECODE_WIDTH-1:0] de_uop;
   tg_decode_stage u_de (
     .clk, .rst, .flush, .dst_h(de_state_h),
-    .iq_valid, .iq_insn, .iq_take, .iq_take_t, .iq_take_n, .iq_tnz_t, .iq_tnz_n, .de_valid, .de_uop, .de_take,
+    .iq_valid, .iq_insn, .iq_take, .iq_take_t, .iq_take_n, .iq_tnz_t, .iq_tnz_n, .de_valid, .de_nz, .de_uop, .de_take,
     .dred, .dred_tid, .dred_pc, .dred_ftq, .dred_slot, .dred_rop, .dred_rlink, .ras_v, .ras_top, .ras_push, .ras_pop,
     .ras_link);
   if (RAS_ON) begin : g_ras
@@ -447,7 +448,7 @@ module tg_core
   logic                             rn_ready;
   tg_rename u_rn (
     .clk, .rst, .ready(rn_ready), .start(init_done && fe_ready && lsu_ready), .flush, .flush_tid,
-    .de_valid, .de_uop, .de_take, .blk_o(rn_blk), .acc_o(rn_acc),
+    .de_valid, .de_nz, .de_uop, .de_take, .blk_o(rn_blk), .acc_o(rn_acc),
     .rob_head(rob_head_t), .lq_head(lq_head_t), .sq_head(sq_head_t), .sq_cmt(sq_cmt_t), .iq_bank_free,
     .iq_bank_free2, .iq_room_ge, .iq_bank_left, .w_vec, .busy(iq_busy),
     .rf_we, .rf_widx, .llt_rel, .tag_free, .div_done, .div_done_tid,
