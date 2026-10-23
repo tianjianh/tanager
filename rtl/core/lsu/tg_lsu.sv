@@ -1375,9 +1375,9 @@ module tg_lsu
   // registered PA in S2, the next cycle (below).
   assign sa_pmpc = xl_s && dt_pte[1].ph;
   // ... and which take the checker at their decision: bare ones, and with PMP_FILL not M-mode while its hart has no
-  // locked entry (DR-183)
+  // locked entry (DR-183). With the split a register's (sn_pck_q, below): its thread's translation, privilege and
+  // locked entries had headed the checker's operand select, and so its compares (spikes-2's priv_dl_q family)
   logic sa_pck;
-  assign sa_pck  = !xl_s && !(PMP_FILL && priv_d[t_sn] == PRIV_M && !pmp_lk_h[t_sn]);
   // atomics only in main memory (interfaces.md §2.4)
   assign sa_acc  = (xl_s ? dt_pte[1].big : sn_va[63:PA_W] != '0) ||
                    (sa_pmpc && !(sa_lr ? dt_pte[1].pr : dt_pte[1].pw)) || (sa_pck && !sa_chk[0]) ||
@@ -1626,8 +1626,11 @@ module tg_lsu
   // The store's M-mode flag for the checkers (ck_ms: registered with the split) is the data privilege's at its
   // decision whenever its thread's flush doesn't squash it (the load's: in g_split)
   always_ff @(posedge clk)
-    if (rs_q && !rst && sn_v && !kill_t[t_sn])
+    if (rs_q && !rst && sn_v && !kill_t[t_sn]) begin
       assert (ck_ms == (priv_d[t_sn] == PRIV_M)) else $error("tg_lsu: the store's M-mode flag differs from priv_d");
+      assert (sa_pck == (!xl_s && !(PMP_FILL && priv_d[t_sn] == PRIV_M && !pmp_lk_h[t_sn])))
+        else $error("tg_lsu: the store's checker request (sa_pck) differs from its translation, privilege and locks");
+    end
   // (DR-183, core-2's check) The head's MMIO check request is the head's of a cycle ago, re-derived every cycle (a
   // flush ends it the cycle after): at its grant its entry is still that MMIO load, waiting for its check, as the
   // request captured it
@@ -2412,6 +2415,7 @@ module tg_lsu
     logic [SIW-1:0] sn_sq_q;               // (the index; the wrap bit is not read)
     tid_t        sn_t_q;
     logic        sn_m_q;                   // its data privilege is M (ck_ms)
+    logic        sn_pck_q;                 // it takes the checker at its decision (sa_pck)
     logic        cl_v_q;                   // a store wrote the D$ in the AG cycle of M1's op ...
     logic [PA_W-1:4] cl_row_q;             // ... this row
     logic        cl2_v_q;                  // #11: ... or a cycle before it (the RAM is written a cycle late)
@@ -2429,6 +2433,7 @@ module tg_lsu
       sn_sq_q   <= sta_ag_pl.sq[SIW-1:0];
       sn_t_q    <= sta_ag_pl.tid;
       sn_m_q    <= priv_d[sta_ag_pl.tid] == PRIV_M;
+      sn_pck_q  <= !xl_t[sta_ag_pl.tid] && !(PMP_FILL && priv_d[sta_ag_pl.tid] == PRIV_M && !pmp_lk_h[sta_ag_pl.tid]);
       cl_row_q  <= st_pa[PA_W-1:4];
       cl2_v_q   <= !rst && DC_PORTB_WREG && cl_v_q;
       cl2_row_q <= cl_row_q;
@@ -2475,6 +2480,7 @@ module tg_lsu
     // access caught in between (asserted)
     assign ck_ms   = sn_m_q;
     assign ck_ml   = m2_m_q;
+    assign sa_pck  = sn_pck_q;
 `ifndef SYNTHESIS
     always_ff @(posedge clk)
       if (rs_q && !rst && (m2_pck_q || m2_mck_q || (m2_rck_q && m2_v_q)) && !kill_t[t_lck])
@@ -2612,6 +2618,7 @@ module tg_lsu
     assign t_lck   = m1_t_q;
     assign ck_ms   = priv_d[t_sn] == PRIV_M;
     assign ck_ml   = priv_d[t_lck] == PRIV_M;
+    assign sa_pck  = !xl_s && !(PMP_FILL && priv_d[t_sn] == PRIV_M && !pmp_lk_h[t_sn]);
     assign l_den   = m2_lden_q;
     assign lm_den  = m2_mden_q;
     assign lm_st   = m2_mden_q;
