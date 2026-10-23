@@ -36,4 +36,15 @@ rtl_link "$OUT/ws_copy_512.elf" -O2 -I"$ms" -DBYTES="(512 * 512u)" -DREPS=8 -DWA
 # prefetch shows on (build_extra.sh's tk_bigcode, 4 passes)
 python3 -I "$R/bench/bigcode/gen_bigcode.py" "$OUT/inc/bigcode.c" 1024
 rtl_link "$OUT/tk_bigcode.elf" -O2 -DPASSES=4 -- "$OUT/inc/bigcode.c"
+# M9=1 (scripts/m9_rtl.py, area_recovery.md §7.12): also the Embench programs with indirect jumps and bench/m9's two
+# interpreters
+if [ "${M9:-0}" = 1 ]; then
+  for b in wikisort cubic picojpeg; do
+    d="$TP/embench-iot/src/$b/"
+    rtl_link "$OUT/embench_$b.elf" -O2 -std=gnu17 -DCPU_MHZ=1 -DWARMUP_HEAT=1 -I"$TP/embench-iot/support" -w -- \
+      "$d"*.c "$TP/embench-iot/support/main.c" "$TP/embench-iot/support/beebsc.c" "$R/bench/embench/boardsupport.c"
+  done
+  rtl_link "$OUT/m9_interp_switch.elf" -O2 -I"$ms" -DTHREADED=0 -- "$R/bench/m9/interp.c"
+  rtl_link "$OUT/m9_interp_threaded.elf" -O2 -I"$ms" -DTHREADED=1 -- "$R/bench/m9/interp.c"
+fi
 echo "$ISA: $(ls "$OUT"/*.elf | wc -l) RTL-platform workloads in $OUT"

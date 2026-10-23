@@ -1,0 +1,2753 @@
+{
+ "mis": {
+  "coremark_A": {
+   "instr": 6755592,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "coremark_B": {
+   "instr": 6838132,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "dhrystone": {
+   "instr": 5720046,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "embench_aha-mont64": {
+   "instr": 1910727,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "embench_crc32": {
+   "instr": 4179825,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "embench_cubic": {
+   "instr": 1070828,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "embench_edn": {
+   "instr": 3397930,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "embench_huffbench": {
+   "instr": 2163599,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "embench_matmult-int": {
+   "instr": 3180613,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "embench_minver": {
+   "instr": 442952,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "embench_nbody": {
+   "instr": 770,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "embench_nettle-aes": {
+   "instr": 4678704,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "embench_nettle-sha256": {
+   "instr": 3791491,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "embench_nsichneu": {
+   "instr": 2405397,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "embench_picojpeg": {
+   "instr": 3400284,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "embench_qrduino": {
+   "instr": 2874165,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "embench_sglib-combined": {
+   "instr": 2302630,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "embench_slre": {
+   "instr": 2499890,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "embench_st": {
+   "instr": 86652,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "embench_statemate": {
+   "instr": 903467,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "embench_ud": {
+   "instr": 2367782,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "embench_wikisort": {
+   "instr": 605861,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "m9_interp_switch": {
+   "instr": 5469485,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "m9_interp_threaded": {
+   "instr": 4257181,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "m9_misalign": {
+   "instr": 27666,
+   "ld_misaligned": 3584,
+   "st_misaligned": 3584
+  },
+  "ms_bsearch": {
+   "instr": 5119990,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "ms_chase1": {
+   "instr": 12004,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "ms_chase16": {
+   "instr": 54022,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "ms_chase8": {
+   "instr": 60011,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "ms_chase8f16": {
+   "instr": 852014,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "ms_copy": {
+   "instr": 1281630,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "ms_gather": {
+   "instr": 360006,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "ms_hashprobe": {
+   "instr": 1588936,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "ms_spmv": {
+   "instr": 1351690,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "ms_stream": {
+   "instr": 9437190,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "ms_stride": {
+   "instr": 294979,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "ws_chase1_1024": {
+   "instr": 12004,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "ws_chase1_2048": {
+   "instr": 12004,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "ws_chase1_4096": {
+   "instr": 12004,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "ws_chase1_512": {
+   "instr": 12004,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "ws_chase8_1024": {
+   "instr": 60011,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "ws_chase8_2048": {
+   "instr": 60011,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "ws_chase8_4096": {
+   "instr": 60011,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "ws_chase8_512": {
+   "instr": 60011,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "ws_copy_1024": {
+   "instr": 641004,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "ws_copy_2048": {
+   "instr": 640892,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "ws_copy_4096": {
+   "instr": 640830,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "ws_copy_512": {
+   "instr": 641228,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "ws_hash_1024": {
+   "instr": 1621689,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "ws_hash_2048": {
+   "instr": 1624146,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "ws_hash_4096": {
+   "instr": 1644691,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  },
+  "ws_hash_512": {
+   "instr": 1860899,
+   "ld_misaligned": 0,
+   "st_misaligned": 0
+  }
+ },
+ "mdp": {
+  "30": {
+   "as built: no memory dependence prediction": {
+    "coremark_A": {
+     "instr": 6755592,
+     "cycles": 4295270,
+     "violations": 294,
+     "violation_flushes": 294,
+     "mdp_waits": 0
+    },
+    "coremark_B": {
+     "instr": 6838132,
+     "cycles": 4507119,
+     "violations": 1,
+     "violation_flushes": 1,
+     "mdp_waits": 0
+    },
+    "dhrystone": {
+     "instr": 5720046,
+     "cycles": 3455852,
+     "violations": 6458,
+     "violation_flushes": 6458,
+     "mdp_waits": 0
+    },
+    "embench_aha-mont64": {
+     "instr": 1910727,
+     "cycles": 1056042,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_crc32": {
+     "instr": 4179825,
+     "cycles": 2191325,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_cubic": {
+     "instr": 1070828,
+     "cycles": 896136,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_edn": {
+     "instr": 3397930,
+     "cycles": 1910475,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_huffbench": {
+     "instr": 2163599,
+     "cycles": 1663511,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_matmult-int": {
+     "instr": 3180613,
+     "cycles": 1615878,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_minver": {
+     "instr": 442952,
+     "cycles": 242192,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_nbody": {
+     "instr": 770,
+     "cycles": 1154,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_nettle-aes": {
+     "instr": 4678704,
+     "cycles": 2403558,
+     "violations": 4,
+     "violation_flushes": 4,
+     "mdp_waits": 0
+    },
+    "embench_nettle-sha256": {
+     "instr": 3791491,
+     "cycles": 1937960,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_nsichneu": {
+     "instr": 2405397,
+     "cycles": 1836287,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_picojpeg": {
+     "instr": 3400284,
+     "cycles": 2072648,
+     "violations": 5,
+     "violation_flushes": 5,
+     "mdp_waits": 0
+    },
+    "embench_qrduino": {
+     "instr": 2874165,
+     "cycles": 2474904,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_sglib-combined": {
+     "instr": 2302630,
+     "cycles": 1907951,
+     "violations": 3614,
+     "violation_flushes": 3614,
+     "mdp_waits": 0
+    },
+    "embench_slre": {
+     "instr": 2499890,
+     "cycles": 1629947,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_st": {
+     "instr": 86652,
+     "cycles": 85096,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_statemate": {
+     "instr": 903467,
+     "cycles": 827051,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_ud": {
+     "instr": 2367782,
+     "cycles": 1288830,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_wikisort": {
+     "instr": 605861,
+     "cycles": 371678,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_chase1": {
+     "instr": 12004,
+     "cycles": 192102,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_chase8": {
+     "instr": 60011,
+     "cycles": 516157,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_chase8f16": {
+     "instr": 852014,
+     "cycles": 523813,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_chase16": {
+     "instr": 54022,
+     "cycles": 516225,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_stream": {
+     "instr": 9437190,
+     "cycles": 5898436,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_hashprobe": {
+     "instr": 1588936,
+     "cycles": 4654566,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_spmv": {
+     "instr": 1351690,
+     "cycles": 1857460,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_bsearch": {
+     "instr": 5119990,
+     "cycles": 16002636,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_copy": {
+     "instr": 1281630,
+     "cycles": 1866927,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_stride": {
+     "instr": 294979,
+     "cycles": 529504,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_gather": {
+     "instr": 360006,
+     "cycles": 680094,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase1_512": {
+     "instr": 12004,
+     "cycles": 192039,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase8_512": {
+     "instr": 60011,
+     "cycles": 516088,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_hash_512": {
+     "instr": 1860899,
+     "cycles": 4610033,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_copy_512": {
+     "instr": 641228,
+     "cycles": 934041,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase1_1024": {
+     "instr": 12004,
+     "cycles": 192039,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase8_1024": {
+     "instr": 60011,
+     "cycles": 516087,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_hash_1024": {
+     "instr": 1621689,
+     "cycles": 4568071,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_copy_1024": {
+     "instr": 641004,
+     "cycles": 934795,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase1_2048": {
+     "instr": 12004,
+     "cycles": 192032,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase8_2048": {
+     "instr": 60011,
+     "cycles": 516090,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_hash_2048": {
+     "instr": 1624146,
+     "cycles": 4678952,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_copy_2048": {
+     "instr": 640892,
+     "cycles": 933518,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase1_4096": {
+     "instr": 12004,
+     "cycles": 192032,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase8_4096": {
+     "instr": 60011,
+     "cycles": 516090,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_hash_4096": {
+     "instr": 1644691,
+     "cycles": 4751359,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_copy_4096": {
+     "instr": 640830,
+     "cycles": 933433,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    }
+   },
+   "a 16-entry load-wait table (mdp 1, area_recovery \u00a76.10's size)": {
+    "coremark_A": {
+     "instr": 6755592,
+     "cycles": 4288291,
+     "violations": 20,
+     "violation_flushes": 20,
+     "mdp_waits": 866
+    },
+    "coremark_B": {
+     "instr": 6838132,
+     "cycles": 4507119,
+     "violations": 1,
+     "violation_flushes": 1,
+     "mdp_waits": 1
+    },
+    "dhrystone": {
+     "instr": 5720046,
+     "cycles": 3300572,
+     "violations": 53,
+     "violation_flushes": 53,
+     "mdp_waits": 46258
+    },
+    "embench_aha-mont64": {
+     "instr": 1910727,
+     "cycles": 1056042,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_crc32": {
+     "instr": 4179825,
+     "cycles": 2191325,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_cubic": {
+     "instr": 1070828,
+     "cycles": 896136,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_edn": {
+     "instr": 3397930,
+     "cycles": 1910475,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_huffbench": {
+     "instr": 2163599,
+     "cycles": 1663511,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_matmult-int": {
+     "instr": 3180613,
+     "cycles": 1615878,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_minver": {
+     "instr": 442952,
+     "cycles": 242192,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_nbody": {
+     "instr": 770,
+     "cycles": 1154,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_nettle-aes": {
+     "instr": 4678704,
+     "cycles": 2403497,
+     "violations": 1,
+     "violation_flushes": 1,
+     "mdp_waits": 10
+    },
+    "embench_nettle-sha256": {
+     "instr": 3791491,
+     "cycles": 1937960,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_nsichneu": {
+     "instr": 2405397,
+     "cycles": 1836287,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_picojpeg": {
+     "instr": 3400284,
+     "cycles": 2072551,
+     "violations": 3,
+     "violation_flushes": 3,
+     "mdp_waits": 185
+    },
+    "embench_qrduino": {
+     "instr": 2874165,
+     "cycles": 2474904,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_sglib-combined": {
+     "instr": 2302630,
+     "cycles": 1854372,
+     "violations": 113,
+     "violation_flushes": 113,
+     "mdp_waits": 47862
+    },
+    "embench_slre": {
+     "instr": 2499890,
+     "cycles": 1629947,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_st": {
+     "instr": 86652,
+     "cycles": 85096,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_statemate": {
+     "instr": 903467,
+     "cycles": 827051,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_ud": {
+     "instr": 2367782,
+     "cycles": 1288830,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_wikisort": {
+     "instr": 605861,
+     "cycles": 371678,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_chase1": {
+     "instr": 12004,
+     "cycles": 192102,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_chase8": {
+     "instr": 60011,
+     "cycles": 516157,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_chase8f16": {
+     "instr": 852014,
+     "cycles": 523813,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_chase16": {
+     "instr": 54022,
+     "cycles": 516225,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_stream": {
+     "instr": 9437190,
+     "cycles": 5898436,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_hashprobe": {
+     "instr": 1588936,
+     "cycles": 4654566,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_spmv": {
+     "instr": 1351690,
+     "cycles": 1857460,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_bsearch": {
+     "instr": 5119990,
+     "cycles": 16002636,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_copy": {
+     "instr": 1281630,
+     "cycles": 1866927,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_stride": {
+     "instr": 294979,
+     "cycles": 529504,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_gather": {
+     "instr": 360006,
+     "cycles": 680094,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase1_512": {
+     "instr": 12004,
+     "cycles": 192039,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase8_512": {
+     "instr": 60011,
+     "cycles": 516088,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_hash_512": {
+     "instr": 1860899,
+     "cycles": 4610033,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_copy_512": {
+     "instr": 641228,
+     "cycles": 934041,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase1_1024": {
+     "instr": 12004,
+     "cycles": 192039,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase8_1024": {
+     "instr": 60011,
+     "cycles": 516087,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_hash_1024": {
+     "instr": 1621689,
+     "cycles": 4568071,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_copy_1024": {
+     "instr": 641004,
+     "cycles": 934795,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase1_2048": {
+     "instr": 12004,
+     "cycles": 192032,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase8_2048": {
+     "instr": 60011,
+     "cycles": 516090,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_hash_2048": {
+     "instr": 1624146,
+     "cycles": 4678952,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_copy_2048": {
+     "instr": 640892,
+     "cycles": 933518,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase1_4096": {
+     "instr": 12004,
+     "cycles": 192032,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase8_4096": {
+     "instr": 60011,
+     "cycles": 516090,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_hash_4096": {
+     "instr": 1644691,
+     "cycles": 4751359,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_copy_4096": {
+     "instr": 640830,
+     "cycles": 933433,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    }
+   },
+   "perfect store sets (an oracle)": {
+    "coremark_A": {
+     "instr": 6755592,
+     "cycles": 4287479,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 355
+    },
+    "coremark_B": {
+     "instr": 6838132,
+     "cycles": 4507044,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 1
+    },
+    "dhrystone": {
+     "instr": 5720046,
+     "cycles": 3281133,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 12098
+    },
+    "embench_aha-mont64": {
+     "instr": 1910727,
+     "cycles": 1056042,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_crc32": {
+     "instr": 4179825,
+     "cycles": 2191325,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_cubic": {
+     "instr": 1070828,
+     "cycles": 896136,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_edn": {
+     "instr": 3397930,
+     "cycles": 1910475,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_huffbench": {
+     "instr": 2163599,
+     "cycles": 1663511,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_matmult-int": {
+     "instr": 3180613,
+     "cycles": 1615878,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_minver": {
+     "instr": 442952,
+     "cycles": 242192,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_nbody": {
+     "instr": 770,
+     "cycles": 1154,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_nettle-aes": {
+     "instr": 4678704,
+     "cycles": 2403479,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 9
+    },
+    "embench_nettle-sha256": {
+     "instr": 3791491,
+     "cycles": 1937960,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_nsichneu": {
+     "instr": 2405397,
+     "cycles": 1836287,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_picojpeg": {
+     "instr": 3400284,
+     "cycles": 2072517,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 6
+    },
+    "embench_qrduino": {
+     "instr": 2874165,
+     "cycles": 2474904,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_sglib-combined": {
+     "instr": 2302630,
+     "cycles": 1844367,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 2152
+    },
+    "embench_slre": {
+     "instr": 2499890,
+     "cycles": 1629947,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_st": {
+     "instr": 86652,
+     "cycles": 85096,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_statemate": {
+     "instr": 903467,
+     "cycles": 827051,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_ud": {
+     "instr": 2367782,
+     "cycles": 1288830,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_wikisort": {
+     "instr": 605861,
+     "cycles": 371678,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_chase1": {
+     "instr": 12004,
+     "cycles": 192102,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_chase8": {
+     "instr": 60011,
+     "cycles": 516157,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_chase8f16": {
+     "instr": 852014,
+     "cycles": 523813,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_chase16": {
+     "instr": 54022,
+     "cycles": 516225,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_stream": {
+     "instr": 9437190,
+     "cycles": 5898436,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_hashprobe": {
+     "instr": 1588936,
+     "cycles": 4654566,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_spmv": {
+     "instr": 1351690,
+     "cycles": 1857460,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_bsearch": {
+     "instr": 5119990,
+     "cycles": 16002636,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_copy": {
+     "instr": 1281630,
+     "cycles": 1866927,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_stride": {
+     "instr": 294979,
+     "cycles": 529504,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_gather": {
+     "instr": 360006,
+     "cycles": 680094,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase1_512": {
+     "instr": 12004,
+     "cycles": 192039,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase8_512": {
+     "instr": 60011,
+     "cycles": 516088,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_hash_512": {
+     "instr": 1860899,
+     "cycles": 4610033,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_copy_512": {
+     "instr": 641228,
+     "cycles": 934041,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase1_1024": {
+     "instr": 12004,
+     "cycles": 192039,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase8_1024": {
+     "instr": 60011,
+     "cycles": 516087,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_hash_1024": {
+     "instr": 1621689,
+     "cycles": 4568071,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_copy_1024": {
+     "instr": 641004,
+     "cycles": 934795,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase1_2048": {
+     "instr": 12004,
+     "cycles": 192032,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase8_2048": {
+     "instr": 60011,
+     "cycles": 516090,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_hash_2048": {
+     "instr": 1624146,
+     "cycles": 4678952,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_copy_2048": {
+     "instr": 640892,
+     "cycles": 933518,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase1_4096": {
+     "instr": 12004,
+     "cycles": 192032,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase8_4096": {
+     "instr": 60011,
+     "cycles": 516090,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_hash_4096": {
+     "instr": 1644691,
+     "cycles": 4751359,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_copy_4096": {
+     "instr": 640830,
+     "cycles": 933433,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    }
+   }
+  },
+  "120": {
+   "as built: no memory dependence prediction": {
+    "coremark_A": {
+     "instr": 6755592,
+     "cycles": 4301763,
+     "violations": 294,
+     "violation_flushes": 294,
+     "mdp_waits": 0
+    },
+    "coremark_B": {
+     "instr": 6838132,
+     "cycles": 4513566,
+     "violations": 1,
+     "violation_flushes": 1,
+     "mdp_waits": 0
+    },
+    "dhrystone": {
+     "instr": 5720046,
+     "cycles": 3456572,
+     "violations": 6458,
+     "violation_flushes": 6458,
+     "mdp_waits": 0
+    },
+    "embench_aha-mont64": {
+     "instr": 1910727,
+     "cycles": 1056042,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_crc32": {
+     "instr": 4179825,
+     "cycles": 2191325,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_cubic": {
+     "instr": 1070828,
+     "cycles": 896136,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_edn": {
+     "instr": 3397930,
+     "cycles": 1910475,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_huffbench": {
+     "instr": 2163599,
+     "cycles": 1663601,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_matmult-int": {
+     "instr": 3180613,
+     "cycles": 1615878,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_minver": {
+     "instr": 442952,
+     "cycles": 242188,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_nbody": {
+     "instr": 770,
+     "cycles": 1154,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_nettle-aes": {
+     "instr": 4678704,
+     "cycles": 2403558,
+     "violations": 4,
+     "violation_flushes": 4,
+     "mdp_waits": 0
+    },
+    "embench_nettle-sha256": {
+     "instr": 3791491,
+     "cycles": 1937960,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_nsichneu": {
+     "instr": 2405397,
+     "cycles": 1836287,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_picojpeg": {
+     "instr": 3400284,
+     "cycles": 2072648,
+     "violations": 5,
+     "violation_flushes": 5,
+     "mdp_waits": 0
+    },
+    "embench_qrduino": {
+     "instr": 2874165,
+     "cycles": 2474994,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_sglib-combined": {
+     "instr": 2302630,
+     "cycles": 1907951,
+     "violations": 3614,
+     "violation_flushes": 3614,
+     "mdp_waits": 0
+    },
+    "embench_slre": {
+     "instr": 2499890,
+     "cycles": 1629947,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_st": {
+     "instr": 86652,
+     "cycles": 85186,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_statemate": {
+     "instr": 903467,
+     "cycles": 827127,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_ud": {
+     "instr": 2367782,
+     "cycles": 1288830,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_wikisort": {
+     "instr": 605861,
+     "cycles": 371768,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_chase1": {
+     "instr": 12004,
+     "cycles": 552192,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_chase8": {
+     "instr": 60011,
+     "cycles": 1596247,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_chase8f16": {
+     "instr": 852014,
+     "cycles": 1596498,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_chase16": {
+     "instr": 54022,
+     "cycles": 1596495,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_stream": {
+     "instr": 9437190,
+     "cycles": 14483750,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_hashprobe": {
+     "instr": 1588936,
+     "cycles": 9345411,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_spmv": {
+     "instr": 1351690,
+     "cycles": 5544400,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_bsearch": {
+     "instr": 5119990,
+     "cycles": 34002533,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_copy": {
+     "instr": 1281630,
+     "cycles": 4752300,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_stride": {
+     "instr": 294979,
+     "cycles": 1635694,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_gather": {
+     "instr": 360006,
+     "cycles": 1693630,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase1_512": {
+     "instr": 12004,
+     "cycles": 552039,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase8_512": {
+     "instr": 60011,
+     "cycles": 1596088,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_hash_512": {
+     "instr": 1860899,
+     "cycles": 9165904,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_copy_512": {
+     "instr": 641228,
+     "cycles": 2377463,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase1_1024": {
+     "instr": 12004,
+     "cycles": 552039,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase8_1024": {
+     "instr": 60011,
+     "cycles": 1596087,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_hash_1024": {
+     "instr": 1621689,
+     "cycles": 9165800,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_copy_1024": {
+     "instr": 641004,
+     "cycles": 2475649,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase1_2048": {
+     "instr": 12004,
+     "cycles": 552032,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase8_2048": {
+     "instr": 60011,
+     "cycles": 1596090,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_hash_2048": {
+     "instr": 1624146,
+     "cycles": 9378616,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_copy_2048": {
+     "instr": 640892,
+     "cycles": 2376366,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase1_4096": {
+     "instr": 12004,
+     "cycles": 552032,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase8_4096": {
+     "instr": 60011,
+     "cycles": 1596090,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_hash_4096": {
+     "instr": 1644691,
+     "cycles": 9549280,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_copy_4096": {
+     "instr": 640830,
+     "cycles": 2375933,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    }
+   },
+   "a 16-entry load-wait table (mdp 1, area_recovery \u00a76.10's size)": {
+    "coremark_A": {
+     "instr": 6755592,
+     "cycles": 4294834,
+     "violations": 23,
+     "violation_flushes": 23,
+     "mdp_waits": 858
+    },
+    "coremark_B": {
+     "instr": 6838132,
+     "cycles": 4513566,
+     "violations": 1,
+     "violation_flushes": 1,
+     "mdp_waits": 0
+    },
+    "dhrystone": {
+     "instr": 5720046,
+     "cycles": 3300961,
+     "violations": 53,
+     "violation_flushes": 53,
+     "mdp_waits": 45818
+    },
+    "embench_aha-mont64": {
+     "instr": 1910727,
+     "cycles": 1056042,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_crc32": {
+     "instr": 4179825,
+     "cycles": 2191325,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_cubic": {
+     "instr": 1070828,
+     "cycles": 896136,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_edn": {
+     "instr": 3397930,
+     "cycles": 1910475,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_huffbench": {
+     "instr": 2163599,
+     "cycles": 1663601,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_matmult-int": {
+     "instr": 3180613,
+     "cycles": 1615878,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_minver": {
+     "instr": 442952,
+     "cycles": 242188,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_nbody": {
+     "instr": 770,
+     "cycles": 1154,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_nettle-aes": {
+     "instr": 4678704,
+     "cycles": 2403519,
+     "violations": 2,
+     "violation_flushes": 2,
+     "mdp_waits": 7
+    },
+    "embench_nettle-sha256": {
+     "instr": 3791491,
+     "cycles": 1937960,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_nsichneu": {
+     "instr": 2405397,
+     "cycles": 1836287,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_picojpeg": {
+     "instr": 3400284,
+     "cycles": 2072542,
+     "violations": 3,
+     "violation_flushes": 3,
+     "mdp_waits": 152
+    },
+    "embench_qrduino": {
+     "instr": 2874165,
+     "cycles": 2474994,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_sglib-combined": {
+     "instr": 2302630,
+     "cycles": 1857763,
+     "violations": 114,
+     "violation_flushes": 114,
+     "mdp_waits": 45215
+    },
+    "embench_slre": {
+     "instr": 2499890,
+     "cycles": 1629947,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_st": {
+     "instr": 86652,
+     "cycles": 85186,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_statemate": {
+     "instr": 903467,
+     "cycles": 827127,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_ud": {
+     "instr": 2367782,
+     "cycles": 1288830,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_wikisort": {
+     "instr": 605861,
+     "cycles": 371768,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_chase1": {
+     "instr": 12004,
+     "cycles": 552192,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_chase8": {
+     "instr": 60011,
+     "cycles": 1596247,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_chase8f16": {
+     "instr": 852014,
+     "cycles": 1596498,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_chase16": {
+     "instr": 54022,
+     "cycles": 1596495,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_stream": {
+     "instr": 9437190,
+     "cycles": 14483750,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_hashprobe": {
+     "instr": 1588936,
+     "cycles": 9345411,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_spmv": {
+     "instr": 1351690,
+     "cycles": 5544400,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_bsearch": {
+     "instr": 5119990,
+     "cycles": 34002533,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_copy": {
+     "instr": 1281630,
+     "cycles": 4752300,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_stride": {
+     "instr": 294979,
+     "cycles": 1635694,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_gather": {
+     "instr": 360006,
+     "cycles": 1693630,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase1_512": {
+     "instr": 12004,
+     "cycles": 552039,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase8_512": {
+     "instr": 60011,
+     "cycles": 1596088,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_hash_512": {
+     "instr": 1860899,
+     "cycles": 9165904,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_copy_512": {
+     "instr": 641228,
+     "cycles": 2377463,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase1_1024": {
+     "instr": 12004,
+     "cycles": 552039,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase8_1024": {
+     "instr": 60011,
+     "cycles": 1596087,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_hash_1024": {
+     "instr": 1621689,
+     "cycles": 9165800,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_copy_1024": {
+     "instr": 641004,
+     "cycles": 2475649,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase1_2048": {
+     "instr": 12004,
+     "cycles": 552032,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase8_2048": {
+     "instr": 60011,
+     "cycles": 1596090,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_hash_2048": {
+     "instr": 1624146,
+     "cycles": 9378616,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_copy_2048": {
+     "instr": 640892,
+     "cycles": 2376366,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase1_4096": {
+     "instr": 12004,
+     "cycles": 552032,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase8_4096": {
+     "instr": 60011,
+     "cycles": 1596090,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_hash_4096": {
+     "instr": 1644691,
+     "cycles": 9549280,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_copy_4096": {
+     "instr": 640830,
+     "cycles": 2375933,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    }
+   },
+   "perfect store sets (an oracle)": {
+    "coremark_A": {
+     "instr": 6755592,
+     "cycles": 4293972,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 355
+    },
+    "coremark_B": {
+     "instr": 6838132,
+     "cycles": 4513491,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 1
+    },
+    "dhrystone": {
+     "instr": 5720046,
+     "cycles": 3281853,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 12098
+    },
+    "embench_aha-mont64": {
+     "instr": 1910727,
+     "cycles": 1056042,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_crc32": {
+     "instr": 4179825,
+     "cycles": 2191325,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_cubic": {
+     "instr": 1070828,
+     "cycles": 896136,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_edn": {
+     "instr": 3397930,
+     "cycles": 1910475,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_huffbench": {
+     "instr": 2163599,
+     "cycles": 1663601,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_matmult-int": {
+     "instr": 3180613,
+     "cycles": 1615878,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_minver": {
+     "instr": 442952,
+     "cycles": 242188,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_nbody": {
+     "instr": 770,
+     "cycles": 1154,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_nettle-aes": {
+     "instr": 4678704,
+     "cycles": 2403479,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 9
+    },
+    "embench_nettle-sha256": {
+     "instr": 3791491,
+     "cycles": 1937960,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_nsichneu": {
+     "instr": 2405397,
+     "cycles": 1836287,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_picojpeg": {
+     "instr": 3400284,
+     "cycles": 2072517,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 6
+    },
+    "embench_qrduino": {
+     "instr": 2874165,
+     "cycles": 2474994,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_sglib-combined": {
+     "instr": 2302630,
+     "cycles": 1844367,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 2152
+    },
+    "embench_slre": {
+     "instr": 2499890,
+     "cycles": 1629947,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_st": {
+     "instr": 86652,
+     "cycles": 85186,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_statemate": {
+     "instr": 903467,
+     "cycles": 827127,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_ud": {
+     "instr": 2367782,
+     "cycles": 1288830,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "embench_wikisort": {
+     "instr": 605861,
+     "cycles": 371768,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_chase1": {
+     "instr": 12004,
+     "cycles": 552192,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_chase8": {
+     "instr": 60011,
+     "cycles": 1596247,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_chase8f16": {
+     "instr": 852014,
+     "cycles": 1596498,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_chase16": {
+     "instr": 54022,
+     "cycles": 1596495,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_stream": {
+     "instr": 9437190,
+     "cycles": 14483750,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_hashprobe": {
+     "instr": 1588936,
+     "cycles": 9345411,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_spmv": {
+     "instr": 1351690,
+     "cycles": 5544400,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_bsearch": {
+     "instr": 5119990,
+     "cycles": 34002533,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_copy": {
+     "instr": 1281630,
+     "cycles": 4752300,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_stride": {
+     "instr": 294979,
+     "cycles": 1635694,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ms_gather": {
+     "instr": 360006,
+     "cycles": 1693630,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase1_512": {
+     "instr": 12004,
+     "cycles": 552039,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase8_512": {
+     "instr": 60011,
+     "cycles": 1596088,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_hash_512": {
+     "instr": 1860899,
+     "cycles": 9165904,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_copy_512": {
+     "instr": 641228,
+     "cycles": 2377463,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase1_1024": {
+     "instr": 12004,
+     "cycles": 552039,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase8_1024": {
+     "instr": 60011,
+     "cycles": 1596087,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_hash_1024": {
+     "instr": 1621689,
+     "cycles": 9165800,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_copy_1024": {
+     "instr": 641004,
+     "cycles": 2475649,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase1_2048": {
+     "instr": 12004,
+     "cycles": 552032,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase8_2048": {
+     "instr": 60011,
+     "cycles": 1596090,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_hash_2048": {
+     "instr": 1624146,
+     "cycles": 9378616,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_copy_2048": {
+     "instr": 640892,
+     "cycles": 2376366,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase1_4096": {
+     "instr": 12004,
+     "cycles": 552032,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_chase8_4096": {
+     "instr": 60011,
+     "cycles": 1596090,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_hash_4096": {
+     "instr": 1644691,
+     "cycles": 9549280,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    },
+    "ws_copy_4096": {
+     "instr": 640830,
+     "cycles": 2375933,
+     "violations": 0,
+     "violation_flushes": 0,
+     "mdp_waits": 0
+    }
+   }
+  }
+ },
+ "itt": {
+  "per": {
+   "m9_interp_threaded": {
+    "today: the micro-BTB, 64 entries": {
+     "instr": 4257181,
+     "cycles": 4573550,
+     "br_jalr": 268070,
+     "mp_target": 156048,
+     "f2o_itt": 0,
+     "itt_used": 0,
+     "itt_right": 0,
+     "itt_none": 0
+    },
+    "the micro-BTB at 128 entries": {
+     "instr": 4257181,
+     "cycles": 4573550,
+     "br_jalr": 268070,
+     "mp_target": 156048,
+     "f2o_itt": 0,
+     "itt_used": 0,
+     "itt_right": 0,
+     "itt_none": 0
+    },
+    "+ a 256-entry indirect table, path history": {
+     "instr": 4257181,
+     "cycles": 3113550,
+     "br_jalr": 268070,
+     "mp_target": 52042,
+     "f2o_itt": 108006,
+     "itt_used": 144013,
+     "itt_right": 132013,
+     "itt_none": 0
+    },
+    "+ a 256-entry indirect table, block history": {
+     "instr": 4257181,
+     "cycles": 4571518,
+     "br_jalr": 268070,
+     "mp_target": 155890,
+     "f2o_itt": 177,
+     "itt_used": 155797,
+     "itt_right": 32122,
+     "itt_none": 0
+    },
+    "the micro-BTB at 128 and the table (path)": {
+     "instr": 4257181,
+     "cycles": 3113550,
+     "br_jalr": 268070,
+     "mp_target": 52042,
+     "f2o_itt": 108006,
+     "itt_used": 144013,
+     "itt_right": 132013,
+     "itt_none": 0
+    }
+   },
+   "m9_interp_switch": {
+    "today: the micro-BTB, 64 entries": {
+     "instr": 5469485,
+     "cycles": 7550446,
+     "br_jalr": 268063,
+     "mp_target": 261022,
+     "f2o_itt": 0,
+     "itt_used": 0,
+     "itt_right": 0,
+     "itt_none": 0
+    },
+    "the micro-BTB at 128 entries": {
+     "instr": 5469485,
+     "cycles": 7550446,
+     "br_jalr": 268063,
+     "mp_target": 261022,
+     "f2o_itt": 0,
+     "itt_used": 0,
+     "itt_right": 0,
+     "itt_none": 0
+    },
+    "+ a 256-entry indirect table, path history": {
+     "instr": 5469485,
+     "cycles": 3814021,
+     "br_jalr": 268063,
+     "mp_target": 47077,
+     "f2o_itt": 213945,
+     "itt_used": 261018,
+     "itt_right": 220987,
+     "itt_none": 2
+    },
+    "+ a 256-entry indirect table, block history": {
+     "instr": 5469485,
+     "cycles": 7249601,
+     "br_jalr": 268063,
+     "mp_target": 244027,
+     "f2o_itt": 20037,
+     "itt_used": 261006,
+     "itt_right": 24037,
+     "itt_none": 3
+    },
+    "the micro-BTB at 128 and the table (path)": {
+     "instr": 5469485,
+     "cycles": 3814021,
+     "br_jalr": 268063,
+     "mp_target": 47077,
+     "f2o_itt": 213945,
+     "itt_used": 261018,
+     "itt_right": 220987,
+     "itt_none": 2
+    }
+   },
+   "embench_wikisort": {
+    "today: the micro-BTB, 64 entries": {
+     "instr": 605861,
+     "cycles": 371678,
+     "br_jalr": 23393,
+     "mp_target": 1235,
+     "f2o_itt": 0,
+     "itt_used": 0,
+     "itt_right": 0,
+     "itt_none": 0
+    },
+    "the micro-BTB at 128 entries": {
+     "instr": 605861,
+     "cycles": 372245,
+     "br_jalr": 23393,
+     "mp_target": 1239,
+     "f2o_itt": 0,
+     "itt_used": 0,
+     "itt_right": 0,
+     "itt_none": 0
+    },
+    "+ a 256-entry indirect table, path history": {
+     "instr": 605861,
+     "cycles": 355891,
+     "br_jalr": 23393,
+     "mp_target": 14,
+     "f2o_itt": 1241,
+     "itt_used": 1678,
+     "itt_right": 1667,
+     "itt_none": 1
+    },
+    "+ a 256-entry indirect table, block history": {
+     "instr": 605861,
+     "cycles": 356957,
+     "br_jalr": 23393,
+     "mp_target": 59,
+     "f2o_itt": 1195,
+     "itt_used": 1598,
+     "itt_right": 1591,
+     "itt_none": 50
+    },
+    "the micro-BTB at 128 and the table (path)": {
+     "instr": 605861,
+     "cycles": 356399,
+     "br_jalr": 23393,
+     "mp_target": 14,
+     "f2o_itt": 1249,
+     "itt_used": 1671,
+     "itt_right": 1663,
+     "itt_none": 1
+    }
+   },
+   "coremark_A": {
+    "today: the micro-BTB, 64 entries": {
+     "instr": 6755592,
+     "cycles": 4295270,
+     "br_jalr": 6488,
+     "mp_target": 3104,
+     "f2o_itt": 0,
+     "itt_used": 0,
+     "itt_right": 0,
+     "itt_none": 0
+    },
+    "the micro-BTB at 128 entries": {
+     "instr": 6755592,
+     "cycles": 4290289,
+     "br_jalr": 6497,
+     "mp_target": 2969,
+     "f2o_itt": 0,
+     "itt_used": 0,
+     "itt_right": 0,
+     "itt_none": 0
+    },
+    "+ a 256-entry indirect table, path history": {
+     "instr": 6755592,
+     "cycles": 4260245,
+     "br_jalr": 6572,
+     "mp_target": 66,
+     "f2o_itt": 3050,
+     "itt_used": 3936,
+     "itt_right": 3936,
+     "itt_none": 23
+    },
+    "+ a 256-entry indirect table, block history": {
+     "instr": 6755592,
+     "cycles": 4263817,
+     "br_jalr": 6572,
+     "mp_target": 408,
+     "f2o_itt": 2771,
+     "itt_used": 3864,
+     "itt_right": 3571,
+     "itt_none": 73
+    },
+    "the micro-BTB at 128 and the table (path)": {
+     "instr": 6755592,
+     "cycles": 4258010,
+     "br_jalr": 6576,
+     "mp_target": 62,
+     "f2o_itt": 2981,
+     "itt_used": 3816,
+     "itt_right": 3816,
+     "itt_none": 20
+    }
+   },
+   "embench_cubic": {
+    "today: the micro-BTB, 64 entries": {
+     "instr": 1070828,
+     "cycles": 896136,
+     "br_jalr": 570,
+     "mp_target": 478,
+     "f2o_itt": 0,
+     "itt_used": 0,
+     "itt_right": 0,
+     "itt_none": 0
+    },
+    "the micro-BTB at 128 entries": {
+     "instr": 1070828,
+     "cycles": 888104,
+     "br_jalr": 570,
+     "mp_target": 267,
+     "f2o_itt": 0,
+     "itt_used": 0,
+     "itt_right": 0,
+     "itt_none": 0
+    },
+    "+ a 256-entry indirect table, path history": {
+     "instr": 1070828,
+     "cycles": 884110,
+     "br_jalr": 570,
+     "mp_target": 0,
+     "f2o_itt": 478,
+     "itt_used": 556,
+     "itt_right": 556,
+     "itt_none": 0
+    },
+    "+ a 256-entry indirect table, block history": {
+     "instr": 1070828,
+     "cycles": 884110,
+     "br_jalr": 570,
+     "mp_target": 0,
+     "f2o_itt": 478,
+     "itt_used": 556,
+     "itt_right": 556,
+     "itt_none": 0
+    },
+    "the micro-BTB at 128 and the table (path)": {
+     "instr": 1070828,
+     "cycles": 882331,
+     "br_jalr": 570,
+     "mp_target": 0,
+     "f2o_itt": 267,
+     "itt_used": 425,
+     "itt_right": 425,
+     "itt_none": 0
+    }
+   },
+   "embench_picojpeg": {
+    "today: the micro-BTB, 64 entries": {
+     "instr": 3400284,
+     "cycles": 2072648,
+     "br_jalr": 1026,
+     "mp_target": 908,
+     "f2o_itt": 0,
+     "itt_used": 0,
+     "itt_right": 0,
+     "itt_none": 0
+    },
+    "the micro-BTB at 128 entries": {
+     "instr": 3400284,
+     "cycles": 2067315,
+     "br_jalr": 1026,
+     "mp_target": 634,
+     "f2o_itt": 0,
+     "itt_used": 0,
+     "itt_right": 0,
+     "itt_none": 0
+    },
+    "+ a 256-entry indirect table, path history": {
+     "instr": 3400284,
+     "cycles": 2061927,
+     "br_jalr": 1026,
+     "mp_target": 2,
+     "f2o_itt": 906,
+     "itt_used": 1010,
+     "itt_right": 1010,
+     "itt_none": 2
+    },
+    "+ a 256-entry indirect table, block history": {
+     "instr": 3400284,
+     "cycles": 2061925,
+     "br_jalr": 1026,
+     "mp_target": 2,
+     "f2o_itt": 906,
+     "itt_used": 1011,
+     "itt_right": 1011,
+     "itt_none": 2
+    },
+    "the micro-BTB at 128 and the table (path)": {
+     "instr": 3400284,
+     "cycles": 2058409,
+     "br_jalr": 1026,
+     "mp_target": 1,
+     "f2o_itt": 633,
+     "itt_used": 906,
+     "itt_right": 906,
+     "itt_none": 1
+    }
+   },
+   "embench_nettle-sha256": {
+    "today: the micro-BTB, 64 entries": {
+     "instr": 3791491,
+     "cycles": 1937960,
+     "br_jalr": 475,
+     "mp_target": 1,
+     "f2o_itt": 0,
+     "itt_used": 0,
+     "itt_right": 0,
+     "itt_none": 0
+    },
+    "the micro-BTB at 128 entries": {
+     "instr": 3791491,
+     "cycles": 1937662,
+     "br_jalr": 475,
+     "mp_target": 1,
+     "f2o_itt": 0,
+     "itt_used": 0,
+     "itt_right": 0,
+     "itt_none": 0
+    },
+    "+ a 256-entry indirect table, path history": {
+     "instr": 3791491,
+     "cycles": 1937960,
+     "br_jalr": 475,
+     "mp_target": 1,
+     "f2o_itt": 0,
+     "itt_used": 0,
+     "itt_right": 0,
+     "itt_none": 1
+    },
+    "+ a 256-entry indirect table, block history": {
+     "instr": 3791491,
+     "cycles": 1937947,
+     "br_jalr": 475,
+     "mp_target": 0,
+     "f2o_itt": 1,
+     "itt_used": 2,
+     "itt_right": 2,
+     "itt_none": 0
+    },
+    "the micro-BTB at 128 and the table (path)": {
+     "instr": 3791491,
+     "cycles": 1937662,
+     "br_jalr": 475,
+     "mp_target": 1,
+     "f2o_itt": 0,
+     "itt_used": 0,
+     "itt_right": 0,
+     "itt_none": 1
+    }
+   }
+  },
+  "suite": {
+   "today: the micro-BTB, 64 entries": 0.9657989057401035,
+   "the micro-BTB at 128 entries": 0.9647479394772314,
+   "+ a 256-entry indirect table, path history": 0.9677395244349861,
+   "+ a 256-entry indirect table, block history": 0.9675952515109515,
+   "the micro-BTB at 128 and the table (path)": 0.9664842607472544
+  },
+  "pairs": {
+   "today: the micro-BTB, 64 entries": {
+    "ws": [
+     1.2597532549539963,
+     1.2676070106081532,
+     1.260273521154859
+    ],
+    "hung": [
+     0,
+     0,
+     0
+    ]
+   },
+   "the micro-BTB at 128 entries": {
+    "ws": [
+     1.2586743222926473,
+     1.2680968504899464,
+     1.2607541269660119
+    ],
+    "hung": [
+     0,
+     0,
+     0
+    ]
+   },
+   "+ a 256-entry indirect table, path history": {
+    "ws": [
+     1.2597920851450797,
+     1.2679074458719723,
+     1.2604660385921456
+    ],
+    "hung": [
+     0,
+     0,
+     0
+    ]
+   }
+  }
+ }
+}

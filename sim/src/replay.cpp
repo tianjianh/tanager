@@ -198,9 +198,10 @@ bool may_read(uint32_t bits, unsigned r) {
          r == 2;
 }
 
-// An instruction that orders the hart's memory accesses: an AMO, LR or SC, FENCE or FENCE.I
+// An instruction that orders the hart's memory accesses: an AMO, LR or SC, FENCE or FENCE.I, or SFENCE.VMA, which
+// orders its stores to page tables before the walks after it (a record's fetch reads memory without the buffer)
 bool orders_memory(uint32_t bits) {
-  return (bits & 3) == 3 && (is_amo_insn(bits) || (bits & 0x7f) == 0x0f);
+  return (bits & 3) == 3 && (is_amo_insn(bits) || (bits & 0x7f) == 0x0f || (bits & 0xfe007fff) == 0x12000073);
 }
 
 struct pending_t {
@@ -395,11 +396,17 @@ int main(int argc, char** argv) {
   int status = EXIT_PASS;
   bool skip_next = false;
 
-  // A store into another hart's reservation set clears that reservation (see make_record)
+  // A store into another hart's reservation set clears that reservation (see make_record). Spike's check takes a
+  // virtual address, so a hart whose loads translate is matched by the line its last LR read (resv_line, physical)
+  std::vector<uint64_t> resv_line(dut.procs.size(), ~0ull);
   auto clear_reservations = [&](size_t h, uint64_t pa) {
     for (size_t k = 0; k < dut.procs.size(); k++) {
       processor_t* q = dut.procs[k];
-      if (k == h || !bare_translation(q)) continue;
+      if (k == h) continue;
+      if (!bare_translation(q)) {
+        if (resv_line[k] == (pa & ~63ull)) q->get_mmu()->yield_load_reservation();
+        continue;
+      }
       for (uint64_t a = pa & ~63ull; a < (pa & ~63ull) + 64; a += 4) {
         bool hit = false;
         try {
@@ -515,6 +522,9 @@ int main(int argc, char** argv) {
     if (to_buffer) memcpy(view, M(spa), sn);
     spike_step_t st = spike_step(p, bits);
     dut.amo_step = false;
+    if (uint64_t lpa = 0; (bits & 3) == 3 && is_amo_insn(bits) && f5 == 2 && !st.trapped && st.nld == 1 &&
+                          spike_data_paddr(p, dut, st.ld_addr, lpa))
+      resv_line[h] = lpa & ~63ull;
     bool buffered = false;
     sb_entry_t ne;
     if (to_buffer && !st.trapped && st.nst == 1 && st.st_addr == sva && st.st_size == sn) {
@@ -547,7 +557,7 @@ int main(int argc, char** argv) {
     // An SC fails once another hart has stored into its reservation set (RVWMO; Spike's harts keep theirs through
     // each other's stores). The core clears a sibling's reservation when a store reaches its line, as a probe
     // does, so the replay clears every other hart's reservation in the line of a store: a stricter set than
-    // Spike's, and an SC may always fail. Harts whose loads translate keep theirs (their reservation is a VA).
+    // Spike's, and an SC may always fail. A hart whose loads translate is matched by its last LR's line.
     if (dut.procs.size() > 1 && !st.trapped && st.nst && !buffered && spike_data_paddr(p, dut, st.st_addr, xpa) &&
         dut.in_dram(xpa)) {
       clear_reservations(h, xpa);
