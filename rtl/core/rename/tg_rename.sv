@@ -809,7 +809,7 @@ module tg_rename
       logic [CW1-1:0] nr, nl, ns, nd, nf, ni;
       logic           iq, cq, ser, wemp, rw, r;
       logic [N_IQ-1:0][CW1-1:0] cn, cnw;
-      logic           cw;              // cq with every row taken as free: rwo, the group would fire given a row
+      logic           cw;              // cq with every row taken as free (rwo: the group would fire given a row)
       always_comb begin
         int q;
         logic got;
@@ -863,10 +863,12 @@ module tg_rename
               cn[q] = cn[q] + 1'b1;
             end
           end
-        // cw: the same caps and bank checks with every row taken as free, so that rwo (rw && cw) is the group that would
-        // fire given a row, R2's sibling. cq's steering takes an ALU uop's queue only where its bank has a free row, so
-        // with no ALU row free in that bank cq is low, and rwo on cq would leave out a group short of ALU rows alone:
-        // R2 then never kept an ALU bank's last row for a starved sibling (ms_stride + dhrystone, fpu-2 10-22)
+        // cw: the same caps and bank checks with every row taken as free, so that rwo (rw && (cq || cw)) is the group
+        // that would fire given a row, R2's sibling. cq's steering takes an ALU uop's queue only where its bank has a
+        // free row, so with no ALU row free in that bank cq is low, and rwo on cq alone would leave out a group short of
+        // ALU rows alone: R2 then never kept an ALU bank's last row for a starved sibling (ms_stride + dhrystone, fpu-2
+        // 10-22). Both are greedy, each uop taking the first ALU queue that fits, so cw may spend an earlier queue's
+        // cap where cq went on to another: cq || cw counts a ready group whatever cw finds (core-2's review)
         cw  = 1'b1;
         cnw = '0;
         for (int k = 0; k < W; k++)
@@ -901,7 +903,7 @@ module tg_rename
         r    = rw && iq && cq;
       end
       assign rdy[t] = r;
-      assign rwo[t] = rw && cw;
+      assign rwo[t] = rw && (cq || cw);
     end else begin : g_off
       assign rdy[t] = 1'b0;
       assign rwo[t] = 1'b0;
@@ -1048,8 +1050,12 @@ module tg_rename
   end
   // (step 7) rwo is the group that would fire given a row (core-2's review): a ready group counts, and a group that
   // counts but is not ready finds a bank it needs short of a row (its uop's queue's, or for an ALU uop some ALU
-  // queue's), so its own terms (the caps, the bank rule, the rest of rw) all hold
+  // queue's), so its own terms (the caps, the bank rule, the rest of rw) all hold. From the first reset on: before
+  // it the registers are random, and in the SoC the core's reset is a register
   if (CMT) begin : g_rwo_chk
+    logic rs_q;                     // the core has been reset (as tg_lsu's)
+    initial rs_q = 1'b0;
+    always @(posedge clk) if (rst) rs_q <= 1'b1;
     for (genvar t = 0; t < NT; t++) begin : g_t
       logic rshort;
       always_comb begin
@@ -1067,7 +1073,7 @@ module tg_rename
             endcase
       end
       always_ff @(posedge clk)
-        if (!rst) begin
+        if (rs_q && !rst) begin
           assert (!rdy[t] || rwo[t]) else $error("tg_rename: thread %0d's group is ready but not counted as waiting for rows alone", t);
           assert (!rwo[t] || rdy[t] || rshort)
             else $error("tg_rename: thread %0d's group waits for rows alone with every bank it needs holding a row", t);
