@@ -91,11 +91,19 @@ The board is on u100 with the four-hart tree. The four-hart soak ([`../runs/soak
     [ 3188.384705] CPU3: off
     [ 3188.393451] __sbi_rfence_v02_call: hbase = [1] hmask = [0x5] failed (error [-22])
 
-- **What it is:** 9 ms after hart 3 stopped, Linux asked OpenSBI for a remote fence on harts 1 and 3, and OpenSBI refused it, which Linux reports as `-EINVAL`.
-- **No harm followed:** the round came back to `0-3`, `t` was right on every CPU, and later rounds were clean.
-- **How often:** once in 9 rounds of hart stop and start on u100 (3 in the bring-up, 6 in the soak), and never in dr187b's 60.
-- **The likely reading:** a race in Linux's CPU hotplug, a fence aimed at a hart that has just stopped, which u100's timing exposed. It isn't an access fault.
+- **What it is** (soc-2's reading, 10-23):
+  - Linux keeps a CPU it has taken offline in each mm's cpumask (riscv with ASIDs), so a remote TLB flush shortly after a stop can still name the stopped hart. Here, 9 ms after hart 3 stopped, Linux asked OpenSBI to fence harts 1 and 3 (hbase 1, hmask 0x5).
+  - OpenSBI 1.9 (`lib/sbi/sbi_ipi.c`, `sbi_ipi_send_many`) checks every hart in the mask against those it can interrupt: started, suspended or resuming. If any is missing, it returns `SBI_ERR_INVALID_PARAM` (Linux's −22, `EINVAL`) before sending any IPI.
+- **So no hart in that call got the fence.**
+  - For the stopped hart 3 that's harmless, since Linux flushes its TLB when it comes back online.
+  - But the online hart 1 missed its fence too, and Linux prints the error without retrying. The risk is a stale translation on an online hart, for that mm's range, during the offline window.
+  - The soak's self-checks saw no wrong result: the round came back to `0-3`, `t` was right on every CPU, and later rounds were clean.
+- **Not a hardware fault:** OpenSBI refused on the hart's HSM state alone, and the IPI path was never used.
+- **Exposure:** only around hart stop (hotplug); in steady operation no hart stops. It came once in 9 rounds of hart stop and start on u100 (3 in the bring-up, 6 in the soak), and never in dr187b's 60.
+- **The fix** (the coordinator, 10-23): our own OpenSBI patch before M8's 72-hour run.
+  - It fences the interruptible harts in the mask, skips stopped ones, and doesn't fail the call for them, as older OpenSBI did.
+  - `fw_jump.bin` gets re-pinned in the same MR, with a hotplug soak round on the board.
+- **Until then, this line in a hotplug round is expected.** The soak logs it as a known note, not a FAIL; a data error in the same window still counts as a failure.
 - **The checks:** the soak's own kernel check didn't watch for SBI errors; `hsm_rounds.sh` caught the line. Then `hart_check.sh`, which read the whole boot's log, failed on it in round 6.
-  - Both are fixed: the soak watches for SBI and HSM errors, and `hart_check.sh` reads only its own step's lines there.
-  - The soak restarted at 09:14 UTC after 6 rounds.
-  - A recurrence would show as a FAIL again. dr187b stays on p1 in `tanager-dr187b-80/` and the two-core 100 MHz image in `tanager-d4r2-100/`. To go back to dr187b, in ARM mode: `FH_BACKUP=tanager-dr187b-80 bash ~/tanager/runs/fh_p1.sh back`.
+  - Both are fixed: the soak watches for SBI and HSM errors except this known line, and `hart_check.sh` reads only its own step's lines there.
+  - The soak restarted at 09:14 UTC after 6 rounds, then again with the known-line note. dr187b stays on p1 in `tanager-dr187b-80/` and the two-core 100 MHz image in `tanager-d4r2-100/`. To go back to dr187b, in ARM mode: `FH_BACKUP=tanager-dr187b-80 bash ~/tanager/runs/fh_p1.sh back`.

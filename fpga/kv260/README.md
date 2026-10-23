@@ -194,6 +194,14 @@ Our KV260, set up on 2026-10-14 by the board track (DR-126, stage A).
   - Without DHCP, the board still answers on its IPv6 link-local address, `fe80::48ff:2967:7216:51ee`, on the laptop's Ethernet.
 - **Clock.** The board shows a wrong date until NTP reaches it through the laptop's connection sharing.
 
+### Known issues
+
+- **`__sbi_rfence_v02_call: … failed (error [-22])` during hart stop and start** (u100's soak, 10-23; [`board/u100/README.md`](board/u100/README.md)).
+  - **Cause:** Linux still names a hart it has just stopped in a remote fence, because the hart stays in each mm's cpumask. OpenSBI 1.9 then refuses the whole call and fences none of the harts in it, the online ones included.
+  - **When:** only around hotplug.
+  - **Until it's fixed:** treat the line in a hotplug round as expected. A data error in the same window still counts as a failure.
+  - **The fix:** our own OpenSBI patch before M8's 72-hour run.
+
 ### A53 OS changes (change log)
 
 The user approved the A53 OS changes that stages C and D need (DR-147, 2026-10-16): packages, a network bridge and boot settings, and on 2026-10-17 the SD card's repartitioning. Each change is listed here with how to undo it.
