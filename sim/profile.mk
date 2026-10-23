@@ -166,10 +166,23 @@ PAY_WREG ?=
 ifneq ($(filter-out 0 1,$(PAY_WREG)),)
   $(error PAY_WREG must be 0, 1 or unset (got "$(PAY_WREG)"))
 endif
+# DR-185's lever 2, the issue queues' carry chains (tg_core_pkg's TG_IQ_CC: 1 by default, the readiness on CARRY8; 0
+# the LUT form; 3 the select's chains too), and DR-175's FP banks of 96 without DR-179's crossing (TG_FP_BANK96=1):
+# the other forms for lint only (fpu-2 ran the 96 form in regress and the FP pairs by hand; area_switches.md)
+IQ_CC ?=
+ifneq ($(filter-out 0 1 2 3,$(IQ_CC)),)
+  $(error IQ_CC must be 0 to 3 or unset (got "$(IQ_CC)"))
+endif
+FP_BANK96 ?=
+ifneq ($(filter-out 0 1,$(FP_BANK96)),)
+  $(error FP_BANK96 must be 0, 1 or unset (got "$(FP_BANK96)"))
+endif
 # The lint-only switches together, for the lint targets; a build that runs programs refuses them.
 LINT_ONLY_DEF := $(DE_DEF) $(if $(ROB_STORE_REPORT_LATE),+define+TG_ROB_STORE_REPORT_LATE=$(ROB_STORE_REPORT_LATE)) \
                  $(if $(COMMIT_TRACE),+define+TG_COMMIT_TRACE=$(COMMIT_TRACE)) \
                  $(foreach v,NT LI TW BI,$(if $(TAGE_$(v)),+define+TG_TAGE_$(v)=$(TAGE_$(v)))) \
-                 $(if $(PAY_WREG),+define+TG_PAY_WREG=$(PAY_WREG))
+                 $(if $(PAY_WREG),+define+TG_PAY_WREG=$(PAY_WREG)) $(if $(IQ_CC),+define+TG_IQ_CC=$(IQ_CC)) \
+                 $(if $(FP_BANK96),+define+TG_FP_BANK96=$(FP_BANK96))
 LINT_ONLY_SET := $(if $(DE_STAGE),DE_STAGE=$(DE_STAGE)) $(if $(ROB_STORE_REPORT_LATE),ROB_STORE_REPORT_LATE=$(ROB_STORE_REPORT_LATE)) \
-                 $(if $(filter 0,$(COMMIT_TRACE)),COMMIT_TRACE=0) $(TAGE_SET) $(if $(PAY_WREG),PAY_WREG=$(PAY_WREG))
+                 $(if $(filter 0,$(COMMIT_TRACE)),COMMIT_TRACE=0) $(TAGE_SET) $(if $(PAY_WREG),PAY_WREG=$(PAY_WREG)) \
+                 $(if $(IQ_CC),IQ_CC=$(IQ_CC)) $(if $(FP_BANK96),FP_BANK96=$(FP_BANK96))
