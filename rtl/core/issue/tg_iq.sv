@@ -36,7 +36,8 @@
 //
 // Timing options (spike S2):
 //   DUP_SEL = 1: the select is computed twice; one copy drives only the wakeup broadcast,
-//                so the grant net on the protected loop has a small fanout.
+//                so the grant net on the protected loop has a small fanout. Only with WAKE_NOW:
+//                a queue that does not wake at select has no broadcast, so it builds one select.
 //   EARLY_W < PAYLOAD_W: only payload bits [EARLY_W-1:0] (the source tags the RF stage needs
 //                first) sit in flip-flops and leave through the grant's AND-OR mux; the rest
 //                is in one LUTRAM per bank, read in the next cycle with the registered grant.
@@ -69,6 +70,14 @@
 // at most DW: the per-thread cap CAP (75% of ROWS in SMT2 builds, plan §6.5) minus its rows.
 // Kill: flush_valid with flush_tid kills that thread's rows younger than flush_rob (index
 // plus wrap bit), or all its rows with flush_all.
+//
+// CC (the area pass's lever 2): wide ANDs on carry chains, the same functions. CC[0], the readiness: a
+// row's readiness ANDs one stage of its own terms, its ID dependencies three columns a stage and its
+// matrix dependencies three rows a stage. CC[1], the select: a row's grant ANDs the other rows'
+// older-and-ready terms three a stage, with its readiness as the carry in. Each stage is one LUT6 in
+// front of a CARRY8 stage (tg_iq_cand), so the AND takes no LUT tree. The core takes CC[0] only
+// (tg_issue): the readiness's chains save about 6 LUTs a row; the select's save nothing measurable and
+// cost the select loop routing. CC[0] needs PRE_RDY = 0 and STALE 0 or 2.
 module tg_iq
   import tg_pkg::*;
 #(
@@ -87,6 +96,7 @@ module tg_iq
   parameter int RA        = 1,      // MX: ALU-queue rows, all queues
   parameter bit PRE_RDY   = 1'b0,   // registered ID readiness (needs MX, STALE 0/2)
   parameter bit CBLK      = 1'b0,   // rows of a class whose select cls_block can mask (core)
+  parameter bit [1:0] CC  = 2'b00,  // carry chains (see above): [0] the readiness, [1] the select
   localparam int NHI      = (NCOL + 7) / 8,
   localparam int RMW      = idx_w(DW + 1)
 ) (
@@ -179,27 +189,49 @@ module tg_iq
     assign rdyw_q = '1;
   end
   for (genvar r = 0; r < ROWS; r++) begin : g_ready
-    logic pend;
-    if (PRE_RDY) begin : g_pre
-      assign pend = !rdyw_q[r];
-    end else if (STALE == 1) begin : g_ph
-      assign pend = |((dep_q[r] & ~w) | (dep1_q[r] & ~w1));
-    end else begin : g_one
-      assign pend = |(dep_q[r] & ~w);
-    end
-    logic mpend;
-    if (MX) begin : g_mx
-      assign mpend = |(mdep_q[r] & ~mx_issued);
-    end else begin : g_nomx
-      assign mpend = 1'b0;
-    end
     logic cblk;
     if (CBLK) begin : g_cblk
       assign cblk = cblk_q[r] && cls_block;
     end else begin : g_nocblk
       assign cblk = 1'b0;
     end
-    assign ready[r] = valid_q[r] && age_q[r] == 2'd0 && !pend && !mpend && !sel_block && !cblk;
+    if (CC[0]) begin : g_cc
+      // One stage of the row's own terms, then three ID columns and three matrix rows a stage
+      localparam int ND = (NCOL + 2) / 3;
+      localparam int NM = MX ? (RA + 2) / 3 : 0;
+      logic [ND+NM:0] s;
+      assign s[0] = valid_q[r] && age_q[r] == 2'd0 && !sel_block && !cblk;
+      for (genvar i = 0; i < ND; i++) begin : g_d
+        localparam int LO = 3 * i;
+        localparam int HI = (3 * i + 2 < NCOL) ? 3 * i + 2 : NCOL - 1;
+        assign s[1 + i] = !(|(dep_q[r][HI:LO] & ~w[HI:LO]));
+      end
+      for (genvar i = 0; i < NM; i++) begin : g_m
+        localparam int LO = 3 * i;
+        localparam int HI = (3 * i + 2 < RA) ? 3 * i + 2 : RA - 1;
+        assign s[1 + ND + i] = !(|(mdep_q[r][HI:LO] & ~mx_issued[HI:LO]));
+      end
+      tg_iq_cand #(.N(ND + NM + 1)) u_rdy (.ci(1'b1), .s, .y(ready[r]));
+    end else begin : g_lut
+      logic pend;
+      if (PRE_RDY) begin : g_pre
+        assign pend = !rdyw_q[r];
+      end else if (STALE == 1) begin : g_ph
+        assign pend = |((dep_q[r] & ~w) | (dep1_q[r] & ~w1));
+      end else begin : g_one
+        assign pend = |(dep_q[r] & ~w);
+      end
+      logic mpend;
+      if (MX) begin : g_mx
+        assign mpend = |(mdep_q[r] & ~mx_issued);
+      end else begin : g_nomx
+        assign mpend = 1'b0;
+      end
+      assign ready[r] = valid_q[r] && age_q[r] == 2'd0 && !pend && !mpend && !sel_block && !cblk;
+    end
+  end
+  if (CC[0] && (PRE_RDY || STALE == 1)) begin : g_bad_cc
+    $error("tg_iq: CC needs PRE_RDY = 0 and STALE 0 or 2");
   end
 
   // ---- Age matrix (upper triangle: older_q[i][j], i < j: row i allocated before row j) ----
@@ -236,12 +268,34 @@ module tg_iq
     for (genvar j = 0; j < ROWS; j++) begin : g_j
       assign older_ready[j] = ready[j] && older[j][r];
     end
-    assign grant[r] = ready[r] && !(|older_ready);
+    if (CC[1] && ROWS > 1) begin : g_cc
+      // The other rows' terms three a stage (older_ready[r] is zero), the row's readiness the carry in
+      localparam int NS = (ROWS + 1) / 3;
+      logic [ROWS-2:0] oth;
+      for (genvar j = 0; j < ROWS; j++) begin : g_o
+        if (j < r) begin : g_lo
+          assign oth[j] = older_ready[j];
+        end else if (j > r) begin : g_hi
+          assign oth[j - 1] = older_ready[j];
+        end
+      end
+      logic unused_self;
+      assign unused_self = older_ready[r];
+      logic [NS-1:0] s;
+      for (genvar i = 0; i < NS; i++) begin : g_s
+        localparam int LO = 3 * i;
+        localparam int HI = (3 * i + 2 < ROWS - 1) ? 3 * i + 2 : ROWS - 2;
+        assign s[i] = !(|oth[HI:LO]);
+      end
+      tg_iq_cand #(.N(NS)) u_sel (.ci(ready[r]), .s, .y(grant[r]));
+    end else begin : g_lut
+      assign grant[r] = ready[r] && !(|older_ready);
+    end
   end
 
-  // The wakeup broadcast's own copy of the select
+  // The wakeup broadcast's own copy of the select (only where there is a broadcast)
   logic [ROWS-1:0] grant_w;
-  if (DUP_SEL) begin : g_dup
+  if (DUP_SEL && WAKE_NOW) begin : g_dup
     for (genvar r = 0; r < ROWS; r++) begin : g_r
       logic [ROWS-1:0] older_ready;
       for (genvar j = 0; j < ROWS; j++) begin : g_j
@@ -524,3 +578,42 @@ module tg_iq
   end
 `endif
 endmodule
+
+// A wide AND on CARRY8 chains (tg_iq's CC): y = ci & (&s). Each s bit is one LUT in front of its carry
+// stage (CO = S ? CI : DI, with DI = 0: UG574, UG974), so the AND itself takes no LUTs. Synthesis, or
+// TG_SIM_PRIMS with the primitive's model (tests/unit/iq/models), instantiates the primitive; otherwise
+// the same function. A stage past N in the last CARRY8 takes S = 0 and its output is not used.
+/* verilator lint_off DECLFILENAME */
+module tg_iq_cand #(
+  parameter int N = 8
+) (
+  input  logic         ci,
+  input  logic [N-1:0] s,
+  output logic         y
+);
+`ifdef SYNTHESIS
+  `define TG_IQ_CAND_PRIM
+`elsif TG_SIM_PRIMS
+  `define TG_IQ_CAND_PRIM
+`endif
+`ifdef TG_IQ_CAND_PRIM
+  `undef TG_IQ_CAND_PRIM
+  localparam int NB = (N + 7) / 8;
+  logic [8*NB-1:0] sp;
+  assign sp = (8 * NB)'(s);
+  logic [NB:0] c;
+  assign c[0] = ci;
+  for (genvar b = 0; b < NB; b++) begin : g_b
+    /* verilator lint_off UNUSEDSIGNAL */  // the stages past N, and the sum outputs
+    logic [7:0] co, o;
+    /* verilator lint_on UNUSEDSIGNAL */
+    CARRY8 #(.CARRY_TYPE("SINGLE_CY8")) u_cy (
+      .CI(c[b]), .CI_TOP(1'b0), .DI(8'h00), .S(sp[8 * b +: 8]), .CO(co), .O(o));
+    assign c[b + 1] = co[(b == NB - 1) ? (N - 1) % 8 : 7];
+  end
+  assign y = c[NB];
+`else
+  assign y = ci && (&s);
+`endif
+endmodule
+/* verilator lint_on DECLFILENAME */
