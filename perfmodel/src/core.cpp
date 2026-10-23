@@ -95,6 +95,10 @@ Core::Core(const Config& c, const std::vector<ThreadSpec>& specs)
     btage_ = std::make_unique<BlockTage>((int)c.btage_li, (int)c.btage_tw, (int)c.btage_bi, (int)c.fetch_bytes / 2,
                                          (int)c.btage_nt);
   if (btage_) btage_->alloc_invalid_first = c.btage_alloc == 1;
+  if (c.itt_entries > 0) {
+    itt_.resize((size_t)c.itt_entries);
+    itt_bad_.assign((size_t)c.itt_entries, 0);
+  }
   if (c.dirpred == 2)
     dir_ = std::make_unique<Tage>((int)c.tage_base_log, (int)c.tage_tables, (int)c.tage_log, (int)c.tage_tag,
                                   (int)c.tage_hmin, (int)c.tage_hmax);
@@ -721,12 +725,43 @@ void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
         T.ras.pop();
         if (!(here && l.target == tgt) && top == tgt) { pred_taken = true; pred_tgt = tgt; fixed = true; ras_fix = true; }
       }
+      // itt_entries: a JALR other than a return that the micro-BTB missed, or gave the wrong target last time, takes
+      // the indirect target table's target (its PC hashed with the path of recent indirect targets, or itt_hist 1 the
+      // block history), from F2; trained here with the target, as the micro-BTB is
+      bool itt_fix = false;
+      if (!itt_.empty() && d.cls == Cls::JALR && !d.is_ret()) {
+        const uint64_t pc = (di->pc ^ T.salt) >> 1, mask = (uint64_t)itt_.size() - 1;
+        const uint64_t h = c_.itt_hist ? (T.bgh & 0xffff) : T.itt_path;
+        Itt& e = itt_[(size_t)((pc ^ h ^ (h >> 8)) & mask)];
+        const uint16_t tag = (uint16_t)((pc ^ (pc >> 8)) & 0xff);
+        uint8_t& bad = itt_bad_[(size_t)(pc & mask)];
+        if (!here || bad) {
+          if (e.v && e.tag == tag) {
+            T.st.itt_used++;
+            if (e.target == tgt) T.st.itt_right++;
+            if (!(here && l.target == e.target)) {
+              pred_taken = true;
+              pred_tgt = e.target;
+              fixed = itt_fix = true;
+            }
+          } else if (!here) {
+            T.st.itt_none++;
+          }
+        }
+        bad = !(here && l.target == tgt);
+        e.v = true;
+        e.tag = tag;
+        e.target = tgt;
+        T.itt_path = ((T.itt_path << 4) ^ (tgt >> 2)) & 0xffff;
+      }
       if (fixed && c_.m2_f2 && (!ras_fix || c_.m2_ras_f2)) {  // from F2's pre-decode (returns: m2_ras_f2)
         f2 = true;
         // as core-2's profile names them: a taken exit the micro-BTB missed, one at another slot than its hit,
-        // a return at its slot to another target than the stack's top
-        f2k = !hit ? &T.st.f2o_miss : !here ? &T.st.f2o_slot : &T.st.f2o_ret;
-        if (!hit) {  // the kind the micro-BTB missed (m2_strad: a straddler, which it never holds, apart)
+        // a return at its slot to another target than the stack's top; the indirect target table's apart
+        f2k = itt_fix ? &T.st.f2o_itt : !hit ? &T.st.f2o_miss : !here ? &T.st.f2o_slot : &T.st.f2o_ret;
+        if (itt_fix) {
+          f2c = FE_MISS_JAL;
+        } else if (!hit) {  // the kind the micro-BTB missed (m2_strad: a straddler, which it never holds, apart)
           if (sx) { T.st.f2o_miss_strad++; f2c = FE_MISS_STRAD; }
           else if (d.cls == Cls::BR) { T.st.f2o_miss_br++; f2c = FE_MISS_BR; }
           else if (d.is_ret()) { T.st.f2o_miss_ret++; f2c = FE_MISS_RET; }
@@ -1787,7 +1822,12 @@ bool Core::can_issue(Uop& u) {
   if (u.cls == Cls::DIV && div_busy_ > t_) return false;
   if ((u.cls == Cls::FDIV || u.cls == Cls::FSQRT) && fdiv_busy_ > t_) return false;
   Thread& T = th(u);
-  if (u.is_load && c_.mdp && waittab_.at(u.di->pc ^ T.salt)) {
+  if (u.is_load && c_.mdp == 2) {   // perfect store sets: an older store unresolved at this AG that it will overlap
+    for (auto& s : T.sq) {
+      if (s.id >= u.id) break;
+      if (s.t_addr > t_ + 2 && s.addr < u.addr + u.size && u.addr < s.addr + s.size) { T.st.mdp_waits++; return false; }
+    }
+  } else if (u.is_load && c_.mdp && waittab_.at(u.di->pc ^ T.salt)) {
     for (auto& s : T.sq) {
       if (s.id >= u.id) break;
       if (s.t_addr > t_) { T.st.mdp_waits++; return false; }
@@ -2391,6 +2431,8 @@ void Core::retire(Uop& u, bool early) {
   }
   T.st.instr += u.n_instr;
   T.st.uops++;
+  if ((u.is_load || u.is_store) && u.size > 1 && (u.addr & (uint64_t)(u.size - 1)))   // M9: would trap today
+    (u.is_load ? T.st.ld_misaligned : T.st.st_misaligned)++;
   if (t_ >= ctrace_from_ && t_ < ctrace_to_ && u.di)
     std::fprintf(stderr, "%llu pc=%llx %-8s dsp=%llu iss=%lld rdy=%lld\n", (unsigned long long)t_,
                  (unsigned long long)u.di->pc, op_name(u.di->d->op), (unsigned long long)u.t_dsp,
@@ -2980,6 +3022,7 @@ std::string Core::region_json(const Thread& T) const {
   }
   if (c_.prf_split || c_.flush_walk || c_.smt_rn_one) { TG_M7_STATS(TG_RJ) }
   if (c_.alu_full || c_.lsq_pa_bits) { TG_AREA_STATS(TG_RJ) }
+  if (c_.itt_entries || c_.mdp == 2 || c_.m9_counts) { TG_M9_STATS(TG_RJ) }
 #undef TG_RJ
 #define TG_MJ(n) o << ",\"" #n "\":" << (T.ms_end.n - (T.region_seen ? T.ms_start.n : 0));
   TG_MEMSTATS(TG_MJ)
