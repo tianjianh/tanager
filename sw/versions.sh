@@ -5,6 +5,7 @@
 OPENSBI_VER=1.9                       # riscv-software-src/opensbi, released 2026-07-01
 OPENSBI_URL=https://github.com/riscv-software-src/opensbi/archive/refs/tags/v${OPENSBI_VER}.tar.gz
 OPENSBI_TAR=opensbi-${OPENSBI_VER}.tar.gz
+OPENSBI_REV=tg1                       # Tanager's patch set, sw/buildroot/patches/opensbi (soc.md §5): its own build folder
 
 LINUX_VER=6.18.56                     # longterm, released 2026-10-11
 LINUX_URL=https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-${LINUX_VER}.tar.xz
