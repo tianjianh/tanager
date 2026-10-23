@@ -71,7 +71,8 @@
 // 2 DW: a group in DS and one at RN), all ones while cap_on is low, and constant ones with CAP >= ROWS
 // (no per-thread cap, step 7's form: the cap's logic compiles out); bank_nfree_q[k], bank k's free
 // rows (at most 3); occ_q[t], thread t's rows; with BANK_CAP, bank_left_q[t][k][j-1], thread t may
-// take j more rows of bank k and still leave one of its rows to the sibling ("never a whole bank").
+// take j more rows of bank k and still leave one of its rows to the sibling ("never a whole bank"; a bank of one
+// row cannot be shared, so the rule leaves it alone: its flags stay ones).
 // Kill: flush_valid with flush_tid kills that thread's rows younger than flush_rob (index
 // plus wrap bit), or all its rows with flush_all.
 //
@@ -581,7 +582,7 @@ module tg_iq
           for (int r = 0; r < ROWS; r++) cntb += int'(bank_of(r) == k && valid_d[r] && tid_d[r] == tid_t'(t));
         end
         always_ff @(posedge clk)
-          for (int j = 1; j <= 2; j++) bank_left_q[t][k][j-1] <= rst || !cap_on || cntb + j <= BR - 1;
+          for (int j = 1; j <= 2; j++) bank_left_q[t][k][j-1] <= rst || !cap_on || BR < 2 || cntb + j <= BR - 1;
       end
     end else begin : g_nobcap
       assign bank_left_q[t] = '1;

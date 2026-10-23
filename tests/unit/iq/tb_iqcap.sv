@@ -111,7 +111,7 @@ module tb_iqcap;
       end
       for (int k = 0; k < DW; k++)
         for (int j = 1; j <= 2; j++)
-          if (bank_left_q[t][k][j-1] != (!BANK_CAP || !cap_prev || cntb[t][k] + j <= bank_rows(k) - 1)) begin
+          if (bank_left_q[t][k][j-1] != (!BANK_CAP || !cap_prev || bank_rows(k) < 2 || cntb[t][k] + j <= bank_rows(k) - 1)) begin
             errors++;
             if (errors < 20) $display("cycle %0d: thread %0d, %0d of bank %0d's %0d rows: bank_left[%0d] %b", cyc, t,
                                       cntb[t][k], k, bank_rows(k), j, bank_left_q[t][k][j-1]);

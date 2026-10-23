@@ -18,7 +18,7 @@ VFLAGS := --binary --timing --assert -Wno-fatal -Wno-DECLFILENAME -Wno-UNUSEDSIG
 LFLAGS := --lint-only --quiet-stats -Wall -Wno-MULTITOP -I$(ROOT)/rtl/common $(ROOT)/rtl/lint.vlt lint.vlt
 # ROWS-DW-CAP_PCT-BANK_CAP: the smt2 queues (10, 6, 4 rows) at DW 2 and 3, both caps, and step 7's form (no cap,
 # the bank rule)
-VARIANTS := 10-2-50-1 6-2-50-1 4-2-50-1 10-2-75-0 6-2-75-1 10-3-50-1 6-3-50-0 4-3-75-1 10-2-100-1 6-3-100-1
+VARIANTS := 10-2-50-1 6-2-50-1 4-2-50-1 10-2-75-0 6-2-75-1 10-3-50-1 6-3-50-0 4-3-75-1 10-2-100-1 6-3-100-1 4-3-100-1
 # tb_iqcc's ROWS-DW-NCOL-RA-MX-CBLK-STALE-CC: the smt2 queues (ALU 10, FP 10 with the class block, LD 6, STA 4),
 # no matrix with column clears, and sizes that leave partial stages and chains past one CARRY8; CC 3 both chains,
 # 1 the readiness only (the core's), 2 the select only
