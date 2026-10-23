@@ -35,6 +35,8 @@ PRESET = "rtl_m2"
 BASE = {**m.CORE, "m9_counts": 1, "dram_lat": 30}   # as m9_plan.py: the st sizes are the smt2 core's merged window
 CFGS = {"today": {}, "(a) table": {"itt_entries": 256}, "(b) micro-BTB 128": {"ubtb": 128}}
 F2 = 2   # the F2 redirect's bubble (m2_f2_bubble)
+VARIANTS = [("path 256 (the plan)", 256, "path"), ("path 512", 512, "path"), ("path 1,024", 1024, "path"),
+            ("PC 256", 256, "pc"), ("path 128 + PC 128", 128, "both"), ("path 256 + PC 256", 256, "both")]
 REC = re.compile(r"^smt2_itt: (\d+) (\d+) (\d+) ([0-9a-f]+) ([0-9a-f]+) (\d) (\d) (\d+) (\d+) (\d+)")
 AT = re.compile(r"^smt2_itt_at: (.*)")
 REGION = re.compile(r"^smt2_itt_region: (\d+) (\d) (\d+)")
@@ -68,13 +70,15 @@ def parse(path):
     return recs, ats, res, regions
 
 
-def replay(recs, entries=256, frm=0, until=None):
+def replay(recs, entries=256, frm=0, until=None, index="path"):
     """The stream through a shadow table as tgsim's itt_entries: today's and the table's mispredicts, and the cycles
     it would save (net of the overrides it would get wrong), for each K in KS: a fixed mispredict saves its stall to
     the K-th younger retirement less a predicted jump's mean and the F2 redirect's bubble; a wrong override costs a
-    mispredict's mean less a predicted jump's."""
+    mispredict's mean less a predicted jump's. For comparison, index "pc": the table indexed by the PC alone (a target
+    cache for jumps the micro-BTB lost); "both": two tables of `entries` each, one by path and one by PC, the path
+    table's entry taken when its tag matches, else the PC table's."""
     mask = entries - 1
-    tab, bad, path = {}, [False] * entries, 0
+    tab, tpc, bad, path = {}, {}, [False] * entries, 0
     out = dict(ijmp=0, misp=0, hit=0, used=0, right=0, fixes=0, breaks=0)
     gs = {k: {"misp": [0, 0], "ok": [0, 0], "fix": [0, 0]} for k in KS}   # [sum, count] of measured stalls
     for cyc, pc, tgt, misp, hit, g1, g8, g32 in recs:
@@ -97,6 +101,8 @@ def replay(recs, entries=256, frm=0, until=None):
         ub_ok = not misp   # a JALR the RTL got right had the micro-BTB's target (a miss falls through)
         if not hit or bad[p & mask]:
             e = tab.get(i)
+            if index == "both" and (e is None or e[0] != tag):
+                e = tpc.get(p & mask)
             if e is not None and e[0] == tag:
                 out["used"] += 1
                 out["right"] += e[1] == tgt
@@ -110,7 +116,10 @@ def replay(recs, entries=256, frm=0, until=None):
                             gs[k]["fix"][1] += 1
         bad[p & mask] = not (hit and ub_ok)
         tab[i] = (tag, tgt)
-        path = ((path << 4) ^ (tgt >> 2)) & 0xffff
+        if index == "both":
+            tpc[p & mask] = (tag, tgt)
+        if index != "pc":
+            path = ((path << 4) ^ (tgt >> 2)) & 0xffff
     for k in KS:
         mean = {n: s[0] / s[1] if s[1] else 0.0 for n, s in gs[k].items()}
         per_fix = max(0.0, mean["fix"] - mean["ok"] - F2)   # fixes with the stall unmeasured count at the mean
@@ -180,6 +189,7 @@ def main():
         # the stream within the region (its markers), else the whole run
         w64, w128 = dict(g64.get(0, [])), dict(g128.get(0, []))
         s64 = replay(r64.get((0, 0), []), frm=w64.get(1, 0), until=w64.get(2))
+        s64pc = replay(r64.get((0, 0), []), frm=w64.get(1, 0), until=w64.get(2), index="pc")
         s128 = replay(r128.get((0, 0), []), frm=w128.get(1, 0), until=w128.get(2))
         at64 = a64.get(0, [{}])[-1]
         base = int(t64["region_cycles"]) if 2 in w64 else at64.get("cycles", 1)
@@ -188,6 +198,7 @@ def main():
         out[p] = {"rtl_ipc": i64, "rtl_ipc_128": i128, "rtl_b": i128 / i64 - 1, "region": 2 in w64,
                   "rtl_a_est": s64["saved32"] / max(1, base - s64["saved32"]),
                   "rtl_a_est1": s64["saved1"] / max(1, base - s64["saved1"]),
+                  "rtl_pc_est": s64pc["saved32"] / max(1, base - s64pc["saved32"]),
                   "rtl_ijmp_k": s64["ijmp"] / ki, "rtl_misp_k": s64["misp"] / ki,
                   "rtl_misp_a_k": (s64["misp"] - s64["fixes"] + s64["breaks"]) / ki,
                   "model_ipc": g["today"], "model_a": g["(a) table"] / g["today"] - 1,
@@ -200,12 +211,13 @@ def main():
           "today; with (b) the micro-BTB at 128, measured on the RTL; with (a) the 256-entry table, estimated from the "
           "RTL's own stream in the region, each fixed mispredict costed to its 32nd younger retirement (to the 1st in "
           "parentheses), and modelled; indirect jumps and their mispredicts per 1,000 instructions, RTL / model)\n")
-    print("| Program | IPC: RTL / model | (b): RTL measured / model | (a): RTL estimate / model | Indirect jumps / 1K |"
-          " Their mispredicts / 1K: today, with (a) |\n|---|---|---|---|---|---|")
+    print("| Program | IPC: RTL / model | (b): RTL measured / model | (a): RTL estimate / model | The table indexed "
+          "by PC alone: RTL estimate | Indirect jumps / 1K | Their mispredicts / 1K: today, with (a) |\n"
+          "|---|---|---|---|---|---|---|")
     for p in sorted(rows, key=lambda p: -out[p]["rtl_ijmp_k"]):
         o = out[p]
         print(f"| {p} | {o['rtl_ipc']:.3f} / {o['model_ipc']:.3f} | {pct(o['rtl_b'])} / {pct(o['model_b'])} | "
-              f"{pct(o['rtl_a_est'])} ({pct(o['rtl_a_est1'])}) / {pct(o['model_a'])} | "
+              f"{pct(o['rtl_a_est'])} ({pct(o['rtl_a_est1'])}) / {pct(o['model_a'])} | {pct(o['rtl_pc_est'])} | "
               f"{o['rtl_ijmp_k']:.2f} / {o['model_ijmp_k']:.2f} | "
               f"{o['rtl_misp_k']:.2f} → {o['rtl_misp_a_k']:.2f} (model today {o['model_misp_k']:.2f}) |")
     suite = [p for p in rows if not p.startswith("m9_")]
@@ -215,7 +227,8 @@ def main():
         print(f"| **Geometric mean, the {len(suite)} suite programs** | | "
               f"{pct(gm([out[p]['rtl_b'] for p in suite]))} / {pct(gm([out[p]['model_b'] for p in suite]))} | "
               f"{pct(gm([out[p]['rtl_a_est'] for p in suite]))} ({pct(gm([out[p]['rtl_a_est1'] for p in suite]))})"
-              f" / {pct(gm([out[p]['model_a'] for p in suite]))} | | |")
+              f" / {pct(gm([out[p]['model_a'] for p in suite]))} | {pct(gm([out[p]['rtl_pc_est'] for p in suite]))} "
+              "| | |")
     res["programs"] = out
     if a.boot64 and a.boot128:
         runs = {"micro-BTB 64 (today)": parse(a.boot64), "micro-BTB 128 (b)": parse(a.boot128)}
@@ -224,23 +237,27 @@ def main():
               "at the committing hart's ROB head)\n")
         print("| Run | Core | Cycles | Busy cycles | Instructions | Indirect jumps / 1K | Their mispredicts / 1K | "
               "All mispredicts / 1K | (a)'s estimate on busy cycles: to the 32nd (1st) | ... on all cycles | "
-              "(a)'s mispredicts / 1K |\n|---|---|---|---|---|---|---|---|---|---|---|")
+              "(a)'s mispredicts / 1K | The table by PC alone, on busy cycles |\n"
+              "|---|---|---|---|---|---|---|---|---|---|---|---|")
         for n, (recs, ats, _, _) in runs.items():
             boot[n] = {}
             for c in sorted(ats):
                 at = ats[c][-1]
                 ss = [replay(v) for (cc, _t), v in sorted(recs.items()) if cc == c]
+                sp = [replay(v, index="pc") for (cc, _t), v in sorted(recs.items()) if cc == c]
                 ks = ("ijmp", "misp", "fixes", "breaks", "saved", "saved1")
                 s = {k: sum(x[k] for x in ss) for k in ks} if ss else dict.fromkeys(ks, 0)
+                s_pc = sum(x["saved"] for x in sp)
                 busy = at["cycles"] - at["wfi"]
                 ki = max(1, at["instret"]) / 1000
                 boot[n][c] = {**at, "busy": busy, "streams": ss, "a_est": s["saved"] / max(1, busy - s["saved"]),
                               "a_est1": s["saved1"] / max(1, busy - s["saved1"]),
-                              "a_est_total": s["saved"] / max(1, at["cycles"] - s["saved"])}
+                              "a_est_total": s["saved"] / max(1, at["cycles"] - s["saved"]),
+                              "pc_est": s_pc / max(1, busy - s_pc)}
                 print(f"| {n} | {c} | {at['cycles']:,} | {busy:,} | {at['instret']:,} | {s['ijmp'] / ki:.2f} | "
                       f"{s['misp'] / ki:.2f} | {at['misp'] / ki:.2f} | {pct(boot[n][c]['a_est'])} "
                       f"({pct(boot[n][c]['a_est1'])}) | {pct(boot[n][c]['a_est_total'])} | "
-                      f"{(s['misp'] - s['fixes'] + s['breaks']) / ki:.2f} |")
+                      f"{(s['misp'] - s['fixes'] + s['breaks']) / ki:.2f} | {pct(boot[n][c]['pc_est'])} |")
         b64, b128 = boot["micro-BTB 64 (today)"], boot["micro-BTB 128 (b)"]
         # (b) measured: the boot's cycles, and busy cycles per instruction over the cores (the two runs' instruction
         # counts differ by their idle loops)
@@ -261,6 +278,23 @@ def main():
             print(f"First 20M cycles, core 0 (§6.11's window): {w['instret']:,} instructions, indirect jumps "
                   f"{s['ijmp'] / ki:.2f} / 1K, their mispredicts {s['misp'] / ki:.2f} / 1K of all "
                   f"{w['misp'] / ki:.2f}; (a)'s estimate {pct(boot['first20M']['a_est'])}")
+        # the table's shape: size, and the path index against the PC's, on core 0's boot stream and the interpreters
+        print("\n**The table's shape** (the estimate on core 0's busy cycles in the boot, or region cycles, each fixed "
+              "mispredict costed to its 32nd younger retirement; the indirect jumps' mispredicts left in "
+              "parentheses)\n")
+        print("| Workload | " + " | ".join(v[0] for v in VARIANTS) + " |\n|---|" + "---|" * len(VARIANTS))
+        b0 = boot["micro-BTB 64 (today)"][0]
+        shapes = {"the boot, core 0": (recs64.get((0, 0), []), b0["busy"], {})}
+        for p in ("m9_interp_switch", "m9_interp_threaded", "embench_wikisort", "coremark_A"):
+            if (Path(a.vsim64) / f"{p}.log").exists():
+                r, _, t, g = parse(Path(a.vsim64) / f"{p}.log")
+                shapes[p] = (r.get((0, 0), []), int(t["region_cycles"]), dict(g.get(0, [])))
+        boot["shapes"] = {}
+        for n, (r, base, reg) in shapes.items():
+            ss = [replay(r, entries=e, index=ix, frm=reg.get(1, 0), until=reg.get(2)) for _, e, ix in VARIANTS]
+            boot["shapes"][n] = [s["saved32"] / max(1, base - s["saved32"]) for s in ss]
+            print(f"| {n} | " + " | ".join(f"{pct(x)} ({s['misp'] - s['fixes'] + s['breaks']:,})"
+                                          for x, s in zip(boot["shapes"][n], ss)) + " |")
         res["boot"] = boot
     OUT.write_text(json.dumps(res, indent=1) + "\n")
 
