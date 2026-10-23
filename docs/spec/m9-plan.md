@@ -1,6 +1,9 @@
 # M9 plan: hardening and the v1 release
 
-Status: draft — fpu-2 (for the coordinator) — 2026-10-23
+Status: approved by the user on 2026-10-23 as recommended below (DR-190), including Sscofpmf up to 1.4K LUTs a chip
+and the debug module in development builds only. With smt2-study's numbers (§5, §6), the coordinator ruled under
+DR-154 (01e2c013): M9 builds the 256-entry path table, and the 16-entry load-wait table waits until after v1, with
+store sets (the user) — fpu-2 (for the coordinator)
 
 ## Purpose
 M9's row in the plan (architecture_plan.md §11) reads "Sscofpmf/perf, Svpbmt, Zicbo*, misaligned hardware, store sets,
@@ -34,8 +37,8 @@ A recommendation follows: what M9 builds and in what order, what waits for v2, a
 | Zicboz | cbo.* illegal | faster page zeroing in the kernel | 0.8–1.6K | medium | measure first; v1.x if clear_page matters |
 | Zicbop | hints run as no-ops | nothing (6.12 has no Zicbop support) | 0 as now | — | nothing to build |
 | Misaligned hardware | traps, OpenSBI emulates | rare in Debian (0 in smt2-study's 49 programs) | 1.6–3.0K | high | v2 [user]; count on the board first |
-| Store sets | replay on violation | ≤ 0.08% of the boot; a 16-entry load-wait table +0.58% on the suite (Dhrystone +4.7%) | 0.1–0.3K (wait table); 1.2–2.0K (full) | medium | wait table: M9 candidate, the coordinator's call; full store sets v2 [user] |
-| Indirect predictor | 64-entry micro-BTB | interpreters +47–98%, the suite +0.20% (smt2-study); the boot to measure | 0.2K + 2 BRAM | medium | **M9**: the 256-entry path table |
+| Store sets | replay on violation | ≤ 0.08% of the boot; a 16-entry load-wait table +0.58% on the suite (Dhrystone +4.7%) | 0.1–0.3K (wait table); 1.2–2.0K (full) | medium | after v1 (the user): the wait table and full store sets |
+| Indirect predictor | 64-entry micro-BTB | interpreters +47–98%, the suite +0.20% (smt2-study); the boot to measure | 0.2K + 2 BRAM | medium | **M9**: the 256-entry path table (the coordinator, 01e2c013) |
 | virtio-net | stage C (development) | product uses GEM3 with Debian's `macb` | 0 | — | done; document |
 | Debug module + OpenOCD | absent | halt, step, registers, memory over JTAG | 1.5–2.5K | low–medium | **M9**, development builds only [user] |
 | Documentation | narrative README only | — | 0 | — | **M9** |
@@ -189,10 +192,8 @@ A recommendation follows: what M9 builds and in what order, what waits for v2, a
     store sets.
   - It is a benchmark gain (Dhrystone, sglib), not a Linux one.
 - **Timing risk:** medium. Load issue gains a wait condition on the LSU's near-critical families.
-- **Recommendation:**
-  - The load-wait table is under DR-154's lines (the coordinator's call): an M9 candidate after §1 and §6 if the area
-    allows.
-  - Full store sets: v2 **[user]**.
+- **Decided:** the load-wait table and full store sets wait until after v1 (the user, with DR-190; the coordinator
+  offered the wait table for M9 if they want it).
 
 ## 6. Indirect-target predictor
 - **Today:**
@@ -227,7 +228,9 @@ A recommendation follows: what M9 builds and in what order, what waits for v2, a
 - **Timing risk medium:** fetch's next-PC families (rt_q, qs_q) are near the chip's top. A late F2 override, as TAGE's,
   keeps the table off F1's loop.
 - **Switch:** yes.
-- **Recommendation:** M9 builds (b), the 256-entry path table, in its BRAM form, as an F2 override behind a switch.
+- **Decided (the coordinator under DR-154, 01e2c013):** M9 builds (b), the 256-entry path table, in its BRAM form, as an
+  F2 override behind a switch. DR-190's "0.5%, else the 128-entry micro-BTB" did not fit the numbers, since its
+  fallback loses.
   - Debian runs interpreters (apt's Python, Perl and shell maintainer scripts), and there (b) roughly halves or better
     the dispatch cost.
   - (a) drops out (−0.11%).
@@ -315,17 +318,16 @@ A recommendation follows: what M9 builds and in what order, what waits for v2, a
    The coordinator's call if it stays under 1,200 LUTs a chip, else the user's. It gives the board `perf record`, and
    us profiling without simulation binds.
 3. **The indirect-target predictor (§6):** the 256-entry path table (interpreters +47–98%, the suite +0.20%), one BRAM36
-   a core, behind a switch. The boot's share is measured before the default flips.
+   a core, behind a switch (decided, 01e2c013). The boot's share is measured when it is built, under DR-184's band rule.
 4. **The debug module (§8),** in development builds only. [user]: about 1.5–2.5K LUTs there, nothing in the release.
-5. **If the area allows: the 16-entry load-wait table (§5).** The suite +0.58% (Dhrystone +4.7%) for 0.1–0.3K; the
-   coordinator's call.
 
-**v2 (or when a measurement asks for it):**
+**After v1 (or when a measurement asks for it):**
+- The 16-entry load-wait table (§5): the suite +0.58% (Dhrystone +4.7%) for 0.1–0.3K (the user, with store sets).
 - Svpbmt: conformance only.
 - Zicbom: unused with coherent DMA.
 - Real Zicbop prefetches.
 - Misaligned hardware [user]: rare in Debian, high timing risk; count first.
-- Full store sets [user]: the load-wait table takes most of the suite's gain, and the boot's bound is 0.08%.
+- Full store sets [user]: the boot's bound is 0.08%.
 - Sdtrig.
 - Zicboz: v1.x if page zeroing shows over about 1% of the boot.
 
