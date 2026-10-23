@@ -109,6 +109,8 @@ struct pending_wb_t {
     uint8_t mask = 0, nw[8] = {};
   } late[4];
   unsigned nlate = 0;
+  // For each byte, the values a read past could return at its record (hw_accept's search then), up to 6
+  uint8_t past[8][6] = {}, npast[8] = {};
   // A deferred AMO's (amo): its operand, its store data (wdata, under wmask), which what it read must give, and the
   // read its record settled on (decided: Spike's, or hw_amo_x0's from the store data)
   bool amo = false;
@@ -836,14 +838,17 @@ class lockstep_impl_t {
     return true;
   }
 
-  // Puts back the writes hw_reapply_plan chose; each keeps the bytes it now replaces as its old ones, and where
-  // memory still holds its own bytes (beyond the access, untouched since), the ones it replaced before
-  void hw_reapply(const std::vector<uint64_t>& qs) {
+  // Puts back the writes hw_reapply_plan chose for the access [pa, pa+n); each keeps the bytes it now replaces as its
+  // old ones, and where memory still holds its own bytes (beyond the access, untouched since), the ones it replaced
+  // before. Within the access memory's byte is the atomic's (or an earlier write's put back), even where it equals
+  // the write's own: seed 463583 of the coordinator's stress check (10-23), a swap's 0x00 under an sd's 0x00 left
+  // the sd's old byte from before the swap, and a later read past the sd expected it.
+  void hw_reapply(const std::vector<uint64_t>& qs, uint64_t pa, unsigned n) {
     for (uint64_t q : qs) {
       hart_write_t& e = hw_[q - hw_base_];
       uint8_t* m = mem_at(e.pa);
       for (unsigned b = 0; b < e.len; b++)
-        if (m[b] != e.nw[b]) e.old[b] = m[b], m[b] = e.nw[b];
+        if (m[b] != e.nw[b] || (e.pa + b >= pa && e.pa + b < pa + n)) e.old[b] = m[b], m[b] = e.nw[b];
       hw_moved_.push_back(q);
       if (!late_.empty()) late_drop(e);  // it reached memory here, whatever later writes it might have followed
     }
@@ -930,7 +935,7 @@ class lockstep_impl_t {
     memcpy(mem_at(pa), before, n);  // Spike's memory as the AMO found it, for the late landers it read
     late_settle(hi, pa, n, late, got);
     memcpy(mem_at(pa), &res, n);
-    hw_reapply(qs);
+    hw_reapply(qs, pa, n);
     st.st_val = res;  // the store data compare that follows checks the RTL's against it
     if (w) memcpy(w->old, got, n);
     adopt_rd(h, r);
@@ -1047,7 +1052,7 @@ class lockstep_impl_t {
     memcpy(mem_at(w.pa), w.old, n);  // as the AMO found it, under the late landers
     if (settle) late_settle(hi, w.pa, n, f.late, f.word);
     memcpy(mem_at(w.pa), &f.res, n);
-    hw_reapply(f.qs);
+    hw_reapply(f.qs, w.pa, n);
     memcpy(w.old, f.word, n);
     st.st_val = f.res;
     if (f.np) hart_loads_old_++;
@@ -1068,7 +1073,7 @@ class lockstep_impl_t {
     hw_reapply_plan(size_t(&h - harts_.data()), pa, st.st_size, from, nullptr, cycle, true, sim, qs,
                     h.lr_val_ok ? h.lr_val : nullptr, h.lr_pa, h.lr_n);
     if (qs.empty()) return;
-    hw_reapply(qs);
+    hw_reapply(qs, pa, st.st_size);
     hart_reapplied_++;
   }
 
@@ -1098,17 +1103,38 @@ class lockstep_impl_t {
     pw.id_end = hw_id_;
     pw.nrec = h.nrec;
     pw.step = h.steps;
-    view_late(pw);
+    view_snapshot(h, pw);
   }
 
-  // The late landers on a deferred read's doubleword at its record, newest first (pending_wb_t::late)
-  void view_late(pending_wb_t& pw) {
-    auto it = late_.find(pw.pa & ~7ull);
-    if (it == late_.end()) return;
-    for (auto c = it->second.rbegin(); c != it->second.rend() && pw.nlate < 4; ++c) {
-      pw.late[pw.nlate].mask = c->mask;
-      memcpy(pw.late[pw.nlate].nw, c->nw, 8);
-      pw.nlate++;
+  // What a deferred read's view keeps of the history at its record, for its writeback: the late landers on its
+  // doubleword (newest first, pending_wb_t::late), and for each byte the values a read past could return then
+  // (hw_accept's search, pending_wb_t::past). A later write may end a late lander, and a write moved behind a later
+  // atomic leaves its slot empty (seed 465101 of the coordinator's stress check, 10-23: a deferred ld read past an sd
+  // that a later AMO of its hart then moved, so its writeback's own search no longer found the sd).
+  void view_snapshot(hart_state_t& h, pending_wb_t& pw) {
+    if (auto it = late_.find(pw.pa & ~7ull); it != late_.end())
+      for (auto c = it->second.rbegin(); c != it->second.rend() && pw.nlate < 4; ++c) {
+        pw.late[pw.nlate].mask = c->mask;
+        memcpy(pw.late[pw.nlate].nw, c->nw, 8);
+        pw.nlate++;
+      }
+    const size_t hi = size_t(&h - harts_.data());
+    for (unsigned i = 0; i < pw.n; i++) {
+      const uint64_t b = pw.pa + i;
+      auto put = [&](uint8_t v) {
+        for (unsigned j = 0; j < pw.npast[i]; j++)
+          if (pw.past[i][j] == v) return;
+        if (pw.npast[i] < 6) pw.past[i][pw.npast[i]++] = v;
+      };
+      for (size_t k = hw_.size(); k-- > 0;) {
+        const hart_write_t& e = hw_[k];
+        if (b < e.pa || b >= e.pa + e.len) continue;
+        if (e.hart == hi || pw.nrec - e.base[hi] >= cfg_.hart_window ||
+            (pw.atomic && e.atomic && e.cycle + ATOMIC_EARLY <= pw.cycle))
+          break;
+        put(e.old[b - e.pa]);
+        if (e.alt_mask >> (b - e.pa) & 1) put(e.alt[b - e.pa]);
+      }
     }
   }
 
@@ -1131,14 +1157,15 @@ class lockstep_impl_t {
     pw.rs2 = rs2;
     pw.wmask = size_mask(r.mem_size);
     pw.wdata = r.mem_wdata & pw.wmask;
-    view_late(pw);
+    view_snapshot(h, pw);
   }
 
   // A deferred load's bytes that its view and the windows do not explain together (§3.7). It may have read
   // later than its record, so each byte may also be: one hw_accept takes on its own; that of a late lander from
   // before its record that a read has since shown landed, or one there at its record that a later write has ended
-  // since (p.late); or that of atomics of other harts recorded after it (by up to ATOMIC_EARLY cycles), which
-  // performed before they retired (its view with their writes on top, oldest first).
+  // since (p.late), or one a read past could return at its record (p.past); or that of atomics of other harts
+  // recorded after it (by up to ATOMIC_EARLY cycles), which performed before they retired (its view with their writes
+  // on top, oldest first).
   bool hw_wb_more(size_t hi, const pending_wb_t& p, const uint8_t* got) {
     bool ok[8] = {};
     uint8_t b[8];
@@ -1148,6 +1175,7 @@ class lockstep_impl_t {
       ok[i] = hw_accept(hi, p.pa + i, 1, got + i, p.mem + i, p.atomic, p.cycle, p.seq, p.nrec, &seq, &late, p.id_end);
       const unsigned at = unsigned((p.pa + i) & 7);
       for (unsigned k = 0; k < p.nlate && !ok[i]; k++) ok[i] = (p.late[k].mask >> at & 1) && p.late[k].nw[at] == got[i];
+      for (unsigned j = 0; j < p.npast[i] && !ok[i]; j++) ok[i] = p.past[i][j] == got[i];
     }
     for (uint64_t q = hw_base_; q < hw_next(); q++) {
       const hart_write_t& e = hw_[q - hw_base_];
@@ -1207,7 +1235,10 @@ class lockstep_impl_t {
   // cycles before w if w is an atomic (it may have performed before them) and they read what w wrote. An atomic
   // that read past stores is followed by them instead (hw_reapply): they are the last writers of their bytes, and
   // the older stores under them stay candidates as above (core-2's case, 10-23: an sd whose bytes equal what was
-  // there before it may have landed after the AMO whose read showed them, as its hart's younger sw did).
+  // there before it may have landed after the AMO whose read showed them, as its hart's younger sw did). A plain
+  // store that may land after w brings its hart's older plain stores to those bytes, back to another hart's write
+  // there: they may land after w too, before it (seed 503877 of the 10-23 checks: an AMO read past three sd's of the
+  // other hart, a late lander explained it as well, and a later read showed the second sd, the third still to land).
   void late_write(hart_write_t& w) {
     const uint64_t dw = w.pa & ~7ull, nh = harts_[w.hart].nrec;
     const uint8_t wm = dw_mask(w.pa, w.len);
@@ -1225,6 +1256,17 @@ class lockstep_impl_t {
       }
       late_prune(it);
     }
+    auto add = [&](const late_t& c) {
+      auto& v = late_[dw];
+      auto same = std::find_if(v.begin(), v.end(), [&](const late_t& x) { return x.id == c.id; });
+      if (same == v.end()) {
+        v.push_back(c);
+        return;
+      }
+      same->mask |= c.mask;
+      for (unsigned b = 0; b < 8; b++)
+        if (c.mask >> b & 1) same->nw[b] = c.nw[b];
+    };
     uint8_t left = wm;  // bytes whose last writer is still to be found
     for (size_t k = hw_.size(); k-- > 0 && left;) {
       const hart_write_t& e = hw_[k];
@@ -1259,16 +1301,30 @@ class lockstep_impl_t {
         c.nw[b] = e.nw[ei];
       }
       if (!c.mask) continue;
-      auto& v = late_[dw];
-      auto same = std::find_if(v.begin(), v.end(), [&](const late_t& x) { return x.id == c.id; });
-      if (same == v.end()) {
-        v.push_back(c);
-      } else {
-        same->mask |= c.mask;
-        for (unsigned b = 0; b < 8; b++)
-          if (c.mask >> b & 1) same->nw[b] = c.nw[b];
+      add(c);
+      for (size_t j = k; j-- > 0 && !e.atomic;) {
+        const hart_write_t& o = hw_[j];
+        if (nh - o.base[w.hart] >= cfg_.hart_window && !o.moved) break;
+        if (!o.len || (o.pa & ~7ull) != dw) continue;
+        const uint8_t om = dw_mask(o.pa, o.len) & c.mask;
+        if (!om) continue;
+        if (o.hart != e.hart || o.atomic) break;
+        late_t oc;
+        oc.id = o.id;
+        oc.hart = o.hart;
+        memcpy(oc.base, o.base, sizeof oc.base);
+        for (unsigned b = 0; b < 8; b++) {
+          if (!(om >> b & 1)) continue;
+          const unsigned oi = b - unsigned(o.pa & 7), wi = b - unsigned(w.pa & 7);
+          if (w.read_known && w.read[wi] == o.nw[oi] && late_only(j, b + dw, o.nw[oi], w.hart)) continue;  // w read it
+          oc.mask |= uint8_t(1u << b);
+          oc.nw[b] = o.nw[oi];
+        }
+        if (oc.mask) add(oc);
       }
     }
+    if (auto it = late_.find(dw); it != late_.end())  // by id: late_find looks newest first
+      std::sort(it->second.begin(), it->second.end(), [](const late_t& a, const late_t& b) { return a.id < b.id; });
   }
 
   // Whether value v of byte b, written by write k of the history, was none of the byte's values before it that
