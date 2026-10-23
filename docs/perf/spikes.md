@@ -1877,7 +1877,10 @@ Results: `fpga/spikes/results/product_wt_rc1/` holds the two summaries and the i
 
   Its slack and its cause:
   - **Slack:** 31–32 levels, 56–57% wire, at −0.807 ns (u100) and −0.561 ns (u105's worst endpoint). In neither near-final placement is any path from `ds_ren_q` within 1 ns.
-  - **Depth, not placement.** The worst path stays in one cluster (u105: SLICE_X13–18, Y53–62). It is 4.32 ns of logic and 5.79 ns of wire, about 0.19 ns a net. A third placement is unlikely to clear it alone.
+  - **Depth, not placement.** The worst path's 31 LUTs stay in one cluster (u105: SLICE_X13–18, Y53–62). It is 4.32 ns of logic and 5.79 ns of wire, about 0.19 ns a net. A third placement is unlikely to clear it alone.
+    - Only its last net leaves the cluster: decode's clock-enable tree, fanout 113, 1.34 ns to the endpoint at SLICE_X32Y49.
+    - Both placements route the same cells, level for level ([`path_table_ds.txt`](../../fpga/spikes/results/product_wt3_s7_u105/path_table_ds.txt), with `report_timing -input_pins` in `report_timing_ds.txt`, in both result folders).
+    - The chain's other high-fanout nets: the first LUT's output (fanout 11), level 26 (201, likely `rn_fire`), `de_take` (25) and decode's tree (112).
   - **Where the logic is.** 29 of its 31 LUTs are under `u_rn`; their names are smeared by flatten rebuilt. The last two are decode's.
   - **The likely chain**, from the RTL (core-2 and fpu-2 own the check):
     - the DS group's rows in each queue: step 7's `dk`/`dn`, besides STEER_LA's `st_free`;

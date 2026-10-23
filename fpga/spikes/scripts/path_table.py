@@ -33,8 +33,6 @@ for k, l in enumerate(lines):
         if d:
             cur['dly'], cur['at'] = float(d.group(1)), float(d.group(2))
         continue
-    if re.search(r'/(D|CE|R|S)$', l.strip()) and pend_net is not None and 'FDRE' not in l and cur is None:
-        pass
 dst = re.search(r'Destination:\s+(\S+)', body)
 hdr = re.search(r'Data Path Delay:.*', body)
 skew = re.search(r'Clock Path Skew:\s+\S+', body)
