@@ -113,9 +113,9 @@ The M1 model puts the gain at 1.62–1.69× the suite IPC of a NaxRiscv-like con
 | IPC ratio vs the NaxRiscv control, Linux/SPEC-like suite geomean, at KV260 DRAM latency | 1.00 | ≥ 1.15, no benchmark below 1.0 | 1.62–1.67 (30–60 cycles); worst benchmark 1.00 |
 | The same ratio at 90, 120 and 250 cycles of DRAM latency | — | ≥ 1.15 at each, and not below the native-latency ratio | 1.68 / 1.68 / 1.69 |
 | Concurrent demand L1D misses at 120 cycles (§2.5) | 2 refill slots | ≥ 8 on the 16-chain test; ≥ 95% of 8 on the 8-chain test | 15.65; 7.88 (98.5%) |
-| SMT2 throughput (weighted speedup vs the same core running one program at a time) | — (1 hart per core) | ≥ 1.3× at every latency point | 1.36 / 1.43 / 1.45 at 30 / 120 / 250 cycles |
+| SMT2 throughput (weighted speedup vs the same core running one program at a time) | — (1 hart per core) | ≥ 1.3× at every latency point until DR-184 (10-21); now step 7's measured result (about 1.2×), with no pair hang and no loss for one thread alone | 1.36 / 1.43 / 1.45 at 30 / 120 / 250 cycles |
 | LUTs per core (FPU, MMU, L1s included) | 17.9K (RV64, no FPU) | ≈ 38K single-thread; ≈ 46K for the SMT2 release before area recovery (§8.2, §8.5) | — |
-| Dual-core SoC Fmax on XCK26 | — | ≥ 150 MHz floor, 200 MHz goal | — |
+| Dual-core SoC Fmax on XCK26 | — | **100 MHz** since DR-152 (10-17), with a lower board clock only as the very last resort (DR-177). The first goal was 200 MHz with a 150 MHz floor. | — |
 | SMP | Dual-core Debian at 100 MHz | Debian 13 on 4 harts (2 cores × 2 threads); 72-hour stress clean | — |
 
 The IPC rows are single-thread results, from the ST configuration; the release core runs one program with SMT off about 2.5% faster than ST.
@@ -869,7 +869,7 @@ v1, the first release, is configuration `smt2` (§4.15): `TID_W = 1`, sized by t
 
 ### 7.1 PS configuration and clocks
 - **PS ports:** HP1 and HP2 carry L2 traffic; HPM0_FPD (100 MHz) carries host control; `pl_ps_irq` carries doorbells to the A53.
-- **Clocks:** `pl_clk0` feeds an MMCM that produces `clk_core` (200 MHz goal, 150 MHz floor) and `clk_host` (100 MHz). There is one clock-domain crossing, at the host bridge.
+- **Clocks:** `pl_clk0` feeds an MMCM that produces `clk_core` and `clk_host` (100 MHz). `clk_core` is 100 MHz since DR-152 and DR-177; the first goal was 200 MHz with a 150 MHz floor. With the integer register file in UltraRAM (DR-174), the MMCM also makes `clk2x` at twice the core clock, so the register file does two accesses per core cycle. There is one clock-domain crossing, at the host bridge.
 - **ACLINT timer:** ticks at a fixed rate, e.g. 10 MHz, matching `timebase-frequency`.
 - **Fan:** driven from the PL design.
 
@@ -898,6 +898,8 @@ v1, the first release, is configuration `smt2` (§4.15): `TID_W = 1`, sized by t
 ## 8. FPGA implementation strategy
 
 ### 8.1 Protected loops (1 cycle at 200 MHz on a -1-class corner)
+
+The clock target is now 100 MHz (DR-152, DR-177). This section records the loops as they were designed and measured for the first goal of 200 MHz. The 200 MHz-era structures were audited on 10-22: apart from the uncore slices DR-186 turned off, they still guard paths that fail at 100 MHz in the full chip, so they stay (devlog 10-22 01:15 – 07:10).
 
 | Loop | Design rule | Fallback |
 |---|---|---|
@@ -1264,7 +1266,7 @@ Durations are wall-clock estimates for an **agent-built** project (D8): Claude a
 | Risk | Early signal | Mitigation |
 |---|---|---|
 | Two cores do not fit within about 80% of LUTs | S6 or M6 synthesis | The M1 freeze brought the estimate to about 76% (§8.2). Per-unit budgets in CI; trim ladder (§8.4), latency structures last |
-| Protected loops miss 200 MHz on -2LV | S2–S5 | Fallbacks (§8.1), including 32 flip-flop micro-BTB entries; 150 MHz floor |
+| Protected loops miss 200 MHz on -2LV | S2–S5 | Fallbacks (§8.1), including 32 flip-flop micro-BTB entries; 150 MHz floor. **Retired:** every loop closed (S2–S6), and the target is 100 MHz since DR-152. The open timing risk is the full chip's routing at 97% fill (spikes §8.18). |
 | CoreMark 6.0 out of reach at 2-wide | **Confirmed by the M1 model** (§10.2) | **Resolved by D11:** v1's target is ≥ 1.21× the NaxRiscv control (met in the model, 1.46× / 1.34×); 6.0 moves to the 3-wide version. Report honestly rather than tune to the benchmark. |
 | **v1 (SMT2) or v2 (3-wide) does not fit the XCK26.** **Measured at S6 (2026-10-13):** v1 is 99–110K after levers (85–94%) against a ~88% ceiling at 200 MHz; v2 is 113–128K (97–109%). | S6 (done); M6 synthesis of all four configurations | Area-recovery levers R1–R15 (§8.5), the free ones from the first commit; the area-recovery study (triggered by S6); the S6 candidates (8-row ALU queues, ROB 64 window, R14 on the scheduler and FPU); the D17 radix-4 fallback; a v2 re-plan; per-unit LUT budgets in CI for every configuration |
 | **The 3-wide reserve rots**: parameters that are never exercised stop working | 3-wide build failures in CI; widths hard-coded in reviews | CI builds and lockstep at width 3 from M2; spikes S2, S3 and S5 at both widths; M6 synthesis of the 3-wide build; §4.15 review rules |
