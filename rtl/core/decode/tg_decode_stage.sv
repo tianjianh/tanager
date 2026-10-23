@@ -42,6 +42,8 @@ module tg_decode_stage
   output logic [TKW-1:0]      iq_take,
   output logic [TKW-1:0]      iq_take_t,    // ... the take if rename takes the group (de_take), and if not:
   output logic [TKW-1:0]      iq_take_n,    // iq_take is the choice (timing: the queue's counts run on both)
+  output logic                iq_tnz_t,     // ... whether each is nonzero, made without the count (timing: the
+  output logic                iq_tnz_n,     // queue's read-thread choice needs only that, not decode's group)
   // To rename
   output logic [W-1:0]        de_valid,
   output uop_t [W-1:0]        de_uop,
@@ -387,6 +389,8 @@ module tg_decode_stage
     assign iq_take   = TKW'(acc);
     assign iq_take_t = acc_t;
     assign iq_take_n = acc_n;
+    assign iq_tnz_t  = acc_t != '0;
+    assign iq_tnz_n  = acc_n != '0;
     always_ff @(posedge clk) begin
       if (rst || flush || dred) begin
         v1_q <= '0;
@@ -434,7 +438,17 @@ module tg_decode_stage
     assign iq_take   = de_take ? n : '0;
     assign iq_take_t = n;
     assign iq_take_n = '0;
+    // a group's first instruction always goes when it is there, so the count is nonzero exactly when the queue's
+    // first slot is valid outside a redirect or a flush (the group's rules, n above, end it only after that one)
+    assign iq_tnz_t  = iq_valid[0] && !(dred || flush);
+    assign iq_tnz_n  = 1'b0;
   end
+`ifndef SYNTHESIS
+  always_ff @(posedge clk)
+    if (!rst)
+      assert (iq_tnz_t == (iq_take_t != '0) && iq_tnz_n == (iq_take_n != '0))
+        else $error("tg_decode_stage: the take's nonzero flags are not its counts'");
+`endif
 
   // The last instruction taken redirects: flush the front end next cycle. Only the flag waits for rename's take
   // (de_take); the redirect's operands load from decode's own count, the group's last instruction's, since fetch
