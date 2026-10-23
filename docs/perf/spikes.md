@@ -1835,6 +1835,23 @@ Results: `fpga/spikes/results/product_wt2_fin1_u100/` and `product_wt2_fin1_u105
 - **Source:** snapshot ca66235f564b, pinned by the local scratch branch `claude/spikes-2-board-fin1`. Its merges: cafba0e3 (soc-2's 6da660ec, `lint_all.sh` from main), 149de679 (core-2's c06aa48a, the `tg_lsu` hunk), a64c830d (a74817fe).
 - **Status:** a preview image. The board build of record comes from main once those MRs land.
 
+#### The release candidate: main builds the board image bit for bit (2026-10-23)
+
+**Asked** (the coordinator, 10-22): a pair of placements of main c11e1bbd with core-2's LSU fix (932a5412) and fetch fix B (895ef1fc), with `TG_PMP_FILL=1` and `AltSpreadLogic_high`: "It becomes the release image once main matches." Snapshot: `snap/product_wt` b82e0e1744fb, pinned by `claude/spikes-2-board-rc1`.
+
+- **Both placements are the near-final pair's, number for number.**
+  - `rc1_u100`: +0.257 / 0.000 ns, 0 failing, WHS +0.010, 111,359 LUTs and 57,748 FFs.
+  - `rc1_u105`: −0.720 / −502.146 ns, 2,112 failing, WHS +0.005, 111,096 LUTs and 57,757 FFs.
+  - The failing-family listings match line for line.
+- **Why:** the RTL that differs between the two snapshots is switch definitions whose defaults give the same netlist (7 files, among them `FP_XBANK` and `IQ_CC` in `tg_core_pkg`). Vivado is deterministic for a given netlist and settings.
+- **The image.** It was written from `rc1_u100`'s checkpoint by `run_bit_if_pass.sh`:
+  - `tanager.bit` md5 b4ac9aac…, `tanager.bit.bin` md5 62ed4eab…, the board image's `.bit.bin` byte for byte;
+  - the two `.bit` files differ in 7 bytes, the header's date and time (offsets 111–123), with the same `SW_CRC` 66ac8b95.
+  - So the board's u100 image (DR-188, board MR35: four-hart Linux at 100 MHz) is already the release candidate's.
+- **Main matches.** The only RTL difference between this snapshot and main 51052152, the last main before step 7, is PMP_FILL's default (8d8bc8ad), which is the `TG_PMP_FILL=1` this pair passed. Main from 8d8bc8ad to 51052152 builds this chip without a define.
+
+Results: `fpga/spikes/results/product_wt_rc1/` holds the two summaries and the images' md5s; the reports are `product_wt2_fin1_u100/` and `_u105/`'s. The image and checkpoint are in `~/tanager-build/track-spikes-72f833/vivado/product_wt_rc1_u100/`.
+
 #### core-2's A/B: the read thread with and without per-bank copies (2026-10-22)
 
 The fixes preview's base with core-2's newer heads (`snap/product_wt` and `snap/product_wt3`): e5b304cd, TAGE 8cf8e262, DR-183 ecfcc8a5, and core-2's walker fix a6abdc5d. The walker fix registers the head lookup's VPN, so DTLB port 2 starts at one register. Then:
