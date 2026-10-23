@@ -21,7 +21,8 @@ module tg_issue
   parameter bit MX      = IQ_MX,         // S2 lever: matrix wakeup (dispatch names rows)
   parameter int STALE   = 0,             // 0 guard (spikes.md recommendation), 2 column clear
   parameter bit [1:0] CC = IQ_CC,        // the area pass's lever 2, carry chains (tg_iq): [0] readiness, [1] select
-  localparam int DW     = DISPATCH_WIDTH
+  localparam int DW     = DISPATCH_WIDTH,
+  localparam int OCC_W  = idx_w(IQ_ROWS_ALL + 1)
 ) (
   input  logic                         clk,
   input  logic                         rst,
@@ -34,6 +35,14 @@ module tg_issue
   input  logic [DW-1:0][RA-1:0]        disp_mdep,   // MX: sources named by ALU-queue row
   output logic [N_IQ-1:0][DW-1:0]      bank_free,
   output logic [N_IQ-1:0][DW-1:0]      bank_free2,    // at least two rows free (rename's steering, STEER_LA)
+  // M7 step 7's caps (tg_iq; rename applies them; registered): a bank's free rows (at most 3); thread t may take n
+  // more rows of a queue under its cap ([q][t][n-1], n up to 2 DW: a group in DS and one at RN); with IQ_BANK_RULE 1
+  // or 2, j more rows of bank k and not hold it all ([q][t][k][j-1]). The caps apply with hart 1 while the halves are
+  // split (M7 step 6's mode), else all ones
+  output logic [N_IQ-1:0][DW-1:0][1:0] bank_nfree,
+  output logic [N_IQ-1:0][NUM_THREADS-1:0][2*DW-1:0] room_ge,
+  output logic [N_IQ-1:0][NUM_THREADS-1:0][DW-1:0][1:0] bank_left,
+  input  logic                         split_n,       // the halves are split next cycle (tg_rename's mdn, registered)
   // MX naming state: ALU-queue rows holding an op (and not freed this cycle), and the row each
   // dispatch port writes next in each ALU queue (global row numbers)
   output logic [RA-1:0]                mx_hold,
@@ -251,13 +260,31 @@ module tg_issue
     return $bits(f_fp_t);
   endfunction
 
+  // The caps (M7 step 7): with hart 1, while the halves are split. Merged (step 6), one thread runs and its sibling
+  // sleeps with an empty window. The flags are registered, so next cycle's mode decides them
+  logic cap_on;
+  assign cap_on = HART1_ON && split_n;
+  logic [N_IQ-1:0][NUM_THREADS-1:0][OCC_W-1:0] qocc;   // each queue's rows by thread (+capstat below)
+`ifndef SYNTHESIS
+  logic [N_IQ-1:0][NUM_THREADS-1:0] q_over;            // ... above its cap
+`else
+  logic unused_qocc;
+  assign unused_qocc = ^qocc;
+`endif
+
   for (genvar q = 0; q < N_IQ; q++) begin : g_q
     localparam int ROWS = rows_of(q);
     localparam int CAP  = (ROWS * IQ_CAP_PCT) / 100;
     logic [NCOL-1:0] wn;                // (no queue wakes at select)
     logic [ROWS-1:0] iss_o, free_o, val_o;
     logic [DW-1:0][ROWS-1:0] aoh;
-    logic [NUM_THREADS-1:0][idx_w(DW + 1)-1:0] room;
+    logic [NUM_THREADS-1:0][idx_w(ROWS + 1)-1:0] occ_t;
+    for (genvar t = 0; t < NUM_THREADS; t++) begin : g_occ
+      assign qocc[q][t] = OCC_W'(occ_t[t]);
+`ifndef SYNTHESIS
+      assign q_over[q][t] = int'(occ_t[t]) > CAP;     // (+capstat below)
+`endif
+    end
     localparam int PW = fmt_w(q);
     localparam int EW = (EARLY_W < IQ_PL_W) ? ((q < N_ALU) ? 2 : (q == Q_FP) ? 3 : 1) * $bits(preg_t) : PW;
     logic [DW-1:0][PW-1:0] dpl;
@@ -420,12 +447,13 @@ module tg_issue
     tg_iq #(
       .ROWS(ROWS), .DW(DW), .NCOL(NCOL), .PAYLOAD_W(PW), .CAP(CAP), .STALE(STALE), .CBLK(q == Q_FP),
       .WAKE_NOW(1'b0), .WAKE_ENC(1), .ROBW(ROBW), .DUP_SEL(DUP_SEL), .EARLY_W(EW),
-      .MX(MX), .RA(RA), .PRE_RDY(1'b0), .CC(CC)
+      .MX(MX), .RA(RA), .PRE_RDY(1'b0), .BANK_CAP(IQ_BANK_RULE != 0 || ROWS_AT_RN == 1), .CC(CC)
     ) u_iq (
       .clk, .rst,
       .disp_valid(disp_we[q]), .disp_tid(dtid), .disp_dep(disp_dep), .disp_dep_ph(no_ph),
       .disp_wake_oh('0), .disp_rob(drob), .disp_payload(dpl),
-      .bank_free_q(bank_free[q]), .bank_free2_q(bank_free2[q]), .room_q(room),
+      .bank_free_q(bank_free[q]), .bank_free2_q(bank_free2[q]), .bank_nfree_q(bank_nfree[q]),
+      .cap_on, .room_ge_q(room_ge[q]), .occ_q(occ_t), .bank_left_q(bank_left[q]),
       .w((q == Q_FP) ? w : w_all), .w_next('0), .w1('0), .col_clr(col_clr),
       .cancel((q == Q_FP) ? 1'b0 : sw_cancel), .sel_block(blk),
       .disp_cblk(cblk), .cls_block(fp_misc_block),
@@ -469,7 +497,7 @@ module tg_issue
       assign unused = ^{iss_o, free_o, val_o, aoh};
     end
     logic unused;
-    assign unused = ^{room, wn};
+    assign unused = ^wn;
   end
   assign mx_hold = mx_valid & ~mx_free;
   always_comb begin
@@ -554,6 +582,81 @@ module tg_issue
         assert (disp_pl[k].imm == {{52{disp_pl[k].imm[11]}}, disp_pl[k].imm[11:0]})
           else $error("tg_issue: memory offset wider than 12 bits");
     end
+  end
+`endif
+
+`ifndef SYNTHESIS
+  // The caps' return (simulation only, +capstat; M7 step 7): each time the caps come back at a split (the sleeper
+  // wakes), whether the running thread held more than its cap of every queue before the woken thread's first
+  // dispatch (and above its share of any queue), and how long that took. The woken thread is the one without rows
+  // (a sleeper's window is empty); a split with neither thread holding rows is counted but not followed. On stderr
+  // at the end (TG-CAPS)
+  bit   cs_on;
+  initial cs_on = $test$plusargs("capstat");
+  logic cap_on_q;
+  int   cs_ret, cs_rows, cs_over, cs_any, cs_max, cs_sum;
+  int   cs_w, cs_wait;                // the woken thread (-1: none), the cycles since the return
+  tid_t cs_r;                         // ... the running thread
+  logic cs_seen;                      // ... the running thread above its share of every queue meanwhile
+  logic cs_seen1;                     // ... of some queue
+  int   cs_qmax [N_IQ];               // ... its most rows of each queue while followed, over every split
+  /* verilator lint_off BLKSEQ */       // simulation-only counters: blocking assignments in order
+  always @(posedge clk) begin
+    logic [NUM_THREADS-1:0] over_all, over_any, none;
+    logic got;
+    cap_on_q <= cap_on;               // (through reset too: the caps are on from reset with hart 1, not a return)
+    if (rst) begin
+      cs_ret = 0; cs_rows = 0; cs_over = 0; cs_any = 0; cs_max = 0; cs_sum = 0; cs_w = -1; cs_r = '0; cs_wait = 0;
+      cs_seen = 1'b0; cs_seen1 = 1'b0;
+      for (int q = 0; q < N_IQ; q++) cs_qmax[q] = 0;
+    end else if (cs_on) begin
+      for (int t = 0; t < NUM_THREADS; t++) begin
+        over_all[t] = 1'b1;
+        over_any[t] = 1'b0;
+        none[t] = 1'b1;
+        for (int q = 0; q < N_IQ; q++) begin
+          if (!q_over[q][t]) over_all[t] = 1'b0;
+          if (q_over[q][t]) over_any[t] = 1'b1;
+          if (qocc[q][t] != '0) none[t] = 1'b0;
+        end
+      end
+      if (cap_on && !cap_on_q) begin
+        cs_ret++;
+        cs_w = -1;
+        if ($countones(none) == 1)
+          for (int t = 0; t < NUM_THREADS; t++) if (none[t]) cs_w = t; else cs_r = tid_t'(t);
+        cs_wait = 0;
+        cs_seen = 1'b0;
+        cs_seen1 = 1'b0;
+      end
+      if (cs_w >= 0) begin
+        if (over_all[cs_r]) cs_seen = 1'b1;
+        if (over_any[cs_r]) cs_seen1 = 1'b1;
+        for (int q = 0; q < N_IQ; q++) if (int'(qocc[q][cs_r]) > cs_qmax[q]) cs_qmax[q] = int'(qocc[q][cs_r]);
+        got = 1'b0;
+        for (int q = 0; q < N_IQ; q++)
+          for (int k = 0; k < DW; k++) if (disp_we[q][k] && int'(disp_pl[k].tid) == cs_w) got = 1'b1;
+        cs_wait++;
+        if (got) begin
+          cs_rows++;
+          if (cs_seen1) cs_any++;
+          if (cs_seen) begin
+            cs_over++;
+            cs_sum += cs_wait;
+            if (cs_wait > cs_max) cs_max = cs_wait;
+          end
+          cs_w = -1;
+        end
+      end
+    end
+  end
+  /* verilator lint_on BLKSEQ */
+  final if (cs_on) begin
+    string qs;
+    qs = "";
+    for (int q = 0; q < N_IQ; q++) qs = {qs, $sformatf(" %0d/%0d", cs_qmax[q], (rows_of(q) * IQ_CAP_PCT) / 100)};
+    $fwrite(32'h8000_0002, "TG-CAPS %m: the caps came back %0d times at a split; the woken thread's first row followed %0d times, %0d of them with the running thread above its share of every queue meanwhile (after %0d cycles at most, %0d in all) and %0d above its share of some queue; the running thread's most rows of each queue while followed, against its cap:%s\n",
+            cs_ret, cs_rows, cs_over, cs_max, cs_sum, cs_any, qs);
   end
 `endif
 endmodule

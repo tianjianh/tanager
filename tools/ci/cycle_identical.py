@@ -701,9 +701,9 @@ def main():
     ap.add_argument("--branch-hart1", type=int, choices=(0, 1), default=None,
                     help="this side's only (hart 1 changes the cycles: compare two trees that both have it)")
     ap.add_argument("--pmp-fill", type=int, choices=(0, 1), default=None,
-                    help="build both sides with PMP checks at TLB fill (DR-183, pmp-at-fill.md)")
+                    help="both sides' PMP checks at TLB fill (DR-183, pmp-at-fill.md; the package's default, on since the flip)")
     ap.add_argument("--branch-pmp-fill", type=int, choices=(0, 1), default=None,
-                    help="this side's only, for example 0 to show the switch off is cycle-identical to a base without it")
+                    help="this side's only, for example 0 to show the switch off is cycle-identical to a base before the flip")
     ap.add_argument("--timeout", type=int, default=3600, help="wall-clock seconds per run before it counts as broken")
     ap.add_argument("--show", type=int, default=5, help="differing runs to explain in detail")
     a = ap.parse_args()

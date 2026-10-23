@@ -1,0 +1,34 @@
+MEMGAP-INFO kernel=6.12.113+deb13-riscv64 machine=riscv64 cpus=4 clocksource=riscv_clocksource idle=10.0 s, each test 1.00 s
+MEMGAP-INFO two-thread tests on CPUs 0 and 1 (thread siblings 0-1 and 0-1)
+MEMGAP-IDLE-CPU cpu0 user=0.0% nice=0.0% system=0.0% idle=99.8% iowait=0.0% irq=0.0% softirq=0.0% steal=0.0%
+MEMGAP-IDLE-CPU cpu1 user=0.0% nice=0.0% system=0.1% idle=99.9% iowait=0.0% irq=0.0% softirq=0.0% steal=0.0%
+MEMGAP-IDLE-CPU cpu2 user=0.0% nice=0.0% system=0.1% idle=99.6% iowait=0.1% irq=0.0% softirq=0.0% steal=0.0%
+MEMGAP-IDLE-CPU cpu3 user=0.0% nice=0.0% system=0.0% idle=99.9% iowait=0.0% irq=0.0% softirq=0.0% steal=0.0%
+MEMGAP-IDLE-RATE interrupts=40.5/s context-switches=28.1/s over 10.0 s
+MEMGAP-IDLE-IRQ 10 36.5/s RISC-V INTC   5 Edge      riscv-timer
+MEMGAP-IDLE-IRQ 13 0.3/s SiFive PLIC  22 Edge      eth0, eth0
+MEMGAP-IDLE-IRQ 14 0.9/s SiFive PLIC  21 Edge      mmc0
+MEMGAP-IDLE-IRQ IPI1 2.8/s Function call interrupts
+MEMGAP clock 984.2 ns/call
+MEMGAP rdtime 215.0 ns/read
+MEMGAP wr1k 347.4 MiB/s
+MEMGAP wr1m 178.0 MiB/s
+MEMGAP wr16m 154.0 MiB/s
+MEMGAP rd16m 168.5 MiB/s
+MEMGAP chase16k 31.0 ns/load
+MEMGAP chase256k 411.9 ns/load
+MEMGAP chase64m 593.6 ns/load
+MEMGAP pingpong 1210.0 ns/round-trip
+MEMGAP ev1 5424.1 ns/event
+MEMGAP ev2local 8446.2 ns/event (per thread; 236792 events/s in all)
+MEMGAP ev2shared 8449.9 ns/event (per thread; 236689 events/s in all)
+MEMGAP-CPU cpu0 user=22.0% nice=0.0% system=0.6% idle=76.9% iowait=0.0% irq=0.0% softirq=0.0% steal=0.0%
+MEMGAP-CPU cpu1 user=64.9% nice=0.0% system=3.3% idle=31.3% iowait=0.0% irq=0.0% softirq=0.0% steal=0.0%
+MEMGAP-CPU cpu2 user=2.1% nice=0.0% system=0.8% idle=96.5% iowait=0.1% irq=0.0% softirq=0.1% steal=0.0%
+MEMGAP-CPU cpu3 user=26.9% nice=0.0% system=3.5% idle=69.4% iowait=0.0% irq=0.0% softirq=0.0% steal=0.0%
+MEMGAP-RATE interrupts=372.7/s context-switches=62.8/s over 20.1 s
+MEMGAP-IRQ 10 336.4/s RISC-V INTC   5 Edge      riscv-timer
+MEMGAP-IRQ 13 0.1/s SiFive PLIC  22 Edge      eth0, eth0
+MEMGAP-IRQ 14 1.6/s SiFive PLIC  21 Edge      mmc0
+MEMGAP-IRQ IPI0 3.2/s Rescheduling interrupts
+MEMGAP-IRQ IPI1 31.4/s Function call interrupts

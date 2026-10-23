@@ -34,6 +34,7 @@ module tg_rob
   input  ren_t [DISPATCH_WIDTH-1:0]    ds_ren,
   output robid_t [NUM_THREADS-1:0]     head_o,       // each thread's head
   output tid_t                         hd_tid_o,     // the thread whose head commits this cycle (the LSU's head checks)
+  output tid_t                         hd_tid_n_o,   // ... next cycle's (the LSU registers its head lookup with it)
   // Completion
   input  logic [N_ALU-1:0]             alu_cmp,
   input  robid_t [N_ALU-1:0]           alu_rob,
@@ -163,8 +164,21 @@ module tg_rob
 
   localparam int NT = NUM_THREADS;
   md_t md, mdn;                     // the mode and next cycle's (step 6; constants without hart 1)
-  assign md  = HART1_ON ? md_i : MD_C;
+  // The mode comes from a copy of rename's md_q kept here (the same value: md_q takes mdn every cycle, and both
+  // reset to MD_C), so its fan-out starts beside the logic it feeds, not across the core at rename (timing: the full
+  // chip's worst path started at md_q, spikes §8.18). Kept, so that synthesis does not merge it into md_q
+  (* keep = "true" *) md_t md_l_q;
+  always_ff @(posedge clk) md_l_q <= rst ? MD_C : mdn_i;
+  assign md  = HART1_ON ? md_l_q : MD_C;
   assign mdn = HART1_ON ? mdn_i : MD_C;
+`ifndef SYNTHESIS
+  logic md_rs;                      // (the copy is checked from the first reset on)
+  initial md_rs = 1'b0;
+  always @(posedge clk) if (rst) md_rs <= 1'b1;
+  always_ff @(posedge clk)
+    if (md_rs && !rst && HART1_ON)
+      assert (md_l_q == md_i) else $error("tg_rob: the mode's copy differs from rename's md_q");
+`endif
   localparam bit MT = HART1_ON && NT > 1;      // hart 1 runs (M7's step 5c): interrupts at either thread's head
   // The threads: the dispatch group's (its slot 0's tid), the committing one (the running thread until the split
   // mode) and the flushed one; without SMT thread 0, whatever the tid bits hold
@@ -181,6 +195,7 @@ module tg_rob
   robid_t [NT-1:0] head_q, tail_q;
   assign head_o   = head_q;
   assign hd_tid_o = t_cm;
+  assign hd_tid_n_o = (SPLIT && NT > 1) ? (rst ? RUN_TID : ct_n) : RUN_TID;   // (ct_q's next value)
   logic [NT-1:0]          xr_v_q, xr_s_q;  // an MRET or SRET in flight; SRET
 
   logic   [NT-1:0]        exr_v_q;

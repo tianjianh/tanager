@@ -847,6 +847,25 @@ Main df08b40, with the M6 set on by default (the 32-entry RAS, two-table TAGE-li
   - Package `m6-smt2-c2-100`, for after D4, with DR-141's set against d2's boots.
 - **No same-tree comparison for ExploreArea yet:** these are the first board builds of this tree, and both use it.
 
+### 8.5 DDR write streaming on the four-hart chip (u100, 10-23)
+
+- **On the board** (MR35, `fpga/kv260/board/u100/README.md`): at d4r2's 100 MHz, memgap's wr16m streams DDR writes at 156.3 MiB/s against 182.4 (−14%), while rd16m reads at 159.0 against 140.1 (+13.5%).
+  - The DR-141 set's page-fault test is 8.8% slower. Its time is the kernel clearing 2 MiB huge pages, which is write streaming too.
+  - dr187b (80 MHz, without PMP at fill) was already slower on both: wr16m 136.8 MiB/s, the page-fault test +4.1%.
+- **Not the RTL, in simulation:** `tests/unit/soc/sw/wst.c` runs as tb_boot's firmware (hart 0 writes 4 MiB, 8× the board's L2, then times a write pass and a read pass). The setup is two `smt2` cores, the board's L2 (1024 sets), the release memory path and a fixed DDR latency, on main 25d07c55 with PMP at fill on. Cycles per 64-byte line, write / read:
+
+  | DDR model | Slices off (main) | Slices on (DR-186 undone, a scratch copy) |
+  |---|---|---|
+  | 22 cycles, ready 100% | 31.96 / 32.54 | 33.96 / 34.55 |
+  | 22 cycles, AR, AW and W ready 50% | 29.63 / 33.11 | 30.44 / 35.10 |
+
+  - **DR-186's slices off are as fast or faster** for writes, and faster for reads, as the board's reads are.
+  - **Hart 1 changes nothing.** At 60 cycles every case gives 37.33 / 51.54: hart 1 off, hart 1 on, and the stream on hart 1 (thread 1, as Linux's cpu0 is on the board) instead of hart 0. A lone thread's stream is not limited by the window split.
+  - **Compare one binary across builds.** The absolute cycles depend on where the loop lands: the scratch probe's own start code gave 29.50 for the first row's writes.
+- **So the write loss is the board's memory system's.** The likely cause is the PS DDR controller's read/write turnarounds. Each streamed line is an RFO read and later a write-back, and the slices' removal changed when the L2 issues them, which a fixed-latency model can't show.
+- **The definitive test** is a 100 MHz build with `TG_MEM_SLICE=1` measured on the board. It has not been run (the coordinator, 10-23: the benchmarks that matter improved).
+- **The board's next image adds two checks:** memgap's single-thread rows on each CPU (`taskset -c 0-3`), and two threads writing separate 16 MiB buffers.
+
 ## Verification
 
 `tests/unit/soc`: `tanager_soc` in Verilator with `CORE_KIND = "core"` (stubs) and `"trafgen"`, AXI memory models on the memory ports, and a host-port driver. It checks:

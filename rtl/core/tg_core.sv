@@ -200,7 +200,8 @@ module tg_core
   logic [SLOT_W-1:0] upd_slot;
   logic [DECODE_WIDTH-1:0]   iq_valid;
   fe_insn_t [DECODE_WIDTH-1:0] iq_insn;
-  logic [idx_w(DECODE_WIDTH + 1)-1:0] iq_take;
+  logic [idx_w(DECODE_WIDTH + 1)-1:0] iq_take, iq_take_t, iq_take_n;
+  logic                    de_take;                   // (declared ahead of fetch, which reads it)
   // Fetch's own copy of the privilege and of whether it translates, a cycle behind tg_csr's: they
   // change only as a trap, an xRET or a serialising CSR write commits, and the flush that follows
   // is the next cycle, so fetch resumes after the copy has caught up (timing, DR-145: the CSR's
@@ -290,7 +291,7 @@ module tg_core
     .ras_push(fras_push), .ras_pop(fras_pop), .ras_link(fras_link),
     .ras_rv(fras_rv), .ras_rwr(fras_rwr), .ras_rtos(fras_rtos), .ras_rcnt(fras_rcnt), .ras_rtop(fras_rtop),
     .upd_valid, .upd_way, .upd_pc, .upd_slot, .upd_target, .upd_inval, .upd_tid,
-    .iq_valid, .iq_insn, .iq_take,
+    .iq_valid, .iq_insn, .iq_take, .iq_take_t, .iq_take_n, .de_take,
     .xl_h(xl_f_q), .dst(de_state_h), .priv_h(priv_f_q), .pmp_d_h, .pmp_busy, .rn_block(rn_blk), .rn_acc,
     .pmp_lk_h, .pfc_req, .pfc_page, .pfc_tag, .pfc_tid, .pfc_pa, .pfc_m, .pfc_rsp_v, .pfc_rsp_tag, .pfc_rsp_ok, .pfc_rsp_nh,
     .pfc_rsp_x,
@@ -302,10 +303,9 @@ module tg_core
   // ---- Decode ----
   logic [DECODE_WIDTH-1:0] de_valid;
   uop_t [DECODE_WIDTH-1:0] de_uop;
-  logic                    de_take;
   tg_decode_stage u_de (
     .clk, .rst, .flush, .dst_h(de_state_h),
-    .iq_valid, .iq_insn, .iq_take, .de_valid, .de_uop, .de_take,
+    .iq_valid, .iq_insn, .iq_take, .iq_take_t, .iq_take_n, .de_valid, .de_uop, .de_take,
     .dred, .dred_tid, .dred_pc, .dred_ftq, .dred_slot, .dred_rop, .dred_rlink, .ras_v, .ras_top, .ras_push, .ras_pop,
     .ras_link);
   if (RAS_ON) begin : g_ras
@@ -372,10 +372,14 @@ module tg_core
   // Per thread (M7's step 3): the ROB's heads, the LSU's LQ and SQ pointers and rename's tails. The LSU's head checks
   // follow the ROB's commit thread (rob_hd_tid, step 4)
   robid_t [NUM_THREADS-1:0] rob_tail_t, rob_head_t;
-  tid_t                     rob_hd_tid;
+  tid_t                     rob_hd_tid, rob_hd_tid_n;   // the ROB's commit thread, this cycle's and next's
   lqid_t  [NUM_THREADS-1:0] lq_head_t;
   sqid_t  [NUM_THREADS-1:0] sq_head_t, sq_cmt_t;
   logic [N_IQ-1:0][DISPATCH_WIDTH-1:0] iq_bank_free, iq_bank_free2;
+  // M7 step 7's caps: tg_issue's flags (rename reads them); they apply while the halves are split (step 6's mode)
+  logic [N_IQ-1:0][DISPATCH_WIDTH-1:0][1:0] iq_bank_nfree;
+  logic [N_IQ-1:0][NUM_THREADS-1:0][2*DISPATCH_WIDTH-1:0] iq_room_ge;
+  logic [N_IQ-1:0][NUM_THREADS-1:0][DISPATCH_WIDTH-1:0][1:0] iq_bank_left;
   logic [NCOL-1:0] w_vec, iq_busy;
   logic [INT_BANKS-1:0]             rf_we;
   logic [INT_BANKS-1:0][PIDX_W-1:0] rf_widx;
@@ -444,7 +448,7 @@ module tg_core
     .clk, .rst, .ready(rn_ready), .start(init_done && fe_ready && lsu_ready), .flush, .flush_tid,
     .de_valid, .de_uop, .de_take, .blk_o(rn_blk), .acc_o(rn_acc),
     .rob_head(rob_head_t), .lq_head(lq_head_t), .sq_head(sq_head_t), .sq_cmt(sq_cmt_t), .iq_bank_free,
-    .iq_bank_free2, .w_vec, .busy(iq_busy),
+    .iq_bank_free2, .iq_room_ge, .iq_bank_left, .w_vec, .busy(iq_busy),
     .rf_we, .rf_widx, .llt_rel, .tag_free, .div_done, .div_done_tid,
     .fp_we, .fp_widx, .fdiv_iss, .fpi_iss, .fp_iss_tid, .fdiv_done, .fpi_pop,
     .cm_tid(cm_tid[0]), .cm_valid, .cm_rd_en, .cm_rd, .cm_dst, .cm_old, .cm_rd_fp,
@@ -472,6 +476,7 @@ module tg_core
   tg_issue u_is (
     .clk, .rst, .flush, .flush_tid, .disp_we(iq_we), .disp_dep(iq_dep),
     .disp_pl(iq_pl), .disp_mdep(iq_mdep), .bank_free(iq_bank_free), .bank_free2(iq_bank_free2), .mx_hold, .mx_alloc, .alloc(wid_alloc), .wake_reg, .ld_m2_will, .ld_m2_miss, .col_clr,
+    .bank_nfree(iq_bank_nfree), .room_ge(iq_room_ge), .bank_left(iq_bank_left), .split_n(mdn.split),
     .w(w_vec), .busy(iq_busy), .a1_block, .ld_block, .fp_block, .fp_misc_block, .iss_valid, .iss_pl, .iss_src_n,
     .spec_cancel);
 
@@ -643,7 +648,7 @@ module tg_core
     .ds_src2_rdy, .rf_we, .rf_widx,
     .ld_cmp_valid(ld_cmp), .ld_cmp_rob, .ld_cmp_mmio, .st_cmp_valid(st_cmp), .st_cmp_rob,
     .exc_valid(lx_valid), .exc_rob(lx_rob), .exc_cause(lx_cause), .spx_valid, .spx_rob, .sth_v, .sth_rob,
-    .replay_valid, .replay_rob, .rob_head(rob_head_t), .hd_tid(rob_hd_tid), .cm_tid(cm_tid[0]), .cm_nld, .cm_nst,
+    .replay_valid, .replay_rob, .rob_head(rob_head_t), .hd_tid(rob_hd_tid), .hd_tid_n(rob_hd_tid_n), .cm_tid(cm_tid[0]), .cm_nld, .cm_nst,
     .tr_sq, .tr_st_wr, .tr_st_va,
     .tr_st_data,
     .tr_st_size, .tr_lq, .tr_ld_va, .tr_ld_size, .sq_drained, .mmio_busy, .irq_go(tr_irq), .rsv_clr, .st_dropped,
@@ -695,7 +700,7 @@ module tg_core
       assert (init_done && rn_ready) else $error("tg_core: the ROB commits before rename is ready");
 `endif
   tg_rob #(.CORE_ID(CORE_ID)) u_rob (
-    .clk, .rst, .ready(!trace_stall_q), .ds_fire, .ds_valid, .ds_uop, .ds_ren, .head_o(rob_head_t), .hd_tid_o(rob_hd_tid),
+    .clk, .rst, .ready(!trace_stall_q), .ds_fire, .ds_valid, .ds_uop, .ds_ren, .head_o(rob_head_t), .hd_tid_o(rob_hd_tid), .hd_tid_n_o(rob_hd_tid_n),
     .alu_cmp, .alu_rob, .oth_cmp, .oth_rob, .oth_exc, .oth_tval, .oth_fflags,
     .fp_cmp, .fp_cmp_rob, .fp_cmp_fflags, .cm_fflags, .cm_tid,
     .br_valid, .br_rob, .br_misp, .br_npc, .br_exc, .br_tval,
@@ -845,7 +850,8 @@ module tg_core
 
   logic unused;
   assign unused = ^{debug_req_i, rob_tail_t,
-                    st_dropped, satp_asid};       // the TLBs flush on satp changes: no ASID tags
+                    st_dropped, satp_asid,        // the TLBs flush on satp changes: no ASID tags
+                    iq_bank_nfree};                // (step 7: rename reads the caps' other flags)
   // Board debug (DBG_WORD): the status word, the allocation logs and the select, a register
   if (DBG_WORD) begin : g_dbg
     logic [31:0] dbg_q;

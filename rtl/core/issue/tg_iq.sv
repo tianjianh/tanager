@@ -66,8 +66,13 @@
 // load pipe for LQ replays); a row granted in the cycle it is killed does not issue; valid_o
 // and alloc_oh_o let dispatch name MX producers by row.
 //
-// SMT2: per-thread caps. room_q[t] is how many more rows thread t may allocate next cycle,
-// at most DW: the per-thread cap CAP (75% of ROWS in SMT2 builds, plan §6.5) minus its rows.
+// SMT2: per-thread caps (M7 step 7; rename applies them). For next cycle, registered off the
+// select loop: room_ge_q[t][n-1], thread t may allocate n more rows under its cap CAP (n up to
+// 2 DW: a group in DS and one at RN), all ones while cap_on is low, and constant ones with CAP >= ROWS
+// (no per-thread cap, step 7's form: the cap's logic compiles out); bank_nfree_q[k], bank k's free
+// rows (at most 3); occ_q[t], thread t's rows; with BANK_CAP, bank_left_q[t][k][j-1], thread t may
+// take j more rows of bank k and still leave one of its rows to the sibling ("never a whole bank"; a bank of one
+// row cannot be shared, so the rule leaves it alone: its flags stay ones).
 // Kill: flush_valid with flush_tid kills that thread's rows younger than flush_rob (index
 // plus wrap bit), or all its rows with flush_all.
 //
@@ -96,13 +101,15 @@ module tg_iq
   parameter int RA        = 1,      // MX: ALU-queue rows, all queues
   parameter bit PRE_RDY   = 1'b0,   // registered ID readiness (needs MX, STALE 0/2)
   parameter bit CBLK      = 1'b0,   // rows of a class whose select cls_block can mask (core)
+  parameter bit BANK_CAP  = 1'b0,   // bank_left_q ("never a whole bank"); else all ones
   parameter bit [1:0] CC  = 2'b00,  // carry chains (see above): [0] the readiness, [1] the select
   localparam int NHI      = (NCOL + 7) / 8,
-  localparam int RMW      = idx_w(DW + 1)
+  localparam int RMAX     = 2 * DW, // room_ge_q's depth
+  localparam int OCW      = idx_w(ROWS + 1)
 ) (
   input  logic                          clk,
   input  logic                          rst,
-  // Dispatch (port k writes a free row of bank k; it must check bank_free_q and room_q)
+  // Dispatch (port k writes a free row of bank k; it must check bank_free_q, and rename the caps)
   input  logic [DW-1:0]                 disp_valid,
   input  tid_t [DW-1:0]                 disp_tid,
   input  logic [DW-1:0][NCOL-1:0]       disp_dep,      // pending producers, one bit per ID
@@ -112,7 +119,12 @@ module tg_iq
   input  logic [DW-1:0][PAYLOAD_W-1:0]  disp_payload,
   output logic [DW-1:0]                 bank_free_q,
   output logic [DW-1:0]                 bank_free2_q,  // ... at least two rows of bank k are free
-  output logic [NUM_THREADS-1:0][RMW-1:0] room_q,
+  output logic [DW-1:0][1:0]            bank_nfree_q,  // ... bank k's free rows, at most 3
+  // Caps (SMT2, step 7)
+  input  logic                          cap_on,        // the per-thread caps apply
+  output logic [NUM_THREADS-1:0][RMAX-1:0] room_ge_q,  // [t][n-1]: thread t may take n more rows
+  output logic [NUM_THREADS-1:0][OCW-1:0]  occ_q,      // thread t's rows
+  output logic [NUM_THREADS-1:0][DW-1:0][1:0] bank_left_q,  // BANK_CAP: [t][k][j-1], see above
   // Wakeup state
   input  logic [NCOL-1:0]               w,             // woken vector (phase 0 if STALE = 1)
   input  logic [NCOL-1:0]               w_next,        // its next state (PRE_RDY)
@@ -529,12 +541,14 @@ module tg_iq
   // ---- Allocation for the next cycle, caps (off the select loop) ----
   always_ff @(posedge clk) begin
     for (int k = 0; k < DW; k++) begin
-      logic found, found2;
+      logic found, found2, found3;
       found  = 1'b0;
       found2 = 1'b0;
+      found3 = 1'b0;
       alloc_oh_q[k] <= '0;
       for (int r = 0; r < ROWS; r++) begin
         if (bank_of(r) == k && !valid_d[r]) begin
+          if (found2) found3 = 1'b1;
           if (found) found2 = 1'b1;
           if (!found) alloc_oh_q[k][r] <= 1'b1;
           found = 1'b1;
@@ -542,6 +556,7 @@ module tg_iq
       end
       bank_free_q[k]  <= found && !rst;
       bank_free2_q[k] <= found2 && !rst;
+      bank_nfree_q[k] <= rst ? 2'd0 : found3 ? 2'd3 : found2 ? 2'd2 : {1'b0, found};
     end
   end
 
@@ -551,11 +566,26 @@ module tg_iq
       cnt = 0;
       for (int r = 0; r < ROWS; r++) cnt += int'(valid_d[r] && tid_d[r] == tid_t'(t));
     end
-    always_ff @(posedge clk) begin
-      if (rst)                  room_q[t] <= RMW'(DW);
-      else if (cnt >= CAP)      room_q[t] <= '0;
-      else if (CAP - cnt >= DW) room_q[t] <= RMW'(DW);
-      else                      room_q[t] <= RMW'(CAP - cnt);
+    always_ff @(posedge clk) occ_q[t] <= rst ? '0 : OCW'(cnt);
+    if (CAP >= ROWS) begin : g_nocap
+      assign room_ge_q[t] = '1;
+    end else begin : g_cap
+      always_ff @(posedge clk)
+        for (int n = 1; n <= RMAX; n++) room_ge_q[t][n-1] <= rst || !cap_on || cnt + n <= CAP;
+    end
+    if (BANK_CAP) begin : g_bcap
+      for (genvar k = 0; k < DW; k++) begin : g_k
+        localparam int BR = (ROWS - k + DW - 1) / DW;   // bank k's rows
+        int cntb;
+        always_comb begin
+          cntb = 0;
+          for (int r = 0; r < ROWS; r++) cntb += int'(bank_of(r) == k && valid_d[r] && tid_d[r] == tid_t'(t));
+        end
+        always_ff @(posedge clk)
+          for (int j = 1; j <= 2; j++) bank_left_q[t][k][j-1] <= rst || !cap_on || BR < 2 || cntb + j <= BR - 1;
+      end
+    end else begin : g_nobcap
+      assign bank_left_q[t] = '1;
     end
   end
 
@@ -564,7 +594,8 @@ module tg_iq
   assign unused = ^{(STALE == 1) ? '0 : {disp_dep_ph, w1}, (STALE != 1) ? '0 : col_clr,
                     WAKE_NOW ? '0 : disp_wake_oh, (STALE == 1) ? '0 : dep1_q,
                     MX ? '0 : {disp_mdep, mx_issued, mx_free}, mdep_q,
-                    PRE_RDY ? '0 : w_next, rdyw_q, CBLK ? '0 : {disp_cblk, cls_block, cblk_q}};
+                    PRE_RDY ? '0 : w_next, rdyw_q, CBLK ? '0 : {disp_cblk, cls_block, cblk_q},
+                    (CAP < ROWS || BANK_CAP) ? 1'b0 : cap_on};
 
 `ifndef SYNTHESIS
   // A port writes only when its bank has a free row.

@@ -1,0 +1,74 @@
+== memgap.pre-c
+000000000000171e <t_rdtime>:
+    171e:	mv	a3,a0
+    1720:	beqz	a0,1734 <t_rdtime+0x16>
+    1722:	li	a5,0
+    1724:	li	a0,0
+    1726:	rdtime	a4
+    172a:	addi	a5,a5,1
+    172c:	add	a0,a0,a4
+    172e:	bne	a3,a5,1726 <t_rdtime+0x8>
+    1732:	ret
+    1734:	li	a0,0
+    1736:	ret
+
+0000000000001738 <t_write>:
+    1738:	auipc	a4,0x5
+    173c:	addi	a4,a4,-1848 # 6000 <wbuf>
+    1740:	ld	a5,8(a4)
+    1742:	ld	a2,0(a4)
+    1744:	li	a4,0
+    1746:	slli	a1,a5,0x3
+    174a:	add	a3,a2,a1
+    174e:	beqz	a0,1758 <t_write+0x20>
+    1750:	bnez	a5,1766 <t_write+0x2e>
+    1752:	addi	a4,a4,1
+    1754:	bne	a0,a4,1752 <t_write+0x1a>
+    1758:	add	a2,a2,a1
+    175a:	ld	a0,-8(a2)
+    175e:	ret
+    1760:	addi	a4,a4,1
+    1762:	beq	a0,a4,1758 <t_write+0x20>
+    1766:	mv	a5,a2
+    1768:	sd	a4,0(a5)
+    176a:	addi	a5,a5,8
+    176c:	bne	a5,a3,1768 <t_write+0x30>
+    1770:	j	1760 <t_write+0x28>
+
+== memgap
+0000000000001732 <t_rdtime>:
+    1732:	mv	a3,a0
+    1734:	beqz	a0,1748 <t_rdtime+0x16>
+    1736:	li	a5,0
+    1738:	li	a0,0
+    173a:	rdtime	a4
+    173e:	addi	a5,a5,1
+    1740:	add	a0,a0,a4
+    1742:	bne	a3,a5,173a <t_rdtime+0x8>
+    1746:	ret
+    1748:	li	a0,0
+    174a:	ret
+
+000000000000174c <t_write>:
+    174c:	auipc	a4,0x5
+    1750:	addi	a4,a4,-1868 # 6000 <wbuf>
+    1754:	ld	a5,8(a4)
+    1756:	ld	a2,0(a4)
+    1758:	li	a4,0
+    175a:	slli	a1,a5,0x3
+    175e:	add	a3,a2,a1
+    1762:	beqz	a0,176c <t_write+0x20>
+    1764:	bnez	a5,177a <t_write+0x2e>
+    1766:	addi	a4,a4,1
+    1768:	bne	a0,a4,1766 <t_write+0x1a>
+    176c:	add	a2,a2,a1
+    176e:	ld	a0,-8(a2)
+    1772:	ret
+    1774:	addi	a4,a4,1
+    1776:	beq	a0,a4,176c <t_write+0x20>
+    177a:	mv	a5,a2
+    177c:	sd	a4,0(a5)
+    177e:	addi	a5,a5,8
+    1780:	bne	a5,a3,177c <t_write+0x30>
+    1784:	j	1774 <t_write+0x28>
+

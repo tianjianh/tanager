@@ -1,0 +1,8 @@
+memgap on cpu0: clock 1248.4  rdtime 271.6  wr1k 275.4  chase16k 42.2  ev1 8246.6  
+memgap on cpu1: clock 1246.2  rdtime 271.0  wr1k 275.3  chase16k 42.3  ev1 6820.7  
+memgap on cpu2: clock 1240.0  rdtime 269.8  wr1k 276.2  chase16k 38.9  ev1 6813.4  
+memgap on cpu3: clock 1237.2  rdtime 269.9  wr1k 276.1  chase16k 38.9  ev1 6792.0  
+memgap.pre-c on cpu0: clock 1239.8  rdtime 257.7  wr1k 365.8  chase16k 39.1  ev1 6818.5  
+memgap.pre-c on cpu1: clock 1242.8  rdtime 258.1  wr1k 365.2  chase16k 38.9  ev1 7183.3  
+memgap.pre-c on cpu2: clock 1239.0  rdtime 258.2  wr1k 365.6  chase16k 40.0  ev1 6812.6  
+memgap.pre-c on cpu3: clock 1238.2  rdtime 257.7  wr1k 366.2  chase16k 38.8  ev1 6807.3  

@@ -1,0 +1,36 @@
+7f4c6b7a3761e804
+tar: u100-riscv/install.sh: time stamp 2026-10-23 06:28:10 is 206735.072085012 s in the future
+tar: u100-riscv/debian_install.sh: time stamp 2026-10-23 06:28:10 is 206735.071851889 s in the future
+tar: u100-riscv/memgap.c: time stamp 2026-10-23 06:28:10 is 206735.071617017 s in the future
+tar: u100-riscv/ps-memregs: time stamp 2026-10-23 06:28:10 is 206735.071387705 s in the future
+tar: u100-riscv/SHA256SUMS: time stamp 2026-10-23 06:28:10 is 206735.071239923 s in the future
+tar: u100-riscv/ubootenv.d-tanager-mode: time stamp 2026-10-23 06:28:10 is 206735.071082742 s in the future
+tar: u100-riscv/tanager/fw_jump.bin: time stamp 2026-10-23 06:28:10 is 206735.064865939 s in the future
+tar: u100-riscv/tanager/riscv.scr: time stamp 2026-10-23 06:28:10 is 206735.064516296 s in the future
+tar: u100-riscv/tanager/tanager.dtb: time stamp 2026-10-23 06:28:10 is 206735.064299314 s in the future
+tar: u100-riscv/tanager/tanager-h01.dtb: time stamp 2026-10-23 06:28:10 is 206735.064137482 s in the future
+tar: u100-riscv/tanager/riscv.cmd: time stamp 2026-10-23 06:28:10 is 206735.06396574 s in the future
+tar: u100-riscv/tanager/tanager.bit.bin: time stamp 2026-10-23 06:28:10 is 206734.817395644 s in the future
+tar: u100-riscv/tanager/payload.bin: time stamp 2026-10-23 06:28:10 is 206734.7819815 s in the future
+tar: u100-riscv/tanager: time stamp 2026-10-23 06:28:10 is 206734.781773348 s in the future
+tar: u100-riscv/tanager-mode-confirm.service: time stamp 2026-10-23 06:28:10 is 206734.781500455 s in the future
+tar: u100-riscv/H1-README.txt: time stamp 2026-10-23 06:28:10 is 206734.781317214 s in the future
+tar: u100-riscv/README.md: time stamp 2026-10-23 06:28:10 is 206734.781088711 s in the future
+tar: u100-riscv/tanager-mode: time stamp 2026-10-23 06:28:10 is 206734.78094997 s in the future
+tar: u100-riscv: time stamp 2026-10-23 06:28:10 is 206734.780814239 s in the future
+package dir /home/ubuntu/tanager/u100-riscv-pkg/u100-riscv/
+16
+tanager-mode vs installed: same
+ubootenv.d-tanager-mode vs installed: same
+riscv.scr script vs p1: same
+== fh_p1 backup 2026-10-20 21:02:35 UTC, A53 up 132.21 s
+backup: 8 files, 9.0M
+b0094d235a36f8bd fw_jump.bin
+459992b884a8a3e0 payload.bin
+8aa45e615548e570 riscv.cmd
+200bb40ca1fe71ad riscv.scr
+15cd197cd1338300 tanager-h01.dtb
+71c82c6b11a45df2 tanager.bit.bin
+18afd230a9f577f1 tanager.dtb
+45ba89a91ea1b278 tanager.dtb.pre-pmpfix
+/dev/mmcblk1p1 1009M  282M  727M  28% /boot/firmware

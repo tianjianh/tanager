@@ -17,7 +17,8 @@ module tb_iqcc;
   parameter int STALE = 0;
   parameter int CCV   = 3;            // the second queue's CC: 1 the readiness, 2 the select, 3 both
   localparam int CAP  = ROWS / 2;
-  localparam int RMW  = idx_w(DW + 1);
+  localparam int RMAX = 2 * DW;
+  localparam int OCW  = idx_w(ROWS + 1);
   localparam int NT   = 2;
   localparam int PW   = 12;
   localparam int ROBW = 8;
@@ -34,7 +35,7 @@ module tb_iqcc;
   logic [DW-1:0][PW-1:0]    disp_payload;
   logic [DW-1:0][RA-1:0]    disp_mdep;
   logic [DW-1:0]            disp_cblk;
-  logic                     cancel, sel_block, cls_block, flush_valid, flush_all;
+  logic                     cap_on, cancel, sel_block, cls_block, flush_valid, flush_all;
   logic [NCOL-1:0]          w, col_clr;
   logic [RA-1:0]            mx_issued, mx_free;
   tid_t                     flush_tid;
@@ -43,7 +44,10 @@ module tb_iqcc;
   // ---- Outputs, one set per queue ----
   typedef struct packed {
     logic [DW-1:0]               bank_free_q, bank_free2_q;
-    logic [NT-1:0][RMW-1:0]      room_q;
+    logic [DW-1:0][1:0]          bank_nfree_q;
+    logic [NT-1:0][RMAX-1:0]     room_ge_q;
+    logic [NT-1:0][OCW-1:0]      occ_q;
+    logic [NT-1:0][DW-1:0][1:0]  bank_left_q;
     logic [NCOL-1:0]             wake_now, busy;
     logic [ROWS-1:0]             issued_o, free_o, valid_o;
     logic [DW-1:0][ROWS-1:0]     alloc_oh_o;
@@ -56,9 +60,10 @@ module tb_iqcc;
     out_t o;
     tg_iq #(.ROWS(ROWS), .DW(DW), .NCOL(NCOL), .PAYLOAD_W(PW), .CAP(CAP), .STALE(STALE), .WAKE_NOW(1'b0),
             .WAKE_ENC(1), .ROBW(ROBW), .DUP_SEL(1'b1), .EARLY_W(PW), .MX(MX), .RA(RA), .PRE_RDY(1'b0),
-            .CBLK(CBLK), .CC((v == 1) ? 2'(CCV) : 2'b00)) u_iq (
+            .CBLK(CBLK), .BANK_CAP(1'b1), .CC((v == 1) ? 2'(CCV) : 2'b00)) u_iq (
       .clk, .rst, .disp_valid, .disp_tid, .disp_dep, .disp_dep_ph('0), .disp_wake_oh('0), .disp_rob,
-      .disp_payload, .bank_free_q(o.bank_free_q), .bank_free2_q(o.bank_free2_q), .room_q(o.room_q),
+      .disp_payload, .bank_free_q(o.bank_free_q), .bank_free2_q(o.bank_free2_q), .bank_nfree_q(o.bank_nfree_q),
+      .cap_on, .room_ge_q(o.room_ge_q), .occ_q(o.occ_q), .bank_left_q(o.bank_left_q),
       .w, .w_next('0), .w1('0), .col_clr, .cancel, .sel_block, .disp_cblk, .cls_block,
       .wake_now(o.wake_now), .busy(o.busy), .disp_mdep, .mx_issued, .mx_free, .issued_o(o.issued_o),
       .free_o(o.free_o), .valid_o(o.valid_o), .alloc_oh_o(o.alloc_oh_o), .flush_valid, .flush_tid, .flush_all,
@@ -95,6 +100,7 @@ module tb_iqcc;
     col_clr    = (STALE == 2) ? sparse_col(5) : '0;
     mx_issued  = sparse_ra(phase == 1 ? 40 : 70);
     mx_free    = sparse_ra(5);
+    cap_on     = ($urandom % 100) < 70;
     cancel     = ($urandom % 100) < 4;
     sel_block  = ($urandom % 100) < (phase == 2 ? 40 : 8);
     cls_block  = CBLK && ($urandom % 100) < (phase == 2 ? 50 : 15);
@@ -109,7 +115,7 @@ module tb_iqcc;
     void'($value$plusargs("n=%d", n));
     void'($urandom(seed));
     disp_valid = '0; disp_tid = '0; disp_dep = '0; disp_rob = '0; disp_payload = '0; disp_mdep = '0;
-    disp_cblk = '0; cancel = 1'b0; sel_block = 1'b0; cls_block = 1'b0; flush_valid = 1'b0;
+    disp_cblk = '0; cap_on = 1'b0; cancel = 1'b0; sel_block = 1'b0; cls_block = 1'b0; flush_valid = 1'b0;
     flush_all = 1'b0; w = '0; col_clr = '0; mx_issued = '0; mx_free = '0; flush_tid = '0; flush_rob = '0;
     repeat (3) @(posedge clk);
     rst = 1'b0;

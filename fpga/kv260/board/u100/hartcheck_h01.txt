@@ -1,0 +1,38 @@
+HARTCHECK-BEGIN u100-h01 2026-10-22T22:16:57Z up 193.69
+6.12.113+deb13-riscv64
+root=LABEL=tanager-root console=ttyS0,115200 earlycon rw
+online CPUs: 0-1 (nproc 2)
+cpu0 = hart 1, siblings 0-1
+cpu1 = hart 0, siblings 0-1
+[   20.803656] Run /init as init process
+Startup finished in 1min 2.120s (kernel) + 1min 44.103s (userspace) = 2min 46.224s 
+== kernel messages
+dmesg PASS no trouble lines
+[    0.000000] SBI specification v3.0 detected
+[    0.000000] SBI implementation ID=0x1 Version=0x10009
+[    0.000000] SBI TIME extension detected
+[    0.000000] SBI IPI extension detected
+[    0.000000] SBI RFENCE extension detected
+[    0.000000] SBI SRST extension detected
+[    0.000000] SBI DBCN extension detected
+[    0.000000] SBI HSM extension detected
+[    0.000000] riscv: providing IPIs using SBI IPI extension
+[    0.000000] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645041785100000 ns
+[    0.000000] clocksource: riscv_clocksource: mask: 0xffffffffffffffff max_cycles: 0x24e6a1710, max_idle_ns: 440795202120 ns
+[    0.272216] smp: Bringing up secondary CPUs ...
+== each hart alone
+coremark-a cpu0 (hart 1) PASS 449.824425 iterations/s
+t cpu0 (hart 1) PASS 2.94 s
+coremark-a cpu1 (hart 0) PASS 453.867370 iterations/s
+t cpu1 (hart 0) PASS 2.94 s
+== pairs of harts
+mt cpu0+cpu1 PASS
+pingpong cpu0+cpu1: 1219.3 ns/round-trip
+== all harts at once
+proj, 2 at a time PASS 17.83 s
+sysbench cpu, 2 threads:     events per second:    61.47
+sysbench threads, 2 threads:     total number of events:              447
+dmesg after the checks PASS no new lines
+HARTCHECK-END u100-h01 fails=0 2026-10-22T22:18:43Z up 299.77
+/dev/mmcblk0 sector 2047: arm
+reboot to ARM queued
