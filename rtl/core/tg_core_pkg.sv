@@ -321,6 +321,10 @@ package tg_core_pkg;
   // FP physical registers {bank, index}: F0 takes P4 results, F1 FP loads. FP tags travel in
   // preg_t-wide fields next to a flag that says which file they name.
   localparam int FPIDX_W = idx_w(FP_PREGS_PER_BANK);
+  // DR-179's crossing, named once: with hart 1 an FP destination whose own bank has no register left for its thread
+  // renames into the other bank (tg_rename's FXB), with the LSU's held FP load and P4's write-port hole it needs. Banks
+  // of 96 (TG_FP_BANK96) hold both harts' 32 and their spares, so none of it is built
+  localparam bit FP_XBANK = EXT_FD && HART1_ON && FP_PREGS_PER_BANK < 96;
   localparam int FPB_F0  = 0;
   localparam int FPB_F1  = 1;
 
@@ -769,6 +773,13 @@ package tg_core_pkg;
 
   // ---- Scheduler options (spikes.md §4.2) ----
   localparam bit IQ_DUP_SEL = 1'b1;               // a second select copy drives the wakeup
+  // The area pass's lever 2 (tg_iq's CC): the readiness ANDs on CARRY8 chains (bit 0, on), the select's (bit 1, off);
+  // TG_IQ_CC=0 gives the LUT form back (docs/spec/area_switches.md)
+`ifdef TG_IQ_CC
+  localparam bit [1:0] IQ_CC = 2'(`TG_IQ_CC);
+`else
+  localparam bit [1:0] IQ_CC = 2'b01;
+`endif
   localparam int IQ_EARLY_W = 3 * $bits(preg_t);  // only the source tags in flip-flops
   localparam bit IQ_MX      = 1'b1;               // matrix wakeup: in every configuration (S6)
   // ALU-queue rows, numbered across the queues (MX names producers by these rows)

@@ -546,7 +546,7 @@ module tg_fp_exec
       fmisc_block_q <= 1'b0;
       fpb_q         <= '0;
     end else begin
-      fpb_q     <= {fpb_q[4:0], fp_block};
+      fpb_q     <= {fpb_q[4:0], FP_XBANK && fp_block};   // (no hole without DR-179's crossing)
       ex_v_q    <= iss_valid;
       ex_live_q <= iss_valid && rf_live;
       fmisc_block_q <= (ex_v_q && ex_unit == FU_FMA) || fpb_q[1];
