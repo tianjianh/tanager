@@ -436,24 +436,53 @@ module tg_decode_stage
     assign iq_take_n = '0;
   end
 
-  // The last instruction taken redirects: flush the front end next cycle
+  // The last instruction taken redirects: flush the front end next cycle. Only the flag waits for rename's take
+  // (de_take); the redirect's operands load from decode's own count, the group's last instruction's, since fetch
+  // reads them only while the flag is set (its redirect, its history's and stack's repairs, the FTQ's tail). Timing:
+  // the take had been the enable of every operand flip-flop (spikes 8.18's near-final chip, placement 2: dred_rlink,
+  // dred_ftq and dred_pc from the issue queues' dep_q through rename's allocation, -0.53 ns)
   always_ff @(posedge clk) begin
     if (rst || flush) begin
       dred <= 1'b0;
     end else begin
       dred <= 1'b0;
-      for (int j = 0; j < W; j++) begin
-        if (de_take && n == TKW'(j + 1) && redir[j]) begin
-          dred      <= 1'b1;
-          dred_tid  <= xq[j].tid;
-          dred_pc   <= npc[j];
-          dred_ftq  <= xq[j].ftq;
-          dred_slot <= xq[j].pc[SLOT_W:1] + SLOT_W'(!xq[j].rvc);
-          // (RAS_FE: a call or return fetch could not see, as one that straddles into its block)
-          dred_rop   <= RAS_FE ? rop_e[j] : 2'b00;
-          dred_rlink <= xseq[j][38:1];
-        end
-      end
+      for (int j = 0; j < W; j++)
+        if (de_take && n == TKW'(j + 1) && redir[j]) dred <= 1'b1;
     end
   end
+  always_ff @(posedge clk)
+    for (int j = 0; j < W; j++)
+      if (n == TKW'(j + 1)) begin
+        dred_tid  <= xq[j].tid;
+        dred_pc   <= npc[j];
+        dred_ftq  <= xq[j].ftq;
+        dred_slot <= xq[j].pc[SLOT_W:1] + SLOT_W'(!xq[j].rvc);
+        // (RAS_FE: a call or return fetch could not see, as one that straddles into its block)
+        dred_rop   <= RAS_FE ? rop_e[j] : 2'b00;
+        dred_rlink <= xseq[j][38:1];
+      end
+`ifndef SYNTHESIS
+  // The operands' old form, loaded with the flag under the take, equal to them whenever the flag is set
+  tid_t              o_tid;
+  logic [63:0]       o_pc;
+  logic [FTQW-1:0]   o_ftq;
+  logic [SLOT_W-1:0] o_slot;
+  logic [1:0]        o_rop;
+  logic [38:1]       o_rlink;
+  always_ff @(posedge clk)
+    if (!(rst || flush))
+      for (int j = 0; j < W; j++)
+        if (de_take && n == TKW'(j + 1) && redir[j]) begin
+          o_tid   <= xq[j].tid;
+          o_pc    <= npc[j];
+          o_ftq   <= xq[j].ftq;
+          o_slot  <= xq[j].pc[SLOT_W:1] + SLOT_W'(!xq[j].rvc);
+          o_rop   <= RAS_FE ? rop_e[j] : 2'b00;
+          o_rlink <= xseq[j][38:1];
+        end
+  always_ff @(posedge clk)
+    if (rs_seen_q && !rst && dred)
+      assert ({dred_tid, dred_pc, dred_ftq, dred_slot, dred_rop, dred_rlink} == {o_tid, o_pc, o_ftq, o_slot, o_rop, o_rlink})
+        else $error("tg_decode_stage: decode's redirect operands are not their old form's");
+`endif
 endmodule
