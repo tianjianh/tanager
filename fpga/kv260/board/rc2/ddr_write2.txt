@@ -1,0 +1,14 @@
+DDRW2-BEGIN 2026-10-23T07:12:12Z online=0-3
+== 1. memgap's single-thread rows on each CPU
+cpu0: clock=989.9 rdtime=215.4 wr1k=345.9 wr1m=177.7 wr16m=155.4 rd16m=162.5 chase16k=31.1 chase256k=426.7 chase64m=595.3 ev1=5437.0 
+cpu1: clock=988.5 rdtime=215.0 wr1k=346.9 wr1m=180.5 wr16m=156.0 rd16m=163.1 chase16k=31.1 chase256k=411.0 chase64m=596.6 ev1=5422.0 
+cpu2: clock=1059.2 rdtime=214.9 wr1k=347.2 wr1m=180.3 wr16m=156.2 rd16m=163.0 chase16k=31.0 chase256k=411.2 chase64m=593.4 ev1=5409.4 
+cpu3: clock=986.1 rdtime=214.9 wr1k=347.0 wr1m=178.2 wr16m=155.9 rd16m=163.2 chase16k=31.0 chase256k=422.8 chase64m=593.7 ev1=5414.3 
+== 2a. DDR writes, 16 MiB per thread (sysbench memory: 16 MiB blocks, writes, local scope, 10 s)
+one thread (CPUs 0): 1616.00 MiB transferred (159.57 MiB/sec)
+two threads on two cores (CPUs 0,2): 3360.00 MiB transferred (331.11 MiB/sec)
+two threads on one core (CPUs 0,1): 1824.00 MiB transferred (178.38 MiB/sec)
+== 2b. memgap's wr16m: one process alone, then two at once on CPUs 0 and 2
+alone on cpu0: wr16m 155.9 MiB/s
+two at once: cpu0 wr16m 155.9, cpu2 wr16m 157.2 MiB/s, together 313.1 MiB/s
+DDRW2-END 2026-10-23T07:15:29Z

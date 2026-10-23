@@ -1,0 +1,19 @@
+HSM-BEGIN rounds=3 online=0-3 06:28:32
+round 1: CPUs 1-3 off -> online 0; back on -> online 0-3
+round 2: CPUs 1-3 off -> online 0; back on -> online 0-3
+round 3: CPUs 1-3 off -> online 0; back on -> online 0-3
+t on cpu0 after the rounds: PASS
+t on cpu1 after the rounds: PASS
+t on cpu2 after the rounds: PASS
+t on cpu3 after the rounds: PASS
+== the kernel's lines during the rounds:
+[  368.760382] CPU1: off
+[  368.820549] CPU2: off
+[  368.863421] CPU3: off
+[  369.229092] CPU1: off
+[  369.276814] CPU2: off
+[  369.314699] CPU3: off
+[  369.609634] CPU1: off
+[  369.647796] CPU2: off
+[  369.682677] CPU3: off
+HSM-END fails=0 trouble-lines=0 known=0 online=0-3 06:28:45
