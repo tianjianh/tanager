@@ -198,6 +198,7 @@ module tg_rename
   // the RN registers, not on decode's path into them.
   localparam int NRN = CMT ? NT : 1;
   logic [NRN-1:0][W-1:0] rn_v_q;
+  logic [NRN-1:0][W-1:0][N_IQ-1:0] rn_need_q;   // (step 7) each RN slot's queues by class (cls_qmask), with rn_u_q
   uop_t [NRN-1:0][W-1:0] rn_u_q;
   logic                  sel_q;            // (CMT) the RN register rename works on this cycle: its thread
   logic [W-1:0]          rn_valid_q;
@@ -259,6 +260,22 @@ module tg_rename
     p.exc_cause = u.d.exc_cause; p.exc_hi = u.d.exc_hi; p.fop = u.d.fop; p.fmt = u.d.fmt; p.src_fmt = u.d.src_fmt;
     p.ifmt = u.d.ifmt; p.rm = u.d.rm;
     return p;
+  endfunction
+  // (step 7) the queues a uop of a class needs a row in, as the bank rule's sibling need counts them: an ALU uop in
+  // every ALU queue
+  function automatic logic [N_IQ-1:0] cls_qmask(input uclass_e c);
+    logic [N_IQ-1:0] m;
+    m = '0;
+    unique case (c)
+      C_BR:                m[0] = 1'b1;
+      C_MUL, C_DIV, C_CSR: m[1] = 1'b1;
+      C_LD:                m[Q_LD] = 1'b1;
+      C_ST:                m[Q_STA] = 1'b1;
+      C_ALU:               for (int p = 0; p < N_ALU; p++) m[p] = 1'b1;
+      C_FP:                m[EXT_FD ? Q_FP : 0] = 1'b1;
+      default: ;
+    endcase
+    return m;
   endfunction
   function automatic uop_t ren_of(input uop_t u);     // the fields rename reads; the payload's zero
     uop_t r;
@@ -637,16 +654,10 @@ module tg_rename
         for (int k = 0; k < W; k++) begin
           if (IQ_BANK_RULE == 2)
             for (int q = 0; q < N_IQ; q++) sib_need[t][q][k] = 1'b1;
-          else if (rn_v_q[CMT ? (t + 1) % NT : 0][k] && !block_q[(t + 1) % NT] && rwo_q[(t + 1) % NT])
-            unique case (rn_u_q[CMT ? (t + 1) % NT : 0][k].d.cls)
-              C_BR:                sib_need[t][0][k] = 1'b1;
-              C_MUL, C_DIV, C_CSR: sib_need[t][1][k] = 1'b1;
-              C_LD:                sib_need[t][Q_LD][k] = 1'b1;
-              C_ST:                sib_need[t][Q_STA][k] = 1'b1;
-              C_ALU:               for (int p = 0; p < N_ALU; p++) sib_need[t][p][k] = 1'b1;
-              C_FP:                sib_need[t][EXT_FD ? Q_FP : 0][k] = 1'b1;
-              default: ;
-            endcase
+          else   // (the class's queues registered beside the group, rn_need_q: one LUT from flip-flops)
+            for (int q = 0; q < N_IQ; q++)
+              sib_need[t][q][k] = rn_v_q[CMT ? (t + 1) % NT : 0][k] && !block_q[(t + 1) % NT] && rwo_q[(t + 1) % NT] &&
+                                  rn_need_q[CMT ? (t + 1) % NT : 0][k][q];
         end
     for (int t = 0; t < NT; t++)
       for (int q = 0; q < N_IQ; q++) begin
@@ -1206,6 +1217,14 @@ module tg_rename
         end
     end
   end
+  // RN's need masks are their slots' class masks (both load as decode hands a group over), for a valid slot
+  always_ff @(posedge clk)
+    if (qoh_rs_q && !rst)
+      for (int t = 0; t < NRN; t++)
+        for (int k = 0; k < W; k++)
+          if (rn_v_q[t][k])
+            assert (rn_need_q[t][k] == cls_qmask(rn_u_q[t][k].d.cls))
+              else $error("tg_rename: RN register %0d slot %0d's need mask differs from its class", t, k);
   // DS's queue one-hot is ds_ren_q's has_q and q (both load while DS is free), for a valid slot, from the first reset
   logic qoh_rs_q;
   initial qoh_rs_q = 1'b0;
@@ -1617,6 +1636,7 @@ module tg_rename
         if (de_take && !(CMT && block_q[t_de])) begin
           rn_v_q[CMT ? t_de[0] : 1'b0] <= de_valid;
           for (int k = 0; k < W; k++) rn_u_q[CMT ? t_de[0] : 1'b0][k] <= ren_of(de_uop[k]);
+          for (int k = 0; k < W; k++) rn_need_q[CMT ? t_de[0] : 1'b0][k] <= cls_qmask(de_uop[k].d.cls);
           rn_s_q[CMT ? t_de[0] : 1'b0] <= pay_s;     // the row this cycle's write fills
 `ifndef SYNTHESIS
           rn_sh_q[CMT ? t_de[0] : 1'b0] <= de_uop;
