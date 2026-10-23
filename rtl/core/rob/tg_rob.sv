@@ -62,10 +62,12 @@ module tg_rob
   input  logic [3:0][3:0]              lx_cause,
   input  logic                         spx_valid,    // a store's PMP denial, after it completed: exception only
   input  robid_t                       spx_rob,
-  input  logic [2:0]                   cmh_v,        // commit stops at these entries: the LSU's held stores
-  input  robid_t [2:0]                 cmh_rob,      // (a PMP denial may come), a load whose replay mark is late
+  input  logic [3:0]                   cmh_v,        // commit stops at these entries: the LSU's held stores
+  input  robid_t [3:0]                 cmh_rob,      // (a PMP denial may come), a load whose replay mark is late
   input  logic                         replay_valid,
   input  robid_t                       replay_rob,
+  input  logic                         snp_valid,     // CoRR (architecture_plan §4.9): a load the LSU's snoop marking
+  input  robid_t                       snp_rob,       // found holding a value another hart may have overwritten: replay
   input  logic [1:0]                   tlbm_valid,   // DTLB misses (LD and STA ports): replay
   input  robid_t [1:0]                 tlbm_rob,
   input  logic                         hd_tlb,       // the head is a load or store that missed the DTLB
@@ -463,17 +465,22 @@ module tg_rob
   // of the tables: a writer stores its value XOR the other tables at its entry, read in the same
   // cycle. Two writers at one entry in a cycle would cancel; none do (asserted): a setter's entry
   // is live, so never one being dispatched; a TLB miss is a new access at AG, never a load the
-  // ordering search finds (it has a value); the LD and STA ports carry different instructions.
-  localparam int NRW = DISPATCH_WIDTH + 3;       // dispatch slots, then replay, TLB miss LD, STA
+  // ordering search finds (it has a value); the LD and STA ports carry different instructions; CoRR's
+  // snoop report (a load still in the LQ) yields to any other setter of its entry, which sets it anyway.
+  localparam int NRW = DISPATCH_WIDTH + 4;       // dispatch slots, then replay, TLB miss LD, STA, CoRR's snoop report
   localparam int NRR = NRW - 1 + CW;             // read ports: the other writers', then the head's
   logic [NRW-1:0]           rw_v;
+  logic                     snp_w;           // the snoop report's write: another setter of its entry this cycle sets it
+  assign snp_w = snp_valid && !(replay_valid && replay_rob[RIW-1:0] == snp_rob[RIW-1:0]) &&
+                 !(tlbm_valid[0] && tlbm_rob[0][RIW-1:0] == snp_rob[RIW-1:0]) &&
+                 !(tlbm_valid[1] && tlbm_rob[1][RIW-1:0] == snp_rob[RIW-1:0]);
   logic [NRW-1:0][RIW-1:0]  rw_a;
   logic [NRW-1:0]           rw_d;
   logic [NRW-1:0][NRR-1:0]  rw_rd;
   always_comb begin
-    rw_v[DISPATCH_WIDTH +: 3] = {tlbm_valid[1], tlbm_valid[0], replay_valid};
-    rw_a[DISPATCH_WIDTH +: 3] = {tlbm_rob[1][RIW-1:0], tlbm_rob[0][RIW-1:0], replay_rob[RIW-1:0]};
-    rw_d[DISPATCH_WIDTH +: 3] = '1;
+    rw_v[DISPATCH_WIDTH +: 4] = {snp_w, tlbm_valid[1], tlbm_valid[0], replay_valid};
+    rw_a[DISPATCH_WIDTH +: 4] = {snp_rob[RIW-1:0], tlbm_rob[1][RIW-1:0], tlbm_rob[0][RIW-1:0], replay_rob[RIW-1:0]};
+    rw_d[DISPATCH_WIDTH +: 4] = '1;
     for (int k = 0; k < DISPATCH_WIDTH; k++) begin
       rw_v[k] = ds_fire && ds_valid[k];
       rw_a[k] = ds_ren[k].rob[RIW-1:0];
@@ -569,7 +576,7 @@ module tg_rob
     logic any;
     any = 1'b0;
     for (int j = 0; j < CW; j++) begin
-      for (int h = 0; h < 3; h++) if (cmh_v[h] && cmh_rob[h] == hid[j]) any = 1'b1;
+      for (int h = 0; h < 4; h++) if (cmh_v[h] && cmh_rob[h] == hid[j]) any = 1'b1;
       hold_le[j] = any;
     end
   end
@@ -1048,6 +1055,7 @@ module tg_rob
         end
       end
       if (replay_valid && !rdrop(replay_rob, flush, t_fl)) rpl_s[replay_rob[RIW-1:0]] <= 1'b1;
+      if (snp_w && !rdrop(snp_rob, flush, t_fl)) rpl_s[snp_rob[RIW-1:0]] <= 1'b1;
       for (int i = 0; i < 2; i++)
         if (tlbm_valid[i] && !rdrop(tlbm_rob[i], flush, t_fl)) rpl_s[tlbm_rob[i][RIW-1:0]] <= 1'b1;
       for (int a = 0; a < NRW; a++)

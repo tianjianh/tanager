@@ -104,6 +104,10 @@ module tg_dcache
   output logic              e_valid_o,
   input  logic              e_ready_i,
   output logic [7:0]        dbg_o,        // board debug: {ready, the miss side, ps_q} (tg_core's dbg_o)
+  // CoRR (architecture_plan §4.9): a line leaves the cache this cycle, taken by a probe (toN) or evicted by a miss's
+  // allocation, so another agent may write it without probing us: the LSU marks the executed loads that read it
+  output logic              snp_v,
+  output logic [PA_W-1:6]   snp_line,
   input  logic              split_i       // M7's step 6: the window is split (else one thread runs: the store
                                           // reservation below is off, as before M7)
 );
@@ -704,6 +708,21 @@ module tg_dcache
   assign st_we = we_e || w_as || w_ac || w_s;
   assign st_wa = (w_as || w_s) ? sx_pa[6 +: SET_W] : w_ac ? c_pa[6 +: SET_W] : wa_e;
   assign st_wd = w_as ? wd_as : w_ac ? wd_ac : w_s ? wd_s : wd_e;
+  // CoRR's events, where the state write takes a line away: a probe's update to N, or an allocation's valid victim
+  // (released: its state cleared here). One state write a cycle, so one event (asserted below)
+  assign snp_v    = ready && ((ps_q == P_UPD && p_hit_q && !p_nv_q) || (w_as && ss.v[victim_s]) ||
+                              (w_ac && sc.v[victim_c]));
+  assign snp_line = w_as ? {evt_s, sx_pa[6 +: SET_W]} : w_ac ? {evt_c, c_pa[6 +: SET_W]} : p_pa_q[PA_W-1:6];
+`ifndef SYNTHESIS
+  always_ff @(posedge clk)
+    if (!rst && ready) begin
+      assert ($onehot0({ps_q == P_UPD && p_hit_q, m_inst && !(ps_q == P_UPD && p_hit_q), w_as, w_ac, w_s}))
+        else $error("tg_dcache: two state writes in a cycle");
+      // a valid victim is the replacement way, whose tag evt_s/evt_c reads (CoRR's evicted line)
+      if (w_as && ss.v[victim_s]) assert (victim_s == evw_s) else $error("tg_dcache: the store side's victim is not evw_s");
+      if (w_ac && sc.v[victim_c]) assert (victim_c == evw_c) else $error("tg_dcache: the controller's victim is not evw_c");
+    end
+`endif
 
   // ---- Sequential ----
   always_ff @(posedge clk) begin
