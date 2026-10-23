@@ -2,7 +2,8 @@
 # soak4.sh: the four-hart soak (the coordinator, 10-22): dr187b's four harts under load for hours, built only from the
 # scripts already in use. It runs on the RISC-V's Debian as root, started with
 #   sudo systemd-run --unit=soak4 --collect /bin/bash /home/tanager/soak4.sh
-# so it outlives the SSH session. Stop it with `sudo touch /home/tanager/soak4/stop`: it ends before its next step.
+# so it outlives the SSH session (--setenv=SOAK_DIR=DIR for another folder than ~/soak4). Stop it with
+# `sudo touch DIR/stop`: it ends before its next step.
 # Each round writes one line per step to ~/soak4/soak.log, each ending in PASS or FAIL:
 #   A. one pass of d4r2's stress (~/stress/stress.sh, fed "q" so that it stops after one pass), run as tanager and
 #      pinned to core 0 (CPUs 0 and 1), while the DR-141 set (tg-lbench.sh 1) runs pinned to core 1 (CPUs 2 and 3);
@@ -13,7 +14,7 @@
 # After each step the kernel's new lines are checked for trouble. A DR-141 set passes with TGLB-END status=0, no
 # TGLB-FAIL, no CoreMark CRC error, and each of its 4 CoreMark runs validated or only under CoreMark's 10 s rule (a
 # note, not a failure: beside the stress its sizing can pick too few iterations); a stress pass with ok=1.
-H=/home/tanager; S=$H/soak4; B=$H/baseline/bin
+H=/home/tanager; S=${SOAK_DIR:-$H/soak4}; B=$H/baseline/bin
 mkdir -p "$S" && cd "$S" || exit 1
 L=$S/soak.log
 BAD='Oops|BUG:|Kernel panic|rcu_.*stall|rcu: INFO|watchdog: BUG|soft lockup|hard LOCKUP|segfault|Unable to handle|blocked for more than'

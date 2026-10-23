@@ -1,0 +1,8 @@
+﻿
+===== COM5 scripted session opened 2026-10-23T00:45:01.9384598-07:00 =====
+q
+STRESS pass 10 ok=1 fails=0 114s cpu2=73.13 mem2=140.67 thr2=2283 up=1553.79 load=2.00 1.92 1.59
+STRESS stop after pass 10, fails=0
+[?2004htanager@tanager:~$ 
+[?2004l[?2004htanager@tanager:~$ 
+===== COM5 scripted session closed 2026-10-23T00:46:38.5658892-07:00, exit 0 =====
