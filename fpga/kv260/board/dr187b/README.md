@@ -110,4 +110,24 @@
 - **Linux's placement matters on four harts:** two threads land on one core or on two, which is why the stress's two-thread figures swing. Two-thread comparisons need pinning.
 - **OpenSBI boots on hart 1** on both trees (its lottery), so Linux's cpu0 is hart 1.
 
-**The board now:** RISC-V mode on dr187b with the four-hart tree, idle, with the fan's PL regulator on (`BOARD_CTRL` 3). The laptop's stamped loggers run on COM5 and COM7. To go back to the two-core 100 MHz image, in ARM mode: `bash ~/tanager/runs/fh_p1.sh back`.
+## The four-hart soak: 11 hours, 56 rounds, no failure (10-22 to 10-23)
+
+The coordinator asked for hours under load on all four harts, built from the scripts in use: [`../runs/soak4.sh`](../runs/soak4.sh), run on the board as a systemd-run unit, with the laptop's stamped loggers on COM5 and COM7 and a watch every 10 minutes ([`soak4.log`](soak4.log)).
+- **Each round:**
+  - A: one stress pass pinned to core 0 (CPUs 0 and 1), while the DR-141 set runs pinned to core 1 (CPUs 2 and 3);
+  - B: the same with the cores swapped;
+  - C: the same, both unpinned;
+  - D: `hart_check.sh` (every hart, every pair, all four);
+  - E: one round of hart stop and start.
+  - Every step's kernel lines are checked for trouble.
+- **The run:** from 19:15:30 UTC on 10-22 to 06:29 UTC on 10-23, 11 h 14 min, stopped at a round's end for the next bitstream:
+  - 56 rounds: 168 stress passes, 168 DR-141 sets, 56 `hart_check`s and 56 rounds of hart stop and start, all passing;
+  - 224 kernel checks clean, and no line on COM5 between the boots;
+  - 0 FAIL lines. The board stayed up for 12 h 18 min with all four CPUs online.
+- **CoreMark's 10 s rule:** 21 of the 168 DR-141 sets had a CoreMark run that finished in under 10 s, mostly in the unpinned step (16 of 56 rounds, against 3 and 2 in the pinned ones).
+  - CoreMark sizes its run from a short calibration. Beside the stress, the calibration can run slowly and pick too few iterations, for example 3,000 iterations in 8.9 s.
+  - The CRCs stayed right (seed `0xe9f5`, list `0xe714`, matrix `0x1fd7`, state `0x8e3a`), so this is CoreMark's timing rule, not a wrong result.
+  - The soak's first two starts counted it as a FAIL; the check was fixed and the soak restarted. A CRC error would still count as one.
+- **The memgap correction came mid-soak:** the soak was stopped at a step's end for it, and restarted with `hart_check.sh`'s memgap given each pair with `-c`.
+
+**The board now:** ARM mode, with dr187b's image kept on p1 in `tanager-dr187b-80/` for the four-hart 100 MHz preview's fallback, and the two-core 100 MHz image in `tanager-d4r2-100/`. To bring a kept image back, in ARM mode: `FH_BACKUP=<folder> bash ~/tanager/runs/fh_p1.sh back`.
