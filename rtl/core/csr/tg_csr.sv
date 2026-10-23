@@ -699,18 +699,21 @@ module tg_csr
   // retired, 3 .. 2 + HPM_EV tg_core's hpm_ev, 0 or any other nothing. Sscofpmf: the mode inhibits (MINH, SINH, UINH;
   // the hart's mode) and mcountinhibit stop a counter; a counter's top bit falling sets its OF, and OF rising sets the
   // hart's LCOFIP (mip/sip bit 13, cleared by software); scountovf shows the OF bits (to S only where mcounteren allows).
-  // A counter write loads it a cycle late, as mcycle's, and its discontinuity two cycles after the write is no overflow.
+  // A counter write loads it a cycle late, as mcycle's (tg_dsp_ctr): the replaced value's count in the cycle between, and
+  // any wrap of it, are dropped; the written value's own wrap (one written as -1 wraps at its next count) is an overflow.
   if (HPM) begin : g_hpm
     localparam int EW = 8;                        // mhpmevent's event field
     logic [NT-1:0][HPM_N-1:0][EW-1:0] ev_q;
-    logic [NT-1:0][HPM_N-1:0]         of_q, minh_q, sinh_q, uinh_q, msb_q, ld1_q, ld2_q;
+    logic [NT-1:0][HPM_N-1:0]         of_q, minh_q, sinh_q, uinh_q, msb_q, ld1_q;
     logic [NT-1:0]                    lcof_q;
     logic [NT-1:0][HPM_N-1:0][63:0]   cnt_q;
     for (genvar t = 0; t < NT; t++) begin : g_t
       for (genvar i = 0; i < HPM_N; i++) begin : g_i
         logic           ld, stop;
         logic [CNW-1:0] ev;
-        assign ld = cm_csr && pv && wt == tid_t'(t) && pa == 12'hB03 + 12'(i);
+        logic [63:0]    ldv;
+        assign ld  = cm_csr && pv && wt == tid_t'(t) && pa == 12'hB03 + 12'(i);
+        assign ldv = MT ? pw_d_q[t] : pd;
         always_comb begin
           ev = '0;
           if (ev_q[t][i] == EW'(1))      ev = CNW'(1);                                   // cycles
@@ -722,11 +725,11 @@ module tg_csr
                  (h_q[t].priv == PRIV_S && sinh_q[t][i]) || (h_q[t].priv == PRIV_U && uinh_q[t][i]);
         end
         tg_dsp_ctr #(.IW(CNW)) u_ctr (
-          .clk, .rst, .ld, .d(MT ? pw_d_q[t] : pd), .inc(stop ? '0 : ev), .q(cnt_q[t][i]));
+          .clk, .rst, .ld, .d(ldv), .inc(stop ? '0 : ev), .q(cnt_q[t][i]));
+        // The top bit the counter goes on from: in the load's second cycle the written value's (held there)
         always_ff @(posedge clk) begin
-          msb_q[t][i] <= cnt_q[t][i][63];
+          msb_q[t][i] <= ld1_q[t][i] ? ldv[63] : cnt_q[t][i][63];
           ld1_q[t][i] <= ld;
-          ld2_q[t][i] <= ld1_q[t][i];
         end
       end
     end
@@ -736,7 +739,7 @@ module tg_csr
           ev_q[t] <= '0; of_q[t] <= '0; minh_q[t] <= '0; sinh_q[t] <= '0; uinh_q[t] <= '0; lcof_q[t] <= 1'b0;
         end else begin
           for (int i = 0; i < HPM_N; i++)
-            if (msb_q[t][i] && !cnt_q[t][i][63] && !ld2_q[t][i]) begin   // a wrap, not a load
+            if (msb_q[t][i] && !cnt_q[t][i][63] && !ld1_q[t][i]) begin   // a wrap, not of a replaced value
               of_q[t][i] <= 1'b1;
               if (!of_q[t][i]) lcof_q[t] <= 1'b1;
             end
