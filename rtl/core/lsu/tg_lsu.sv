@@ -1075,8 +1075,29 @@ module tg_lsu
   // probe would (plan §6.2 rule 4).
   typedef enum logic [1:0] { AM_IDLE, AM_REQ, AM_RES, AM_DONE } amstate_e;
   amstate_e          am_st_q;
-  // (DR-183, PMP_FILL: the head's MMIO check, mh_req, above with mm_hold; here, after the atomics' state it reads)
-  assign mh_req  = PMP_FILL && mm_cand && lq_pck_q[hl] && xs_q == X_IDLE && !xr_v_q && am_st_q == AM_IDLE;
+  // (DR-183, PMP_FILL: the head's MMIO check, above with mm_hold; here, after the atomics' state it reads.) Its
+  // request is a register's, with its operands: the head qualifies one cycle (mh_ask) and asks the next (timing: the
+  // head's compare with the ROB's head, through the LQ's LUTRAM read, had headed every path through the shared
+  // checker, the chip's worst with the switch on; core-2 on spikes 8.18). A grant or its thread's flush ends the
+  // request. The head stays while it asks (its pending check holds its issue: mm_hold); the grant still needs the
+  // entry's check pending (its replay may have taken the checker meanwhile) and the MMIO port, so its exception
+  // report, free in its own cycle
+  logic            mh_ask, mh_q, mh_dbl_q, mh_m_q;
+  logic [PA_W-1:0] mh_pa_q;
+  tid_t            mh_t_q;
+  logic [LIW-1:0]  mh_lq_q;
+  robid_t          mh_rob_q;
+  assign mh_ask = PMP_FILL && mm_cand && lq_pck_q[hl] && xs_q == X_IDLE && !xr_v_q && am_st_q == AM_IDLE;
+  always_ff @(posedge clk) begin
+    mh_q     <= !rst && mh_ask && !mh_gnt && !kill_t[t_hd];
+    mh_pa_q  <= lq_pa_q[hl];
+    mh_dbl_q <= lq_size_q[hl] == 2'd3;
+    mh_m_q   <= priv_d[t_hd] == PRIV_M;
+    mh_t_q   <= t_hd;
+    mh_lq_q  <= hl;
+    mh_rob_q <= lqc_rd[2].rob;
+  end
+  assign mh_req = mh_q && lq_pck_q[mh_lq_q] && xs_q == X_IDLE && !xr_v_q && am_st_q == AM_IDLE;
   tid_t              am_t_q;                // the FSM's atomic's thread
   robid_t            [NT-1:0] am_rob_q;
   sqid_t             [NT-1:0] am_sq_q;
@@ -1423,6 +1444,8 @@ module tg_lsu
                               .acc(bst ? sa_at : w_use ? ACC_R : s2_at_q),
                               .m_mode(bst ? priv_d[t_sn] == PRIV_M : !w_use && s2_m_q),
                               .d(pmp_d[t_pst]), .ok(sa_chk), .hit(pmp_hit_st), .rwx(pmp_rwx_st));
+    logic unused_mh;                               // (the head's MMIO check is PMP_FILL's)
+    assign unused_mh = ^{mh_pa_q, mh_dbl_q, mh_m_q};
   end else begin : g_ckf
     logic [PA_W-1:0] ck_pa;
     logic            ck_dbl, ck_m;
@@ -1435,14 +1458,14 @@ module tg_lsu
       end else if (s2_go) begin
         ck_pa = s2_pa_q; ck_dbl = s2_dbl_q; ck_acc = s2_at_q; ck_m = s2_m_q;
       end else if (mh_req) begin
-        ck_pa = lq_pa_q[hl]; ck_dbl = lq_size_q[hl] == 2'd3; ck_acc = ACC_R; ck_m = priv_d[t_hd] == PRIV_M;
+        ck_pa = mh_pa_q; ck_dbl = mh_dbl_q; ck_acc = ACC_R; ck_m = mh_m_q;
       end else if (l_ask && !(pfc_ask && pfc_pri)) begin
         ck_pa = lck_pa; ck_dbl = lck_dbl; ck_acc = ACC_R; ck_m = priv_d[t_lck] == PRIV_M;
       end else begin
         ck_pa = pfc_pa; ck_dbl = 1'b0; ck_acc = ACC_X; ck_m = pfc_m && !pfc_page;
       end
     end
-    assign t_pst = bst ? t_sn : w_use ? pc_t : s2_go ? s2_t_q : mh_req ? t_hd :
+    assign t_pst = bst ? t_sn : w_use ? pc_t : s2_go ? s2_t_q : mh_req ? mh_t_q :
                    (l_ask && !(pfc_ask && pfc_pri)) ? t_lck : pfc_tid;
     tg_pmp #(.S(1)) u_pmp_st (.pa(ck_pa), .dbl(ck_dbl), .acc(ck_acc), .m_mode(ck_m), .d(pmp_d[t_pst]), .ok(sa_chk),
                               .hit(pmp_hit_st), .rwx(pmp_rwx_st));
@@ -1567,6 +1590,14 @@ module tg_lsu
   logic rs_q;                       // the core has been reset: the checks wait for it (tg_rob)
   initial rs_q = 1'b0;
   always @(posedge clk) if (rst) rs_q <= 1'b1;
+  // (DR-183, core-2's check) The head's MMIO check request is the head's of a cycle ago, re-derived every cycle (a
+  // flush ends it the cycle after): at its grant its entry is still that MMIO load, waiting for its check, as the
+  // request captured it
+  always_ff @(posedge clk)
+    if (rs_q && !rst && mh_gnt)
+      assert (lq_v_q[mh_lq_q] && lq_st_q[mh_lq_q] == L_MMIO && lq_pa_q[mh_lq_q] == mh_pa_q &&
+              (lq_size_q[mh_lq_q] == 2'd3) == mh_dbl_q && lq_tid(int'(mh_lq_q), md) == mh_t_q)
+        else $error("tg_lsu: the head's MMIO check granted for LQ %0d, which is no longer the load it asked for", mh_lq_q);
   always_ff @(posedge clk)
     if (rs_q && !rst && !flush && rp_v_c && ld_ag_valid)
       assert (ld_ag_pl.lq[LIW-1:0] != rp_ra_c) else $error("tg_lsu: an AG load writes a replayed load's LQ entry");
@@ -1599,9 +1630,9 @@ module tg_lsu
       exc_valid[2] = 1'b1;
       exc_rob[2]   = lqc_rd[1].rob;
       exc_cause[2] = EXC_LACCESS;
-    end else if (mh_gnt && !sa_chk[0] && !kill_t[t_hd]) begin  // DR-183: the head's MMIO load, PMP denied
+    end else if (mh_gnt && !sa_chk[0] && !kill_t[mh_t_q]) begin  // DR-183: the head's MMIO load, PMP denied
       exc_valid[2] = 1'b1;
-      exc_rob[2]   = lqc_rd[2].rob;
+      exc_rob[2]   = mh_rob_q;
       exc_cause[2] = EXC_LACCESS;
     end else if ((am_req && am_den) || (am_st_q == AM_REQ && am_pden_q && !kill_t[am_t_q])) begin  // its line or PMP denied it
       exc_valid[2] = 1'b1;
@@ -2124,8 +2155,8 @@ module tg_lsu
       // DR-183 (PMP_FILL): a parked MMIO load's check, and the head's (a denial is its exception, port 2)
       if (lmc_v) lq_pck_q[lmc_lq] <= !l_gnt;
       if (mh_gnt) begin
-        lq_pck_q[hl] <= 1'b0;
-        if (!sa_chk[0] && !kill_t[t_hd]) lq_st_q[hl] <= L_EXC;
+        lq_pck_q[mh_lq_q] <= 1'b0;
+        if (!sa_chk[0] && !kill_t[mh_t_q]) lq_st_q[mh_lq_q] <= L_EXC;
       end
 
       // ---- M1 -> M2 ----
