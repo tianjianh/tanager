@@ -63,7 +63,7 @@ The two with a cycle cost, the walker's shared PMP checker (DR-139) and FP conve
 
 | Measure | Switch | Its off form, to add then |
 |---|---|---|
-| DR-183's PMP checks at TLB fill (soc-2) | `PMP_FILL`, off by default | Lint both forms, with hart 1 too, and run regress and the soak with it on |
+| DR-183's PMP checks at TLB fill (soc-2) | `PMP_FILL`, on by default (`PMP_FILL=0`: the three checkers) | Lint both forms, with hart 1 too; the off form is the core before DR-183, cycle for cycle |
 | DR-185's lever 2: the issue queues' readiness ANDs on CARRY8 chains (fpu-2, `tg_iq_cand`; on main since a8a0ac3c as `tg_issue`'s `CC` = 2'b01, the AND form at 0) | `TG_IQ_CC` (fpu-2's c86431d7: 1 the default, 0 the AND, 3 the select's chains too) | Cycle-identical by construction; `tests/unit/iq`'s `tb_iqcc` runs the primitive's model against the AND. Lint `IQ_CC=0` and `3` once the define is on main |
 | DR-175's FP banks of 96 back (fpu-2's c86431d7) | `TG_FP_BANK96=1` | Into the bigger chip's elaboration, and the hardwired row above becomes a switch |
 

@@ -62,8 +62,8 @@ if mentioned TG_STORE_PF_MAX; then  # the count other than the package's default
             "$ROOT/rtl/core/tg_core_pkg.sv")
   profiles+=("STORE_PF_MAX=$([ "$spm_def" = 3 ] && echo 2 || echo 3)")
 else echo "lint-all: no RTL mentions TG_STORE_PF_MAX; skipping STORE_PF_MAX"; fi
-# DR-183: PMP checks at TLB fill, in both views
-if mentioned TG_PMP_FILL; then profiles+=("PMP_FILL=1" "PMP_FILL=1 SYNTH=1"); else echo "lint-all: no RTL mentions TG_PMP_FILL; skipping PMP_FILL=1"; fi
+# DR-183: PMP checks at TLB fill are the default; their off form (the three checkers), in both views
+if mentioned TG_PMP_FILL; then profiles+=("PMP_FILL=0" "PMP_FILL=0 SYNTH=1"); else echo "lint-all: no RTL mentions TG_PMP_FILL; skipping PMP_FILL=0"; fi
 # DR-185's rename payload written straight into its LUTRAM (PAY_WREG=0; the package registers the write)
 if mentioned TG_PAY_WREG; then profiles+=("PAY_WREG=0"); else echo "lint-all: no RTL mentions TG_PAY_WREG; skipping PAY_WREG=0"; fi
 profiles+=("SYNTH=1")
