@@ -127,14 +127,14 @@ The four-hart soak ([`../runs/soak4.sh`](../runs/soak4.sh), as on dr187b) ran on
   - **0 failed remote fences.**
   - The window's one other kernel line was a one-time `hrtimer: interrupt took 11940800 ns`: one timer interrupt handled 12 ms late while harts stopped and started under load.
 - **`hart_check.sh` after it, 0 fails** ([`tg1_hartcheck.txt`](tg1_hartcheck.txt)): CoreMark validated and `t` right on all four harts, `mt` on all six pairs, and pingpong 1,216–1,225 ns on one core and 1,963–1,968 ns across cores.
-- **The soak, its hotplug rounds included,** from 14:29 UTC ([`tg1_soak4.log`](tg1_soak4.log)):
-  - 6 rounds to 15:37 UTC: 19 stress passes, 19 DR-141 sets, 6 rounds of hart stop and start and 5 `hart_check`s passed, with **no failed remote fence**;
+- **The soak, its hotplug rounds included,** from 14:29 to 16:17 UTC ([`tg1_soak4.log`](tg1_soak4.log)):
+  - 10 rounds in two runs: 33 stress passes, 33 DR-141 sets, 10 rounds of hart stop and start and 9 `hart_check`s passed, with **no failed remote fence**;
+  - it stopped for rc2 ([`../rc2/README.md`](../rc2/README.md)), which carries tg1 too;
   - its one FAIL was CoreMark's 10 s rule inside `hart_check` (round 4, hart 3 alone, after a slow calibration; the CRCs were right). `hart_check.sh` now treats that as a note, as the soak's DR-141 check does, and the soak was restarted with it.
-- **In all:** 36 rounds of hart stop and start with no failed fence, against 1.9's one in its first 9 on u100. No oops, data error or trap line.
+- **In all:** 40 rounds of hart stop and start with no failed fence on u100, against 1.9's one in its first 9; rc2 added 33 more. No oops, data error or trap line.
 
-## The board now
+## Since then
 
-The board is on u100 with tg1's `fw_jump.bin`, and the four-hart soak keeps running there (`~/soak4-tg1`) with a 12-hour watch.
-- dr187b stays on p1 in `tanager-dr187b-80/`, and the two-core 100 MHz image in `tanager-d4r2-100/`. Both still hold `fw_jump.bin` `b0094d23…`.
-- To go back to dr187b, in ARM mode: `FH_BACKUP=tanager-dr187b-80 bash ~/tanager/runs/fh_p1.sh back`.
-- To go back to OpenSBI 1.9 on u100: `sudo cp /boot/firmware/tanager/fw_jump.bin.b0094d23 /boot/firmware/tanager/fw_jump.bin && sync`.
+The board moved on to rc2 on 10-23 at 16:20 UTC ([`../rc2/README.md`](../rc2/README.md)).
+- **u100 is kept on p1** in `tanager-u100/`, with tg1's `fw_jump.bin` and `fw_jump.bin.b0094d23`. To bring it back, in ARM mode: `FH_BACKUP=tanager-u100 bash ~/tanager/runs/fh_p1.sh back`.
+- **The older kept images:** dr187b in `tanager-dr187b-80/`, and the two-core 100 MHz image in `tanager-d4r2-100/`. Both still hold `fw_jump.bin` `b0094d23…`.

@@ -1,0 +1,52 @@
+HARTCHECK-BEGIN rc2-h0123 2026-10-23T06:24:52Z up 148.49
+6.12.113+deb13-riscv64
+root=LABEL=tanager-root console=ttyS0,115200 earlycon rw
+online CPUs: 0-3 (nproc 4)
+cpu0 = hart 0, siblings 0-1
+cpu1 = hart 1, siblings 0-1
+cpu2 = hart 2, siblings 2-3
+cpu3 = hart 3, siblings 2-3
+[   19.171860] Run /init as init process
+Startup finished in 53.817s (kernel) + 1min 7.591s (userspace) = 2min 1.408s 
+== kernel messages
+dmesg PASS no trouble lines
+[    0.000000] SBI specification v3.0 detected
+[    0.000000] SBI implementation ID=0x1 Version=0x10009
+[    0.000000] SBI TIME extension detected
+[    0.000000] SBI IPI extension detected
+[    0.000000] SBI RFENCE extension detected
+[    0.000000] SBI SRST extension detected
+[    0.000000] SBI DBCN extension detected
+[    0.000000] SBI HSM extension detected
+[    0.000000] riscv: providing IPIs using SBI IPI extension
+[    0.000000] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645041785100000 ns
+[    0.000000] clocksource: riscv_clocksource: mask: 0xffffffffffffffff max_cycles: 0x24e6a1710, max_idle_ns: 440795202120 ns
+[    0.276762] smp: Bringing up secondary CPUs ...
+== each hart alone
+coremark-a cpu0 (hart 0) PASS 448.742493 iterations/s
+t cpu0 (hart 0) PASS 2.93 s
+coremark-a cpu1 (hart 1) PASS 449.975530 iterations/s
+t cpu1 (hart 1) PASS 2.93 s
+coremark-a cpu2 (hart 2) PASS 449.914785 iterations/s
+t cpu2 (hart 2) PASS 2.93 s
+coremark-a cpu3 (hart 3) PASS 453.653753 iterations/s
+t cpu3 (hart 3) PASS 2.93 s
+== pairs of harts
+mt cpu0+cpu1 PASS
+pingpong cpu0+cpu1: 1218.5 ns/round-trip
+mt cpu0+cpu2 PASS
+pingpong cpu0+cpu2: 1967.1 ns/round-trip
+mt cpu0+cpu3 PASS
+pingpong cpu0+cpu3: 1969.0 ns/round-trip
+mt cpu1+cpu2 PASS
+pingpong cpu1+cpu2: 1967.0 ns/round-trip
+mt cpu1+cpu3 PASS
+pingpong cpu1+cpu3: 1967.6 ns/round-trip
+mt cpu2+cpu3 PASS
+pingpong cpu2+cpu3: 1216.3 ns/round-trip
+== all harts at once
+proj, 4 at a time PASS 10.69 s
+sysbench cpu, 4 threads:     events per second:   124.84
+sysbench threads, 4 threads:     total number of events:              882
+dmesg after the checks PASS no new lines
+HARTCHECK-END rc2-h0123 fails=0 2026-10-23T06:28:18Z up 354.45
