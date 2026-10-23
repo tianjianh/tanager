@@ -1829,6 +1829,12 @@ Step 7 is not in it. The two merge conflicts were resolved in the snapshot only:
 
 Results: `fpga/spikes/results/product_wt2_fin1_u100/` and `product_wt2_fin1_u105/`. Placement 1's routed checkpoint is `~/tanager-build/track-spikes-72f833/vivado/product_wt2_fin1_u100/routed.dcp`.
 
+**The board image** (the coordinator, 10-22) was written from placement 1's routed checkpoint by `build.tcl`'s own stage: `write_bitstream`, then bootgen's `.bit.bin` ([`write_bit_from_dcp.tcl`](../../fpga/spikes/tcl/write_bit_from_dcp.tcl)).
+- **Files:** `tanager.bit` (md5 d48edff4…) and `tanager.bit.bin` (md5 62ed4eab…), beside the checkpoint.
+- **Timing as written:** +0.257 ns, nothing failing.
+- **Source:** snapshot ca66235f564b, pinned by the local scratch branch `claude/spikes-2-board-fin1`. Its merges: cafba0e3 (soc-2's 6da660ec, `lint_all.sh` from main), 149de679 (core-2's c06aa48a, the `tg_lsu` hunk), a64c830d (a74817fe).
+- **Status:** a preview image. The board build of record comes from main once those MRs land.
+
 #### core-2's A/B: the read thread with and without per-bank copies (2026-10-22)
 
 The fixes preview's base with core-2's newer heads (`snap/product_wt` and `snap/product_wt3`): e5b304cd, TAGE 8cf8e262, DR-183 ecfcc8a5, and core-2's walker fix a6abdc5d. The walker fix registers the head lookup's VPN, so DTLB port 2 starts at one register. Then:
