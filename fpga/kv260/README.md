@@ -191,7 +191,11 @@ Our KV260, set up on 2026-10-14 by the board track (DR-126, stage A).
   - **The rule:** a bitstream that ties `fan_en_b` low runs the fan at full speed, which the user does not allow (2026-10-14). Every Tanager and spike design routes `emio_ttc0_wave_o[2]` to A12 unchanged, with PS8 `PSU__TTC0__WAVEOUT__ENABLE {1}` and `PSU__TTC0__WAVEOUT__IO {EMIO}`. A design that doesn't is not loaded.
 - **Network.**
   - ICS's DHCP stopped answering once: nothing listened on UDP 67, although the sharing service was running. Restarting ICS on the laptop fixed it.
-  - Without DHCP, the board still answers on its IPv6 link-local address, `fe80::48ff:2967:7216:51ee`, on the laptop's Ethernet.
+  - Without DHCP, the board answers on its IPv6 link-local address, `fe80::48ff:2967:7216:51ee`, on the laptop's Ethernet, but only while NetworkManager is trying for a lease.
+    - Each try waits 45 s, then fails and takes `eth0`'s addresses down.
+    - After four failed tries, NetworkManager waits 5 minutes before the next.
+    - On 10-23 no lease came, so the A53 went 13 minutes without answering, even to ping, while its console still answered.
+    - A retry loop gets through. Keeping the link-local address up while DHCP fails (for example `ipv6.method link-local`) would end the gaps; that hasn't been done.
 - **Clock.** The board shows a wrong date until NTP reaches it through the laptop's connection sharing.
 
 ### Known issues
