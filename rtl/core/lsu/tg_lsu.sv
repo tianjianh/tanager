@@ -1112,9 +1112,10 @@ module tg_lsu
   // request is a register's, with its operands: the head qualifies one cycle (mh_ask) and asks the next (timing: the
   // head's compare with the ROB's head, through the LQ's LUTRAM read, had headed every path through the shared
   // checker, the chip's worst with the switch on; core-2 on spikes 8.18). A grant or its thread's flush ends the
-  // request. The head stays while it asks (its pending check holds its issue: mm_hold); the grant still needs the
-  // entry's check pending (its replay may have taken the checker meanwhile) and the MMIO port, so its exception
-  // report, free in its own cycle
+  // request. The head stays while it asks (its pending check holds its issue: mm_hold), and its check stays pending
+  // (a parked MMIO load takes no other check: asserted, so the request reads no LQ entry, which had put the LQ's
+  // flags ahead of the checker's operand select: spikes-2, 10-23); the grant still needs the MMIO port, so its
+  // exception report, free in its own cycle
   logic            mh_ask, mh_q, mh_dbl_q, mh_m_q;
   logic [PA_W-1:0] mh_pa_q;
   tid_t            mh_t_q;
@@ -1130,7 +1131,7 @@ module tg_lsu
     mh_lq_q  <= hl;
     mh_rob_q <= lqc_rd[2].rob;
   end
-  assign mh_req = mh_q && lq_pck_q[mh_lq_q] && xs_q == X_IDLE && !xr_v_q && am_st_q == AM_IDLE;
+  assign mh_req = mh_q && xs_q == X_IDLE && !xr_v_q && am_st_q == AM_IDLE;
   tid_t              am_t_q;                // the FSM's atomic's thread
   robid_t            [NT-1:0] am_rob_q;
   sqid_t             [NT-1:0] am_sq_q;
@@ -1634,11 +1635,14 @@ module tg_lsu
   // (DR-183, core-2's check) The head's MMIO check request is the head's of a cycle ago, re-derived every cycle (a
   // flush ends it the cycle after): at its grant its entry is still that MMIO load, waiting for its check, as the
   // request captured it
-  always_ff @(posedge clk)
+  always_ff @(posedge clk) begin
     if (rs_q && !rst && mh_gnt)
       assert (lq_v_q[mh_lq_q] && lq_st_q[mh_lq_q] == L_MMIO && lq_pa_q[mh_lq_q] == mh_pa_q &&
               (lq_size_q[mh_lq_q] == 2'd3) == mh_dbl_q && lq_tid(int'(mh_lq_q), md) == mh_t_q)
         else $error("tg_lsu: the head's MMIO check granted for LQ %0d, which is no longer the load it asked for", mh_lq_q);
+    if (rs_q && !rst && mh_q)
+      assert (lq_pck_q[mh_lq_q]) else $error("tg_lsu: the head's MMIO check request for LQ %0d, whose check is done", mh_lq_q);
+  end
   always_ff @(posedge clk)
     if (rs_q && !rst && !flush && rp_v_c && ld_ag_valid)
       assert (ld_ag_pl.lq[LIW-1:0] != rp_ra_c) else $error("tg_lsu: an AG load writes a replayed load's LQ entry");
