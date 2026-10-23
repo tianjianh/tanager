@@ -1686,12 +1686,15 @@ module tg_lsu
   // The marks: set by the compare; cleared when the entry is free (a commit, a kill), when it re-enters AG (it reads
   // again), and for a thread when its oldest mark is reported (the replay from it covers its younger loads)
   logic [LQ_ENTRIES-1:0] lq_snp_q, snp_hit, snp_ag;
+  logic [LQ_ENTRIES-1:0] lq_io_q;                 // the entry is a device load (decided with its PA): never marked, as it
+                                                   // reads at the ROB head with nothing older, and must not run twice
   always_comb
     for (int i = 0; i < LQ_ENTRIES; i++) begin
       logic own;
       own = 1'b0;
       for (int t = 0; t < NT; t++) own |= ev2_tm_q[t] && lq_ot[t][i];
-      snp_hit[i] = ev2_v_q && own && lq_v_q[i] && lq_pav_q[i] && (lq_st_q[i] == L_DONE || lq_st_q[i] == L_PIPE) &&
+      snp_hit[i] = ev2_v_q && own && lq_v_q[i] && lq_pav_q[i] && !lq_io_q[i] &&
+                   (lq_st_q[i] == L_DONE || lq_st_q[i] == L_PIPE) &&
                    lq_pa_q[i][6 +: SNW] == ev2_l_q;
       snp_ag[i]  = ((ld_ag_valid && !kill_t[t_ldag]) || ag_rp) && ag_lq == LIW'(i);
     end
@@ -2357,6 +2360,7 @@ module tg_lsu
       if (ln_v && !kill_t[t_ln]) begin
         lq_pa_q[ln_lqw]  <= nl_pa;
         lq_pav_q[ln_lqw] <= !nl_exc && !nl_tm;
+        lq_io_q[ln_lqw]  <= nl_mmio;
         lq_st_q[ln_lqw]  <= (nl_exc || nl_tm || nl_mmio) ? (nl_exc ? L_EXC : nl_tm ? L_TLB : L_MMIO) : L_PIPE;
       end
 
