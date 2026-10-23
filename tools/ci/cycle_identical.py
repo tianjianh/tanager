@@ -73,8 +73,8 @@ AUTO_BOOT = 3                            # million cycles, when the change reach
 # $TANAGER_BUILD, and a track's own OpenSBI build (10-19, 02:04-02:26) became every boot's firmware.
 REF_IMAGES = {
     "fw": ("OpenSBI's fw_jump.bin",
-           os.path.join(TB, "track-soc-160053", "opensbi", "platform", "generic", "firmware", "fw_jump.bin"),
-           "b0094d235a36f8bdb857c97d5d60e28bb3852d20a418c9cc3efa45710c0679bb"),
+           os.path.join(TB, "track-soc-160053", "opensbi-tg1", "platform", "generic", "firmware", "fw_jump.bin"),
+           "62349a65652ae1676c27f94738098ab6442b1851b436029e2d0bad2c5726fc78"),   # OpenSBI 1.9 + tg1 (soc.md §5)
     "kernel": ("the Linux Image",
                os.path.join(TB, "track-soc-160053", "br-tanager_lp64d", "images", "Image"),
                "cea2bf6694672c687ad2587772660d6d268e240b97032f47a0f391097735addf"),

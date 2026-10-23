@@ -132,7 +132,7 @@ For a core bitstream, name the images too: the first-light program (bring-up ste
 make -C sw/dts O=$SOC_BUILD/dts-c1 CORES=1
 make -C tests/unit/soc prog
 fpga/kv260/package.sh $SOC_BUILD/vivado/st_core_60_pmod $SOC_BUILD/board/m4 $SOC_BUILD/tests/soc_sw/soc_test.bin \
-  $SOC_BUILD/opensbi/platform/generic/firmware/fw_jump.bin $SOC_BUILD/br-tanager_lp64d/images/Image $SOC_BUILD/dts-c1/tanager-kv260.dtb
+  $SOC_BUILD/opensbi-tg1/platform/generic/firmware/fw_jump.bin $SOC_BUILD/br-tanager_lp64d/images/Image $SOC_BUILD/dts-c1/tanager-kv260.dtb
 ```
 
 ## Board setup (one-time; needs a person)
