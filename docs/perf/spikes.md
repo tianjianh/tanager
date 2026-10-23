@@ -1960,7 +1960,7 @@ Results: `fpga/spikes/results/product_wt_s7d_u105/` holds the reports and the fa
 
 The routed checkpoint is `~/tanager-build/track-spikes-72f833/vivado/product_wt_s7d_u105/routed.dcp`.
 
-#### The near-final release with step 7 closes 100 MHz (2026-10-23)
+#### The near-final release with step 7 closes 100 MHz in both placements (2026-10-23)
 
 **Asked** (the coordinator, 10-23): "Go for a pair now ... the near-final release with step 7, every fix and the memory-ordering fix". The product form, `AltSpreadLogic_high`, 1.0 and 1.05 ns, and a passing placement's bitstream. "Report: the usual, plus whether any family starts or ends in the CoRR marking logic, and LUT and FF totals against s7d."
 - **Snapshot:** `snap/product_wt3` 9dbbad723e3f, pinned by `claude/spikes-2-board-rc2`. It is main 28d28d8a plus:
@@ -1973,38 +1973,53 @@ The routed checkpoint is `~/tanager-build/track-spikes-72f833/vivado/product_wt_
 - **Not in it:** core-2's FENCE.I sweep fix (icsweep 379ca1ef, `tg_fetch` only). It merges cleanly on the snapshot and goes through its own MR.
 - **Run order:** at the 50 GB budget (`.locks/vivado.budget` since 04:31) two 26 GB builds don't fit together, so the 1.0 ns placement runs after the 1.05 ns one.
 
-| | **`rc2_u105` (1.05 ns)** | for comparison: `s7d_u105` |
-|---|---|---|
-| LUTs after synthesis / `opt_design` / routed | 119,066 / 114,885 / 112,315 (95.9%) | 118,148 / 114,325 / 112,019 |
-| FFs routed, CLBs, control sets, DSPs | 57,981, 14,639, 2,872, 140 | 57,908, 14,640, 2,929, 140 |
-| WNS after placement (estimated, with the uncertainty on) | +0.464 ns (`phys_opt_design` had nothing to do) | +0.006 |
-| Routing | level 5, no trade, 1.4 h | level 6, no trade, 1.0 h |
-| **WNS / TNS on the core clock (ns)** | **+0.188 / 0.000** (0 failing) | −0.422 / −73.1 (490 failing) |
-| WHS (ns) | +0.011 | +0.008 |
-| `clk2x`: within / into / back (ns) | +1.820 / +1.088 / +1.079 | +2.035 / +1.167 / +1.131 |
-| Endpoints within 1 ns | 2,552 in 164 families | 6,651 in 281 families |
+| | **`rc2_u100` (1.0 ns)** | `rc2_u105` (1.05 ns) | for comparison: `s7d_u105` |
+|---|---|---|---|
+| LUTs after synthesis / `opt_design` / routed | 119,066 / 114,885 / 112,360 (95.9%) | 119,066 / 114,885 / 112,315 (95.9%) | 118,148 / 114,325 / 112,019 |
+| FFs routed, CLBs, control sets, DSPs | 57,976, 14,638, 2,836, 140 | 57,981, 14,639, 2,872, 140 | 57,908, 14,640, 2,929, 140 |
+| WNS after placement (estimated, with the uncertainty on) | +0.412 ns | +0.464 ns | +0.006 (after `phys_opt_design`) |
+| Routing | level 6, no trade, 1.3 h | level 5, no trade, 1.4 h | level 6, no trade, 1.0 h |
+| **WNS / TNS on the core clock (ns)** | **+0.296 / 0.000** (0 failing) | **+0.188 / 0.000** (0 failing) | −0.422 / −73.1 (490 failing) |
+| WHS (ns) | +0.010 | +0.011 | +0.008 |
+| `clk2x`: within / into / back (ns) | +2.001 / +1.062 / +1.049 | +1.820 / +1.088 / +1.079 | +2.035 / +1.167 / +1.131 |
+| Endpoints within 1 ns | 2,332 in 194 families | 2,552 in 164 families | 6,651 in 281 families |
 
-- **The 1.05 ns placement closes 100 MHz.** It is the first product chip with step 7 to do so, and the first with the memory-ordering fix. Nothing fails; the closest endpoint has +0.188 ns.
-- **No CoRR family is near-critical.** The worst paths that start or end in the marking logic:
-  - into `ev1_tm_q` and `ev1_l_q` (the event capture): +0.718 and +0.740 ns, 13–15 levels, from the store queue head's `sqh_q.pa` and the AMO FSM;
-  - from the report registers `snp_v_q` and `snp_lq_q`: +1.380 (16 levels, into rename's free list);
-  - into them, the oldest select from `lq_snp_q`: +2.203;
-  - into `lq_snp_q` (the E+2 compare): +1.953, 11 levels;
-  - from `ev1_*`/`ev2_*`: +3.894.
+- **Both placements close 100 MHz; the better WNS is +0.296 ns (1.0 ns), TNS 0 in both.**
+  - It is the first product chip with step 7 to close, and the first with the memory-ordering fix.
+  - It is also the first pair whose placements both pass: the near-final pair without step 7 closed in one of two.
+  - Placement estimated +0.41 and +0.46 with the uncertainty on, so `phys_opt_design` had nothing to do. Routing cost 1.12 and 1.33 ns.
+- **No CoRR family is near-critical** in either placement (u100 / u105). The worst paths that start or end in the marking logic:
+  - into the event capture (`ev1_l_q`, `ev1_tm_q`): +0.699 / +0.718 ns, 13–15 levels, from the store queue head's `sqh_q.pa`;
+  - from the report registers `snp_v_q` and `snp_lq_q`: +1.366 / +1.380, 15–16 levels;
+  - into them, the oldest select from `lq_snp_q`: +1.534 / +2.203;
+  - into `lq_snp_q` (the E+2 compare): +1.947 / +1.953;
+  - from `ev1_*`/`ev2_*`: +2.691 / +3.894.
 - **Area against s7d:** +918 LUTs after synthesis, +560 after `opt_design`, +296 routed, +73 FFs. This combines the CoRR marking (core-2: about 300 LUTs a core), marg3, ckm2 and fpu-2's revert of `rn_need_q`. One pair can't split it.
-- **The worst families, all met:**
+- **The worst families, all met.** In u100:
+  - the LSU's `fh_data_q` and `fh_w_q` from the store's `sn_v_q` (+0.296);
+  - `s2_v_q` and `sq_av_q` from `sn_t_q` (+0.30);
+  - fetch's `rt_b_q` from `dep_q` (+0.307);
+  - `lq_st_q` from the walker's `chk_req_q` (+0.322).
+
+  In u105:
   - core 1's fetch `rt_b_q` from the issue queues' `dep_q` (+0.188, 21 levels);
   - core 1's `lq_st_q` from the checker's `pfc_rsp_v_q` (+0.218);
   - core 1's D$ valid and meta RAMs from `sqh_q` and the miss entry (+0.23, +0.25);
   - rename's RN register from `dep_q` (+0.25);
   - `m2_dword_q` from the DTLB's CAM (+0.25).
-- **The floorplan is OK:** l2b0 99%/75%, **L2 bank 1 102%/79%**, xbar 30%/24%.
-- **The board image** was written from this placement's checkpoint by `build.tcl`'s bitstream stage (`run_bit_now.sh`, so as not to wait for the other placement):
-  - `tanager.bit` md5 db175ba8…, `tanager.bit.bin` md5 6bfcffca…, sent to soc-2;
-  - `timing_bit.rpt`: "All user specified timing constraints are met".
-  - It is a preview: none of the four branches is on main yet.
+- **The floorplan is OK** in both: l2b0 99%/75%, **L2 bank 1 102%/79%**, xbar 30%/24%.
+- **The board images** were written from both checkpoints by `build.tcl`'s bitstream stage (`run_bit_now.sh`, each as its placement ended). `timing_bit.rpt` says "All user specified timing constraints are met" in both.
+  - **u100, the board image:** `tanager.bit` md5 069905fb…, `tanager.bit.bin` md5 1cb29cf7….
+  - **u105, the fallback:** `tanager.bit` md5 db175ba8…, `tanager.bit.bin` md5 6bfcffca….
+  - Both went to soc-2.
+  - They are previews: of the four branches only f1d79a86 and 02da289b are on main so far (d9d700ec).
 
-Results: `fpga/spikes/results/product_wt3_rc2_u105/`, with the CoRR queries in `report_timing_corr_*.txt` (`snpf`/`snpt`: from/into `lq_snp_q`; `srf`/`srt`: the report registers; `evf`/`evt`: the event registers). The image and checkpoint are in `~/tanager-build/track-spikes-72f833/vivado/product_wt3_rc2_u105/`.
+Results: `fpga/spikes/results/product_wt3_rc2_u100/` and `product_wt3_rc2_u105/`. The CoRR queries are in `report_timing_corr_*.txt`:
+- `snpf`/`snpt`: from and into `lq_snp_q`;
+- `srf`/`srt`: the report registers;
+- `evf`/`evt`: the event registers.
+
+The images and checkpoints are in `~/tanager-build/track-spikes-72f833/vivado/product_wt3_rc2_u100/` and `_u105/`.
 
 #### core-2's A/B: the read thread with and without per-bank copies (2026-10-22)
 
