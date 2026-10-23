@@ -97,6 +97,7 @@ module tg_lsu
   // From the ROB / commit
   input  robid_t [NUM_THREADS-1:0]     rob_head,      // each thread's
   input  tid_t                         hd_tid,        // the thread whose head commits this cycle (the head checks)
+  input  tid_t                         hd_tid_n,      // ... next cycle's (the ROB's ct_n)
   input  tid_t                         cm_tid,        // the commit group's thread
   input  logic [idx_w(COMMIT_WIDTH + 1)-1:0] cm_nld,  // loads retiring this cycle
   input  logic [idx_w(COMMIT_WIDTH + 1)-1:0] cm_nst,  // stores retiring this cycle
@@ -333,8 +334,21 @@ module tg_lsu
   // synthesis keeps none of the second thread's logic until two threads run (step 5).
   localparam int NT = NUM_THREADS;
   md_t md, mdn;                     // the mode and next cycle's (step 6; constants without hart 1)
-  assign md  = HART1_ON ? md_i : MD_C;
+  // The mode comes from a copy of rename's md_q kept here (the same value: md_q takes mdn every cycle, and both
+  // reset to MD_C), so its fan-out starts beside the logic it feeds, not across the core at rename (timing: the full
+  // chip's worst path started at md_q, spikes §8.18). Kept, so that synthesis does not merge it into md_q
+  (* keep = "true" *) md_t md_l_q;
+  always_ff @(posedge clk) md_l_q <= rst ? MD_C : mdn_i;
+  assign md  = HART1_ON ? md_l_q : MD_C;
   assign mdn = HART1_ON ? mdn_i : MD_C;
+`ifndef SYNTHESIS
+  logic md_rs;                      // (the copy is checked from the first reset on)
+  initial md_rs = 1'b0;
+  always @(posedge clk) if (rst) md_rs <= 1'b1;
+  always_ff @(posedge clk)
+    if (md_rs && !rst && HART1_ON)
+      assert (md_l_q == md_i) else $error("tg_lsu: the mode's copy differs from rename's md_q");
+`endif
   // The SQ pointers of each LQ half's thread (its own split, the running thread's merged): picked once a half, not
   // an entry (step 6's mode makes an entry's thread a signal)
   sqid_t [1:0] sqh_lh, sqt_lh;
@@ -345,23 +359,34 @@ module tg_lsu
   assign t_hd = (NT > 1 && SPLIT) ? hd_tid : RUN_TID;
   tid_t t_iw;                                   // fetch's walk's thread
   assign t_iw = (NT > 1 && SPLIT) ? iw_tid : RUN_TID;
-  logic [LQ_ENTRIES-1:0] fl_lq;                 // the flushed thread's half (Vivado selects no bit of a function's value)
+  // The entries each thread owns (in merged mode the running thread every one), registered from the next cycle's mode
+  // as md_l_q is, so each equals lq_own/sq_own of md in every cycle (asserted below). Timing: the mode's fan-out
+  // into every search's thread terms starts at these registers (spikes §8.18, the replay pick from md_l_q)
+  // (without hart 1 the mode is the constant MD_C: constants, no registers)
+  logic [NT-1:0][LQ_ENTRIES-1:0] lq_ot;
+  logic [NT-1:0][SQ_ENTRIES-1:0] sq_ot;
+  if (HART1_ON) begin : g_ot
+    always_ff @(posedge clk)
+      for (int t = 0; t < NT; t++) begin
+        lq_ot[t] <= lq_own(tid_t'(t), rst ? MD_C : mdn);
+        sq_ot[t] <= sq_own(tid_t'(t), rst ? MD_C : mdn);
+      end
+  end else begin : g_otc
+    always_comb
+      for (int t = 0; t < NT; t++) begin
+        lq_ot[t] = lq_own(tid_t'(t), MD_C);
+        sq_ot[t] = sq_own(tid_t'(t), MD_C);
+      end
+  end
+  logic [LQ_ENTRIES-1:0] fl_lq;                 // the flushed thread's half (step 6: none of a sleeper's while merged)
   logic [SQ_ENTRIES-1:0] fl_sq;
-  assign fl_lq = lq_own(t_fl, md);     // (step 6: none of a sleeper's while merged)
-  assign fl_sq = sq_own(t_fl, md);
+  assign fl_lq = lq_ot[t_fl];
+  assign fl_sq = sq_ot[t_fl];
   // A flush kills only its thread's operations (rule 2): in merged mode each is the running thread's, as the flush
   logic [NT-1:0] kill_t;
   always_comb for (int t = 0; t < NT; t++) kill_t[t] = flush && (!SPLIT || t_fl == tid_t'(t));
-  tid_t t_ldag;                                 // the LD port's load's thread (its LQ entry's)
-  assign t_ldag = lq_tid(int'(ld_ag_pl.lq[LIW-1:0]), md);
-  // The entries each thread owns (in merged mode the running thread every one)
-  logic [NT-1:0][LQ_ENTRIES-1:0] lq_ot;
-  logic [NT-1:0][SQ_ENTRIES-1:0] sq_ot;
-  always_comb
-    for (int t = 0; t < NT; t++) begin
-      lq_ot[t] = lq_own(tid_t'(t), md);
-      sq_ot[t] = sq_own(tid_t'(t), md);
-    end
+  tid_t t_ldag;                                 // the LD port's load's thread: its payload's, its LQ entry's (asserted)
+  assign t_ldag = ld_ag_pl.tid;
   lqid_t  [NT-1:0]                   lq_head_q, lq_tail_q;
 
   // ---- SQ ----
@@ -634,6 +659,7 @@ module tg_lsu
   robid_t      ln_rob, sn_rob;
   logic [1:0]  ln_size, sn_size;
   logic [SIW-1:0] sn_sq;
+  tid_t           sn_t;                          // ... its thread, from its payload (its SQ entry's: asserted)
   logic        s2_v_q, s2_go, s2_den;            // S2: a store's PMP check, the cycle after it decides (STA)
   logic [SIW-1:0] s2_idx_q;
   // Three lookups: the LD port, the STA port, and the ROB head's check. The head's check has a
@@ -734,6 +760,8 @@ module tg_lsu
   assign ag_rp   = !ld_ag_valid && !pt_req && rp_any && !kill_t[rp_t] && !fh_hole_ag;
   assign ag_v    = (ld_ag_valid && !kill_t[t_ldag]) || ag_pt || ag_rp;
   assign ag_lq   = ld_ag_valid ? ld_ag_pl.lq[LIW-1:0] : rp_idx;
+  tid_t ag_t;                                        // ... its thread: the payload's, or the replay's (rp_t)
+  assign ag_t    = ld_ag_valid ? ld_ag_pl.tid : rp_t;
   // ag_pa and ag_go (it continues to M1) depend on where a new load decides: g_split / g_nosplit
   assign pt_gnt  = ag_pt;
   // The D$ reads for every AG op, whether or not it goes on to M1 (timing: ag_go waits for the new
@@ -748,6 +776,7 @@ module tg_lsu
   // ================= M1 =================
   logic              m1_v_q, m1_pt_q;
   logic [LIW-1:0]    m1_lq_q;
+  tid_t              m1_t_q;                         // M1's load's thread: AG's, carried (its LQ entry's: asserted)
   logic [PA_W-1:0]   m1_pa_q;
   logic [PA_W-1:0]   m1pa;                           // M1's PA (with the split: a new load's from the DTLB)
   logic              m1_clash, m1_go;                // the AG row clash; M1 goes on to M2
@@ -755,13 +784,13 @@ module tg_lsu
   logic [LIW-1:0]    ln_lqw;                         // ... as its LQ flip-flops are written (no split: AG's index)
   always_comb begin                                  // the DTLB lookups' threads (above)
     for (int r = 0; r < DT_NR; r++) dt_tid[r] = t_hd;
-    dt_tid[0] = lq_tid(int'(ln_lq), md);
-    dt_tid[1] = sq_tid(int'(sn_sq), md);
+    dt_tid[0] = LSU_AG_SPLIT ? m1_t_q : ld_ag_pl.tid;   // ln_lq's thread: M1's (split), else AG's payload's
+    dt_tid[1] = sn_t;
   end
   // M1's thread (and M2's, t_m2): a load's, its LQ entry's; a PTE read's, the walk's (which lasts while its read is
   // in the pipe: a flush of its thread kills both)
   tid_t              t_m1;
-  assign t_m1 = m1_pt_q ? pw_dtid : lq_tid(int'(m1_lq_q), md);
+  assign t_m1 = m1_pt_q ? pw_dtid : m1_t_q;
   assign m1_pa    = m1pa;
   logic [7:0]        m1_mask;
   assign m1_mask = bmask(m1pa[2:0], lq_size_q[m1_lq_q]);
@@ -823,6 +852,7 @@ module tg_lsu
   // ================= M2 =================
   logic              m2_v_q, m2_clash_q, m2_hit_q, m2_fhit_q, m2_fcov_q, m2_fdat_q, m2_pt_q;
   logic [LIW-1:0]    m2_lq_q;
+  tid_t              m2_t_q;                         // M2's load's thread, carried from M1
   logic              ma3_v_q, ma4_v_q;           // DR-149: a load's miss, carried to the D$'s answer
   logic [LIW-1:0]    ma3_lq_q, ma4_lq_q;
   logic [PA_W-1:0]   m2_pa_q;
@@ -830,7 +860,7 @@ module tg_lsu
   logic [SQ_ENTRIES-1:0] m2_foh_q;                  // the forwarding store, one-hot
   logic [SIW-1:0]    m2_fidx;                       // ... its index
   tid_t              t_m2;                          // M2's thread (as t_m1)
-  assign t_m2 = m2_pt_q ? pw_dtid : lq_tid(int'(m2_lq_q), md);
+  assign t_m2 = m2_pt_q ? pw_dtid : m2_t_q;
   always_comb begin
     m2_fidx = '0;
     for (int i = 0; i < SQ_ENTRIES; i++) if (m2_foh_q[i]) m2_fidx |= SIW'(i);
@@ -1681,9 +1711,26 @@ module tg_lsu
       hd_vpn_q[t_hd] <= hd_va[38:12];
       hd_at_q[t_hd]  <= hd_at;
     end
-    assign dt_vpn[2] = hd_vpn_q[t_hd];
+    // The lookup's VPN and access, registered for next cycle's head thread (the ROB's ct_n): the values hd_vpn_q and
+    // hd_at_q hold for it next cycle (asserted), so the lookup starts at one register, not at the commit thread's
+    // select (timing: ct_q, fan-out 314, then 1.1 ns of wire into the DTLB headed the walker's family on the chip,
+    // -1.953 ns to chk_pa_q; spikes §8.18)
+    tid_t        t_hdn;
+    logic [26:0] hd_vpn2_q;
+    acc_e        hd_at2_q;
+    assign t_hdn = (NT > 1 && SPLIT) ? hd_tid_n : RUN_TID;
+    always_ff @(posedge clk) begin
+      hd_vpn2_q <= (t_hdn == t_hd) ? hd_va[38:12] : hd_vpn_q[t_hdn];
+      hd_at2_q  <= (t_hdn == t_hd) ? hd_at : hd_at_q[t_hdn];
+    end
+`ifndef SYNTHESIS
+    always_ff @(posedge clk)
+      if (md_rs && !rst) assert (hd_vpn2_q == hd_vpn_q[t_hd] && hd_at2_q == hd_at_q[t_hd])
+        else $error("tg_lsu: the head lookup's registered VPN differs from its thread's");
+`endif
+    assign dt_vpn[2] = hd_vpn2_q;
     assign hd_tok    = hd_need_q[t_hd] && !sta_ag_valid && dt_hit[2] &&
-                       pte_ok(dt_pte[2], hd_at_q[t_hd], priv_d[t_hd], sum[t_hd], mxr[t_hd]);
+                       pte_ok(dt_pte[2], hd_at2_q, priv_d[t_hd], sum[t_hd], mxr[t_hd]);
     assign hd_walk   = hd_need_q[t_hd];
   end else begin : g_hd_two
     // B2: both candidates are looked up, the LQ head's VA (port 2) and the committing store's
@@ -1691,6 +1738,8 @@ module tg_lsu
     // checks as a load)
     assign dt_vpn[2] = lqc_rd[2].va[38:12];
     assign dt_vpn[3] = sqva_rd[TRP][38:12];
+    logic unused_hdn;                             // (next cycle's head thread: the late form's)
+    assign unused_hdn = ^hd_tid_n;
     assign hd_tok    = !sta_ag_valid &&
                        (hd_ld ? dt_hit[2] && pte_ok(dt_pte[2], ACC_R, priv_d[t_hd], sum[t_hd], mxr[t_hd])
                               : dt_hit[3] && pte_ok(dt_pte[3], (sq_amo_q[hs] && am_op_q[t_hd] == AMO_LR) ? ACC_R : ACC_W,
@@ -1914,7 +1963,7 @@ module tg_lsu
   assign sqrob_ra[0] = cap_idx;
   assign sqrob_ra[1] = hs;
   tid_t t_staag;                                  // the STA port's store's thread (its AG)
-  assign t_staag = sq_tid(int'(sa_idx_ag), md);
+  assign t_staag = sta_ag_pl.tid;                 // (its SQ entry's: asserted)
   tg_ram_lut #(.DEPTH(SQ_ENTRIES), .WIDTH(ROBW), .NR(2)) u_sqrob (
     .clk, .we(sta_ag_valid && !kill_t[t_staag]), .waddr(sa_idx_ag), .wdata(sta_ag_pl.rob), .raddr(sqrob_ra),
     .rdata(sqrob_rd));
@@ -2166,6 +2215,7 @@ module tg_lsu
       ma4_v_q     <= ma3_v_q && !kill_t[lq_tid(int'(ma3_lq_q), md)];
       ma4_lq_q    <= ma3_lq_q;
       m2_lq_q     <= m1_lq_q;
+      m2_t_q      <= m1_t_q;
       m2_pa_q     <= m1pa;
       m2_clash_q  <= m1_clash;
       m2_hit_q    <= dc_hit;
@@ -2181,6 +2231,7 @@ module tg_lsu
       m1_v_q     <= ag_go;
       m1_pt_q    <= ag_pt;
       m1_lq_q    <= ag_lq;
+      m1_t_q     <= ag_t;
       m1_pa_q    <= ag_pa;
       m1_rck_q   <= PMP_FILL && ag_rp && lq_pck_q[ag_lq];
       if (ld_ag_valid && !kill_t[t_ldag]) begin        // AG: into the pipe
@@ -2350,6 +2401,7 @@ module tg_lsu
     robid_t      ln_rob_q, sn_rob_q;        // the fields of the ports' payloads that M1 reads
     logic [1:0]  ln_size_q, sn_size_q;
     logic [SIW-1:0] sn_sq_q;               // (the index; the wrap bit is not read)
+    tid_t        sn_t_q;
     logic        cl_v_q;                   // a store wrote the D$ in the AG cycle of M1's op ...
     logic [PA_W-1:4] cl_row_q;             // ... this row
     logic        cl2_v_q;                  // #11: ... or a cycle before it (the RAM is written a cycle late)
@@ -2365,6 +2417,7 @@ module tg_lsu
       sn_rob_q  <= sta_ag_pl.rob;
       sn_size_q <= sta_ag_pl.mem_size;
       sn_sq_q   <= sta_ag_pl.sq[SIW-1:0];
+      sn_t_q    <= sta_ag_pl.tid;
       cl_row_q  <= st_pa[PA_W-1:4];
       cl2_v_q   <= !rst && DC_PORTB_WREG && cl_v_q;
       cl2_row_q <= cl_row_q;
@@ -2378,6 +2431,7 @@ module tg_lsu
     assign sn_rob  = sn_rob_q;
     assign sn_size = sn_size_q;
     assign sn_sq   = sn_sq_q;
+    assign sn_t    = sn_t_q;
     // A new load's PA comes in M1, and its D$ read needs only the page offset (VA[11:4]). Every AG
     // op goes on to M1; a new load stops there at a fault, a TLB miss or MMIO.
     assign ag_pa    = ld_ag_valid ? ld_ag_addr[PA_W-1:0] : ag_pt ? pt_pa : lqa_rd[0].pa;
@@ -2403,7 +2457,7 @@ module tg_lsu
 `endif
     assign lck_pa  = m2_pa_q;
     assign lck_dbl = m2_dbl_q;
-    assign t_lck   = lq_tid(int'(m2_lq_q), md);
+    assign t_lck   = m2_t_q;   // EXPLORE ONLY (spikes-2's preview merge: DR-183's block, 2175432b's t_lck)
     // DR-183 (PMP_FILL): on the shared checker, in a cycle it grants (l_gnt); a replay whose check is pending asks
     // too. Not granted: the load does not complete (l_nok), an MMIO load keeps its check pending (lmc_*)
     assign l_ask   = PMP_FILL && (m2_pck_q || m2_mck_q || (m2_rck_q && m2_v_q));
@@ -2493,6 +2547,7 @@ module tg_lsu
     assign sn_rob  = sta_ag_pl.rob;
     assign sn_size = sta_ag_pl.mem_size;
     assign sn_sq   = sta_ag_pl.sq[SIW-1:0];
+    assign sn_t    = sta_ag_pl.tid;
     assign ag_pa   = ld_ag_valid ? nl_pa : ag_pt ? pt_pa : lqa_rd[0].pa;
     assign ag_go   = ag_v && (!ld_ag_valid || nl_go);
     // A store write to the same 16-byte row in the AG cycle: the load read old data
@@ -2532,7 +2587,7 @@ module tg_lsu
     assign lmc_lq  = m1_lq_q;
     assign lck_pa  = m1_pa_q;
     assign lck_dbl = lq_size_q[m1_lq_q] == 2'd3;
-    assign t_lck   = lq_tid(int'(m1_lq_q), md);
+    assign t_lck   = m1_t_q;
     assign l_den   = m2_lden_q;
     assign lm_den  = m2_mden_q;
     assign lm_st   = m2_mden_q;
@@ -2621,4 +2676,23 @@ module tg_lsu
   // Board debug (tg_core's dbg_o): the atomic's state, the SQ head's flags, the D$'s word
   assign dbg_o = {dc_dbg, sq_head_q[t_dr_q] != sq_tail_q[t_dr_q], sq_dr_q[dh], sq_dv_q[dh], sq_av_q[dh], sq_v_q[dh],
                   |am_v_q, 2'(am_st_q)};
+`ifndef SYNTHESIS
+  // (timing) the threads carried from the payloads and the registered masks are the entries' own, from the first
+  // reset on: the masks every cycle, each thread while its stage holds a load or store
+  always_ff @(posedge clk)
+    if (md_rs && !rst) begin
+      for (int t = 0; t < NT; t++)
+        assert (lq_ot[t] == lq_own(tid_t'(t), md) && sq_ot[t] == sq_own(tid_t'(t), md))
+          else $error("tg_lsu: a registered thread mask differs from the mode's");
+      if (ld_ag_valid) assert (t_ldag == lq_tid(int'(ld_ag_pl.lq[LIW-1:0]), md))
+        else $error("tg_lsu: a load's thread differs from its LQ entry's");
+      if (sta_ag_valid) assert (t_staag == sq_tid(int'(sa_idx_ag), md))
+        else $error("tg_lsu: a store's thread differs from its SQ entry's");
+      if (m1_v_q && !m1_pt_q) assert (m1_t_q == lq_tid(int'(m1_lq_q), md))
+        else $error("tg_lsu: M1's thread differs from its LQ entry's");
+      if (m2_v_q && !m2_pt_q) assert (m2_t_q == lq_tid(int'(m2_lq_q), md))
+        else $error("tg_lsu: M2's thread differs from its LQ entry's");
+      if (sn_v) assert (sn_t == sq_tid(int'(sn_sq), md)) else $error("tg_lsu: a deciding store's thread differs from its SQ entry's");
+    end
+`endif
 endmodule
