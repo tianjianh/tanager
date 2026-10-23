@@ -808,7 +808,8 @@ module tg_rename
       localparam int CW1 = idx_w(W + 1);
       logic [CW1-1:0] nr, nl, ns, nd, nf, ni;
       logic           iq, cq, ser, wemp, rw, r;
-      logic [N_IQ-1:0][CW1-1:0] cn;
+      logic [N_IQ-1:0][CW1-1:0] cn, cnw;
+      logic           cw;              // cq with every row taken as free: rwo, the group would fire given a row
       always_comb begin
         int q;
         logic got;
@@ -862,6 +863,37 @@ module tg_rename
               cn[q] = cn[q] + 1'b1;
             end
           end
+        // cw: the same caps and bank checks with every row taken as free, so that rwo (rw && cw) is the group that would
+        // fire given a row, R2's sibling. cq's steering takes an ALU uop's queue only where its bank has a free row, so
+        // with no ALU row free in that bank cq is low, and rwo on cq would leave out a group short of ALU rows alone:
+        // R2 then never kept an ALU bank's last row for a starved sibling (ms_stride + dhrystone, fpu-2 10-22)
+        cw  = 1'b1;
+        cnw = '0;
+        for (int k = 0; k < W; k++)
+          if (rn_v_q[t][k]) begin
+            q = -1;
+            unique case (rn_u_q[t][k].d.cls)
+              C_BR:                q = 0;
+              C_MUL, C_DIV, C_CSR: q = 1;
+              C_LD:                q = Q_LD;
+              C_ST:                q = Q_STA;
+              C_FP:                q = EXT_FD ? Q_FP : 0;
+              C_ALU: begin
+                got = 1'b0;
+                for (int j = 0; j < N_ALU; j++)
+                  if (!got && cap_ok[t][(k + j) % N_ALU][cnw[(k + j) % N_ALU]] && bank_ok[t][(k + j) % N_ALU][k]) begin
+                    q = (k + j) % N_ALU;
+                    got = 1'b1;
+                  end
+                if (!got) cw = 1'b0;
+              end
+              default: ;
+            endcase
+            if (q >= 0) begin
+              if (!cap_ok[t][q][cnw[q]] || !bank_ok[t][q][k]) cw = 1'b0;
+              cnw[q] = cnw[q] + 1'b1;
+            end
+          end
         ser  = rn_v_q[t][0] && (rn_u_q[t][0].d.serial || rn_u_q[t][0].d.exc);
         wemp = rtail_q[t] == rob_head[t] && !(|ds_valid_q && t_ds == tid_t'(t));
         rw   = |rn_v_q[t] && !block_q[t] && rob_room_t[t][nr] && lq_room_t[t][nl] && sq_room_t[t][ns] &&
@@ -869,7 +901,7 @@ module tg_rename
         r    = rw && iq && cq;
       end
       assign rdy[t] = r;
-      assign rwo[t] = rw && cq;
+      assign rwo[t] = rw && cw;
     end else begin : g_off
       assign rdy[t] = 1'b0;
       assign rwo[t] = 1'b0;
@@ -1013,6 +1045,34 @@ module tg_rename
           for (int i = 0; i < LLT_ENTRIES; i++)
             assert (!(llt_busy_q[i] && llt_tid_q[i] == t[0])) else $error("tg_rename: thread %0d's window is empty but LLT %0d is busy for it", t, i);
       end
+  end
+  // (step 7) rwo is the group that would fire given a row (core-2's review): a ready group counts, and a group that
+  // counts but is not ready finds a bank it needs short of a row (its uop's queue's, or for an ALU uop some ALU
+  // queue's), so its own terms (the caps, the bank rule, the rest of rw) all hold
+  if (CMT) begin : g_rwo_chk
+    for (genvar t = 0; t < NT; t++) begin : g_t
+      logic rshort;
+      always_comb begin
+        rshort = 1'b0;
+        for (int k = 0; k < W; k++)
+          if (rn_v_q[t][k])
+            unique case (rn_u_q[t][k].d.cls)
+              C_BR:                rshort |= !st_free[0][k];
+              C_MUL, C_DIV, C_CSR: rshort |= !st_free[1][k];
+              C_LD:                rshort |= !st_free[Q_LD][k];
+              C_ST:                rshort |= !st_free[Q_STA][k];
+              C_FP:                rshort |= !st_free[EXT_FD ? Q_FP : 0][k];
+              C_ALU:               for (int p = 0; p < N_ALU; p++) rshort |= !st_free[p][k];
+              default: ;
+            endcase
+      end
+      always_ff @(posedge clk)
+        if (!rst) begin
+          assert (!rdy[t] || rwo[t]) else $error("tg_rename: thread %0d's group is ready but not counted as waiting for rows alone", t);
+          assert (!rwo[t] || rdy[t] || rshort)
+            else $error("tg_rename: thread %0d's group waits for rows alone with every bank it needs holding a row", t);
+        end
+    end
   end
   // (DR-179) FP destinations renamed across, on stderr at the end with hart 1: P4's results into F1, FP loads into F0
   longint unsigned nfx[2];
