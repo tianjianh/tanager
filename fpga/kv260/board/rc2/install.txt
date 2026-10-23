@@ -1,0 +1,29 @@
+0390785b75f8567c
+package /home/ubuntu/tanager/rc2u100-riscv-pkg/rc2u100-riscv/
+16
+tanager-mode vs installed: same
+ubootenv.d-tanager-mode vs installed: same
+riscv.scr script vs p1: same
+== fh_p1 backup 2026-10-20 21:57:22 UTC, A53 up 124.92 s
+backup: 9 files, 9.3M
+62349a65652ae167 fw_jump.bin
+b0094d235a36f8bd fw_jump.bin.b0094d23
+459992b884a8a3e0 payload.bin
+8aa45e615548e570 riscv.cmd
+3b56418cce77c196 riscv.scr
+15cd197cd1338300 tanager-h01.dtb
+f8037f921c0d7691 tanager.bit.bin
+18afd230a9f577f1 tanager.dtb
+45ba89a91ea1b278 tanager.dtb.pre-pmpfix
+/dev/mmcblk1p1 1009M  292M  717M  29% /boot/firmware
+== fh_p1 install /home/ubuntu/tanager/rc2u100-riscv-pkg/rc2u100-riscv/ 2026-10-20 21:57:26 UTC, A53 up 129.01 s
+62349a65652ae167 62349a65652ae167 fw_jump.bin (package, p1)
+459992b884a8a3e0 459992b884a8a3e0 payload.bin (package, p1)
+8aa45e615548e570 8aa45e615548e570 riscv.cmd (package, p1)
+61947ff7956184d6 61947ff7956184d6 riscv.scr (package, p1)
+15cd197cd1338300 15cd197cd1338300 tanager-h01.dtb (package, p1)
+0516f96056469654 0516f96056469654 tanager.bit.bin (package, p1)
+18afd230a9f577f1 18afd230a9f577f1 tanager.dtb (package, p1)
+kept from before:
+  fw_jump.bin.b0094d23
+  tanager.dtb.pre-pmpfix

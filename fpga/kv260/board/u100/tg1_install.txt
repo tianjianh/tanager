@@ -1,0 +1,4 @@
+fw_jump.bin: OK
+p1 now: b0094d235a36f8bd
+kept: fw_jump.bin.b0094d23 b0094d235a36f8bd
+p1 fw_jump.bin: 62349a65652ae1676c27f94738098ab6442b1851b436029e2d0bad2c5726fc78

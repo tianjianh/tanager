@@ -66,6 +66,7 @@ module tg_rename
   input  logic flush_slp,      // with hart 1 (step 6): the flush follows a WFI gone to sleep; its thread stays blocked
   // From decode
   input  logic [W-1:0]   de_valid,
+  input  logic           de_nz,        // |de_valid, decode's, made without its group rules (asserted there)
   input  uop_t [W-1:0]   de_uop,
   output logic           de_take,
   output logic [NUM_THREADS-1:0] blk_o,  // with hart 1: each thread behind a serial uop until its flush (fetch drops
@@ -1037,7 +1038,7 @@ module tg_rename
   logic                    sel_n, de_any;
   logic [3:0]              sel_f, tk_f;    // sel_n, de_take given {rn_fire, de_any} = i
   logic [3:0][NT-1:0]      vn, nw, acc_f;  // each register holds a group next cycle; ... one decode hands it now; acc_o
-  assign de_any = |de_valid;
+  assign de_any = de_nz;                    // (|de_valid, without decode's group rules: timing, into acc_o and rt_q)
   always_comb
     for (int i = 0; i < 4; i++) begin
       tk_f[i] = !flush && ready && (!(|rn_v_q[CMT ? t_de : 0]) || (sel_q == t_de[0] && i >= 2) || block_q[t_de]);
