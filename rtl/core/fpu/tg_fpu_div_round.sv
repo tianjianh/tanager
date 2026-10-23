@@ -70,14 +70,16 @@ module tg_fpu_div_round
   end
 
   // ---- F2 ----
+  // The pack adds {exponent - 1 + hidden, fraction} + increment ride DSP ALUs (A:B + C + carry-in), which take F2's
+  // registers as their input registers: 63 + 31 bits of fabric carry chain fewer (M9's area, fpga_friendly.md T6)
+  (* use_dsp = "yes" *) logic [62:0] pk_d;
+  (* use_dsp = "yes" *) logic [30:0] pk_s;
+  assign pk_d = ({52'b0, f2_info.fbase} << 52) + {10'b0, f2_t} + 63'(f2_inc);
+  assign pk_s = ({20'b0, f2_info.fbase} << 23) + {7'b0, f2_t[23:0]} + 31'(f2_inc);
   always_comb begin
     logic dbl, s;
-    logic [62:0] pk_d;
-    logic [30:0] pk_s;
     dbl  = f2_info.dbl;
     s    = f2_info.sign;
-    pk_d = ({52'b0, f2_info.fbase} << 52) + {10'b0, f2_t} + 63'(f2_inc);
-    pk_s = ({20'b0, f2_info.fbase} << 23) + {7'b0, f2_t[23:0]} + 31'(f2_inc);
     resp_o.tag = f2_info.tag;
     resp_o.int_dest = 1'b0;
     resp_o.fflags = '0;
