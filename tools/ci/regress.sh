@@ -16,6 +16,7 @@
 #                       [SPLIT=0|1]              (M7's split mode: the thread runs in its half, DR-175; sim/profile.mk)
 #                       [HART1=0|1]              (M7's hart 1, step 5: divided free lists with transfers; sim/profile.mk)
 #                       [PMP_FILL=0|1]           (DR-183's PMP checks at TLB fill, one shared checker; sim/profile.mk)
+#                       [LWT=0|1]                (M9's load-wait table, DR-190's addendum; sim/profile.mk)
 # Steps: build tg_vsim and tg_replay; the harness's unit tests (make -C sim unit); riscv-tests, our directed tests (interrupts), CoreMark A/B and
 # Dhrystone, RANDN constrained-random programs, all with lockstep; the riscv-tests and directed tests
 # again under trace back-pressure; with ARCH=1 the ACT4 tests of the
@@ -28,11 +29,11 @@
 # Prints a summary and exits non-zero on any failure. TIMING_CUTS=both runs the default and the
 # fallback side by side (make regress-profiles; below).
 set -u
-CFG=st CORE=core LAT=native SUITES="" MARCH="" SIMARGS="" SELFTEST=1 JOBS=8 RANDN=100 RANDFD=50 ARCH=0 ACTCFG="" TIMING_CUTS="" COHN=20 PGN=12 DC_MSHRS="" QUEUE_DECODE="" SPEC_WAKE="" SPEC_WAKE_FILT="" STA_BASE="" STEER_LA="" PMP_ENTRIES="" STORE_PF="" URF="" STORE_PF_MAX="" SOLO_TID="" SPLIT="" HART1="" PMP_FILL=""
+CFG=st CORE=core LAT=native SUITES="" MARCH="" SIMARGS="" SELFTEST=1 JOBS=8 RANDN=100 RANDFD=50 ARCH=0 ACTCFG="" TIMING_CUTS="" COHN=20 PGN=12 DC_MSHRS="" QUEUE_DECODE="" SPEC_WAKE="" SPEC_WAKE_FILT="" STA_BASE="" STEER_LA="" PMP_ENTRIES="" STORE_PF="" URF="" STORE_PF_MAX="" SOLO_TID="" SPLIT="" HART1="" PMP_FILL="" LWT=""
 for kv in "$@"; do
   case "$kv" in
-    CFG=*|CORE=*|LAT=*|SUITES=*|MARCH=*|SIMARGS=*|SELFTEST=*|JOBS=*|RANDN=*|RANDFD=*|ARCH=*|ACTCFG=*|TIMING_CUTS=*|COHN=*|PGN=*|DC_MSHRS=*|QUEUE_DECODE=*|SPEC_WAKE=*|SPEC_WAKE_FILT=*|STA_BASE=*|STEER_LA=*|PMP_ENTRIES=*|STORE_PF=*|URF=*|STORE_PF_MAX=*|SOLO_TID=*|SPLIT=*|HART1=*|PMP_FILL=*) declare "${kv%%=*}=${kv#*=}" ;;
-    *) echo "usage: $0 [CFG=..] [CORE=..] [LAT=..] [SUITES=..] [MARCH=..] [SIMARGS=..] [SELFTEST=0|1] [RANDN=N] [RANDFD=N] [ARCH=0|1] [ACTCFG=..] [JOBS=N] [TIMING_CUTS=0|1|both] [COHN=N] [PGN=N] [DC_MSHRS=1|4] [QUEUE_DECODE=0|1] [SPEC_WAKE=0|1] [SPEC_WAKE_FILT=0|1|2] [STA_BASE=0|1] [STEER_LA=0|1] [PMP_ENTRIES=8|16] [STORE_PF=0|1] [URF=0|1] [STORE_PF_MAX=2|3] [SOLO_TID=0|1] [SPLIT=0|1] [HART1=0|1] [PMP_FILL=0|1]"; exit 5 ;;
+    CFG=*|CORE=*|LAT=*|SUITES=*|MARCH=*|SIMARGS=*|SELFTEST=*|JOBS=*|RANDN=*|RANDFD=*|ARCH=*|ACTCFG=*|TIMING_CUTS=*|COHN=*|PGN=*|DC_MSHRS=*|QUEUE_DECODE=*|SPEC_WAKE=*|SPEC_WAKE_FILT=*|STA_BASE=*|STEER_LA=*|PMP_ENTRIES=*|STORE_PF=*|URF=*|STORE_PF_MAX=*|SOLO_TID=*|SPLIT=*|HART1=*|PMP_FILL=*|LWT=*) declare "${kv%%=*}=${kv#*=}" ;;
+    *) echo "usage: $0 [CFG=..] [CORE=..] [LAT=..] [SUITES=..] [MARCH=..] [SIMARGS=..] [SELFTEST=0|1] [RANDN=N] [RANDFD=N] [ARCH=0|1] [ACTCFG=..] [JOBS=N] [TIMING_CUTS=0|1|both] [COHN=N] [PGN=N] [DC_MSHRS=1|4] [QUEUE_DECODE=0|1] [SPEC_WAKE=0|1] [SPEC_WAKE_FILT=0|1|2] [STA_BASE=0|1] [STEER_LA=0|1] [PMP_ENTRIES=8|16] [STORE_PF=0|1] [URF=0|1] [STORE_PF_MAX=2|3] [SOLO_TID=0|1] [SPLIT=0|1] [HART1=0|1] [PMP_FILL=0|1] [LWT=0|1]"; exit 5 ;;
   esac
 done
 
@@ -106,7 +107,8 @@ fi
 [ -n "$SPLIT" ] && export SPLIT
 [ -n "$HART1" ] && export HART1
 [ -n "$PMP_FILL" ] && export PMP_FILL
-TCS="${TIMING_CUTS:+-tc$TIMING_CUTS}${DC_MSHRS:+-m$DC_MSHRS}${QUEUE_DECODE:+-qd$QUEUE_DECODE}${SPEC_WAKE:+-sw$SPEC_WAKE}${SPEC_WAKE_FILT:+-swf$SPEC_WAKE_FILT}${STA_BASE:+-sb$STA_BASE}${STEER_LA:+-sl$STEER_LA}${PMP_ENTRIES:+-p$PMP_ENTRIES}${STORE_PF:+-spf$STORE_PF}${URF:+-urf$URF}${STORE_PF_MAX:+-spm$STORE_PF_MAX}${SOLO_TID:+-solo$SOLO_TID}${SPLIT:+-sp$SPLIT}${HART1:+-h$HART1}${PMP_FILL:+-pf$PMP_FILL}"   # the build directories' suffix (sim/profile.mk)
+[ -n "$LWT" ] && export LWT
+TCS="${TIMING_CUTS:+-tc$TIMING_CUTS}${DC_MSHRS:+-m$DC_MSHRS}${QUEUE_DECODE:+-qd$QUEUE_DECODE}${SPEC_WAKE:+-sw$SPEC_WAKE}${SPEC_WAKE_FILT:+-swf$SPEC_WAKE_FILT}${STA_BASE:+-sb$STA_BASE}${STEER_LA:+-sl$STEER_LA}${PMP_ENTRIES:+-p$PMP_ENTRIES}${STORE_PF:+-spf$STORE_PF}${URF:+-urf$URF}${STORE_PF_MAX:+-spm$STORE_PF_MAX}${SOLO_TID:+-solo$SOLO_TID}${SPLIT:+-sp$SPLIT}${HART1:+-h$HART1}${PMP_FILL:+-pf$PMP_FILL}${LWT:+-lwt$LWT}"   # the build directories' suffix (sim/profile.mk)
 LOGS="$BUILD/regress/$CFG-$CORE$TCS"
 mkdir -p "$LOGS"
 : "${RISCV_TESTS:?source tools/env.sh first}"

@@ -114,7 +114,7 @@ def git(*args, env=None):
 PROFILE_VARS = (("TIMING_CUTS", "tc"), ("DC_MSHRS", "dcm"), ("QUEUE_DECODE", "qd"), ("SPEC_WAKE", "sw"),
                 ("STA_BASE", "sb"), ("STEER_LA", "sl"), ("PMP_ENTRIES", "pmp"), ("STORE_PF", "spf"), ("URF", "urf"),
                 ("STORE_PF_MAX", "spm"), ("SOLO_TID", "solo"), ("SPLIT", "sp"), ("HART1", "h1"),
-                ("SPEC_WAKE_FILT", "swf"), ("PMP_FILL", "pf"))
+                ("SPEC_WAKE_FILT", "swf"), ("PMP_FILL", "pf"), ("LWT", "lwt"))
 
 
 def profile_takes(ref, var):
@@ -704,6 +704,10 @@ def main():
                     help="both sides' PMP checks at TLB fill (DR-183, pmp-at-fill.md; the package's default, on since the flip)")
     ap.add_argument("--branch-pmp-fill", type=int, choices=(0, 1), default=None,
                     help="this side's only, for example 0 to show the switch off is cycle-identical to a base before the flip")
+    ap.add_argument("--lwt", type=int, choices=(0, 1), default=None,
+                    help="both sides' load-wait table (M9, DR-190's addendum; off by default)")
+    ap.add_argument("--branch-lwt", type=int, choices=(0, 1), default=None,
+                    help="this side's only (the table changes the cycles)")
     ap.add_argument("--timeout", type=int, default=3600, help="wall-clock seconds per run before it counts as broken")
     ap.add_argument("--show", type=int, default=5, help="differing runs to explain in detail")
     a = ap.parse_args()
@@ -757,7 +761,7 @@ def main():
             "SOLO_TID": (a.solo_tid, a.branch_solo_tid),
             "SPLIT": (a.split, a.branch_split), "HART1": (a.hart1, a.branch_hart1),
             "SPEC_WAKE_FILT": (a.spec_wake_filt, a.branch_spec_wake_filt),
-            "PMP_FILL": (a.pmp_fill, a.branch_pmp_fill)}
+            "PMP_FILL": (a.pmp_fill, a.branch_pmp_fill), "LWT": (a.lwt, a.branch_lwt)}
     prof_base = {v: b for v, (b, _) in both.items() if b is not None}
     prof_branch = {v: br if br is not None else b for v, (b, br) in both.items() if br is not None or b is not None}
     if prof_base or prof_branch:

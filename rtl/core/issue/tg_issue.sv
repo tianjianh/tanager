@@ -174,6 +174,8 @@ module tg_issue
   // An LD row's destination index: an FP load's F1 index is wider than an integer bank's with FP banks of 96
   // (M7 step 5, hart 1's homes in F1)
   localparam int LDW = (FPIDX_W > PIDX_W) ? FPIDX_W : PIDX_W;
+  // ... and its PC's hashes: SPEC_WAKE's filter's (bits 4:0) and, with the load-wait table (LWT_ON), its index above
+  localparam int PHW = LWT_ON ? 9 : 5;
   typedef struct packed {
     robid_t              rob;
     logic [11:0]         imm;
@@ -185,7 +187,7 @@ module tg_issue
     logic                dst_fb;        // an FP load's bank (F1; F0 when rename crossed it, DR-179)
     logic [LDW-1:0]      dst;           // the destination's index (an FP load: its bank's, FPIDX_W bits)
     llt_t                llt;
-    logic [4:0]          ph;            // its PC's hash (SPEC_WAKE's filter)
+    logic [PHW-1:0]      ph;            // its PC's hashes (SPEC_WAKE's filter; the load-wait table's)
     tid_t                tid;           // its thread (SPEC_WAKE: a flush drops its wakeup)
     preg_t               src1;
   } f_ld_t;
@@ -365,7 +367,8 @@ module tg_issue
                                 mem_uns: disp_pl[k].mem_uns || fp, sq: disp_pl[k].sq,
                                 dst_en: disp_pl[k].dst_en, dst_fp: fp, dst_fb: fp && fpreg_bank(disp_pl[k].dst),
                                 dst: fp ? LDW'(fpreg_idx(disp_pl[k].dst)) : LDW'(preg_idx(disp_pl[k].dst)),
-                                llt: disp_pl[k].llt, ph: ph_of(disp_pl[k].pc[15:1]), tid: disp_pl[k].tid,
+                                llt: disp_pl[k].llt, tid: disp_pl[k].tid,
+                                ph: PHW'({disp_pl[k].pc[4:1] ^ disp_pl[k].pc[16:13], ph_of(disp_pl[k].pc[15:1])}),
                                 src1: disp_pl[k].src1};
       end
       f_ld_t b;
@@ -384,8 +387,9 @@ module tg_issue
         up.llt      = b.llt;
         up.tid      = b.tid;
         up.src1     = b.src1;
+        up.lwh      = 4'(b.ph >> 5);   // (LWT_ON; else none)
       end
-      assign ld_ph = b.ph;
+      assign ld_ph = b.ph[4:0];
     end else if (q == Q_STA) begin : g_fs
       for (genvar k = 0; k < DW; k++) begin : g_k
         assign dpl[k] = f_sta_t'{rob: disp_pl[k].rob, imm: disp_pl[k].imm[11:0], sq: disp_pl[k].sq,

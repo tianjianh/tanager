@@ -277,7 +277,8 @@ module tg_lsu
     L_MMIO  = 4'd5,   // waits to be the ROB head
     L_READY = 4'd6,   // replays when the AG slot is free
     L_EXC   = 4'd7,
-    L_TLB   = 4'd8    // DTLB miss: resolved at the ROB head (replay)
+    L_TLB   = 4'd8,   // DTLB miss: resolved at the ROB head (replay)
+    L_LWT   = 4'd9    // LWT_ON: waits for its older stores' addresses (the load-wait table, g_lwt)
   } lstate_e;
   logic   [LQ_ENTRIES-1:0]           lq_v_q;
   lstate_e [LQ_ENTRIES-1:0]          lq_st_q;
@@ -865,6 +866,7 @@ module tg_lsu
   logic [PA_W-1:0]   m2_pa_q;
   logic [63:0]       m2_dword_q, m2_fdword;
   logic [SQ_ENTRIES-1:0] m2_foh_q;                  // the forwarding store, one-hot
+  logic              m2_lwk_q;                      // LWT_ON: its bit set, an older store's address unknown at M1
   logic [SIW-1:0]    m2_fidx;                       // ... its index
   tid_t              t_m2;                          // M2's thread (as t_m1)
   assign t_m2 = m2_pt_q ? pw_dtid : m2_t_q;
@@ -879,14 +881,16 @@ module tg_lsu
   assign sqsz_ra[TRP] = m2_fidx;
   assign m2_fdword = rep(sqd_rd[TRP], sqsz_rd[TRP]);   // LUTRAM reads at m2_fidx
 
-  typedef enum logic [2:0] { O_OK, O_STQ, O_MISS, O_RETRY, O_FAULT } m2_out_e;
+  typedef enum logic [2:0] { O_OK, O_STQ, O_MISS, O_RETRY, O_FAULT, O_LWT } m2_out_e;
   m2_out_e   m2_out, m2_out_w;                      // the outcome; ... before the PMP checker's verdict
   logic [63:0] m2_val;
   always_comb begin
     logic [63:0] dw;
     m2_out_w = O_OK;
     dw = m2_dword_q;
-    if (m2_fhit_q) begin
+    if (m2_lwk_q) begin                   // (LWT_ON) it waits for its older stores' addresses, then replays
+      m2_out_w = O_LWT;
+    end else if (m2_fhit_q) begin
       if (m2_fcov_q && m2_fdat_q) dw = m2_fdword;
       else                        m2_out_w = O_STQ;
     end else if (m2_clash_q) begin
@@ -909,7 +913,7 @@ module tg_lsu
   logic m2_okw;
   // (m2_out_w == O_OK, written out: the denied-line compare only chooses between two outcomes that
   // are not O_OK, so it stays off the wakeup path)
-  assign m2_okw = m2_v_q && !m2_pt_q && !kill_t[t_m2] && !l_nok &&
+  assign m2_okw = m2_v_q && !m2_pt_q && !kill_t[t_m2] && !l_nok && !m2_lwk_q &&
                   (m2_fhit_q ? m2_fcov_q && m2_fdat_q : !m2_clash_q && m2_hit_q);
   assign m2_ok  = m2_okw && !l_den;
   // FP banks of 64 with renaming across both (DR-179): each FP bank has one write port, and P4's stream takes it in
@@ -1659,6 +1663,86 @@ module tg_lsu
   assign replay_valid = rp_v_q;
   assign replay_rob   = lqr_rd[0];
 
+  // ---- The load-wait table (LWT_ON; M9, DR-190's addendum; area_recovery §7.11's mdp 1) ----
+  // A bit per hashed load PC (lwh: the PC's bits 4:1 ^ 16:13, from the LD row), set when the ordering check above marks
+  // a load of that hash and cleared every 64K cycles. A load reads its bit at AG. In M1 a load whose bit is set and that
+  // has an older store of its thread with no address yet (sq_av_q, in the window the forwarding search uses) waits
+  // (lw_m1): its entry goes to L_LWT there, so a store deciding while it is in M2 does not mark it, and in M2
+  // (m2_lwk_q) it completes nothing and wakes nothing. It replays on any store's address decision in its thread
+  // (lw_wake: now or in the two cycles before, as M1 looked two cycles before the loop below sees it), and looks again.
+  // A store that faults or misses the DTLB gets no address, and reaches the ROB head to trap or replay: a flush of the
+  // parked load with it. Its thread's older stores never wait on the load, so the oldest parked load always wakes
+  logic [NT-1:0] lw_wake;
+  logic          lw_m1;                           // M1's load waits (its bit set, an older store's address unknown)
+  if (LWT_ON) begin : g_lwt
+    logic [15:0]           lwt_q;                 // the table
+    logic [15:0]           lwc_q;                 // cycles since the last clear
+    logic [LQ_ENTRIES-1:0] lq_lw_q;               // each load's bit, read at its AG
+    logic [0:0][LIW-1:0]   lwh_ra;
+    logic [0:0][3:0]       lwh_rd;                // the marked load's hash
+    logic [NT-1:0]         ev, ev1_q, ev2_q;      // a store's address decision in thread t
+    logic                  unk;                   // M1: an older store of the load's thread has no address
+    tg_ram_lut #(.DEPTH(LQ_ENTRIES), .WIDTH(4), .NR(1)) u_lqlwh (
+      .clk, .we(ld_ag_valid && !kill_t[t_ldag]), .waddr(ld_ag_pl.lq[LIW-1:0]), .wdata(ld_ag_pl.lwh), .raddr(lwh_ra),
+      .rdata(lwh_rd));
+    assign lwh_ra[0] = rp_ra_q;
+    always_comb begin
+      unk = 1'b0;
+      for (int i = 0; i < SQ_ENTRIES; i++)
+        unk |= sq_v_q[i] && sq_ot[t_m1][i] && !sq_av_q[i] && sq_inwin(i, sq_head_q[t_m1], f_lim);
+    end
+    always_comb for (int t = 0; t < NT; t++) ev[t] = sn_v && !kill_t[t_sn] && t_sn == tid_t'(t);
+    assign lw_wake = ev | ev1_q | ev2_q;
+    assign lw_m1   = !m1_pt_q && lq_lw_q[m1_lq_q] && unk;
+    always_ff @(posedge clk) begin
+      if (rst) begin
+        lwt_q <= '0;
+        lwc_q <= '0;
+      end else begin
+        lwc_q <= lwc_q + 1'b1;
+        if (lwc_q == '1) lwt_q <= '0;
+        if (rp_v_q)      lwt_q[lwh_rd[0]] <= 1'b1;
+      end
+      if (ld_ag_valid && !kill_t[t_ldag]) lq_lw_q[ld_ag_pl.lq[LIW-1:0]] <= lwt_q[ld_ag_pl.lwh];
+      m2_lwk_q <= !rst && lw_m1;
+      ev1_q    <= rst ? '0 : ev;
+      ev2_q    <= rst ? '0 : ev1_q;
+    end
+`ifndef SYNTHESIS
+    // M1's own state write (below, a replay's) meets its entry in L_PIPE, which its AG wrote
+    always_ff @(posedge clk)
+      if (rs_q && !rst && m1_v_q && !m1_pt_q && !(LSU_AG_SPLIT && ln_v) && !kill_t[t_m1])
+        assert (lq_v_q[m1_lq_q] && lq_st_q[m1_lq_q] == L_PIPE) else $error("tg_lsu: a load in M1 whose entry is not in L_PIPE");
+`endif
+  end else begin : g_nolwt
+    assign m2_lwk_q = 1'b0;
+    assign lw_wake  = '0;
+    assign lw_m1    = 1'b0;
+    logic unused_lwh;
+    assign unused_lwh = ^ld_ag_pl.lwh;
+  end
+`ifndef SYNTHESIS
+  // +lwtstat: the ordering check's marks (each a replay from the ROB's head), and with the table the loads that waited
+  // and the cycles they spent parked (summed over the parked loads)
+  bit lw_on;
+  initial lw_on = $test$plusargs("lwtstat");
+  longint unsigned lw_n_mark, lw_n_park, lw_n_cyc;
+  always_ff @(posedge clk)
+    if (rst) begin
+      lw_n_mark <= 0; lw_n_park <= 0; lw_n_cyc <= 0;
+    end else begin
+      int n;
+      n = 0;
+      for (int i = 0; i < LQ_ENTRIES; i++) n += (lq_v_q[i] && lq_st_q[i] == L_LWT) ? 1 : 0;
+      lw_n_mark <= lw_n_mark + (rp_v_q ? 1 : 0);
+      lw_n_park <= lw_n_park + ((m2_v_q && !m2_pt_q && !kill_t[t_m2] && m2_out == O_LWT) ? 1 : 0);
+      lw_n_cyc  <= lw_n_cyc + longint'(n);
+    end
+  final if (lw_on)
+    $fwrite(32'h8000_0002, "TG-LWT %m: ordering marks %0d; loads parked %0d, cycles parked %0d\n",
+            lw_n_mark, lw_n_park, lw_n_cyc);
+`endif
+
   // ---- CoRR: a load's order against older loads of its address (architecture_plan §4.9; M7's exit 4) ----
   // The search above orders a load against older stores, not against older loads of its address: a younger load that
   // issued first could keep a value another hart overwrote before the older one read it (litmus CoRR on four harts,
@@ -2301,6 +2385,7 @@ module tg_lsu
           O_STQ:   lq_st_q[m2_lq_q] <= L_STQ;
           O_MISS:  lq_st_q[m2_lq_q] <= L_MISS;
           O_RETRY: lq_st_q[m2_lq_q] <= L_READY;
+          O_LWT:   lq_st_q[m2_lq_q] <= L_LWT;
           default: lq_st_q[m2_lq_q] <= L_EXC;
         endcase
         // The blocking store's fields go in on the outcome before the PMP checker's verdict (timing:
@@ -2368,8 +2453,14 @@ module tg_lsu
         lq_pa_q[ln_lqw]  <= nl_pa;
         lq_pav_q[ln_lqw] <= !nl_exc && !nl_tm;
         lq_io_q[ln_lqw]  <= nl_mmio;
-        lq_st_q[ln_lqw]  <= (nl_exc || nl_tm || nl_mmio) ? (nl_exc ? L_EXC : nl_tm ? L_TLB : L_MMIO) : L_PIPE;
+        lq_st_q[ln_lqw]  <= (nl_exc || nl_tm || nl_mmio) ? (nl_exc ? L_EXC : nl_tm ? L_TLB : L_MMIO) :
+                            (LSU_AG_SPLIT && lw_m1) ? L_LWT : L_PIPE;
       end
+      // (LWT_ON) A load that waits leaves L_PIPE where M1 decides it (a new load's above, with the split; a replay's,
+      // or without the split any load's, here), so the ordering check and CoRR's marks pass over it in M2, where it
+      // completes nothing (else a store deciding then marks it, and its replay from the ROB's head comes anyway)
+      if (LWT_ON && m1_v_q && !m1_pt_q && !(LSU_AG_SPLIT && ln_v) && !kill_t[t_m1])
+        lq_st_q[m1_lq_q] <= lw_m1 ? L_LWT : L_PIPE;
 
       // ---- DR-149 (DC_MSHRS > 1): the D$'s answer to a load's miss, two cycles after it ----
       if (DC_MSHRS > 1 && lm_ans_v && ma4_v_q && !kill_t[lq_tid(int'(ma4_lq_q), md)] && lq_st_q[ma4_lq_q] == L_MISS) begin
@@ -2397,6 +2488,9 @@ module tg_lsu
                 (!lq_part_q[i] && sq_dvn[lq_blk_q[i][SIW-1:0]]))
               lq_st_q[i] <= L_READY;
           end
+          // (LWT_ON) on a store's address decision in its thread, now or in the two cycles before: then it may have
+          // come since the load's M1 looked (g_lwt); the load replays and looks again
+          if (LWT_ON && lq_st_q[i] == L_LWT && lw_wake[lq_tid(i, md)]) lq_st_q[i] <= L_READY;
         end
       end
       if (mm_go) lq_st_q[mm_idx] <= L_PIPE;   // MMIO request out (not L_MMIO any more)

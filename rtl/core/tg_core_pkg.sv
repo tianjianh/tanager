@@ -228,6 +228,14 @@ package tg_core_pkg;
 `else
   localparam bit IPF_ON = 1'b1;
 `endif
+  // The 16-entry load-wait table (M9, DR-190's addendum; area_recovery §7.11's mdp 1): a bit per hashed load PC, set
+  // by an ordering replay's mark and cleared every 64K cycles; a load whose bit is set does not complete while an
+  // older store of its thread has no address (core-lsu.md). Off by default for now; TG_LWT=1 turns it on.
+`ifdef TG_LWT
+  localparam bit LWT_ON = `TG_LWT;
+`else
+  localparam bit LWT_ON = 1'b0;
+`endif
   // DR-174 (the user, the area reserve): the integer register file in UltraRAM, double-pumped at clk2x (twice the
   // core clock, from the board's MMCM; spikes.md §8.14's "edge" plan). Off by default; TG_URF=1 turns it on, with
   // the same cycles. The core then needs clk2x.
@@ -758,6 +766,7 @@ package tg_core_pkg;
     wid_t          wid;
     llt_t          llt;
     logic [63:0]   pc;
+    logic [3:0]    lwh;         // a load's index in the load-wait table (LWT_ON): its PC's bits 4:1 ^ 16:13
     br_kind_e      br_kind;
     logic [2:0]    br_f3;
     logic [63:0]   br_target;
