@@ -18,9 +18,10 @@ dual-core, 2 cores × 2 harts. This plan takes each item in turn and gives:
 A recommendation follows: what M9 builds and in what order, what waits for v2, and the area that pays for it.
 
 **The constraints:**
-- **The chip is full.** The release chip rc2 is 112,360 LUTs (95.9%) and closes 100 MHz by only +0.296 / +0.188 ns
-  in its two placements (devlog, rc2). The last placed report uses every CLB (hp1f: 14,640 of 14,640). Placement noise
-  at this fill is ±0.3–0.6 ns. So every LUT M9 adds needs a source, and anything on a near-critical family is a risk.
+- **The chip is full.** The release image rc3_u095r is 112,806 LUTs (96.3%). It met 100 MHz (+0.748 ns) only in a
+  placement at 0.95 ns with AlternateCLBRouting, after rc3's pair at 1.0 and 1.05 ns failed (−1.104 / −0.959 ns;
+  spikes.md §8.18). The last placed report uses every CLB (hp1f: 14,640 of 14,640). Placement noise at this fill is
+  ±0.3–0.6 ns. So every LUT M9 adds needs a source, and anything on a near-critical family is a risk.
 - **DR-147:** a standard SBC running Debian's own kernel, with no kernel patches. Nothing below needs a patch: Debian's
   6.12 is built portable and detects every optional extension at run time from the device tree.
 - **DR-154:** the coordinator decides trades under 1% performance and 1,200 LUTs a chip; larger ones go to the user.
@@ -91,6 +92,10 @@ A recommendation follows: what M9 builds and in what order, what waits for v2, a
 - **Depends on:** the device tree's `riscv,pmu` node and `sscofpmf` in `riscv,isa-extensions` (soc-2's trees), and
   OpenSBI's PMU support (present).
 - **Value:** developer tooling, not function. It is mandatory in RVA23S64 (Sscofpmf) and RVA22U64 (Zihpm).
+- **Built:** on main as 889c3b11 (10-23), behind `TG_HPM`, off by default: 4 counters a hart with Sscofpmf and seven
+  events (mispredicts, ordering replays, L1D load misses, data and fetch walks, I$ misses, CoRR replays); 870 LUTs a chip
+  measured on the prototype, 800 with the seven events, 326 FFs and 32 DSPs (area_switches.md). Before it defaults on:
+  verif-2's lockstep for the counters and soc-2's device tree (firmware_switches.md).
 
 ## 2. Svpbmt
 - **Hardware:** leaf PTE bits 62:61 select PMA (0), NC (1, non-cacheable, idempotent) or IO (2, non-cacheable,
@@ -208,31 +213,33 @@ A recommendation follows: what M9 builds and in what order, what waits for v2, a
 
   | Config | The suite's score (33 programs) | 42 pairs WS at 30 / 120 / 250 | Switch interpreter | Threaded interpreter |
   |---|---|---|---|---|
-  | (a) micro-BTB 128 | −0.11% | −0.09 / +0.04 / +0.04% | 0 | 0 |
-  | **(b) 256-entry table, path (PC xor the last 4 indirect targets)** | **+0.20%** (wikisort +4.4%, cubic +1.4%, CoreMark A +0.8%) | +0.00 / +0.02 / +0.02% | **+98%** | **+47%** |
+  | The micro-BTB at 128 | −0.11% | −0.09 / +0.04 / +0.04% | 0 | 0 |
+  | **The path table: 256 entries by path (PC xor the last 4 indirect targets)** | **+0.20%** (wikisort +4.4%, cubic +1.4%, CoreMark A +0.8%) | +0.00 / +0.02 / +0.02% | **+98%** | **+47%** |
   | 256-entry table, block history | +0.19% | — | +4.2% | +0.04% |
-  | (a) and (b) | +0.07% | — | +98% | +47% |
+  | Both | +0.07% | — | +98% | +47% |
+
+  (area_recovery §7.12 calls the path table (a) and the micro-BTB at 128 (b); this section names them.)
 
   - **Interpreters:** today the micro-BTB mispredicts 97% of a switch interpreter's dispatches and 58% of threaded
     code's, at 14–17 cycles each. The path table removes 82% and 67% of them.
   - That is an upper end, since the kernel is a regular 34-bytecode loop.
   - The pairs have almost no indirect jumps (0.06 per 1K).
-- **(c) DR-159's block BTB:** CoreMark +2.2%, the suite unchanged, about 0.6K LUTs a core.
+- **DR-159's block BTB:** CoreMark +2.2%, the suite unchanged, about 0.6K LUTs a core.
 - **The boot, measured on the RTL** (smt2-study, area_recovery §7.12, claude/tgsim-rtl-cal b0dca59a). The method:
   - tb_boot runs the board's shape (two cores, thread 0 each) to TANAGER-BOOT-OK.
-  - (a) is measured by building it.
-  - (b) replays the RTL's own indirect-jump stream through a shadow table, with each fixed mispredict costed to its
-    32nd younger retirement.
+  - The micro-BTB at 128 is measured by building it.
+  - The path table is estimated by replaying the RTL's own indirect-jump stream through a shadow table, with each fixed
+    mispredict costed to its 32nd younger retirement.
 
   | | Core 0 | Core 1 |
   |---|---|---|
   | Indirect-jump mispredicts per 1K (of all) | 4.08 (of 7.99) | 3.38 (of 7.01) |
-  | (b) the path table, on busy cycles | **+2.91%** | **+2.42%** |
-  | (b) on all cycles | +1.84% | +1.49% |
+  | The path table, on busy cycles | **+2.91%** | **+2.42%** |
+  | The path table, on all cycles | +1.84% | +1.49% |
 
-  - (a), the 128-entry micro-BTB, measured: +0.35% of the boot's cycles. With (a) built, (b) still adds +1.6–2.5%.
-  - On the RTL's suite, (b) is +0.14% (18 programs) and (a) +0.37% (nsichneu +7.9%, Dhrystone −1.4%). The
-    interpreters: (b) +87% (switch) and +31% (threaded), (a) 0.
+  - The micro-BTB at 128, measured: +0.35% of the boot's cycles. With it built, the path table still adds +1.6–2.5%.
+  - On the RTL's suite, the path table is +0.14% (18 programs) and the micro-BTB at 128 +0.37% (nsichneu +7.9%,
+    Dhrystone −1.4%). The interpreters: the path table +87% (switch) and +31% (threaded), the micro-BTB 0.
   - So the boot gains 3 to 6 times DR-190's 0.5%. Most of its indirect mispredicts are at one-target kernel PCs (far
     calls), and the interpreters need the path.
 - **The table's shape (smt2-study's recommendation):** split the same storage into a 128-entry path half and a
@@ -244,18 +251,17 @@ A recommendation follows: what M9 builds and in what order, what waits for v2, a
   | **path 128 + PC 128 (the same storage)** | **+4.1%** | +81% / +31% |
   | PC 256 | +4.6% | 0 / 0 |
   | path 256 + PC 256 (twice the storage) | +5.0% | +87% / +31% |
-- **Cost of (b):** one RAMB36 a core (256 × tag + target fits; 23 are free) and about 100 LUTs (smt2-study's desk
+- **Cost of the path table:** one RAMB36 a core (256 × tag + target fits; 23 are free) and about 100 LUTs (smt2-study's desk
   estimate), i.e. about 0.2K LUTs and 2 BRAM a chip. As LUTRAM, about 400 a core.
 - **Timing risk medium:** fetch's next-PC families (rt_q, qs_q) are near the chip's top. A late F2 override, as TAGE's,
   keeps the table off F1's loop.
 - **Switch:** yes.
-- **Decided (the coordinator under DR-154, 01e2c013):** M9 builds (b), the 256-entry path table (now best split as path 128
-  + PC 128, above), in its BRAM form, as an
-  F2 override behind a switch. DR-190's "0.5%, else the 128-entry micro-BTB" did not fit the numbers, since its
+- **Decided (the coordinator under DR-154, 01e2c013):** M9 builds the 256-entry path table (now best split as path 128
+  + PC 128, above), in its BRAM form, as an F2 override behind a switch. DR-190's "0.5%, else the 128-entry micro-BTB" did not fit the numbers, since its
   fallback loses.
-  - Debian runs interpreters (apt's Python, Perl and shell maintainer scripts), and there (b) roughly halves or better
+  - Debian runs interpreters (apt's Python, Perl and shell maintainer scripts), and there the path table roughly halves or better
     the dispatch cost.
-  - (a) drops out (−0.11%).
+  - The micro-BTB at 128 drops out (−0.11%).
   - The boot's share is measured in M9, before the switch defaults on.
 
 ## 7. virtio-net
@@ -304,8 +310,8 @@ A recommendation follows: what M9 builds and in what order, what waits for v2, a
 - **Recommendation:** M9, development builds only, if the user takes the area there. Sdtrig waits for v2.
 
 ## 9. Documentation (v1)
-- **Today:** README.md is a 52-line status narrative. Build references exist (fpga/kv260/README.md, sw/README.md), but
-  there is no guide for a user.
+- **Today:** README.md is a status narrative. Build references exist (fpga/kv260/README.md, sw/README.md), and
+  docs/user_guide.md is the user guide's first draft (the board session's MR42, 10-24).
 - **M9 writes:**
   - **A user guide:** the KV260 in RISC-V mode (flashing the boot image, booting Debian 13, the console, SD, Ethernet),
     and the host tools.
@@ -342,9 +348,10 @@ A recommendation follows: what M9 builds and in what order, what waits for v2, a
 3. **The indirect-target predictor (§6):** the 256-entry path table (interpreters +47–98%, the suite +0.20%), one BRAM36
    a core, behind a switch (decided, 01e2c013). The boot's share is measured when it is built, under DR-184's band rule.
 4. **The debug module (§8),** in development builds only. [user]: about 1.5–2.5K LUTs there, nothing in the release.
+5. **The 16-entry load-wait table (§5):** in M9 (the user, 10-23 19:30, DR-190's addendum), built by core-2 after its
+   timing fixes (DR-191), behind a switch: the suite +0.58% (Dhrystone +4.7%) for 0.1–0.3K LUTs a chip.
 
 **After v1 (or when a measurement asks for it):**
-- The 16-entry load-wait table (§5): the suite +0.58% (Dhrystone +4.7%) for 0.1–0.3K (the user, with store sets).
 - Svpbmt: conformance only.
 - Zicbom: unused with coherent DMA.
 - Real Zicbop prefetches.
@@ -377,7 +384,7 @@ A recommendation follows: what M9 builds and in what order, what waits for v2, a
     real area source for M9.
 - The unary-ops move (−0.36K) and the core and soc rows pay for M9's additions (0.9–1.9K): about three of them, chosen
   by their owners once §1's prototype is measured.
-- Taking the sources before the additions keeps the chip's fill at or below rc2's 95.9%. The timing margin, not the
+- Taking the sources before the additions keeps the chip's fill at or below the release image's 96.3% (rc3_u095r). The timing margin, not the
   LUT count, is the binding limit.
 - The debug module lives in development builds, which need their own room check.
 
@@ -396,6 +403,9 @@ A recommendation follows: what M9 builds and in what order, what waits for v2, a
   misaligned accesses): https://github.com/riscv/riscv-isa-manual
 - **The RISC-V profiles** (RVA22, RVA23): https://github.com/riscv/riscv-profiles/releases
 - **The ratified extensions list:** https://riscv.atlassian.net/wiki/spaces/HOME/pages/16154732/Ratified+Extensions
+- **Store sets (§5):** Chrysos and Emer, ISCA 1998 (https://acg.cis.upenn.edu/milom/cis501-Fall10/papers/store-sets.pdf), as the literature review cites them.
+  - The load-wait table has no paper in the review.
+  - The indirect-target table (§6) follows tgsim's design (area_recovery.md §7.11); the review names XiangShan's ITTAGE but cites no paper for it.
 - **The CMO specification:** https://github.com/riscvarchive/riscv-CMOs
 - **The SBI specification** (the PMU extension): https://github.com/riscv-non-isa/riscv-sbi-doc
 - **The RISC-V Debug specification 1.0:** https://github.com/riscv/riscv-debug-spec/releases/tag/1.0

@@ -4,6 +4,7 @@
 #       <period-ns> [-g NAME=VALUE]... [-paths <file.tcl>] [-impl 0|1] [-dcp 0|1]
 #       [-place <directive>] [-route <directive>] [-lut_target N [-lut_tol F]] [-extra 1]
 #   -g      a top-level generic (repeatable)
+#   -define a Verilog define, NAME or NAME=VALUE (repeatable), e.g. TG_HART1=1 for the product core
 #   -paths  a Tcl file that sets tg_paths: a list of {name to-glob ?from-glob?}; the worst
 #           path ending at (and starting from) matching cells is reported per name
 #   -impl 0 stops after synthesis (utilisation only)
@@ -30,6 +31,7 @@ set cfg    [lindex $argv 1]
 set top    [lindex $argv 2]
 set period [lindex $argv 3]
 set generics {}
+set defines {}
 set paths_file ""
 set do_impl 1
 set keep_dcp 0
@@ -49,6 +51,7 @@ while {[llength $rest]} {
   set rest [lassign $rest k v]
   switch -- $k {
     -g      { lappend generics $v }
+    -define { lappend defines $v }
     -paths  { set paths_file $v }
     -impl   { set do_impl $v }
     -dcp    { set keep_dcp $v }
@@ -91,6 +94,7 @@ foreach f $extra_files { read_verilog -sv [file join $root $f] }
 
 set gargs {}
 foreach g $generics { lappend gargs -generic $g }
+foreach d $defines { lappend gargs -verilog_define $d }
 set synth_mark [tg_synth_check_mark]
 synth_design -top $top -part $part -mode out_of_context -flatten_hierarchy $flatten \
   -directive $synth_dir {*}$gargs
@@ -115,6 +119,7 @@ set fh [open summary.txt w]
 tg_kv $fh top $top
 tg_kv $fh cfg $cfg
 tg_kv $fh generics [join $generics ,]
+tg_kv $fh defines [expr {[llength $defines] ? [join $defines ,] : "-"}]
 tg_kv $fh period_ns $period
 
 report_utilization -file util_synth.rpt

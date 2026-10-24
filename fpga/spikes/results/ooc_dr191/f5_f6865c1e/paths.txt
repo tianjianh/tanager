@@ -1,0 +1,9 @@
+lq_st_q                slack   0.062 levels 22 logic 2.727 net 6.865  u_lsu/g_split.m2_pck_q_reg/C -> u_lsu/lq_st_q_reg[15][0]/CE
+r_data_q               slack   0.651 levels 18 logic 2.058 net 6.897  u_lsu/g_split.m2_pck_q_reg/C -> u_lsu/r_data_q_reg[44]/CE
+lx_valid_q             slack   0.429 levels 22 logic 2.683 net 6.577  u_lsu/g_split.m2_pck_q_reg/C -> lx_valid_q_reg[2]/D
+m2_foh_q               slack   1.535 levels 17 logic 2.138 net 6.364  u_lsu/m1_lq_q_reg[1]/C -> u_lsu/m2_foh_q_reg[8]/D
+chk_pa_q               slack   1.759 levels 17 logic 2.238 net 5.700  u_lsu/g_hd_late.hd_vpn2_q_reg[21]/C -> u_lsu/u_ptw/chk_pa_q_reg[4]/D
+ival_ram               slack   0.681 levels 24 logic 3.352 net 5.743  u_fetch/ka_q_reg/C -> u_fetch/u_ival/g_m64.g_bank[0].g_prim[0].u_ram/RAMA/I
+tage                   slack   3.415 levels 12 logic 1.791 net 4.157  u_fetch/f3_start_q_reg[7]/C -> u_fetch/g_tage.u_tage/g_tab[0].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_1/ENBWREN
+lq_st_q_sn             slack   0.399 levels 20 logic 2.482 net 6.860  u_lsu/g_split.sn_t_q_reg[0]/C -> u_lsu/lq_st_q_reg[15][0]/CE
+chk_pa_q_dtlb          slack   2.063 levels 16 logic 2.120 net 5.661  u_lsu/u_dtlb/v_q_reg[10]/C -> u_lsu/u_ptw/chk_pa_q_reg[4]/D

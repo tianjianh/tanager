@@ -2,7 +2,9 @@
 # RISC-V mode's board package (docs/spec/firmware_switches.md, soc-d4-modes.md): a build.tcl run's bitstream with
 # OpenSBI, U-Boot d4, the RISC-V mode trees, riscv.cmd and a README, laid out as sw/d4mode/install.sh puts them on the
 # card's p1. The M8 release image of record (rc3u095r, 10-23) is this script's package of spikes-2's rc3_u095r run.
-#   README=<template> [FW=...] [UBOOT=...] [ETH_MAC=...] [SOURCE_DATE_EPOCH=...] \
+# Since DR-192 the package carries no MAC, so one package serves every KV260: riscv.cmd puts the board's own into
+# the tree at boot. So the script no longer rebuilds rc3u095r byte for byte: its trees and riscv.scr changed.
+#   README=<template> [FW=...] [UBOOT=...] [SOURCE_DATE_EPOCH=...] \
 #     bash sw/d4mode/riscv_package.sh <run-dir> <name> [out-root]    -> <out-root>/<name>-riscv/, <name>-riscv.tar.gz
 # - <run-dir>: a fpga/kv260/tcl/build.tcl run directory with tanager.bit.bin, reports/summary.txt (release=1 takes the
 #   release trees, DR-180; core_mhz, commit, defines, place and urf go in the README) and reports/utilization.rpt.
@@ -15,7 +17,6 @@
 # - UBOOT: U-Boot d4, default sw/build_uboot.sh d4's: payload.bin in the package.
 # - The trees (sw/dts/board-trees.sh 2, four harts): tanager.dtb is tanager-kv260-riscv-rel.dtb for a release build,
 #   tanager-kv260-riscv.dtb otherwise; tanager-h01.dtb is the same with CORES=1 (harts 0 and 1), the fallback tree.
-#   ETH_MAC: the board's MAC, default this KV260's (board-trees.sh).
 # - SOURCE_DATE_EPOCH: riscv.scr's image time (mkimage), default the commit's time, so a package rebuilds byte for byte.
 #   SHA256SUMS lists the files in sort's order under the caller's locale, as build.sh does (rc3's: en_US.UTF-8).
 # Needs sw/build_uboot.sh's stage C build for mkimage (sw/d4mode/build.sh) and the device-tree compiler.
@@ -29,7 +30,6 @@ readme=${README:?README=<template> (the release image of record: sw/d4mode/packa
 fw=${FW:-$SOC_BUILD/opensbi-$OPENSBI_REV/platform/generic/firmware/fw_jump.bin}
 uboot=${UBOOT:-$SOC_BUILD/u-boot-d4/u-boot.bin}
 fw_sha=${FW_SHA-62349a65652ae1676c27f94738098ab6442b1851b436029e2d0bad2c5726fc78}
-mac=${ETH_MAC:-00:0a:35:2a:df:d8}
 S=$run/reports/summary.txt U=$run/reports/utilization.rpt
 for f in "$run/tanager.bit.bin" "$S" "$U" "$readme" "$fw" "$uboot"; do
   [ -f "$f" ] || { echo "$0: no $f" >&2; exit 1; }
@@ -54,9 +54,9 @@ rv=$root/$name-riscv
 [ ! -e "$rv" ] || { echo "$0: $rv exists: pick a new name or out-root" >&2; exit 1; }
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-ETH_MAC=$mac bash "$top/sw/dts/board-trees.sh" "$tmp/trees" 2 > /dev/null
+ETH_MAC= bash "$top/sw/dts/board-trees.sh" "$tmp/trees" 2 > /dev/null
 make -s -B -C "$top/sw/dts" O="$tmp/h01" CORES=1 THREADS=2 RUN_THREADS=2 MEM=0x40000000 UART1=1 UART1_STDOUT=0 SD1=1 \
-  BOARD_RESET=1 ETH=1 ETH_MAC="$mac" RELEASE=$rel > /dev/null
+  BOARD_RESET=1 ETH=1 ETH_MAC= RELEASE=$rel > /dev/null
 tree=$tmp/trees/tanager-kv260-riscv$([ "$rel" = 1 ] && echo -rel).dtb
 export SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-$(git -C "$top" log -1 --format=%ct)}
 mkdir -p "$root"
