@@ -61,7 +61,7 @@ ifeq ($(CORE),tcore)
   CORE_F   := -F $(ROOT)/rtl/common/common.f -F $(ROOT)/sim/tcore/tcore.f
   CORE_DEF := +define+TG_TCORE
 else ifeq ($(CORE),core)
-  ISA  ?= rv64imafdc_zicsr_zicntr_zihpm_zifencei_zba_zbb_zbs_zicond_sstc_svinval_za64rs
+  ISA  ?= rv64imafdc_zicsr_zicntr_zihpm_zifencei_zba_zbb_zbs_zicond_sstc_svinval_za64rs$(if $(filter 1,$(HPM)),_sscofpmf)
   PRIV ?= MSU
   PMP_TB := $(PMP_RTL)
   CORE_TOP := tg_core
