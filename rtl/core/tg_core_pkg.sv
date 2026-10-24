@@ -261,6 +261,14 @@ package tg_core_pkg;
 `else
   localparam bit LWT_ON = 1'b0;
 `endif
+  // Debug mode (Sdext, M9's item 4, DR-190; core-priv.md "Debug mode", soc.md §9): dcsr, dpc and dscratch0/1 per hart,
+  // the halt request taken at commit, ebreak and step entry, dret, and the debug window's access in debug mode.
+  // Development builds only; off by default, and a release build never sets it. TG_DEBUG=1 turns it on.
+`ifdef TG_DEBUG
+  localparam bit DEBUG_ON = `TG_DEBUG;
+`else
+  localparam bit DEBUG_ON = 1'b0;
+`endif
   // DR-174 (the user, the area reserve): the integer register file in UltraRAM, double-pumped at clk2x (twice the
   // core clock, from the board's MMCM; spikes.md §8.14's "edge" plan). Off by default; TG_URF=1 turns it on, with
   // the same cycles. The core then needs clk2x.
