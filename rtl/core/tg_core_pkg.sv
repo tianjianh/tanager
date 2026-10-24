@@ -604,7 +604,8 @@ package tg_core_pkg;
 
   typedef enum logic [2:0] {
     SYS_NONE = 3'd0, SYS_FENCE = 3'd1, SYS_FENCEI = 3'd2, SYS_WFI = 3'd3, SYS_MRET = 3'd4,
-    SYS_SRET = 3'd5, SYS_SFENCE = 3'd6     // SFENCE.VMA and the Svinval forms
+    SYS_SRET = 3'd5, SYS_SFENCE = 3'd6,    // SFENCE.VMA and the Svinval forms
+    SYS_DRET = 3'd7                        // debug mode's dret (DEBUG_ON; commit judges it: illegal outside debug mode)
   } sys_e;
 
   typedef enum logic [1:0] { MUL_LO = 2'd0, MUL_H = 2'd1, MUL_HSU = 2'd2, MUL_HU = 2'd3 } mul_op_e;

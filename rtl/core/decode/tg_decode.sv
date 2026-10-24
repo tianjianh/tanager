@@ -347,6 +347,10 @@ module tg_decode
                 d.sys = SYS_MRET; d.serial = 1'b1;
                 if (priv != PRIV_M) ill = 1'b1;
               end
+              32'h7B20_0073: begin                         // DRET (DEBUG_ON): serial; commit makes it illegal outside
+                if (DEBUG_ON) begin d.sys = SYS_DRET; d.serial = 1'b1; end   // debug mode (core-priv.md)
+                else ill = 1'b1;
+              end
               32'h1020_0073: begin                         // SRET
                 d.sys = SYS_SRET; d.serial = 1'b1;
                 if (!EXT_SU || priv == PRIV_U || (priv == PRIV_S && tsr)) ill = 1'b1;

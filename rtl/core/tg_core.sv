@@ -680,6 +680,11 @@ module tg_core
   logic [5:0]       tr_code, irq_code;
   logic [63:0]      tr_epc, tr_tval, trap_target, irq_target, xepc;
   logic             xret_v, xret_s;
+  // Debug mode (DEBUG_ON; core-priv.md "Debug mode"): the ROB's entry and dret, tg_csr's per-hart state
+  logic             xret_d, dbg_enter, dret_c;
+  logic [2:0]       dbg_cause;
+  logic [63:0]      dbg_epc;
+  logic [NUM_THREADS-1:0] dm_h, dstep_h, debk_h;
   assign rsv_clr = tr_valid || mret || sret;
   assign priv_cm = MT ? priv_h[rob_hd_tid] : priv;
   // M9's counters (HPM_N > 0; tg_csr's mhpmevent 3 ..): each hart's events (tg_core_pkg's HPM_EV), registered: 3
@@ -710,8 +715,8 @@ module tg_core
     .clk, .rst, .flush, .flush_tid, .ex_valid(csr_ex_valid), .ex_pl(csr_ex_pl), .ex_src(csr_ex_src),
     .ex_rdata(csr_ex_rdata), .ex_ill(csr_ex_ill),
     .cm_tid0(cm_tid[0]), .hd_tid(rob_hd_tid), .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret,
-    .sret,
-    .trap_target, .irq_target, .xret_v, .xret_s, .xepc_o(xepc), .irq_take, .irq_code, .wfi_wake, .wfi_wake_h, .wfi_arm_h,
+    .sret, .dbg_enter, .dbg_cause, .dbg_epc, .dret(dret_c), .dbg_req(debug_req_i), .dm_h, .dstep_h, .debk_h,
+    .trap_target, .irq_target, .xret_v, .xret_s, .xret_d, .xepc_o(xepc), .irq_take, .irq_code, .wfi_wake, .wfi_wake_h, .wfi_arm_h,
     .misa_m, .misa_b,
     .misa_c, .misa_a, .misa_f, .misa_d, .fs, .fc_fflags, .fc_frm, .fc_wvalid, .fc_waddr,
     .fc_wdata, .fs_dirty, .hpm_ev, .cm_pc(tr_epc), .priv, .tvm, .tw, .tsr, .satp_sv39,
@@ -749,7 +754,8 @@ module tg_core
     .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va,
     .tr_st_data, .tr_st_size, .tr_lq, .tr_ld_va, .tr_ld_size, .tr_tag, .tr_data,
     .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret, .sret, .sfence,
-    .trap_target, .irq_target, .xret_v, .xret_s, .xepc, .priv(priv_cm), .irq_take, .irq_code, .wfi_wake, .wfi_wake_h, .wfi_arm_h,
+    .trap_target, .irq_target, .xret_v, .xret_s, .xret_d, .dbg_req(debug_req_i), .dm_h, .dstep_h, .debk_h,
+    .dbg_enter, .dbg_cause, .dbg_epc, .dret_o(dret_c), .xepc, .priv(priv_cm), .irq_take, .irq_code, .wfi_wake, .wfi_wake_h, .wfi_arm_h,
     .csr_hold(csr_cold_busy), .flush, .flush_tid, .flush_pc, .icinv, .trace_o, .trace_valid_o,
     .md_i(md), .mdn_i(mdn), .mrs_i(mrs), .wk_i(wk), .sph_i(sph), .h1off_i(h1off), .flush_slp, .slp_o(slp),
     .wkr_o(wkr));
