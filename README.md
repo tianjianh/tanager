@@ -52,8 +52,13 @@ Tanager is a clean-room, 2-wide-decode, out-of-order RV64GC dual-core with two h
   - **The litmus exit is met,** and four-hart Linux runs on the board at 100 MHz.
   - **Left for M8:** the 72-hour stress on the release image.
 - **M9 (hardening, the v1 release):** the scope was approved on 2026-10-23 (DR-190, [the M9 plan](docs/spec/m9-plan.md)).
-  - **First:** the hardening that costs no LUTs and the v1 documentation.
-  - **Then:** performance counters with overflow interrupts (Sscofpmf), so `perf record` works on the board; an indirect-jump predictor if the model shows at least 0.5%; and a JTAG debug module for OpenOCD and GDB in development builds only.
+  - **First:** the hardening that costs no LUTs and the v1 documentation. The trigger CSRs are done (2026-10-23).
+  - **Before the new RTL:** structural fixes for the timing paths that keep failing at 96% fill (DR-191), so the chip closes 100 MHz reliably.
+  - **Then:**
+    - Performance counters with overflow interrupts (Sscofpmf), so `perf record` works on the board. On main since 2026-10-23, off by default (`TG_HPM`; about 870 LUTs a chip when on).
+    - A 256-entry indirect-jump predictor, estimated at +2.4–2.9% of the two-hart Linux boot's busy cycles.
+    - A 16-entry load-wait table, added by the user.
+    - A JTAG debug module for OpenOCD and GDB, in development builds only.
   - **After v1:** uncached page mappings, cache-block instructions, misaligned accesses in hardware and store sets. Debian on this board gains little from them, and the chip is at 95.9% of its LUTs.
 - **Debian 13 on the board (DR-147, M5's exit, stage C):** on 2026-10-17 Debian 13.7 booted on two Tanager cores on the KV260. The chain is OpenSBI, U-Boot, then Debian's own riscv64 kernel package (6.12, SMP) from a virtio disk served by the A53, ending in systemd "running" with no failed units. The network works too: virtio-net bridged onto the LAN, DHCP, DNS, time and apt. Debian installs and runs its own software: gcc 14 from Debian's mirror builds programs on the RISC-V, and sysbench runs 2.03× faster on two cores than on one. Stage C's hardware and software are on main (5172c6a). On 2026-10-17 the same Debian ran at 100 MHz (two cores, build sc3_100), about 1.45× the 70 MHz results: login at 191 s, gcc and sysbench 1.3–1.45× faster. The RISC-V now boots Debian from its own SD partition (p3). Measured at 100 MHz: CoreMark 276.9 iterations/s per core and 547.2 for two cores at once, Dhrystone 140.6 DMIPS. Stage D is under way (below).
 - **Two cores on the board (DR-150):** on 2026-10-17 two-core Linux booted on the KV260: two smt2 cores, harts 0 and 2, at 70 MHz. OpenSBI sees 2 harts, and Linux brings up 2 CPUs with SMP working (parallel runs, IPIs both ways). The two-core run also passes FPGA lockstep: all 408 million instructions from reset to power-off matched Spike, and again (396 million) on the normal device tree with the timer frozen during trace stalls. The way there found a synthesis-only bug (a name used before its declaration became an undriven net in Vivado). Every Vivado flow now fails on that class.

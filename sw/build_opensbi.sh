@@ -29,6 +29,7 @@ fi
 src="$SOC_BUILD/opensbi-$OPENSBI_VER-$OPENSBI_REV"
 out="$SOC_BUILD/opensbi-$OPENSBI_REV"
 if [ ! -d "$src" ]; then
+  mkdir -p "$SOC_BUILD"
   tmp="$(mktemp -d "$SOC_BUILD/opensbi-src.XXXXXX")"
   tar -C "$tmp" -xf "$SOC_DL/opensbi/$OPENSBI_TAR"
   for p in "$here"/buildroot/patches/opensbi/*.patch; do

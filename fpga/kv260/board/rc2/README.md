@@ -133,9 +133,10 @@ The four-hart soak ([`soak4.log`](soak4.log)) ran on rc2 from 17:30 UTC on its s
 
 u100 with the four-hart tree and tg1.
 - **It ran the rc3 swap's measurements** ([`../u100/README.md`](../u100/README.md)): the store rows pinned, soc-2's sibling check, memcal in ARM mode, and soc-2's write-stream probe against d4r2.
-- **It soaks while rc3 builds:**
+- **It soaked while rc3 built:**
   - `soak4-u100b` ran from 21:03 to 23:29 UTC, clean, and stopped for the probe;
-  - `soak4-u100c` runs from 23:52 UTC.
+  - `soak4-u100c` ran from 23:52 to 01:37 UTC, clean.
+- **rc3 replaced it on p1 at 01:41 UTC on 10-24** ([`../rc3/README.md`](../rc3/README.md)). u100 stays in `tanager-u100/` as the fallback.
 
 rc2's package stays on the A53 (`~/tanager/rc2u100-riscv-pkg/`) for a rerun:
 - **rc2 again,** in ARM mode: `FH_BACKUP=tanager-u100 bash ~/tanager/runs/fh_p1.sh install ~/tanager/rc2u100-riscv-pkg/rc2u100-riscv`;

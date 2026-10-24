@@ -390,6 +390,8 @@ def main():
     ap.add_argument("--jobs", type=int, default=8, help="make jobs for the builds")
     ap.add_argument("--boot-fw", default="", help="another fw_jump.bin than the pinned reference")
     ap.add_argument("--boot-kernel", default="", help="another Image than the pinned reference")
+    ap.add_argument("--tb-params", default="", help="more tb_boot parameters for the build, after MEM_PARAMS (e.g. "
+                                                    "'-GL2_WB_PACE_TB=1 -GL2_PACE_INIT_TB=4100'); part of the build's key")
     ap.add_argument("--gate", action="store_true",
                     help=f"run only if the change against --base reaches the core's {', '.join(GATE_PATHS)}; "
                          f"then st at {GATE_MCYC}M with {' and '.join(GATE_TIMINGS)}")
@@ -406,6 +408,9 @@ def main():
         ap.add_argument(f"--{var.lower().replace('_', '-')}", type=int, choices=SWITCH_VALUES.get(var), default=None,
                         help=f"build the core with {var}")
     a = ap.parse_args()
+    global MEM_PARAMS
+    if a.tb_params:
+        MEM_PARAMS = f"{MEM_PARAMS} {a.tb_params}"
     if a.install_cron:
         install_cron()
         return 0

@@ -38,7 +38,7 @@ For the coordinator, before any build (soc-2, 10-19). It replaces the kexec hand
   - Before the first change, today's script is copied to `boot.scr.uimg.tanager-pre`. The `.orig` from 10-14 lacks `mem=3G arm-smmu.disable_bypass=0`, and `mem=3G` keeps Ubuntu out of the RISC-V's carve-out.
   - A failing `riscv.scr` returns into Ubuntu's script, so that boot continues in ARM mode.
   - **Undo:** delete the hook file and rerun flash-kernel.
-- **`p1:/tanager/`** (about 10 MB): `riscv.scr`, `tanager.bit.bin`, `fw_jump.bin`, `u-boot.bin` (S-mode, with the Arasan driver), `tanager-kv260-d4.dtb`. The bitstream is never `p1:/system.bit`: the template loads that file in every boot, ARM mode included.
+- **`p1:/tanager/`** (about 10 MB): `riscv.scr` (from `riscv.cmd`, beside it), `tanager.bit.bin`, `fw_jump.bin`, `payload.bin` (U-Boot d4: S-mode, with the Arasan driver) and `tanager.dtb` (RISC-V mode's tree), as `sw/d4mode/build.sh` makes them; a release package (`sw/d4mode/riscv_package.sh`) adds `tanager-h01.dtb`, the one-core fallback tree. The bitstream is never `p1:/system.bit`: the template loads that file in every boot, ARM mode included.
 - **`riscv.scr`, in order.** Any failure before step 7 returns, and Ubuntu boots:
   1. Write trial 1 to the mode record.
   2. Load the bitstream with `fpga load`. Set the PS as the overlay does under Linux: `pl_clk0` at 100 MHz (CRL_APB `PL0_REF_CTRL`), and the fabric widths (`AFI_FS`: HPM0 32-bit, HPM1 128-bit; the HP and LPD ports reset to 128-bit). Pulse `pl_resetn0`.
@@ -46,9 +46,10 @@ For the coordinator, before any build (soc-2, 10-19). It replaces the kexec hand
   4. The PS for the RISC-V's peripherals:
      - SD1's and UART1's clocks, power and pins stay as the boot firmware left them: U-Boot used both, and no A53 OS powers anything down.
      - SD1's tap delays are set to the A53 Linux's values (`ITAPDLY` `0x012A0000`, `OTAPDLYSEL` `0x00050000`) with `zynqmp mmio_write`.
-     - GEM3's PHY reset (MIO38) and USB0's hub reset (MIO44) wait for D5 and D6.
-  5. The host bridge: the DRAM window (`0x8_4000_0000`, 1 GiB), the boot entry and DTB address, and `BOARD_CTRL` (the fan ignores the A53's PWM; the PMOD reset hook armed).
-  6. Load `fw_jump.bin`, `u-boot.bin` and the tree into the carve-out, at `tanager-host`'s offsets.
+     - GEM3's clocks and its PHY's reset (MIO38) since D5; USB0's hub reset (MIO44) waits for D6.
+  5. The host bridge: the DRAM window (`0x8_4000_0000`, 1 GiB) and `BOARD_CTRL` (the fan ignores the A53's PWM; the PMOD reset hook armed). The boot entry and DTB address keep their reset values (`0x8000_0000`, `0x8220_0000`).
+  6. Load `fw_jump.bin`, `payload.bin` and `tanager.dtb` into the carve-out, at `tanager-host`'s offsets (+0, +0x20_0000, +0x220_0000).
+  The register writes, line by line: [firmware_switches.md](firmware_switches.md).
   7. Release the uncore, wait for the L2's initialisation, release the cores. This is the point of no return.
   8. Park the boot A53 in a WFI loop: two instructions written to OCM, then `go`. The other A53s are still held by the boot firmware.
 
@@ -139,7 +140,7 @@ stage C in RISC-V mode on the same bitstream. About 3% of that is the SD1 watch.
 - The software is the same in both:
   - OpenSBI: `fw_jump.bin`, sha256 `b0094d23…` (upstream 1.9; from 10-23 `62349a65…`, with patch set tg1: soc.md §5), sets `mcounteren`.
   - The kernel: 6.12.113+deb13, sets `scounteren`.
-  - The command line, from p3's extlinux: `root=LABEL=tanager-root console=ttyS0,115200 earlycon rw iomem=relaxed`.
+  - The command line, from p3's extlinux: `root=LABEL=tanager-root console=ttyS0,115200 earlycon rw iomem=relaxed` (then; `iomem=relaxed` came out on 10-21).
 - Both modes' boot logs show the same lines: `aclint-mtimer @ 10000000Hz`, Sstc, `sched_clock: 64 bits at 10MHz` and `Switched to clocksource riscv_clocksource`. So the vDSO's `clock_gettime` reads `time` directly in both.
 
 **So nothing either mode programs differs** on the memory path or the clock's. These do differ:
