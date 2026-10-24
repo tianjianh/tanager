@@ -10,7 +10,7 @@
 #define LCOF      (1 << 13)
 #define SCOUNTOVF 0xda0
 #ifndef SMISS_LO
-#define SMISS_LO 64
+#define SMISS_LO 128
 #endif
 /* mhpmevent: OF (63), MINH (62), SINH (61), UINH (60), the event (7:0) */
 #define EV_OF     0x8000000000000000
@@ -425,7 +425,7 @@ m_vm:
 
   /* 12. L1D store misses (a committed store's line without T at its write, once a store): one store a line to 1,024
      lines never touched, two lines apart in alternate pages, so the store prefetch's one pending line is replaced before
-     it is fetched for many of them */
+     it is fetched for many of them (smt2 HART1=1: 256 to 511 of the 1,024 miss) */
   li t0, 11
   csrw mhpmevent4, t0
   csrw mhpmevent5, zero
