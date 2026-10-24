@@ -2335,6 +2335,47 @@ Results: [`fpga/spikes/results/ooc_itt/`](../../fpga/spikes/results/ooc_itt/) ho
 
 Results: [`fpga/spikes/results/ooc_itt_t3/`](../../fpga/spikes/results/ooc_itt_t3/) (188328af) and [`ooc_itt_t5/`](../../fpga/spikes/results/ooc_itt_t5/) (a6f51752), each with `compare.txt`. In `ooc_itt_t5/`, each form's `levels_ic.txt` lists the I$-data paths level by level, and `fpc_q_from_f3_start.txt` holds the `fpc_q` query.
 
+#### bf29152f: the table's keys in LUT RAM bring mode 2 back to off's depth (2026-10-24)
+
+**Asked** (fpu-2): bf29152f, which is a6f51752 plus one commit.
+- **The change:**
+  - The table's key {valid, slot, tag, privilege} is in LUT RAM, read and checked at F1 with the same index.
+  - Fetch registers the predicted JALR slot (`phit_q`, `pslot_q`) beside `f2_hit_q` and `f2_slot_q`. So the exit search takes it from registers, as with the table off.
+  - The targets stay in block RAM.
+- **The baseline:** the off design is unchanged (with the table off, `phit` and `pslot` are still `f2_hit_q` and `f2_slot_q`). So off is the same 7ba9b0a0 run, queried again with [`paths_itt5.tcl`](../../fpga/spikes/tcl/paths_itt5.tcl): `paths_itt4.tcl`'s paths plus `phit_q`, `pslot_q`, and `fpc_q` from the I$ data and from `f3_start_q`.
+
+| A core, out of context | off | a6f51752 `TG_ITT=2` | **bf29152f `TG_ITT=2`** | bf29152f `TG_ITT=1` |
+|---|---|---|---|---|
+| LUTs / LUTRAM LUTs / FFs (the forms against off) | 51,746 / 8,784 / 23,654 | +248 / +56 / +334 | +431 / +120 / +343 | +562 / +112 / +316 |
+| RAMB36 (against off) | | +2 | +2 | +1 |
+| From the I$ data, levels: `ka_q` | 19 | 22 | 19 | 18 |
+| `k_ovr_q` | 18 | 22 | 19 | 21 |
+| `kr_q`, `f3_ras_q` | 18 | 21 | 18 | 20 |
+| the stack's push | 19 | 21 | 20 | 21 |
+| the stack's pop | 19 | 21 | 19 | 20 |
+| `kimm_q` | 17 | 21 | 18 | 20 |
+| the table's `ki_q`, `f3_itt_q`, `ipi_q`, `ipw_q` | | 21 | 18 | 20 |
+| The level where the I$ data reaches TAGE | 8 | 11, after `pd_pop` and a table LUT | 9 | 7 |
+| From TAGE, the same registers | 19–21 | 16–17 | 18–21 | 20–23 |
+| `phit_q` / `pslot_q` | | | 9 / 9 levels | 6 / 6 levels |
+| `fpc_q`: the worst / from `f3_s_q` / from `f3_start_q` | 17 / 20 / 19 | 18 / 21 / 20 | 20 / 24 / 22 | 17 / 22 / 21 |
+| WNS, the worst path (not the table's) | +0.075 (LSU) | +0.715 (LSU) | +0.552 (the DTLB CAM → `rp_ra_q`, 22 levels) | +0.428 (LSU, 16) |
+
+- **Mode 2 meets the bar.** From the I$ data its decision registers are within a level of off's depth.
+  - No table cell and no `pd_pop` is on any of these paths.
+  - The I$ data reaches TAGE at level 9, against off's 8: it goes through the jump decode `pd_jal` instead of `pd_start`. From TAGE on, the depth is off's.
+- **Mode 1 doesn't:** it is 1–3 levels deeper than off from the I$ data (`ka_q` is one shallower), and 1–3 deeper from TAGE.
+  - Its paths reach TAGE at level 7, through fetch's own return decode `pd_pop`, which fetch's stack terms use with the table off too. They then run 13–14 levels inside TAGE, against off's 10–12.
+  - `k_ovr_q` also passes one table LUT two levels from its end: TAGE's `f3_nhs` into the table's `fx_nhs`.
+- **The new registers are clear.** `phit_q` and `pslot_q`: 6–9 levels, +2.4 to +3.2 ns. The table's target read is now short: into `ka_q` at 7–8 levels, +3.8 to +3.9 ns.
+- **`fpc_q` has no path from the I$ data in any of the three runs.** In mode 2 it is now 3–4 levels deeper than off from every start; in a6f51752 it was mode 1 that was 4 deeper. Both times, the extra levels are in fetch's control after F2's or F3's valid (the stall and redirect select into `fpc_q`'s enable), and no table cell is on the path.
+- **The area:** the keys cost +64 LUTRAM LUTs a core over a6f51752 in both forms. Against off: +431 LUTs a core in mode 2 and +562 in mode 1, about +860 and +1,120 a chip.
+- **In the chip:**
+  - Mode 2's I$-data paths at off's depth should leave the pair of record's I$-data family where it is: +0.345 ns at 21 levels in its congested placement.
+  - The one to watch is `fpc_q`. If its 3–4 extra levels carry into the chip, the pair of record's `fpc_q` family (+0.388 ns from `f3_carry_q` in the same placement) would be about 1 ns worse.
+
+Results: [`fpga/spikes/results/ooc_itt_t6/`](../../fpga/spikes/results/ooc_itt_t6/): `compare.txt` and `itt_levels.txt`; each form's `levels_ic.txt` and `levels_fpc_q.txt` list the paths level by level.
+
 #### core-2's A/B: the read thread with and without per-bank copies (2026-10-22)
 
 The fixes preview's base with core-2's newer heads (`snap/product_wt` and `snap/product_wt3`): e5b304cd, TAGE 8cf8e262, DR-183 ecfcc8a5, and core-2's walker fix a6abdc5d. The walker fix registers the head lookup's VPN, so DTLB port 2 starts at one register. Then:

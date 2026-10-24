@@ -1,0 +1,78 @@
+== fpc_q
+lvl loc            type    net in   cell      at   fo  input pin -> output net
+  1 SLICE_X19Y132  LUT6     0.813  0.152   2.871    1  u_fetch/u_itlb/u_leaf_i_145__0/I0 -> u_fetch/u_itlb/u_leaf_i_145__0_n_0
+  2 SLICE_X17Y131  LUT5     0.217  0.056   3.144    1  u_fetch/u_itlb/u_leaf_i_69__0/I0 -> u_fetch/u_itlb/u_leaf_i_69__0_n_0
+  3 SLICE_X8Y130   LUT4     0.471  0.083   3.698    3  u_fetch/u_itlb/u_leaf_i_26__0/I3 -> u_fetch/u_itlb/m[0]_36[11]
+  4 SLICE_X11Y128  LUT6     0.470  0.058   4.226    2  u_fetch/u_itlb/u_leaf_i_21__0/I1 -> u_fetch/u_itlb/u_leaf_i_21__0_n_0
+  5 SLICE_X10Y128  LUT3     0.363  0.058   4.647   36  u_fetch/u_itlb/u_leaf_i_6__0/I1 -> u_fetch/u_itlb/u_leaf/g_m32.g_prim[0].u_ram/ADDRB3
+  6 SLICE_X12Y130  RAMD32   0.561  0.137   5.345    2  u_fetch/u_itlb/u_leaf/g_m32.g_prim[0].u_ram/RAMB_D1/RADR3 -> u_fetch/u_itlb/it_pte[0][ph]
+  7 SLICE_X15Y127  LUT5     0.357  0.056   5.758    1  u_fetch/u_itlb/g_pmpf.rq_tid_q[0]_i_4/I2 -> u_fetch/u_itlb/g_pmpf.rq_tid_q[0]_i_4_n_0
+  8 SLICE_X16Y127  LUT6     0.098  0.082   5.938   10  u_fetch/u_itlb/g_pmpf.rq_tid_q[0]_i_2/I3 -> u_fetch/u_itlb/g_pmpf.cr_v_q_reg
+  9 SLICE_X15Y115  LUT4     0.396  0.188   6.522   61  u_fetch/u_itlb/spc_s_q[1][63]_i_13/I2 -> u_fetch/g_tage.u_tage/spc_s_q[1][61]_i_4
+ 10 SLICE_X15Y114  LUT3     0.116  0.058   6.697   51  u_fetch/g_tage.u_tage/spc_s_q[1][61]_i_5/I2 -> u_fetch/g_tage.u_tage/ka_q_reg_6
+ 11 SLICE_X15Y117  LUT6     0.235  0.151   7.083    4  u_fetch/g_tage.u_tage/sv_s_q[0]_i_3/I0 -> u_rn/sv_s_q[0]_i_2
+ 12 SLICE_X13Y117  LUT2     0.176  0.138   7.397    4  u_rn/sv_s_q[0]_i_6/I1 -> u_rn/block_q_reg[0]_3
+ 13 SLICE_X13Y117  LUT6     0.116  0.057   7.570    3  u_rn/spc_s_q[0][63]_i_6/I0 -> u_rn/block_q_reg[0]_2
+ 14 SLICE_X10Y117  LUT2     0.445  0.138   8.153   64  u_rn/fpc_q[63]_i_6/I0 -> u_fetch/u_cmp/fpc_q_reg[41]
+ 15 SLICE_X11Y113  LUT6     0.474  0.082   8.709    1  u_fetch/u_cmp/fpc_q[7]_i_3/I0 -> u_rob/fpc_q_reg[7]
+ 16 SLICE_X10Y116  LUT5     0.397  0.152   9.258    1  u_rob/fpc_q[7]_i_2/I4 -> u_rob/fpc_q[7]_i_2_n_0
+ 17 SLICE_X10Y116  LUT5     0.108  0.056   9.422    1  u_rob/fpc_q[7]_i_1/I4 -> u_fetch/fpc_q_reg[63]_0[6]
+end: u_fetch/fpc_q_reg[7]/D (net in 0.327)
+Data Path Delay:        7.959ns  (logic 1.818ns (22.843%)  route 6.141ns (77.157%))
+Clock Path Skew:        -0.183ns
+
+== fpc_q_f3s
+lvl loc            type    net in   cell      at   fo  input pin -> output net
+  1 SLICE_X22Y101  LUT4     0.179  0.081   2.120    9  u_fetch/u_cmp/g_bank[0].u_ram_i_232/I1 -> u_fetch/u_cmp/g_bank[0].u_ram_i_232_n_0
+  2 SLICE_X23Y101  LUT5     0.408  0.227   2.755    2  u_fetch/u_cmp/done_q[3]_i_14/I3 -> u_fetch/u_cmp/done_q[3]_i_14_n_0
+  3 SLICE_X23Y101  LUT3     0.054  0.057   2.866    3  u_fetch/u_cmp/done_q[3]_i_10/I0 -> u_fetch/u_cmp/done_q[3]_i_10_n_0
+  4 SLICE_X22Y102  LUT5     0.488  0.137   3.491    2  u_fetch/u_cmp/done_q[3]_i_13/I3 -> u_fetch/u_cmp/done_q[3]_i_13_n_0
+  5 SLICE_X22Y102  LUT5     0.065  0.152   3.708    5  u_fetch/u_cmp/done_q[3]_i_6/I4 -> u_fetch/u_cmp/done_q[3]_i_6_n_0
+  6 SLICE_X21Y102  LUT6     0.135  0.228   4.072    5  u_fetch/u_cmp/done_q[3]_i_5/I0 -> u_fetch/u_cmp/done_q[3]_i_5_n_0
+  7 SLICE_X20Y101  LUT6     0.186  0.056   4.314    1  u_fetch/u_cmp/g_bank[0].u_ram_i_216/I1 -> u_fetch/u_cmp/g_bank[0].u_ram_i_216_n_0
+  8 SLICE_X20Y101  LUT5     0.047  0.137   4.498   23  u_fetch/u_cmp/g_bank[0].u_ram_i_161/I3 -> u_fetch/u_cmp/p_56_in
+  9 SLICE_X20Y102  LUT6     0.181  0.137   4.816    8  u_fetch/u_cmp/hv_q[1]_i_4/I0 -> u_fetch/u_cmp/hv_q[1]_i_4_n_0
+ 10 SLICE_X21Y103  LUT2     0.203  0.084   5.103    7  u_fetch/u_cmp/f3_meta_q[fault]_i_3/I1 -> u_fetch/g_tage.u_tage/f3_valid_q_reg_0
+ 11 SLICE_X20Y113  LUT6     0.341  0.082   5.526    2  u_fetch/g_tage.u_tage/g_way[0].u_data_i_14/I1 -> u_fetch/g_tage.u_tage/g_way[0].u_data_i_14_n_0
+ 12 SLICE_X19Y113  LUT5     0.111  0.058   5.695   70  u_fetch/g_tage.u_tage/g_way[0].u_data_i_13/I4 -> u_fetch/g_tage.u_tage/g_way[0].u_data_i_13_n_0
+ 13 SLICE_X16Y115  LUT4     0.299  0.083   6.077    5  u_fetch/g_tage.u_tage/fpc_q[63]_i_5/I1 -> u_fetch/g_tage.u_tage/f2_valid_q
+ 14 SLICE_X15Y116  LUT2     0.112  0.137   6.326    2  u_fetch/g_tage.u_tage/sv_s_q[0]_i_8/I0 -> u_fetch/g_tage.u_tage/sv_s_q[0]_i_8_n_0
+ 15 SLICE_X15Y117  LUT6     0.122  0.186   6.633    4  u_fetch/g_tage.u_tage/sv_s_q[0]_i_3/I2 -> u_rn/sv_s_q[0]_i_2
+ 16 SLICE_X13Y117  LUT2     0.176  0.138   6.947    4  u_rn/sv_s_q[0]_i_6/I1 -> u_fetch/u_cmp/sv_s_q_reg[0]_3
+ 17 SLICE_X13Y117  LUT4     0.117  0.152   7.216    4  u_fetch/u_cmp/ft_q_i_4/I3 -> u_fetch/u_cmp/ft_q_i_4_n_0
+ 18 SLICE_X13Y118  LUT6     0.163  0.057   7.435   64  u_fetch/u_cmp/spc_s_q[0][63]_i_2/I2 -> u_rob/spc_s_q_reg[0][1]_0
+ 19 SLICE_X12Y118  LUT4     0.156  0.058   7.649   67  u_rob/fpc_q[63]_i_3/I3 -> u_rob/flush_slp_reg_1
+ 20 SLICE_X12Y118  LUT5     0.081  0.137   7.868   42  u_rob/spc_s_q[1][63]_i_4/I1 -> u_de/spc_s_q_reg[1][62]
+ 21 SLICE_X11Y118  LUT2     0.158  0.082   8.107   67  u_de/ft_q_i_3/I1 -> u_fetch/u_cmp/ft_q_reg_rep
+ 22 SLICE_X12Y114  LUT6     0.257  0.056   8.420   63  u_fetch/u_cmp/fpc_q[63]_i_1/I0 -> u_fetch/u_cmp_n_1112
+end: u_fetch/fpc_q_reg[15]/CE (net in 0.795)
+Data Path Delay:        7.471ns  (logic 2.637ns (35.297%)  route 4.834ns (64.703%))
+Clock Path Skew:        -0.131ns
+
+== fpc_q_f3st
+lvl loc            type    net in   cell      at   fo  input pin -> output net
+  1 SLICE_X23Y101  LUT3     0.323  0.187   2.237    7  u_fetch/u_cmp/done_q[3]_i_15/I0 -> u_fetch/u_cmp/done_q[3]_i_15_n_0
+  2 SLICE_X23Y101  LUT3     0.093  0.226   2.557    3  u_fetch/u_cmp/done_q[3]_i_10/I2 -> u_fetch/u_cmp/done_q[3]_i_10_n_0
+  3 SLICE_X22Y102  LUT5     0.488  0.137   3.182    2  u_fetch/u_cmp/done_q[3]_i_13/I3 -> u_fetch/u_cmp/done_q[3]_i_13_n_0
+  4 SLICE_X22Y102  LUT5     0.065  0.152   3.399    5  u_fetch/u_cmp/done_q[3]_i_6/I4 -> u_fetch/u_cmp/done_q[3]_i_6_n_0
+  5 SLICE_X21Y102  LUT6     0.135  0.228   3.762    5  u_fetch/u_cmp/done_q[3]_i_5/I0 -> u_fetch/u_cmp/done_q[3]_i_5_n_0
+  6 SLICE_X20Y101  LUT6     0.186  0.056   4.004    1  u_fetch/u_cmp/g_bank[0].u_ram_i_216/I1 -> u_fetch/u_cmp/g_bank[0].u_ram_i_216_n_0
+  7 SLICE_X20Y101  LUT5     0.047  0.137   4.188   23  u_fetch/u_cmp/g_bank[0].u_ram_i_161/I3 -> u_fetch/u_cmp/p_56_in
+  8 SLICE_X20Y102  LUT6     0.181  0.137   4.507    8  u_fetch/u_cmp/hv_q[1]_i_4/I0 -> u_fetch/u_cmp/hv_q[1]_i_4_n_0
+  9 SLICE_X21Y103  LUT2     0.203  0.084   4.794    7  u_fetch/u_cmp/f3_meta_q[fault]_i_3/I1 -> u_fetch/g_tage.u_tage/f3_valid_q_reg_0
+ 10 SLICE_X20Y113  LUT6     0.341  0.082   5.217    2  u_fetch/g_tage.u_tage/g_way[0].u_data_i_14/I1 -> u_fetch/g_tage.u_tage/g_way[0].u_data_i_14_n_0
+ 11 SLICE_X19Y113  LUT5     0.111  0.058   5.386   70  u_fetch/g_tage.u_tage/g_way[0].u_data_i_13/I4 -> u_fetch/g_tage.u_tage/g_way[0].u_data_i_13_n_0
+ 12 SLICE_X16Y115  LUT4     0.299  0.083   5.767    5  u_fetch/g_tage.u_tage/fpc_q[63]_i_5/I1 -> u_fetch/g_tage.u_tage/f2_valid_q
+ 13 SLICE_X15Y116  LUT2     0.112  0.137   6.016    2  u_fetch/g_tage.u_tage/sv_s_q[0]_i_8/I0 -> u_fetch/g_tage.u_tage/sv_s_q[0]_i_8_n_0
+ 14 SLICE_X15Y117  LUT6     0.122  0.186   6.324    4  u_fetch/g_tage.u_tage/sv_s_q[0]_i_3/I2 -> u_rn/sv_s_q[0]_i_2
+ 15 SLICE_X13Y117  LUT2     0.176  0.138   6.638    4  u_rn/sv_s_q[0]_i_6/I1 -> u_fetch/u_cmp/sv_s_q_reg[0]_3
+ 16 SLICE_X13Y117  LUT4     0.117  0.152   6.906    4  u_fetch/u_cmp/ft_q_i_4/I3 -> u_fetch/u_cmp/ft_q_i_4_n_0
+ 17 SLICE_X13Y118  LUT6     0.163  0.057   7.126   64  u_fetch/u_cmp/spc_s_q[0][63]_i_2/I2 -> u_rob/spc_s_q_reg[0][1]_0
+ 18 SLICE_X12Y118  LUT4     0.156  0.058   7.340   67  u_rob/fpc_q[63]_i_3/I3 -> u_rob/flush_slp_reg_1
+ 19 SLICE_X12Y118  LUT5     0.081  0.137   7.558   42  u_rob/spc_s_q[1][63]_i_4/I1 -> u_de/spc_s_q_reg[1][62]
+ 20 SLICE_X11Y118  LUT2     0.158  0.082   7.798   67  u_de/ft_q_i_3/I1 -> u_fetch/u_cmp/ft_q_reg_rep
+ 21 SLICE_X12Y114  LUT6     0.257  0.056   8.111   63  u_fetch/u_cmp/fpc_q[63]_i_1/I0 -> u_fetch/u_cmp_n_1112
+end: u_fetch/fpc_q_reg[15]/CE (net in 0.795)
+Data Path Delay:        7.292ns  (logic 2.684ns (36.805%)  route 4.608ns (63.195%))
+Clock Path Skew:        0.000ns
+
