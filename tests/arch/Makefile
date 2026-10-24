@@ -12,8 +12,9 @@
 CFG    ?= st
 CORE   ?= core
 JOBS   ?= 8
-# The core's configuration follows its PMP entries (DR-167; PMP_RTL, sim/profile.mk): 8 usable of 16 with -p8
-ACTCFG ?= $(if $(filter tcore,$(CORE)),tcore-rv64im,core-m3-rv64imafdc$(if $(filter 8,$(PMP_RTL)),-p8))
+# The core's configuration follows its PMP entries (DR-167; PMP_RTL, sim/profile.mk): 8 usable of 16 with -p8; and
+# M9's performance counters (HPM=1, DR-190): -hpm declares mhpmcounter3-6 with Sscofpmf, so Zihpm's tests expect them
+ACTCFG ?= $(if $(filter tcore,$(CORE)),tcore-rv64im,core-m3-rv64imafdc$(if $(filter 8,$(PMP_RTL)),-p8)$(if $(filter 1,$(HPM)),-hpm))
 
 ARCH_MK := $(lastword $(MAKEFILE_LIST))
 ROOT := $(abspath $(dir $(ARCH_MK))/../..)
@@ -27,6 +28,13 @@ WORK := $(TANAGER_BUILD)/$(WT)/arch
 TESTS := $(WORK)/$(ACTCFG)/tests
 CONFIG := $(ROOT)/tests/arch/config/$(ACTCFG)/test_config.yaml
 export BUNDLE_PATH := $(TANAGER_OPT)/act-gems
+# UDB's binaries (Z3, espresso, eqntott, must: sw/versions.sh's UDB_* pins, verification.md §6.1) in a shared tools
+# folder that cleanups keep, given only to act, which runs udb (XDG_CACHE_HOME), so other tools' caches stay put. udb
+# fetches a missing binary by itself; the check below stops first, as any download needs the user's yes
+UDB_CACHE ?= $(TANAGER_BUILD)/tools/udb-deps
+udb_pin = $(shell sed -n 's/^$(1)=\([^ #]*\).*/\1/p' $(ROOT)/sw/versions.sh)
+UDB_BINS := z3/$(call udb_pin,UDB_Z3_VER)/x64/libz3.so espresso/$(call udb_pin,UDB_ESPRESSO_VER)/x64/espresso \
+            eqntott/$(call udb_pin,UDB_EQNTOTT_VER)/x64/eqntott must/$(call udb_pin,UDB_MUST_VER)/x64/must
 
 # Command-line variables of this make must not reach the sim build (see tests/random/Makefile).
 MAKEOVERRIDES :=
@@ -40,6 +48,10 @@ CORE_PMP := $(if $(filter tcore,$(CORE)),0,$(PMP_RTL))
 ifneq ($(filter run,$(or $(MAKECMDGOALS),run)),)
   ifneq ($(filter-out $(CORE_PMP),$(ACT_PMP)),)
     $(error ACT4 configuration $(ACTCFG) is for $(ACT_PMP) PMP entries, but this $(CORE) has $(CORE_PMP) (DR-167): leave ACTCFG to its default or build the core with PMP_ENTRIES=$(ACT_PMP))
+  endif
+  # ... and its counters: a configuration with Sscofpmf for HPM=1, one without for the default
+  ifneq ($(if $(findstring _sscofpmf,$(SPIKE_ARGS)),1),$(if $(filter 1,$(HPM)),1))
+    $(error ACT4 configuration $(ACTCFG) $(if $(findstring _sscofpmf,$(SPIKE_ARGS)),declares,does not declare) M9's counters, but this core is built with$(if $(filter 1,$(HPM)),, no) HPM=1 (DR-190): leave ACTCFG to its default)
   endif
 endif
 
@@ -74,10 +86,11 @@ CFG_FILES := $(wildcard $(ROOT)/tests/arch/config/$(ACTCFG)/*) $(ROOT)/tests/arc
              $(ROOT)/tests/arch/config/tanager_rvmodel.h
 elfs: $(WORK)/$(ACTCFG)/.elfs
 $(WORK)/$(ACTCFG)/.elfs: $(ARCH_MK) $(CFG_FILES)
+	@for f in $(UDB_BINS); do test -f $(UDB_CACHE)/udb/$$f || { echo "ACT4: no $(UDB_CACHE)/udb/$$f: fetch sw/versions.sh's UDB_* pins (with the user's yes) by the udb gem's ext/udb_download/extconf.rb with XDG_CACHE_HOME=$(UDB_CACHE), verification.md §6.1"; exit 1; }; done
 	@rm -rf $(WORK)/$(ACTCFG)/elfs
 	$(gen_tests)
-	cd $(ARCH_TEST) && $(VENV)/bin/act $(CONFIG) --workdir $(WORK) --test-dir $(TESTS) --jobs $(JOBS) \
-	  --fast --clean-intermediates
+	cd $(ARCH_TEST) && XDG_CACHE_HOME=$(UDB_CACHE) $(VENV)/bin/act $(CONFIG) --workdir $(WORK) --test-dir $(TESTS) \
+	  --jobs $(JOBS) --fast --clean-intermediates
 	@rm -rf $(TESTS)
 	@touch $@
 

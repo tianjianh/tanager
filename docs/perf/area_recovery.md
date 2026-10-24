@@ -2890,7 +2890,7 @@ Together they come to ≈5.3K a chip, at no IPC cost. The next ones are the queu
 - **`itt_entries` (and `itt_hist`): an indirect-target table.**
   - **When it is used:** for a JALR other than a return that the micro-BTB missed, or gave the wrong target the last time (one bit per PC). The table's target is then redirected at F2, 2 cycles, in place of a mispredict recovered at commit.
   - **Index and training:** the PC xor a 16-bit hash of the last four indirect targets (path history), or of 16 bits of conditional-branch history (`itt_hist` 1). An 8-bit tag. Trained with every such jump's target.
-- **`mdp` 2: perfect store sets, an oracle.** A load waits only for an older store whose address is unresolved at the load's AG and that it will overlap. `mdp` 1 is the model's load-wait table: a bit per hashed load PC, set by an ordering flush and cleared every 64K cycles. A flagged load waits until every older store's address is known.
+- **`mdp` 2: perfect store sets, an oracle** (store sets: Chrysos and Emer, ISCA 1998, as the literature review cites them). A load waits only for an older store whose address is unresolved at the load's AG and that it will overlap. `mdp` 1 is the model's load-wait table: a bit per hashed load PC, set by an ordering flush and cleared every 64K cycles. A flagged load waits until every older store's address is known.
 - **`m9_counts`: misaligned loads and stores at commit.** Checked with `m9_misalign`, which makes 3,584 of each: the model counts exactly those.
 - **Two interpreters** (`bench/m9/interp.c`): a 16-opcode stack machine running a loop of about 34 bytecodes, with an alternating branch and a call.
   - `m9_interp_switch` dispatches with a switch: one indirect jump takes every opcode.
