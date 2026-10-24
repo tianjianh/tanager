@@ -47,6 +47,7 @@ Mode changes happen only at commit: a trap, MRET or SRET retires, the CSR file s
 | `stimecmp` | Sstc. Access below M needs `menvcfg.STCE` and the `time` permission (`mcounteren.TM`), else illegal |
 | `hpmcounter3–31` | Read 0 (Zihpm), `nondet`; gated by the enables |
 | `mhpmevent3–31` | Read 0 (no Sscofpmf yet) |
+| `dcsr`, `dpc`, `dscratch0`, `dscratch1` | With `TG_DEBUG` only, in debug mode only (Debug mode, below); otherwise illegal |
 
 Everything M2 listed is unchanged. Existence and privilege follow the CSR address (bits 9:8 give the lowest privilege allowed; read-only when bits 11:10 are 3), as in M2.
 
@@ -88,6 +89,80 @@ Everything M2 listed is unchanged. Existence and privilege follow the CSR addres
 - `time` reads `mtime_i`.
 - From S or U, each counter read needs its enable bit; otherwise the read is illegal.
 
+## Debug mode (Sdext; `TG_DEBUG`, M9's item 4, development builds only)
+
+Status: spec for review (core-2), 2026-10-24. soc-2's Debug Module, DTM and debug window are [soc.md](soc.md) §9, agreed with this section.
+- **Sources (DR-138):** the RISC-V Debug Specification 1.0 only: its Sdext chapter (Debug Mode, Single Step, Resume), its core debug registers (`dcsr`, `dpc`, `dscratch0`/`1`) and its execution-based abstract commands. No implementation was read.
+- **The switch:** `TG_DEBUG` (`tg_core_pkg::DEBUG_ON`), off by default. A release build never sets it (as the virtio window, DR-180). Off, nothing below exists: the four CSRs and `dret` stay illegal, `debug_req_i` is unused, and the core is cycle for cycle the one without the switch.
+- **The design is execution-based.** A halted hart runs the DM's ROM from the debug window, and the DM implements Access Register by writing instructions for the hart to run (soc.md §9.5). Nothing reaches rename or the register files.
+
+### Interface (soc.md §9.4)
+- **`debug_req_i[t]`** (from the DM's `dbg_haltreq[h]`): a level halt request per hart.
+- **`hart_unavail_o[t]`:** the hart is in reset or held off (hart 1 without `HART1`, or with `mtgsmt.HART1_OFF`).
+- **`havereset_o[t]`:** a one-cycle pulse as the hart leaves reset. The DM keeps it until `ackhavereset`.
+
+### The CSRs, per hart (debug mode only; elsewhere an illegal instruction)
+| CSR | Address | Contents |
+|---|---|---|
+| `dcsr` | 0x7B0 | `debugver` 4 and `cause` (read-only); `ebreakm`, `ebreaks`, `ebreaku`, `step` and `prv` writable (`prv` 2 writes as U, as MPP); hardwired: `stepie` 0 (no interrupt during a step), `stopcount` 1 (hart-local counters stop in debug mode and for an `ebreak` that enters it), `stoptime` 0 (`time` is the shared ACLINT's), `mprven` 0 (MPRV is ignored in debug mode, so the ROM's window accesses never translate; OpenOCD translates virtual addresses itself); `extcause`, `cetrig`, `pelp`, `ebreakvs`, `ebreakvu`, `v` and `nmip` 0. Reset: `prv` 3, the writable rest 0 |
+| `dpc` | 0x7B1 | the pc to resume at, with `mepc`'s legal values |
+| `dscratch0`, `dscratch1` | 0x7B2, 0x7B3 | 64 bits each. The DM's ROM keeps the hart's `s0` and `s1` there, so `hartinfo.nscratch` is 0 |
+
+### Entry
+- **Causes, highest first** (the spec's priority table: reset-halt, halt group, halt request, trigger, `ebreak`, step): the halt request (3), `ebreak` (1), a step (4). There are no triggers, reset-halt or halt groups. A halt request pending while an `ebreak` commits wins, with `dpc` at the `ebreak`.
+- **The halt request** is taken at commit as the thread's highest-priority interrupt, by `do_irq`'s path: the thread's window flushes, `dpc` is the pc of the next instruction to commit, and the cause is 3. It works the same in split and merged mode. A thread asleep in WFI (core-pipeline.md §8.5) wakes for it (`wk_i`) and its halves split as for an interrupt. The WFI completes and its successor's pc is `dpc` (the spec: "leave the stalled state, completing this instruction's execution, and then enter Debug Mode").
+- **`ebreak`** in a mode whose `dcsr.ebreakm`/`s`/`u` is set enters at commit in place of the breakpoint exception. `dpc` is the `ebreak`'s pc and the cause is 1. No trap CSR changes, and `minstret` doesn't count it.
+- **On entry:** `dcsr.prv` takes the current privilege, along with `dcsr.cause` and `dpc`. The hart enters debug mode at M privilege, and fetch goes to 0x1100_0800. Pending interrupts stay pending.
+
+### In debug mode (the spec's list, as built)
+- M privilege, with the four debug CSRs accessible.
+- **Interrupts:** all masked.
+- **Exceptions:** traps don't take place. An exception (illegal instruction, access or page fault, misaligned access, `ecall`, and `mret` or `sret`, which the spec leaves unspecified there) flushes and jumps to 0x1100_0808. It changes no CSR: `mepc`, `mcause`, `mtval` and `mstatus` keep their values.
+- **`ebreak`** re-enters at 0x1100_0800 without changing `dpc` or `dcsr`.
+- **`wfi`** is a nop.
+- **Translation:** MPRV is ignored, so loads and stores are M-mode physical and fetches untranslated. PMP applies as in M-mode, through locked entries only (`abstractcs.relaxedpriv` 0).
+- **Counters:** `mcycle`, `minstret` and the HPM counters don't count; `time` does.
+- **Control transfers and `auipc`** behave as usual, since the ROM jumps between its loop, the abstract area and the program buffer.
+- **The debug window** (`DEBUG_BASE` 0x1100_0000, 64 KiB):
+  - in debug mode it is fetchable through the I$, as the boot ROM is (line refills), with loads and stores uncached on the device path, and it is exempt from PMP;
+  - outside debug mode, every fetch, load and store to it is an access fault. The PMA check comes before the I$, so a line left in the I$ can't be fetched;
+  - the ROM executes `fence.i` before jumping into the abstract area or the program buffer, which the DM has just written (soc.md §9.5).
+- **The commit trace:** no records in debug mode, and one marker record at entry, where verif-2's checker stops, since a debugger can change state that Spike can't follow.
+
+### `dret` (0x7B200073)
+- Legal in debug mode only; elsewhere it is an illegal instruction.
+- It is serialising, like `mret`. At commit it flushes and then:
+  - sets the pc from `dpc` and the privilege from `dcsr.prv`;
+  - clears `mstatus.MPRV` if the new privilege is below M (the spec's Resume section);
+  - leaves debug mode. From the next fetch on, the window faults again.
+- With `dcsr.step` set, it arms one step.
+
+### Single step (`dcsr.step`)
+- After `dret`, the hart commits one instruction. The next commit is then replaced by entry with cause 4, and `dpc` is the next pc (the pc + 4 or 2, or a taken jump's or branch's target).
+- **A stepped instruction that traps:** the trap is taken (`mepc` and the rest as usual), and debug mode is entered at the handler's first pc before any of the handler runs.
+- **An exception at the new pc** (an instruction access fault at a jump's target, say) is deferred. Entry happens with `dpc` at that pc, and the fault comes when the hart resumes.
+- **A stepped `wfi`** is a nop.
+- **Interrupts:** none is taken during a step (`stepie` 0).
+- **Other causes win:** a stepped `ebreak` with its mode's `dcsr.ebreak` bit set enters with cause 1, and a halt request during a step enters with cause 3.
+
+### The units
+- **`tg_csr`:** the four CSRs per hart, the debug-mode bit per hart, entry's and `dret`'s writes, and the counters' stop.
+- **`tg_rob`:**
+  - entry at commit: the halt request as an interrupt, `ebreak`'s redirect, and the step's one commit;
+  - `dret`'s serialisation;
+  - debug-mode exceptions to 0x808 and `ebreak` to 0x800;
+  - the trace's suppression and its marker.
+- **`tg_fetch`:** the window's fetch permission, by the thread's debug mode.
+- **`tg_lsu`:** the window's loads and stores in debug mode only, PMP-exempt, and MPRV ignored in debug mode.
+- **`tg_core`:** `debug_req_i` connected, `hart_unavail_o` and `havereset_o`, and the halt request among the sleepers' wake events.
+
+### Cost and checks
+- **Cost:** m9-plan §8 estimates about 50 LUTs and 100 FFs a hart for the CSRs, and 150–300 LUTs a core for entry and exit. Measured when built, in a development build.
+- **With the switch off:** cycle-identical, with no new logic.
+- **Tests:**
+  - a directed test against a simulation model of the window in `tg_vsim` (a small ROM image), covering halt, a canned register read, a step, `ebreak` entry, an exception to 0x808, and `dret`;
+  - soc-2's run with the real DM in `tb_boot` (soc.md §9.6).
+
 ## Parameters
 `NUM_THREADS` (per-hart state since M7's step 2, core-pipeline.md §9.6; one thread runs until step 5), PMP entries (`PMP_ENTRIES`, 8 or 16), `PA_W`. The extensions follow the `tg_core_pkg` switches (core-pipeline.md §4), which turn on together with the M3 ISA string.
 
@@ -100,5 +175,6 @@ CSR accesses are serialised, so the CSR file is off the critical paths. The cold
 
 ## Provenance
 - RISC-V Privileged Architecture 1.13 (status fields, delegation, xRET, Sstc, counters).
+- RISC-V Debug Specification 1.0 (debug mode: the Sdext chapter and the core debug registers).
 - Spike's CSR implementation was read as the reference model's behaviour (plan §2.3 allows reference models and tools), to make every WARL field compare in lockstep.
 - No other core's RTL was read.
