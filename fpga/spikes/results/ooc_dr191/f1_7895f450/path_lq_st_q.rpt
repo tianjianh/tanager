@@ -1,0 +1,141 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version      : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
+| Date              : Sat Oct 24 02:21:39 2026
+| Host              : w-arrowlake running 64-bit Ubuntu 24.04.5 LTS
+| Command           : report_timing -max_paths 1 -nworst 1 -setup -to [get_cells -quiet -hier -filter {NAME =~ "*u_lsu/lq_st_q_reg*" && IS_SEQUENTIAL}] -input_pins -file path_lq_st_q.rpt
+| Design            : tg_core
+| Device            : xck26-sfvc784
+| Speed File        : -2LV  PRODUCTION 1.30 05-15-2022
+| Design State      : Routed
+| Temperature Grade : C
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Timing Report
+
+Slack (MET) :             1.008ns  (required time - arrival time)
+  Source:                 u_is/g_q[4].u_iq/g_late.grant_q_reg[5]/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_lsu/lq_st_q_reg[8][1]/CE
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            10.000ns  (clk rise@10.000ns - clk rise@0.000ns)
+  Data Path Delay:        8.830ns  (logic 2.178ns (24.666%)  route 6.652ns (75.334%))
+  Logic Levels:           19  (LUT2=4 LUT3=1 LUT4=3 LUT5=3 LUT6=6 MUXF7=1 RAMD32=1)
+  Clock Path Skew:        -0.047ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    1.731ns = ( 11.731 - 10.000 ) 
+    Source Clock Delay      (SCD):    1.882ns
+    Clock Pessimism Removal (CPR):    0.104ns
+  Clock Uncertainty:      0.035ns  ((TSJ^2 + TIJ^2)^1/2 + DJ) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Total Input Jitter      (TIJ):    0.000ns
+    Discrete Jitter          (DJ):    0.000ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    PBlock               Netlist Resource(s)
+  -------------------------------------------------------------------    ----------------------------------------
+                         (clock clk rise edge)        0.000     0.000 r                       
+                                                      0.000     0.000 r                       clk (IN)
+                         net (fo=36368, unset)        1.882     1.882                         u_is/g_q[4].u_iq/clk
+    SLICE_X46Y148        FDRE                                         r  spike                u_is/g_q[4].u_iq/g_late.grant_q_reg[5]/C
+  -------------------------------------------------------------------    ----------------------------------------
+    SLICE_X46Y148        FDRE (Prop_FFF_SLICEL_C_Q)
+                                                      0.113     1.995 f  spike                u_is/g_q[4].u_iq/g_late.grant_q_reg[5]/Q
+                         net (fo=3, routed)           0.160     2.155                         u_is/g_q[4].u_iq/g_late.grant_q_reg_n_0_[5]
+    SLICE_X46Y148                                                     f  spike                u_is/g_q[4].u_iq/g_late.g_bank[1].u_ram_i_5__1/I1
+    SLICE_X46Y148        LUT4 (Prop_D5LUT_SLICEL_I1_O)
+                                                      0.152     2.307 r  spike                u_is/g_q[4].u_iq/g_late.g_bank[1].u_ram_i_5__1/O
+                         net (fo=46, routed)          0.888     3.195                         u_is/g_q[4].u_iq/g_late.g_bank[1].u_ram/g_m32.g_prim[1].u_ram/ADDRB0
+    SLICE_X40Y115                                                     r  spike                u_is/g_q[4].u_iq/g_late.g_bank[1].u_ram/g_m32.g_prim[1].u_ram/RAMB/RADR0
+    SLICE_X40Y115        RAMD32 (Prop_B5LUT_SLICEM_RADR0_O)
+                                                      0.229     3.424 r  spike                u_is/g_q[4].u_iq/g_late.g_bank[1].u_ram/g_m32.g_prim[1].u_ram/RAMB/O
+                         net (fo=1, routed)           0.389     3.813                         u_is/g_q[4].u_iq/g_late.g_bank[1].rd[0]_8[16]
+    SLICE_X40Y135                                                     r  spike                u_is/g_q[4].u_iq/ex_sel_q[0][1]_i_7/I0
+    SLICE_X40Y135        LUT4 (Prop_B6LUT_SLICEM_I0_O)
+                                                      0.082     3.895 r  spike                u_is/g_q[4].u_iq/ex_sel_q[0][1]_i_7/O
+                         net (fo=6, routed)           0.357     4.252                         u_is/g_q[4].u_iq/g_m32.g_prim[1].u_ram
+    SLICE_X40Y152                                                     r  spike                u_is/g_q[4].u_iq/g_bank[0].u_ram_i_8__5/I1
+    SLICE_X40Y152        LUT2 (Prop_D5LUT_SLICEM_I1_O)
+                                                      0.135     4.387 f  spike                u_is/g_q[4].u_iq/g_bank[0].u_ram_i_8__5/O
+                         net (fo=20, routed)          0.817     5.204                         u_lsu/sd_busy
+    SLICE_X28Y175                                                     f  spike                u_lsu/u_sqrob_i_19/I2
+    SLICE_X28Y175        LUT3 (Prop_H6LUT_SLICEM_I2_O)
+                                                      0.084     5.288 r  spike                u_lsu/u_sqrob_i_19/O
+                         net (fo=2, routed)           0.160     5.448                         u_lsu/u_sqrob_i_19_n_0
+    SLICE_X27Y177                                                     r  spike                u_lsu/u_sqrob_i_30/I0
+    SLICE_X27Y177        LUT2 (Prop_D5LUT_SLICEL_I0_O)
+                                                      0.152     5.600 r  spike                u_lsu/u_sqrob_i_30/O
+                         net (fo=2, routed)           0.271     5.871                         u_lsu/u_sqrob_i_30_n_0
+    SLICE_X27Y171                                                     r  spike                u_lsu/u_sqrob_i_10/I1
+    SLICE_X27Y171        LUT4 (Prop_F6LUT_SLICEL_I1_O)
+                                                      0.056     5.927 r  spike                u_lsu/u_sqrob_i_10/O
+                         net (fo=19, routed)          0.180     6.106                         u_lsu/cap_idx[1]
+    SLICE_X27Y170                                                     r  spike                u_lsu/sq_dv_q[19]_i_2/I1
+    SLICE_X27Y170        LUT2 (Prop_D5LUT_SLICEL_I1_O)
+                                                      0.133     6.239 f  spike                u_lsu/sq_dv_q[19]_i_2/O
+                         net (fo=15, routed)          0.331     6.570                         u_lsu/u_dc/sq_dv_q_reg[7]
+    SLICE_X26Y168                                                     f  spike                u_lsu/u_dc/lq_st_q[12][1]_i_37/I1
+    SLICE_X26Y168        LUT5 (Prop_H6LUT_SLICEL_I1_O)
+                                                      0.058     6.628 r  spike                u_lsu/u_dc/lq_st_q[12][1]_i_37/O
+                         net (fo=24, routed)          0.471     7.099                         u_lsu/u_dc/sq_dvn[11]
+    SLICE_X24Y163                                                     r  spike                u_lsu/u_dc/lq_st_q[8][1]_i_30/I0
+    SLICE_X24Y163        LUT6 (Prop_B6LUT_SLICEM_I0_O)
+                                                      0.152     7.251 r  spike                u_lsu/u_dc/lq_st_q[8][1]_i_30/O
+                         net (fo=1, routed)           0.022     7.273                         u_lsu/u_dc/lq_st_q[8][1]_i_30_n_0
+    SLICE_X24Y163                                                     r  spike                u_lsu/u_dc/lq_st_q_reg[8][1]_i_15/I0
+    SLICE_X24Y163        MUXF7 (Prop_F7MUX_AB_SLICEM_I0_O)
+                                                      0.102     7.375 r  spike                u_lsu/u_dc/lq_st_q_reg[8][1]_i_15/O
+                         net (fo=1, routed)           0.249     7.624                         u_lsu/u_dc/lq_st_q_reg[8][1]_i_15_n_0
+    SLICE_X24Y163                                                     r  spike                u_lsu/u_dc/lq_st_q[8][1]_i_12/I0
+    SLICE_X24Y163        LUT6 (Prop_H6LUT_SLICEM_I0_O)
+                                                      0.154     7.778 r  spike                u_lsu/u_dc/lq_st_q[8][1]_i_12/O
+                         net (fo=1, routed)           0.561     8.339                         u_lsu/u_dc/lq_st_q[8][1]_i_12_n_0
+    SLICE_X19Y163                                                     r  spike                u_lsu/u_dc/lq_st_q[8][1]_i_11/I0
+    SLICE_X19Y163        LUT6 (Prop_C6LUT_SLICEL_I0_O)
+                                                      0.056     8.395 r  spike                u_lsu/u_dc/lq_st_q[8][1]_i_11/O
+                         net (fo=1, routed)           0.307     8.702                         u_lsu/u_dc/lq_st_q[8][1]_i_11_n_0
+    SLICE_X14Y161                                                     r  spike                u_lsu/u_dc/lq_st_q[8][1]_i_10/I0
+    SLICE_X14Y161        LUT5 (Prop_F6LUT_SLICEL_I0_O)
+                                                      0.056     8.758 r  spike                u_lsu/u_dc/lq_st_q[8][1]_i_10/O
+                         net (fo=1, routed)           0.492     9.250                         u_lsu/u_dc/lq_st_q[8][1]_i_10_n_0
+    SLICE_X8Y158                                                      r  spike                u_lsu/u_dc/lq_st_q[8][1]_i_7/I4
+    SLICE_X8Y158         LUT5 (Prop_F6LUT_SLICEM_I4_O)
+                                                      0.080     9.330 r  spike                u_lsu/u_dc/lq_st_q[8][1]_i_7/O
+                         net (fo=1, routed)           0.165     9.495                         u_lsu/u_ptw/lq_st_q[8][1]_i_3_0
+    SLICE_X8Y161                                                      r  spike                u_lsu/u_ptw/lq_st_q[8][1]_i_5/I5
+    SLICE_X8Y161         LUT6 (Prop_C6LUT_SLICEM_I5_O)
+                                                      0.056     9.551 f  spike                u_lsu/u_ptw/lq_st_q[8][1]_i_5/O
+                         net (fo=1, routed)           0.180     9.731                         u_lsu/u_ptw/lq_st_q[8][1]_i_5_n_0
+    SLICE_X7Y161                                                      f  spike                u_lsu/u_ptw/lq_st_q[8][1]_i_3/I0
+    SLICE_X7Y161         LUT6 (Prop_H6LUT_SLICEM_I0_O)
+                                                      0.084     9.815 f  spike                u_lsu/u_ptw/lq_st_q[8][1]_i_3/O
+                         net (fo=4, routed)           0.163     9.978                         u_lsu/u_ptw/ma4_lq_q_reg[4]
+    SLICE_X7Y163                                                      f  spike                u_lsu/u_ptw/lq_st_q[8][3]_i_7/I1
+    SLICE_X7Y163         LUT2 (Prop_A5LUT_SLICEM_I1_O)
+                                                      0.095    10.073 f  spike                u_lsu/u_ptw/lq_st_q[8][3]_i_7/O
+                         net (fo=2, routed)           0.198    10.271                         u_lsu/u_ptw/lq_st_q[8][3]_i_7_n_0
+    SLICE_X7Y163                                                      f  spike                u_lsu/u_ptw/lq_st_q[8][3]_i_2/I5
+    SLICE_X7Y163         LUT6 (Prop_F6LUT_SLICEM_I5_O)
+                                                      0.149    10.420 r  spike                u_lsu/u_ptw/lq_st_q[8][3]_i_2/O
+                         net (fo=4, routed)           0.292    10.711                         u_lsu/u_ptw_n_536
+    SLICE_X5Y162         FDRE                                         r  spike                u_lsu/lq_st_q_reg[8][1]/CE
+  -------------------------------------------------------------------    ----------------------------------------
+
+                         (clock clk rise edge)       10.000    10.000 r                       
+                                                      0.000    10.000 r                       clk (IN)
+                         net (fo=36368, unset)        1.731    11.731                         u_lsu/clk
+    SLICE_X5Y162         FDRE                                         r  spike                u_lsu/lq_st_q_reg[8][1]/C
+                         clock pessimism              0.104    11.835                           
+                         clock uncertainty           -0.035    11.800                           
+    SLICE_X5Y162         FDRE (Setup_CFF_SLICEM_C_CE)
+                                                     -0.080    11.720    spike                  u_lsu/lq_st_q_reg[8][1]
+  -------------------------------------------------------------------
+                         required time                         11.720                           
+                         arrival time                         -10.711                           
+  -------------------------------------------------------------------
+                         slack                                  1.008                           
+
+
+
+

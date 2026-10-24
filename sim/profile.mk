@@ -125,14 +125,14 @@ TC_DEF    := $(strip $(if $(TIMING_CUTS),+define+TG_TIMING_CUTS=$(TIMING_CUTS)) 
                      $(if $(STORE_PF),+define+TG_STORE_PF=$(STORE_PF)) $(if $(URF),+define+TG_URF=$(URF)) \
                      $(if $(STORE_PF_MAX),+define+TG_STORE_PF_MAX=$(STORE_PF_MAX)) $(if $(SOLO_TID),+define+TG_SOLO_TID=$(SOLO_TID)) \
                      $(if $(SPLIT),+define+TG_SPLIT=$(SPLIT)) $(if $(HART1),+define+TG_HART1=$(HART1)) \
-                     $(if $(PMP_FILL),+define+TG_PMP_FILL=$(PMP_FILL)) $(if $(HPM $(if $(LWT),+define+TG_HPM=$(HPM))),+define+TG_LWT=$(LWT)))
+                     $(if $(PMP_FILL),+define+TG_PMP_FILL=$(PMP_FILL)) $(if $(HPM),+define+TG_HPM=$(HPM)) $(if $(LWT),+define+TG_LWT=$(LWT)))
 TC_ARG    := $(strip $(if $(TIMING_CUTS),TIMING_CUTS=$(TIMING_CUTS)) $(if $(DC_MSHRS),DC_MSHRS=$(DC_MSHRS)) \
                      $(if $(QUEUE_DECODE),QUEUE_DECODE=$(QUEUE_DECODE)) $(if $(SPEC_WAKE),SPEC_WAKE=$(SPEC_WAKE)) \
                      $(if $(SPEC_WAKE_FILT),SPEC_WAKE_FILT=$(SPEC_WAKE_FILT)) $(if $(STA_BASE),STA_BASE=$(STA_BASE)) \
                      $(if $(STEER_LA),STEER_LA=$(STEER_LA)) $(if $(PMP_ENTRIES),PMP_ENTRIES=$(PMP_ENTRIES)) \
                      $(if $(STORE_PF),STORE_PF=$(STORE_PF)) $(if $(URF),URF=$(URF)) \
                      $(if $(STORE_PF_MAX),STORE_PF_MAX=$(STORE_PF_MAX)) $(if $(SOLO_TID),SOLO_TID=$(SOLO_TID)) $(if $(SPLIT),SPLIT=$(SPLIT)) \
-                     $(if $(HART1),HART1=$(HART1)) $(if $(PMP_FILL),PMP_FILL=$(PMP_FILL)) $(if $(HPM $(if $(LWT),HPM=$(HPM))),LWT=$(LWT)))
+                     $(if $(HART1),HART1=$(HART1)) $(if $(PMP_FILL),PMP_FILL=$(PMP_FILL)) $(if $(HPM),HPM=$(HPM)) $(if $(LWT),LWT=$(LWT)))
 # The PMP entries of the core this tree builds, for Spike's regions in lockstep (DR-167): PMP_ENTRIES when
 # set, else the package's default, from its one `localparam int PMP_ENTRIES = N;` line, else 16 (the core
 # before the switch). tg_vsim takes the count from the model itself and stops if this reading differs, so

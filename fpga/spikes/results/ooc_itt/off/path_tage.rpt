@@ -1,0 +1,117 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version      : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
+| Date              : Sat Oct 24 04:35:43 2026
+| Host              : w-arrowlake running 64-bit Ubuntu 24.04.5 LTS
+| Command           : report_timing -max_paths 1 -nworst 1 -setup -to [get_cells -quiet -hier -filter {NAME =~ "*g_tage.u_tage/g_tab*" && IS_SEQUENTIAL}] -input_pins -file path_tage.rpt
+| Design            : tg_core
+| Device            : xck26-sfvc784
+| Speed File        : -2LV  PRODUCTION 1.30 05-15-2022
+| Design State      : Routed
+| Temperature Grade : C
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Timing Report
+
+Slack (MET) :             3.514ns  (required time - arrival time)
+  Source:                 u_fetch/f3_s_q_reg/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_fetch/g_tage.u_tage/g_tab[0].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_1/ENBWREN
+                            (rising edge-triggered cell RAMB36E2 clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            10.000ns  (clk rise@10.000ns - clk rise@0.000ns)
+  Data Path Delay:        6.064ns  (logic 1.500ns (24.736%)  route 4.564ns (75.264%))
+  Logic Levels:           13  (LUT2=2 LUT3=1 LUT4=2 LUT5=4 LUT6=4)
+  Clock Path Skew:        0.076ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    1.731ns = ( 11.731 - 10.000 ) 
+    Source Clock Delay      (SCD):    1.753ns
+    Clock Pessimism Removal (CPR):    0.097ns
+  Clock Uncertainty:      0.035ns  ((TSJ^2 + TIJ^2)^1/2 + DJ) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Total Input Jitter      (TIJ):    0.000ns
+    Discrete Jitter          (DJ):    0.000ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    PBlock               Netlist Resource(s)
+  -------------------------------------------------------------------    ----------------------------------------
+                         (clock clk rise edge)        0.000     0.000 r                       
+                                                      0.000     0.000 r                       clk (IN)
+                         net (fo=36379, unset)        1.753     1.753                         u_fetch/clk
+    SLICE_X26Y96         FDRE                                         r  spike                u_fetch/f3_s_q_reg/C
+  -------------------------------------------------------------------    ----------------------------------------
+    SLICE_X26Y96         FDRE (Prop_EFF_SLICEL_C_Q)
+                                                      0.114     1.867 r  spike                u_fetch/f3_s_q_reg/Q
+                         net (fo=907, routed)         0.141     2.007                         u_fetch/u_cmp/f3_s_q
+    SLICE_X25Y96                                                      r  spike                u_fetch/u_cmp/g_bank[0].u_ram_i_232/I1
+    SLICE_X25Y96         LUT4 (Prop_E6LUT_SLICEM_I1_O)
+                                                      0.152     2.159 r  spike                u_fetch/u_cmp/g_bank[0].u_ram_i_232/O
+                         net (fo=9, routed)           0.250     2.409                         u_fetch/u_cmp/g_bank[0].u_ram_i_232_n_0
+    SLICE_X23Y94                                                      r  spike                u_fetch/u_cmp/done_q[3]_i_14/I3
+    SLICE_X23Y94         LUT5 (Prop_H6LUT_SLICEL_I3_O)
+                                                      0.137     2.546 r  spike                u_fetch/u_cmp/done_q[3]_i_14/O
+                         net (fo=2, routed)           0.054     2.600                         u_fetch/u_cmp/done_q[3]_i_14_n_0
+    SLICE_X23Y94                                                      r  spike                u_fetch/u_cmp/done_q[3]_i_10/I0
+    SLICE_X23Y94         LUT3 (Prop_G6LUT_SLICEL_I0_O)
+                                                      0.057     2.657 f  spike                u_fetch/u_cmp/done_q[3]_i_10/O
+                         net (fo=3, routed)           0.178     2.835                         u_fetch/u_cmp/done_q[3]_i_10_n_0
+    SLICE_X23Y97                                                      f  spike                u_fetch/u_cmp/done_q[3]_i_13/I3
+    SLICE_X23Y97         LUT5 (Prop_C6LUT_SLICEL_I3_O)
+                                                      0.136     2.971 r  spike                u_fetch/u_cmp/done_q[3]_i_13/O
+                         net (fo=2, routed)           0.060     3.032                         u_fetch/u_cmp/done_q[3]_i_13_n_0
+    SLICE_X23Y97                                                      r  spike                u_fetch/u_cmp/done_q[3]_i_6/I4
+    SLICE_X23Y97         LUT5 (Prop_A6LUT_SLICEL_I4_O)
+                                                      0.137     3.169 f  spike                u_fetch/u_cmp/done_q[3]_i_6/O
+                         net (fo=5, routed)           0.058     3.227                         u_fetch/u_cmp/done_q[3]_i_6_n_0
+    SLICE_X23Y96                                                      f  spike                u_fetch/u_cmp/done_q[3]_i_5/I0
+    SLICE_X23Y96         LUT6 (Prop_G6LUT_SLICEL_I0_O)
+                                                      0.057     3.284 f  spike                u_fetch/u_cmp/done_q[3]_i_5/O
+                         net (fo=5, routed)           0.435     3.719                         u_fetch/u_cmp/done_q[3]_i_5_n_0
+    SLICE_X22Y98                                                      f  spike                u_fetch/u_cmp/g_bank[0].u_ram_i_216/I1
+    SLICE_X22Y98         LUT6 (Prop_G6LUT_SLICEL_I1_O)
+                                                      0.186     3.905 f  spike                u_fetch/u_cmp/g_bank[0].u_ram_i_216/O
+                         net (fo=1, routed)           0.054     3.959                         u_fetch/u_cmp/g_bank[0].u_ram_i_216_n_0
+    SLICE_X22Y98                                                      f  spike                u_fetch/u_cmp/g_bank[0].u_ram_i_161/I3
+    SLICE_X22Y98         LUT5 (Prop_F6LUT_SLICEL_I3_O)
+                                                      0.150     4.109 r  spike                u_fetch/u_cmp/g_bank[0].u_ram_i_161/O
+                         net (fo=23, routed)          0.549     4.658                         u_fetch/u_cmp/p_56_in
+    SLICE_X25Y96                                                      r  spike                u_fetch/u_cmp/hv_q[1]_i_4/I0
+    SLICE_X25Y96         LUT6 (Prop_H6LUT_SLICEM_I0_O)
+                                                      0.060     4.718 f  spike                u_fetch/u_cmp/hv_q[1]_i_4/O
+                         net (fo=8, routed)           0.304     5.022                         u_fetch/u_cmp/hv_q[1]_i_4_n_0
+    SLICE_X29Y95                                                      f  spike                u_fetch/u_cmp/f3_meta_q[fault]_i_3/I1
+    SLICE_X29Y95         LUT2 (Prop_G6LUT_SLICEM_I1_O)
+                                                      0.082     5.104 f  spike                u_fetch/u_cmp/f3_meta_q[fault]_i_3/O
+                         net (fo=6, routed)           0.206     5.310                         u_fetch/g_tage.u_tage/f3_valid_q_reg_1
+    SLICE_X32Y94                                                      f  spike                u_fetch/g_tage.u_tage/g_way[0].u_data_i_14/I4
+    SLICE_X32Y94         LUT6 (Prop_H6LUT_SLICEM_I4_O)
+                                                      0.084     5.394 r  spike                u_fetch/g_tage.u_tage/g_way[0].u_data_i_14/O
+                         net (fo=2, routed)           0.259     5.653                         u_fetch/g_tage.u_tage/g_way[0].u_data_i_14_n_0
+    SLICE_X36Y93                                                      r  spike                u_fetch/g_tage.u_tage/g_way[0].u_data_i_13/I2
+    SLICE_X36Y93         LUT4 (Prop_G6LUT_SLICEL_I2_O)
+                                                      0.057     5.710 f  spike                u_fetch/g_tage.u_tage/g_way[0].u_data_i_13/O
+                         net (fo=8, routed)           0.339     6.049                         u_fetch/g_tage.u_tage/g_way[0].u_data_i_13_n_0
+    SLICE_X40Y91                                                      f  spike                u_fetch/g_tage.u_tage/g_way[0].u_data_i_10/I1
+    SLICE_X40Y91         LUT2 (Prop_D5LUT_SLICEM_I1_O)
+                                                      0.091     6.140 r  spike                u_fetch/g_tage.u_tage/g_way[0].u_data_i_10/O
+                         net (fo=72, routed)          1.677     7.817                         u_fetch/g_tage.u_tage/g_tab[0].u_mem/u_mem/xpm_memory_base_inst/ena
+    RAMB36_X2Y17         RAMB36E2                                     r  spike                u_fetch/g_tage.u_tage/g_tab[0].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_1/ENBWREN
+  -------------------------------------------------------------------    ----------------------------------------
+
+                         (clock clk rise edge)       10.000    10.000 r                       
+                                                      0.000    10.000 r                       clk (IN)
+                         net (fo=36379, unset)        1.731    11.731                         u_fetch/g_tage.u_tage/g_tab[0].u_mem/u_mem/xpm_memory_base_inst/clka
+    RAMB36_X2Y17         RAMB36E2                                     r  spike                u_fetch/g_tage.u_tage/g_tab[0].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_1/CLKBWRCLK
+                         clock pessimism              0.097    11.828                           
+                         clock uncertainty           -0.035    11.793                           
+    RAMB36_X2Y17         RAMB36E2 (Setup_RAMB36E2_RAMB36_CLKBWRCLK_ENBWREN)
+                                                     -0.462    11.331    spike                  u_fetch/g_tage.u_tage/g_tab[0].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_1
+  -------------------------------------------------------------------
+                         required time                         11.331                           
+                         arrival time                          -7.817                           
+  -------------------------------------------------------------------
+                         slack                                  3.514                           
+
+
+
+

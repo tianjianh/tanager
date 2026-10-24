@@ -61,7 +61,10 @@ WT = os.path.basename(ROOT)
 TB = os.environ.get("TANAGER_BUILD", os.path.expanduser("~/tanager-build"))
 CACHE = os.path.join(TB, "cycle-identical")
 WORK = os.path.join(TB, WT, "cycle-identical")
-KEEP_BUILDS = 12          # cached builds kept (least recently used go first)
+# The checking tools' hash-keyed build caches (this one, boot-lockstep's): the most recently used builds are kept while
+# they number at most CACHE_KEEP_BUILDS and come to at most CACHE_KEEP_GB, and the older ones go (prune_cache), never
+# one a check holds or builds, one used or changed in the last CACHE_MIN_AGE seconds, or one of the running check's own
+CACHE_KEEP_BUILDS, CACHE_KEEP_GB, CACHE_MIN_AGE = 40, 15, 3600
 NO_WALL_LIMIT = "--timeout=1000000000"  # a wall-clock stop would land on a load-dependent cycle
 BOOT_EXPECT = "TANAGER-BOOT-OK"          # tb_boot ends early if the boot gets there
 BOOT_DTS = ("MEM=0x08000000", "FPU=1", "BOOTARGS=console=ttyS0,115200 earlycon")  # as tests/unit/boot's linux target
@@ -114,7 +117,7 @@ def git(*args, env=None):
 PROFILE_VARS = (("TIMING_CUTS", "tc"), ("DC_MSHRS", "dcm"), ("QUEUE_DECODE", "qd"), ("SPEC_WAKE", "sw"),
                 ("STA_BASE", "sb"), ("STEER_LA", "sl"), ("PMP_ENTRIES", "pmp"), ("STORE_PF", "spf"), ("URF", "urf"),
                 ("STORE_PF_MAX", "spm"), ("SOLO_TID", "solo"), ("SPLIT", "sp"), ("HART1", "h1"),
-                ("SPEC_WAKE_FILT", "swf"), ("PMP_FILL", "pf"), ("LWT", "lwt"))
+                ("SPEC_WAKE_FILT", "swf"), ("PMP_FILL", "pf"), ("HPM", "hpm"), ("LWT", "lwt"))
 
 
 def profile_takes(ref, var):
@@ -217,8 +220,7 @@ class Side:
         worktree's check prunes the cache by taking the lock exclusively without waiting, so it skips a
         build that a check holds (it once removed one between this check's look and its first run)."""
         os.makedirs(os.path.dirname(self.dir), exist_ok=True)
-        self._lk = open(self.dir + ".lock", "a")
-        fcntl.flock(self._lk, fcntl.LOCK_SH)
+        self._lk = lock_build(self.dir + ".lock", fcntl.LOCK_SH)
         if os.path.isdir(self.dir):
             os.utime(self.dir)
 
@@ -229,8 +231,7 @@ class Side:
 
     def build(self, jobs):
         os.makedirs(os.path.dirname(self.dir), exist_ok=True)
-        with open(self.dir + ".lock", "a") as lk:
-            fcntl.flock(lk, fcntl.LOCK_EX)  # another check may be building the same tree
+        with lock_build(self.dir + ".lock", fcntl.LOCK_EX):  # another check may be building the same tree
             if self.built():
                 return None
             src, obj = os.path.join(self.dir, "src"), os.path.join(self.dir, "obj")
@@ -307,34 +308,111 @@ def build_all(sides, jobs, cfg):
     return {}
 
 
-def prune_builds(keep_keys):
-    """Keep the KEEP_BUILDS most recently used builds, any used in the last hour, and any that a running
-    check holds (Side.hold): a build is removed only under its lock, taken exclusively without waiting,
-    and only if it was not used since the listing. Lock files stay: removing one would let two checks
-    lock different files of the same name."""
-    bdir = os.path.join(CACHE, "build")
-    age = lambda d: time.time() - os.path.getmtime(os.path.join(bdir, d))
-    ages = {}
-    for d in os.listdir(bdir):
+def lock_build(path, mode, wait=True):
+    """An open file holding flock(mode) on the lock file at path, as path names it when the lock is granted; None if
+    wait is False and another process holds it. prune_cache unlinks a lock file it holds exclusively, so a lock
+    granted on a file that is gone or replaced is dropped and taken again on the one path names now."""
+    while True:
+        f = open(path, "a")
         try:
-            if os.path.isdir(os.path.join(bdir, d)):
-                ages[d] = age(d)
+            fcntl.flock(f, mode if wait else mode | fcntl.LOCK_NB)
+        except BlockingIOError:
+            f.close()
+            return None
+        try:
+            if os.stat(path).st_ino == os.fstat(f.fileno()).st_ino:
+                return f
         except FileNotFoundError:
-            pass  # another check's prune removed it meanwhile
-    for d in sorted(ages, key=ages.get)[KEEP_BUILDS:]:
-        if d in keep_keys:
+            pass
+        f.close()
+
+
+def tree_stats(path):
+    """(bytes on disk, newest mtime) of path and everything under it."""
+    size, newest = 0, os.lstat(path).st_mtime
+    for root, dirs, files in os.walk(path):
+        for n in dirs + files:
+            try:
+                st = os.lstat(os.path.join(root, n))
+            except FileNotFoundError:
+                continue  # removed meanwhile
+            size += st.st_blocks * 512
+            newest = max(newest, st.st_mtime)
+    return size, newest
+
+
+def prune_cache(bdir, keep_keys=(), keep_builds=CACHE_KEEP_BUILDS, keep_gb=CACHE_KEEP_GB, min_age=CACHE_MIN_AGE,
+                dry_run=False):
+    """Trim a hash-keyed build cache (one directory a build, KEY and KEY.lock): from the most recently used (the
+    directory's mtime, which a use touches), keep builds while they number at most keep_builds and come to at most
+    keep_gb, and remove all the older ones, each under its lock taken exclusively without waiting. Never one a check
+    holds or is building (the lock), one used or changed in the last min_age seconds (anything under it), or one of
+    keep_keys. Lock files without a build, a day old, go the same way (lock_build takes a lock again on a new file).
+    Returns a line that says what it did, or with dry_run what it would do."""
+    now = time.time()
+    builds, locks = [], []
+    for d in os.listdir(bdir):
+        path = os.path.join(bdir, d)
+        try:
+            if d.endswith(".lock"):
+                if not os.path.isdir(path[:-5]) and now - os.lstat(path).st_mtime > 86400:
+                    locks.append(path)
+            elif os.path.isdir(path):
+                builds.append((os.lstat(path).st_mtime, d, *tree_stats(path)))
+        except FileNotFoundError:
+            continue  # another prune removed it meanwhile
+    builds.sort(reverse=True)
+    kept_n, kept_b, cut, old = 0, 0, False, []
+    for b in builds:
+        cut = cut or kept_n >= keep_builds or kept_b + b[2] > keep_gb * 2**30
+        if cut:
+            old.append(b)
+        else:
+            kept_n, kept_b = kept_n + 1, kept_b + b[2]
+    gone, freed, stay, stay_b = 0, 0, 0, 0
+    for last, d, size, newest in old:
+        path = os.path.join(bdir, d)
+        if d in keep_keys or now - max(last, newest) < min_age:
+            stay, stay_b = stay + 1, stay_b + size
             continue
-        with open(os.path.join(bdir, d + ".lock"), "a") as lk:
+        lk = lock_build(path + ".lock", fcntl.LOCK_EX, wait=False)
+        if lk is None:
+            stay, stay_b = stay + 1, stay_b + size  # held or being built
+            continue
+        if dry_run:
+            lk.close()
+            gone, freed = gone + 1, freed + size
+            continue
+        with lk:
             try:
-                fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                continue  # held or being built
-            try:
-                if age(d) < 3600:
+                if now - os.lstat(path).st_mtime < min_age:   # used since the listing
+                    stay, stay_b = stay + 1, stay_b + size
                     continue
             except FileNotFoundError:
                 continue
-            shutil.rmtree(os.path.join(bdir, d), ignore_errors=True)
+            shutil.rmtree(path, ignore_errors=True)
+            gone, freed = gone + 1, freed + size
+    unlinked = 0
+    for path in locks:
+        if dry_run:
+            unlinked += 1
+            continue
+        lk = lock_build(path, fcntl.LOCK_EX, wait=False)
+        if lk is None:
+            continue
+        with lk:
+            if not os.path.isdir(path[:-5]):
+                os.unlink(path)
+                unlinked += 1
+    gb = lambda n: f"{n / 2**30:.2f} GB"
+    return (f"{len(builds)} builds, {gb(sum(b[2] for b in builds))}; kept the newest {kept_n} ({gb(kept_b)}; at most "
+            f"{keep_builds} and {keep_gb} GB){f', {stay} older in use or recent ({gb(stay_b)})' if stay else ''}; "
+            f"{'would remove' if dry_run else 'removed'} {gone} ({gb(freed)}) and {unlinked} lock files without a build")
+
+
+def prune_builds(keep_keys):
+    """This cache's trim after a check (prune_cache): its own builds stay (keep_keys)."""
+    prune_cache(os.path.join(CACHE, "build"), keep_keys)
 
 
 # ---- Programs: (suite, name, kind, payload); payload (elf, args) for vsim, (plusargs, files) for boot ----
@@ -357,8 +435,8 @@ def has_fd():
                                         if "localparam" in l)
 
 
-def isa_programs(cfg, args_of):
-    """riscv-tests of the regression's suites and our directed tests: (name, elf, args)."""
+def isa_programs(cfg, args_of, dir_excl=()):
+    """riscv-tests of the regression's suites and our directed tests but those in dir_excl: (name, elf, args)."""
     tdir = os.path.join(os.environ.get("RISCV_TESTS", ""), "isa")
     if not os.path.isdir(tdir):
         fail("RISCV_TESTS is not set or has no isa/: source tools/env.sh first")
@@ -378,7 +456,8 @@ def isa_programs(cfg, args_of):
     make("-C", "tests/isa", "build-directed")
     ddir = os.path.join(TB, WT, "directed")
     for i, t in enumerate(sorted(f for f in os.listdir(ddir) if f.startswith("tanager-p-"))):
-        out.append((t, os.path.join(ddir, t), args_of(1000 + i, True)))
+        if t not in dir_excl:
+            out.append((t, os.path.join(ddir, t), args_of(1000 + i, True)))
     return out
 
 
@@ -436,7 +515,9 @@ def vsim_programs(suites, cfg, randn, jobs):
             def stress(i, d):
                 a = [x for x in run_random.stress_args(i + 1, 0, True) if not x.startswith("--trace-stall")]
                 return a + ["--trace-stall=50"] + (["--irq-rand=5"] if d else [])
-            add("stress", isa_programs(cfg, stress))
+            # trace back-pressure changes cycle counts, so the directed tests that time instructions sit it out
+            timing = run_isa.read_exclusions([os.path.join(ROOT, "tests", "isa", "exclude", "directed-timing.txt")])
+            add("stress", isa_programs(cfg, stress, timing))
         elif s == "reset":
             add("reset", isa_programs(cfg, lambda i, d: ["--lat=native", "--rand-reset", f"--seed={i + 1}"] +
                                       (["--irq-rand=5"] if d else [])))
@@ -704,6 +785,10 @@ def main():
                     help="both sides' PMP checks at TLB fill (DR-183, pmp-at-fill.md; the package's default, on since the flip)")
     ap.add_argument("--branch-pmp-fill", type=int, choices=(0, 1), default=None,
                     help="this side's only, for example 0 to show the switch off is cycle-identical to a base before the flip")
+    ap.add_argument("--hpm", type=int, choices=(0, 1), default=None,
+                    help="build both sides with M9's counters (TG_HPM, DR-190; the package's default is off)")
+    ap.add_argument("--branch-hpm", type=int, choices=(0, 1), default=None,
+                    help="this side's only")
     ap.add_argument("--lwt", type=int, choices=(0, 1), default=None,
                     help="both sides' load-wait table (M9, DR-190's addendum; off by default)")
     ap.add_argument("--branch-lwt", type=int, choices=(0, 1), default=None,
@@ -761,7 +846,7 @@ def main():
             "SOLO_TID": (a.solo_tid, a.branch_solo_tid),
             "SPLIT": (a.split, a.branch_split), "HART1": (a.hart1, a.branch_hart1),
             "SPEC_WAKE_FILT": (a.spec_wake_filt, a.branch_spec_wake_filt),
-            "PMP_FILL": (a.pmp_fill, a.branch_pmp_fill), "LWT": (a.lwt, a.branch_lwt)}
+            "PMP_FILL": (a.pmp_fill, a.branch_pmp_fill), "HPM": (a.hpm, a.branch_hpm), "LWT": (a.lwt, a.branch_lwt)}
     prof_base = {v: b for v, (b, _) in both.items() if b is not None}
     prof_branch = {v: br if br is not None else b for v, (b, br) in both.items() if br is not None or b is not None}
     if prof_base or prof_branch:

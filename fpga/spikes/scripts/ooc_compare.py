@@ -10,13 +10,15 @@ def rd(d):
     s = dict(l.split(None, 1) for l in open(f'{d}/summary.txt') if l.strip() and len(l.split(None, 1)) == 2)
     u = open(f'{d}/util.rpt').read()
     lut = re.search(r'^\| CLB LUTs\s+\|\s+(\d+)', u, re.M); ff = re.search(r'^\| CLB Registers\s+\|\s+(\d+)', u, re.M)
-    return p, float(s['wns_ns']), int(lut.group(1)), int(ff.group(1))
+    lr = re.search(r'^\|\s+LUT as Memory\s+\|\s+(\d+)', u, re.M); br = re.search(r'^\| Block RAM Tile\s+\|\s+([\d.]+)', u, re.M)
+    return p, float(s['wns_ns']), int(lut.group(1)), int(ff.group(1)), int(lr.group(1)) if lr else -1, float(br.group(1)) if br else -1
 base = rd(sys.argv[1])
 for d in sys.argv[2:]:
     fx = rd(d)
-    print(f"== {d.rstrip('/').split('/')[-1]} against {sys.argv[1].rstrip('/').split('/')[-1]}: WNS {fx[1]:+.3f} ({fx[1]-base[1]:+.3f}), LUTs {fx[2]} ({fx[2]-base[2]:+d}), FFs {fx[3]} ({fx[3]-base[3]:+d})")
+    print(f"== {d.rstrip('/').split('/')[-1]} against {sys.argv[1].rstrip('/').split('/')[-1]}: WNS {fx[1]:+.3f} ({fx[1]-base[1]:+.3f}), LUTs {fx[2]} ({fx[2]-base[2]:+d}), FFs {fx[3]} ({fx[3]-base[3]:+d}), LUTRAM {fx[4]} ({fx[4]-base[4]:+d}), RAMB tiles {fx[5]:g} ({fx[5]-base[5]:+g})")
     print(f"{'family':15s} {'slack':>15s} {'levels':>9s} {'logic ns':>13s} {'net ns':>13s}  start of the fix's worst")
-    for k in base[0]:
-        b = base[0][k]; f = fx[0].get(k)
+    for k in list(base[0]) + [k for k in fx[0] if k not in base[0]]:
+        b = base[0].get(k); f = fx[0].get(k)
         if not f: print(f"{k:15s} (none)"); continue
+        if not b: print(f"{k:15s}  (new)  ->{f[0]:+.3f} {'':>3s}->{f[1]:<3d}  {'':>4s}->{f[2]:.2f}  {'':>4s}->{f[3]:.2f}  {f[4]} -> {f[5]}"); continue
         print(f"{k:15s} {b[0]:+.3f}->{f[0]:+.3f} {b[1]:>3d}->{f[1]:<3d}  {b[2]:.2f}->{f[2]:.2f}  {b[3]:.2f}->{f[3]:.2f}  {f[4]}")

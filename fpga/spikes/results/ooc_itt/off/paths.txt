@@ -1,0 +1,17 @@
+lq_st_q                slack   1.254 levels 21 logic 2.744 net 5.625  u_lsu/sq_dr_q_reg[4]/C -> u_lsu/lq_st_q_reg[11][3]/CE
+r_data_q               slack   1.794 levels 11 logic 1.539 net 6.554  u_lsu/m2_foh_q_reg[1]/C -> u_lsu/r_data_q_reg[20]/D
+lx_valid_q             slack   2.046 levels 14 logic 1.865 net 5.848  u_lsu/FSM_onehot_am_st_q_reg[3]/C -> lx_valid_q_reg[2]/D
+m2_foh_q               slack   1.173 levels 17 logic 2.232 net 6.304  u_lsu/lq_size_q_reg[11][0]/C -> u_lsu/m2_foh_q_reg[1]/D
+chk_pa_q               slack   1.661 levels 12 logic 1.769 net 6.526  u_lsu/sq_cmt_q_reg[1][0]/C -> u_lsu/u_ptw/chk_pa_q_reg[8]/D
+ival_ram               slack   0.724 levels 26 logic 3.403 net 5.701  u_fetch/ka_q_reg/C -> u_fetch/u_ival/g_m64.g_bank[0].g_prim[0].u_ram/RAMB/I
+tage                   slack   3.514 levels 13 logic 1.500 net 4.564  u_fetch/f3_s_q_reg/C -> u_fetch/g_tage.u_tage/g_tab[0].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_1/ENBWREN
+lq_st_q_sn             slack   4.007 levels  9 logic 1.353 net 4.362  u_lsu/g_split.sn_v_q_reg/C -> u_lsu/lq_st_q_reg[18][2]/D
+chk_pa_q_dtlb          unconstrained
+itt_to_any             none
+itt_write              none
+itt_to_fpc             none
+kr_q                   slack   1.859 levels 15 logic 3.138 net 4.588  u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_1/CLKBWRCLK -> u_fetch/kr_q_reg/D
+krt_q                  slack   2.994 levels  7 logic 1.100 net 5.913  g_ras.g_s[0].g_t0.u_ras/g_late.p_pop_q_reg/C -> u_fetch/krt_q_reg[10]/D
+f3_ras_q               slack   1.699 levels 15 logic 3.138 net 4.746  u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_1/CLKBWRCLK -> u_fetch/f3_ras_q_reg/D
+f3_rtop_q              slack   3.123 levels  6 logic 0.923 net 5.828  g_ras.g_s[0].g_t0.u_ras/g_late.p_pop_q_reg/C -> u_fetch/f3_rtop_q_reg[37]/D
+fpc_q                  slack   0.950 levels 21 logic 2.837 net 6.020  u_fetch/fpc_q_reg[18]/C -> u_fetch/fpc_q_reg[22]/CE
