@@ -3,6 +3,8 @@
 // on its own, as the per-unit LUT budget run does (fpga/budget, unit "uncore").
 //   cores -> tg_xbar -> L2 banks -> latency injector -> DRAM window -> AXI slice -> m_axi_*
 //                    -> boot ROM, device bus (ACLINT, PLIC, UART, host control, the virtio window)
+//                    -> the debug window (DEBUG_WINDOW, behind the boot ROM's port): tg_dm, reached over JTAG
+//                       through tg_dtm (docs/spec/soc.md §9)
 //   host bridge: AXI4-Lite from the host (clk_host), resets, configuration, console, mailbox;
 //   commit-trace streaming into DDR (its own AXI master);
 //   the coherent host DMA port (HOST_DMA): an AXI4 slave from the host -> tg_hdma -> the crossbar's hdma;
@@ -267,7 +269,16 @@ module tg_uncore
   // the cores' board-debug words (DEBUG_CNT): the word each core shows (tg_core dbg_sel_i), and those
   // words (dbg_o); 0 and unused without the counters
   output logic [4:0]               core_dbg_sel_o,
-  input  logic [N_CORES-1:0][31:0] core_dbg_i
+  input  logic [N_CORES-1:0][31:0] core_dbg_i,
+
+  // the debug module (tg_map_pkg DEBUG_WINDOW, docs/spec/soc.md §9): its JTAG side, the device TAP through two
+  // BSCANE2s (kv260_top) or a testbench's TAP model; a halt request to each hart and the harts held off.
+  // Without it TDO and the halt requests are 0 and the inputs unused
+  input  logic                     jtag_tck_i,
+  input  jtag_t                    jtag_i,
+  output logic [1:0]               jtag_tdo_o,
+  output logic [NH-1:0]            dbg_haltreq_o,
+  input  logic [NH-1:0]            dbg_unavail_i
 );
   if (N_CORES < 1 || N_CORES > NUM_CORES) begin : g_bad_cores
     $error("tg_uncore: N_CORES must be 1..NUM_CORES");
@@ -615,11 +626,55 @@ module tg_uncore
 `endif
 
   // ---------------------------------------------------------------------------------------------
-  // Boot ROM and the device bus
+  // Boot ROM, the debug module (DEBUG_WINDOW: its window behind the ROM's crossbar port), the device bus
   // ---------------------------------------------------------------------------------------------
+  tl_a_t brom_a; logic brom_av, brom_ar;
+  tl_d_t brom_d; logic brom_dv, brom_dr;
+  logic  ndmreset;                              // the DM's reset of the cores and the uncore
+  assign brom_a = rom_a;
+  if (DEBUG_WINDOW) begin : g_dbg
+    logic dm_av, dm_ar, dm_dv;
+    tl_d_t dm_d;
+    logic        dmi_req, dmi_rsp;
+    logic [6:0]  dmi_addr;
+    logic [31:0] dmi_wdata, dmi_rdata;
+    logic [1:0]  dmi_op, dmi_resp;
+    // One message at a time across the ROM and the window, as each takes: a request waits while the
+    // other side answers
+    wire to_dm = in_rg(rom_a.address, DEBUG_BASE, DEBUG_SIZE);
+    assign brom_av = rom_av && !to_dm && !dm_dv;
+    assign dm_av   = rom_av &&  to_dm && !brom_dv;
+    assign rom_ar  = to_dm ? dm_ar && !brom_dv : brom_ar && !dm_dv;
+    assign rom_d   = dm_dv ? dm_d : brom_d;
+    assign rom_dv  = dm_dv || brom_dv;
+    assign brom_dr = rom_dr;
+
+    tg_dtm u_dtm (
+      .tck (jtag_tck_i), .jtag_i, .tdo_o (jtag_tdo_o),
+      .clk, .dmi_req_o (dmi_req), .dmi_addr_o (dmi_addr), .dmi_wdata_o (dmi_wdata), .dmi_op_o (dmi_op),
+      .dmi_rsp_i (dmi_rsp), .dmi_rdata_i (dmi_rdata), .dmi_resp_i (dmi_resp)
+    );
+    tg_dm #(.NH (NH)) u_dm (
+      .clk, .rst, .bus_rst (uncore_rst),
+      .dmi_req_i (dmi_req), .dmi_addr_i (dmi_addr), .dmi_wdata_i (dmi_wdata), .dmi_op_i (dmi_op),
+      .dmi_rsp_o (dmi_rsp), .dmi_rdata_o (dmi_rdata), .dmi_resp_o (dmi_resp),
+      .a_i (rom_a), .a_valid_i (dm_av), .a_ready_o (dm_ar), .d_o (dm_d), .d_valid_o (dm_dv), .d_ready_i (rom_dr),
+      .haltreq_o (dbg_haltreq_o), .unavail_i (dbg_unavail_i), .hart_rst_i (core_rst_o), .ndmreset_o (ndmreset)
+    );
+  end else begin : g_nodbg
+    assign brom_av       = rom_av;
+    assign rom_ar        = brom_ar;
+    assign rom_d         = brom_d;
+    assign rom_dv        = brom_dv;
+    assign brom_dr       = rom_dr;
+    assign ndmreset      = 1'b0;
+    assign jtag_tdo_o    = '0;
+    assign dbg_haltreq_o = '0;
+    wire unused_dbg = ^{jtag_tck_i, jtag_i, dbg_unavail_i};
+  end
   tg_bootrom u_rom (
     .clk, .rst (uncore_rst),
-    .a_i (rom_a), .a_valid_i (rom_av), .a_ready_o (rom_ar), .d_o (rom_d), .d_valid_o (rom_dv), .d_ready_i (rom_dr)
+    .a_i (brom_a), .a_valid_i (brom_av), .a_ready_o (brom_ar), .d_o (brom_d), .d_valid_o (brom_dv), .d_ready_i (brom_dr)
   );
 
   dev_req_t           dreq;
@@ -845,7 +900,7 @@ module tg_uncore
     .s_araddr (s_axil_araddr), .s_arvalid (s_axil_arvalid), .s_arready (s_axil_arready),
     .s_rdata (s_axil_rdata), .s_rresp (s_axil_rresp), .s_rvalid (s_axil_rvalid), .s_rready (s_axil_rready),
     .host_irq_o,
-    .clk, .rst, .core_rst_o, .uncore_rst_o (uncore_rst),
+    .clk, .rst, .ndmreset_i (ndmreset), .core_rst_o, .uncore_rst_o (uncore_rst),
     .req_i (dreq), .req_valid_i (dreq_v[DEV_HOSTCTL]), .rsp_o (drsp[DEV_HOSTCTL]),
     .vio_req_valid_i (dreq_v[DEV_VIRTIO]), .vio_rsp_o (drsp[DEV_VIRTIO]), .vio_wait_o (vio_wait),
     .vio_irq_o (vio_irq),

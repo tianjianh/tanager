@@ -118,7 +118,8 @@ module tb_boot;
     .m_axi_ps_ar_valid (), .m_axi_ps_ar_ready (1'b1), .m_axi_ps_r ('0), .m_axi_ps_r_valid (1'b0), .m_axi_ps_r_ready (),
     .ps_irq_i ('0), .board_status_i ('0), .board_ctrl_o (),
     .trace_o (trace), .trace_valid_o (trace_v), .trace_wb_o (trace_wb), .trace_wb_valid_o (trace_wb_v),
-    .status_o (status)
+    .status_o (status),
+    .jtag_tck_i (1'b0), .jtag_i ('0), .jtag_tdo_o ()
   );
 
   for (genvar k = 0; k < N_BANKS; k++) begin : g_mem

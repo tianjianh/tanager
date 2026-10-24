@@ -99,6 +99,10 @@ module tg_rob
   output logic [CW-1:0]                cm_cpred,
   output logic [CW-1:0][FTQW-1:0]      cm_cftq,
   output logic [CW-1:0][SLOT_W-1:0]    cm_cslot,
+  // The indirect-target table (ITT_ON) from commit: each retiring slot's address bits 17:2 (the path history's), and
+  // a JALR that is not a return
+  output logic [CW-1:0][17:2]          cm_pc,
+  output logic [CW-1:0]                cm_ijmp,
   output logic                         cm_hv,
   output logic [FTQW-1:0]              cm_hftq,
   // To the LSU
@@ -253,6 +257,9 @@ module tg_rob
       dpl[k].lq         = ds_ren[k].lq;
       dpl[k].sq         = ds_ren[k].sq;
       {dpl[k].ras_push, dpl[k].ras_pop} = ras_op(ds_uop[k].d);
+      // the indirect-target table trains on a JALR that is not a return (no pop), without a decode exception
+      dpl[k].ijmp       = ITT_ON && ds_uop[k].d.cls == C_BR && ds_uop[k].d.br_kind == BR_JALR &&
+                          !dpl[k].ras_pop && !ds_uop[k].d.exc;
       // TAGE trains on the conditional branches its blocks predict (a straddler with the block its
       // last parcel is in, at slot 0), not one with a decode exception
       dpl[k].cbr        = TAGE_ON && ds_uop[k].d.cls == C_BR && ds_uop[k].d.br_kind == BR_COND && !ds_uop[k].d.exc;
@@ -834,6 +841,8 @@ module tg_rob
       cm_cpred[j]    = hp[j].ptk;
       cm_cftq[j]     = hp[j].ftq;
       cm_cslot[j]    = hp[j].pc[SLOT_W:1] + SLOT_W'(!hp[j].rvc);
+      cm_pc[j]       = hp[j].pc[17:2];
+      cm_ijmp[j]     = ret[j] && hp[j].ijmp;
       tr_sq[j]    = COMMIT_TRACE ? hp[j].sq : '0;       // the trace's reads (DR-146: none without it)
       tr_lq[j]    = COMMIT_TRACE ? hp[j].lq : '0;
       tr_tag[j]   = COMMIT_TRACE ? hp[j].dst : '0;

@@ -75,6 +75,7 @@ if mentioned TG_DEBUG; then profiles+=("DEBUG=1" "DEBUG=1 SYNTH=1"); else echo "
 if mentioned TG_PAY_WREG; then profiles+=("PAY_WREG=0"); else echo "lint-all: no RTL mentions TG_PAY_WREG; skipping PAY_WREG=0"; fi
 # M9's performance counters (DR-190; off by default), on, in both views
 if mentioned TG_HPM; then profiles+=("HPM=1" "HPM=1 SYNTH=1"); else echo "lint-all: no RTL mentions TG_HPM; skipping HPM=1"; fi
+# The debug module (DR-190 item 4, soc.md §9; development builds only, off by default), on, in both views
 profiles+=("SYNTH=1")
 # DR-177's release builds, without the two latency injectors (tanager_soc LAT_INJ, a parameter), in both views
 if grep -qsw LAT_INJ "$ROOT/rtl/soc/tanager_soc.sv"; then profiles+=("LAT_INJ=0" "LAT_INJ=0 SYNTH=1")

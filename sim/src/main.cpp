@@ -556,6 +556,17 @@ int main(int argc, char** argv) {
     status = EXIT_MISMATCH;
     why = ls->error();
   }
+  // A hart entered debug mode: lockstep checked every record before it and none after (verification.md §3.7), so a
+  // program that passed is not a full pass
+  std::string stop_note;
+  if (ls && ls->stopped()) {
+    if (status == EXIT_PASS) {
+      status = EXIT_STOPPED;
+      why = "lockstep stopped: " + ls->stopped_why();
+    } else {
+      stop_note = "lockstep had stopped: " + ls->stopped_why();
+    }
+  }
   fflush(stdout);
   if (fst_open) fst->close();
   top->final();
@@ -598,6 +609,7 @@ int main(int argc, char** argv) {
   if (status == EXIT_MISMATCH && ls && ls->failed()) ls->report(stderr);
   if (!why.empty()) fprintf(stderr, "tg_vsim: %s\n", why.c_str());
   if (!snap_note.empty()) fprintf(stderr, "tg_vsim: %s\n", snap_note.c_str());
+  if (!stop_note.empty()) fprintf(stderr, "tg_vsim: %s\n", stop_note.c_str());
   if (!o.quiet) {
     fprintf(stderr, "tg_vsim: %s after %llu cycles, %llu instructions retired, IPC %.3f, %.1f s (%.1f kHz)\n",
             exit_status_name(status), (unsigned long long)cycle, (unsigned long long)instret,

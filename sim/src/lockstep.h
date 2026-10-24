@@ -83,6 +83,10 @@ class lockstep_t {
 
   size_t pending_wbs() const;
   bool failed() const;
+  // A hart entered debug mode (TG_DEBUG's marker, a TR_IRQ record whose cause has bits 63 and 62 set): every record
+  // before it was checked, none after (verification.md §3.7); what stopped it and how much went unchecked.
+  bool stopped() const;
+  std::string stopped_why() const;
   const std::string& error() const;
   // The divergence report of §3.6.
   void report(FILE* f) const;
