@@ -2158,6 +2158,35 @@ The chains below are rc3_u100's, by net name, in `fpga/spikes/results/product_wt
 - **The flow stays as the release image's:** `TG_ROUTE_DIRECTIVE=AlternateCLBRouting` at `TG_PR_UNC=0.95` for product builds. It lowered the congestion from level 6 to 5 on the same netlist.
 - **Checking a fix:** a fix can be checked first on the release image's checkpoint, for the levels and slack of its own family, by a path query on a fresh build of the fix alone. A pair on main follows once several land.
 
+#### DR-191's fixes, checked out of context one by one (2026-10-24)
+
+**Asked** (the coordinator, 10-23): until the fixes land, per-fix out-of-context timing checks: each family's paths before and after, each fix against one baseline, as its branch is ready.
+
+- **The flow.** `run_fix_ooc.sh`, with [`ooc_run.tcl`](../../fpga/spikes/tcl/ooc_run.tcl) and [`paths_dr191.tcl`](../../fpga/spikes/tcl/paths_dr191.tcl):
+  - the product core alone: `tg_core`, smt2, `TG_HART1=1 TG_COMMIT_TRACE=0`, AreaOptimized_high, flatten rebuilt, the URF off;
+  - synthesised, placed and routed at 100 MHz in clock regions X0Y1:X2Y3 (about 88K LUTs for a 52K-LUT core), with the release image's `AltSpreadLogic_high` and `AlternateCLBRouting`;
+  - 14 GB and 25 minutes a run.
+- **The baseline:** main b30594fe (`ooc/fix_base_b30594fe`), WNS +0.550, 51,904 LUTs. The families:
+  - `lq_st_q` +0.550 (18 levels), and +0.859 from the store pipe's `sn_*`;
+  - `lx_valid_q` +0.603 (18), `m2_foh_q` +0.729 (17), `r_data_q` +1.542 (15);
+  - the walker's `chk_pa_q` +0.774 (16), and +0.901 through the DTLB (15);
+  - the I$ valid RAM +1.176 (22), TAGE +2.203 (13).
+  - A core alone has more room than in the chip, where the same families are 16–26 levels and 0.5–1.5 ns lower. So read the changes, not the values.
+- **Each fix** is built on the baseline's commit:
+  - fix 3 and fix 5 are their branches, which sit on b30594fe;
+  - fix 4 is its own two commits cherry-picked there, because its branch's base carries M9's RTL.
+
+| Fix | The family it targets: slack, levels, logic | Other effects | LUTs / FFs |
+|---|---|---|---|
+| **3**, core-2's `tlbreg2` 851dfc81 (the DTLB's EARLY ports register their masked match, leaf index and hit) | **`m2_foh_q` +0.729 → +1.703, 17 → 13 levels**; the worst now starts at the new `g_early.mi_q` | `chk_pa_q` through the DTLB +0.901 → +1.643 | −684 / −26 |
+| **4**, soc-2's `ptwreg` (7862c586, b4e0029a: the head's deciding walk from a register, #12 `LSU_HDWALK_REG`) | **`chk_pa_q` +0.774 → +2.349, 16 → 14 levels**; no path from the DTLB reaches it any more (the start is now the ROB's `ct_q`) | | −278 / +29 |
+| **5**, fpu-2's `tageflat` f6865c1e (TAGE's training update in one-hot terms) | **TAGE +2.203 → +3.415, logic 3.20 → 1.79 ns**; the worst now starts at fetch's `f3_start_q`, not the BRAM read | | −364 / 0 |
+
+- **All three take their own family well clear,** by +0.97, +1.58 and +1.21 ns.
+- **The noise is about ±0.5 ns:** the families a fix doesn't touch move by up to 0.5 ns and 4 levels between runs, because synthesis re-rolls the netlist. Fix 5 changes only TAGE, yet its run moved `lq_st_q` from +0.550 to +0.062 (18 to 22 levels) and the I$ valid RAM from +1.176 to +0.681. A target gain under about 0.5 ns needs two runs to read.
+
+Results: [`fpga/spikes/results/ooc_dr191/`](../../fpga/spikes/results/ooc_dr191/) holds each run's summary, paths and per-family reports, and `compare.txt` (`fpga/spikes/scripts/ooc_compare.py`).
+
 #### core-2's A/B: the read thread with and without per-bank copies (2026-10-22)
 
 The fixes preview's base with core-2's newer heads (`snap/product_wt` and `snap/product_wt3`): e5b304cd, TAGE 8cf8e262, DR-183 ecfcc8a5, and core-2's walker fix a6abdc5d. The walker fix registers the head lookup's VPN, so DTLB port 2 starts at one register. Then:
