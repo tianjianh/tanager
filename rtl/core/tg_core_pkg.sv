@@ -662,6 +662,25 @@ package tg_core_pkg;
   function automatic logic va_canon(input logic [63:0] va);     // bits 63:39 equal bit 38
     return va[63:38] == '0 || va[63:38] == '1;
   endfunction
+  // Program counters at Sv39 width (DR-195, core-pipeline.md §8.6). pc40 is the sign extension of the full value, bit
+  // 39 the carry: it holds every executable pc exactly (a PA below 2^PA_W, or a canonical Sv39 address). A value whose
+  // bits 39 and 38 differ is outside Sv39's range ("bad"), and only a fault block holds one.
+  typedef logic [39:0] pc40_t;
+  function automatic logic pc40_bad(input pc40_t p);
+    return p[39] != p[38];
+  endfunction
+  // The full value, except for a bad redirect's fault block (the ROB keeps that value: bpc_q)
+  function automatic logic [63:0] pc40_sx(input pc40_t p);
+    return {{24{p[39]}}, p};
+  endfunction
+  // A full value outside Sv39's range (!va_canon): fetch takes it marked bad
+  function automatic logic full_bad(input logic [63:0] v);
+    return v[63:39] != {25{v[38]}};
+  endfunction
+  // The pc40 fetch takes for a redirect to v
+  function automatic pc40_t pc40_of(input logic [63:0] v);
+    return full_bad(v) ? {~v[38], v[38:0]} : v[39:0];
+  endfunction
   // Does a cached leaf allow the access in mode S or U? Spike's walk checks: the U rule (SUM;
   // S never executes U pages), R (or X with MXR) / W / X, and Svade: A set, D set for stores.
   function automatic logic pte_ok(input tlb_pte_t p, input acc_e acc, input priv_e mode,
