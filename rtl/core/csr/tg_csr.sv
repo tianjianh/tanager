@@ -46,11 +46,21 @@ module tg_csr
   input  logic [63:0]            tr_tval,
   input  logic                   mret,
   input  logic                   sret,
+  // Debug mode (DEBUG_ON; core-priv.md "Debug mode"): commit's entry and dret, for slot 0's thread
+  input  logic                   dbg_enter,    // entry: dcsr.cause, dcsr.prv and dpc take these; the hart goes to M
+  input  logic [2:0]             dbg_cause,    // 1 ebreak, 3 the halt request, 4 a step
+  input  logic [63:0]            dbg_epc,      // dpc
+  input  logic                   dret,         // dret retires: the mode from dcsr.prv, debug mode ends
+  input  logic [NUM_THREADS-1:0] dbg_req,      // each hart's halt request (it wakes a WFI)
+  output logic [NUM_THREADS-1:0] dm_h,         // each hart in debug mode
+  output logic [NUM_THREADS-1:0] dstep_h,      // each hart's dcsr.step
+  output logic [NUM_THREADS-1:0] debk_h,       // each hart's ebreak enters debug mode (dcsr.ebreakm/s/u of its mode)
   // State for commit, decode, fetch and the MMU (the running thread's)
   output logic [63:0]            trap_target,  // an exception's, for tr_code given this cycle
   output logic [63:0]            irq_target,   // the pending interrupt's (irq_code)
   input  logic                   xret_v,       // an MRET or SRET is in flight (registered) ...
   input  logic                   xret_s,       // ... and it is SRET
+  input  logic                   xret_d,       // ... it is dret (DEBUG_ON): xepc_o reads dpc
   output logic [63:0]            xepc_o,       // its xepc (mepc or sepc), for its commit
   output logic                   irq_take,     // an enabled interrupt is pending
   output logic [5:0]             irq_code,
@@ -206,9 +216,17 @@ module tg_csr
   localparam logic [2:0] CX_EPC = 3'd1, CX_CAUSE = 3'd2, CX_TVAL = 3'd3, CX_TVEC = 3'd5;  // scratch: 0
   function automatic logic cold_csr(input logic [11:0] x);
     return x == 12'h305 || (x >= 12'h340 && x <= 12'h343) ||
-           (SU && (x == 12'h105 || (x >= 12'h140 && x <= 12'h143)));
+           (SU && (x == 12'h105 || (x >= 12'h140 && x <= 12'h143))) || (DEBUG_ON && x >= 12'h7B1 && x <= 12'h7B3);
+  endfunction
+  // A cold CSR's row: {csr[9], csr[2:0]}; debug mode's dpc, dscratch0 and dscratch1 (DEBUG_ON) take M's free rows 4, 6
+  // and 7 (dpc's low bits would meet mepc's)
+  localparam logic [3:0] CR_DPC = 4'b1100;
+  function automatic logic [3:0] crow(input logic [11:0] x);
+    if (DEBUG_ON && x[11:2] == 10'h1EC && x[1:0] != 2'b00) return (x[1:0] == 2'b01) ? CR_DPC : {3'b111, x[0]};
+    return {x[9], x[2:0]};
   endfunction
   logic [2:0]       ts_q;               // trap writes to do: epc, cause, tval (one-hot)
+  logic             tdbg_q;             // ... debug mode's entry: one write, dpc, in tval's slot (DEBUG_ON)
   tid_t             ttid_q;             // ... the trapping thread's
   logic             tdel_q;             // ... into S's registers
   logic             tirq_q;
@@ -269,9 +287,9 @@ module tg_csr
   assign irq_take = |ien_r;
   assign irq_code = ien_r[11] ? 6'd11 : ien_r[3] ? 6'd3 : ien_r[7] ? 6'd7 :
                     ien_r[9]  ? 6'd9  : ien_r[1] ? 6'd1 : (!HPM || ien_r[5]) ? 6'd5 : 6'd13;   // LCOFI last
-  assign wfi_wake = |ipend[ht];
+  assign wfi_wake = |ipend[ht] || (DEBUG_ON && dbg_req[ht] && !dm_q[ht]);
   for (genvar t = 0; t < NT; t++) begin : g_wake
-    assign wfi_wake_h[t] = |ipend[t];
+    assign wfi_wake_h[t] = |ipend[t] || (DEBUG_ON && dbg_req[t] && !dm_q[t]);
     assign wfi_arm_h[t]  = |h_q[t].mie;
   end
 
@@ -385,7 +403,7 @@ module tg_csr
   always_comb begin
     for (int t = 0; t < NT; t++) begin
       priv_h[t]     = h_q[t].priv;
-      priv_d_h[t]   = (h_q[t].mprv && h_q[t].priv == PRIV_M) ? priv_e'(h_q[t].mpp) : h_q[t].priv;
+      priv_d_h[t]   = (h_q[t].mprv && h_q[t].priv == PRIV_M && !dm_q[t]) ? priv_e'(h_q[t].mpp) : h_q[t].priv;
       sum_h[t]      = h_q[t].sum;
       mxr_h[t]      = h_q[t].mxr;
       sv39_h[t]     = h_q[t].satp_mode;
@@ -411,7 +429,8 @@ module tg_csr
     deleg_i = SU && rh.priv != PRIV_M && irq_code < 6'd14 && rh.mideleg[irq_code[3:0]];
     deleg   = tr_irq ? deleg_i : deleg_e;
   end
-  assign cw_ra[1]    = (MT && xret_v) ? caddr(ht, {!xret_s, CX_EPC}) : caddr(wt, {!deleg_e, CX_TVEC});
+  assign cw_ra[1]    = (MT && xret_v) ? caddr(ht, (DEBUG_ON && xret_d) ? CR_DPC : {!xret_s, CX_EPC})
+                                      : caddr(wt, {!deleg_e, CX_TVEC});
   assign cw_ra[2]    = caddr(ht, {!deleg_i, CX_TVEC});
   assign trap_target = {cw_rd[1][63:2], 2'b00};
   assign irq_target  = {cw_rd[2][63:2], 2'b00} + (cw_rd[2][0] ? {56'b0, irq_code, 2'b00} : 64'd0);
@@ -464,8 +483,9 @@ module tg_csr
   logic [11:0] a;
   assign a = ex_pl.csr_addr;
   logic [63:0] cold_rd;                          // xepc reads as xepc_o
-  assign cw_ra[0] = MT ? caddr(et, {a[9], a[2:0]})
-                       : (xret_v ? caddr(RUN_TID, {!xret_s, CX_EPC}) : caddr(RUN_TID, {a[9], a[2:0]}));
+  assign cw_ra[0] = MT ? caddr(et, crow(a))
+                       : (xret_v ? caddr(RUN_TID, (DEBUG_ON && xret_d) ? CR_DPC : {!xret_s, CX_EPC})
+                                 : caddr(RUN_TID, crow(a)));
   assign cold_rd  = (a[2:0] == CX_EPC) ? {cw_rd[0][63:2], cw_rd[0][1] && re.misa_c, 1'b0} : cw_rd[0];
   logic        exists, deny;
   logic        h1off_q;                          // mtgsmt.HART1_OFF (below)
@@ -484,6 +504,8 @@ module tg_csr
       // No Sdtrig (M9 section 10): tselect, tdata1-3, tinfo and the context CSRs (mcontext, scontext) do not exist,
       // so an access traps as illegal (the default below). A write of tselect that traps means no triggers (Debug spec
       // 5.1), so OpenSBI finds no sdtrig and registers no SBI dbtr; reading 0 had made it count one trigger
+      12'h7B0: begin rval = dcsr_rd; exists = DEBUG_ON && dm_q[et]; end    // dcsr, in debug mode only
+      12'h7B1, 12'h7B2, 12'h7B3: begin rval = cold_rd; exists = DEBUG_ON && dm_q[et]; end   // dpc, dscratch0/1
       12'h7C0: begin rval = {63'b0, h1off_q}; exists = HART1_ON; end      // mtgsmt (step 6), with hart 1
       // ---- F and D ----
       12'h001: begin rval = {59'b0, fc_fflags}; exists = EXT_FD; if (re.fs == 2'd0) deny = 1'b1; end
@@ -580,7 +602,7 @@ module tg_csr
   // The cold CSRs' write port: the sweep, then the trap's three writes, else a CSR write
   always_comb begin
     cw_we = cm_csr && pv && cold_csr(pa);
-    cw_wa = caddr(wt, {pa[9], pa[2:0]});
+    cw_wa = caddr(wt, crow(pa));
     cw_wd = pd & ~{62'b0, pa[2:0] == CX_TVEC, pa[2:0] == CX_EPC};
     if (psweep) begin
       cw_we = 1'b1;
@@ -588,7 +610,8 @@ module tg_csr
       cw_wd = '0;
     end else if (ts_q != '0) begin
       cw_we = 1'b1;
-      cw_wa = caddr(ttid_q, {!tdel_q, ts_q[0] ? CX_EPC : ts_q[1] ? CX_CAUSE : CX_TVAL});
+      cw_wa = (DEBUG_ON && tdbg_q) ? caddr(ttid_q, CR_DPC)
+                                   : caddr(ttid_q, {!tdel_q, ts_q[0] ? CX_EPC : ts_q[1] ? CX_CAUSE : CX_TVAL});
       cw_wd = ts_q[0] ? tepc_q : ts_q[1] ? {tirq_q, 57'b0, tcode_q} : ttval_q;
     end
   end
@@ -668,10 +691,10 @@ module tg_csr
     assign ld_c = cyc_wr && wt == tid_t'(t);
     assign ld_i = ins_wr && wt == tid_t'(t);
     tg_dsp_ctr #(.IW(1)) u_mcycle (
-      .clk, .rst, .ld(ld_c), .d(pw_d_q[t]), .inc(!h_q[t].mcountinhibit[0]), .q(mcycle_q[t]));
+      .clk, .rst, .ld(ld_c), .d(pw_d_q[t]), .inc(!h_q[t].mcountinhibit[0] && !dm_q[t]), .q(mcycle_q[t]));
     tg_dsp_ctr #(.IW(CNW)) u_minstret (
       .clk, .rst, .ld(ld_i),  .d(pw_d_q[t]),
-      .inc((h_q[t].mcountinhibit[2] || wt != tid_t'(t)) ? '0 : CNW'(cm_n)), .q(minstret_q[t]));
+      .inc((h_q[t].mcountinhibit[2] || wt != tid_t'(t) || dm_q[t]) ? '0 : CNW'(cm_n)), .q(minstret_q[t]));
   end
 `ifndef SYNTHESIS
   logic ctr_wr_q;
@@ -723,7 +746,7 @@ module tg_csr
           else
             for (int e = 0; e < HPM_EV; e++)
               if (ev_q[t][i] == EW'(3 + e)) ev = CNW'(hpm_ev[t][e]);
-          stop = h_q[t].mcountinhibit[3 + i] || (h_q[t].priv == PRIV_M && minh_q[t][i]) ||
+          stop = h_q[t].mcountinhibit[3 + i] || dm_q[t] || (h_q[t].priv == PRIV_M && minh_q[t][i]) ||
                  (h_q[t].priv == PRIV_S && sinh_q[t][i]) || (h_q[t].priv == PRIV_U && uinh_q[t][i]);
         end
         tg_dsp_ctr #(.IW(CNW)) u_ctr (
@@ -788,6 +811,60 @@ module tg_csr
     else if (cm_csr && pv && pa == 12'h7C0) h1off_q <= pd[0];
   assign h1off_o = h1off_q;
 
+  // ---- Debug mode (DEBUG_ON; core-priv.md "Debug mode"): per hart, dcsr's writable fields and the mode bit ----
+  // dcsr: debugver 4; ebreakm/s/u, step and prv written by the debugger (prv 2 writes as U, as MPP); cause and prv
+  // set at entry; stepie 0, stopcount 1, stoptime 0, mprven 0 and the rest 0 hardwired. dpc, dscratch0 and dscratch1
+  // are cold rows (crow). The CSRs exist in debug mode only.
+  logic [NT-1:0]      dm_q, debm_q, debs_q, debu_q, dstep_q;
+  logic [NT-1:0][1:0] dprv_q;
+  logic [NT-1:0][2:0] dcause_q;
+  logic [63:0]        dcsr_rd;
+  if (DEBUG_ON) begin : g_dbg
+    always_ff @(posedge clk)
+      for (int t = 0; t < NT; t++)
+        if (rst) begin
+          dm_q[t]  <= 1'b0;
+          debm_q[t] <= 1'b0;
+          debs_q[t] <= 1'b0;
+          debu_q[t] <= 1'b0;
+          dstep_q[t] <= 1'b0;
+          dprv_q[t]  <= 2'd3;
+          dcause_q[t] <= 3'd0;
+        end else if (wt == tid_t'(t)) begin
+          if (dbg_enter) begin
+            dm_q[t]     <= 1'b1;
+            dprv_q[t]   <= 2'(h_q[t].priv);
+            dcause_q[t] <= dbg_cause;
+          end else if (dret) begin
+            dm_q[t] <= 1'b0;
+          end else if (cm_csr && pv && pa == 12'h7B0) begin
+            debm_q[t]  <= pd[15];
+            debs_q[t]  <= SU && pd[13];
+            debu_q[t]  <= SU && pd[12];
+            dstep_q[t] <= pd[2];
+            dprv_q[t]  <= !SU ? 2'd3 : (pd[1:0] == 2'd2) ? 2'd0 : pd[1:0];
+          end
+        end
+    assign dcsr_rd = {32'b0, 4'd4, 12'b0, debm_q[et], 1'b0, debs_q[et], debu_q[et], 1'b0, 1'b1, 1'b0, dcause_q[et],
+                      3'b0, dstep_q[et], dprv_q[et]};
+  end else begin : g_nodbg
+    assign dm_q     = '0;
+    assign debm_q   = '0;
+    assign debs_q   = '0;
+    assign debu_q   = '0;
+    assign dstep_q  = '0;
+    assign dprv_q   = '0;
+    assign dcause_q = '0;
+    assign dcsr_rd  = '0;
+    logic unused_dbg;
+    assign unused_dbg = ^{dbg_cause, dcause_q};
+  end
+  for (genvar t = 0; t < NT; t++) begin : g_dbg_o
+    assign dm_h[t]    = dm_q[t];
+    assign dstep_h[t] = dstep_q[t];
+    assign debk_h[t]  = (h_q[t].priv == PRIV_M && debm_q[t]) || (h_q[t].priv == PRIV_S && debs_q[t]) ||
+                        (h_q[t].priv == PRIV_U && debu_q[t]);
+  end
   // ---- Next state of each hart ----
   always_comb begin
     for (int t = 0; t < NT; t++) begin
@@ -881,6 +958,11 @@ module tg_csr
             x.mpp     = SU ? 2'(h_q[t].priv) : 2'd3;
             x.priv    = PRIV_M;
           end
+        end else if (DEBUG_ON && dbg_enter) begin           // debug mode: M, nothing else changes
+          x.priv    = PRIV_M;
+        end else if (DEBUG_ON && dret) begin                // dret: dcsr.prv's mode; MPRV cleared below M
+          x.priv    = priv_e'(dprv_q[t]);
+          if (dprv_q[t] != 2'd3) x.mprv = 1'b0;
         end else if (mret) begin
           x.mie_bit = h_q[t].mpie;
           x.mpie    = 1'b1;
@@ -944,12 +1026,18 @@ module tg_csr
       ts_q <= {ts_q[1:0], 1'b0};
       if (tr_valid) begin
         ts_q    <= 3'b001;
+        tdbg_q  <= 1'b0;
         ttid_q  <= wt;
         tdel_q  <= deleg;
         tirq_q  <= tr_irq;
         tcode_q <= tr_code;
         tepc_q  <= tr_epc & ~64'd1;
         ttval_q <= tr_irq ? 64'd0 : tr_tval;
+      end else if (DEBUG_ON && dbg_enter) begin             // debug mode's entry: dpc, one write in tval's slot
+        ts_q    <= 3'b100;
+        tdbg_q  <= 1'b1;
+        ttid_q  <= wt;
+        ttval_q <= dbg_epc & ~64'd1;
       end
     end
   end
