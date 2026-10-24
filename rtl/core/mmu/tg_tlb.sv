@@ -197,7 +197,9 @@ module tg_tlb
       if (EARLY[r]) begin : g_early
         // The match a cycle ahead, masked as the lookup's cycle will hold it (kvn; the thread's entries by
         // lk_tid_e), and a fill's entry at that edge by the fill's compare (the filled entry, uf_q then, matches;
-        // then no other entry of the thread does): registered with its index and hit
+        // then no other entry of the thread does): registered with its index and hit. The filled entry's index is
+        // uf_q's in the lookup's cycle, ORed in then, so the fill's victim choice (fv, after the overlap test on
+        // the maintenance read) stays out of the cycle ahead: the leaf's read address is a LUT from flip-flops
         logic [NE-1:0] mk_q;
         logic [EW-1:0] mi_q;
         logic          fqc_q;
@@ -208,13 +210,13 @@ module tg_tlb
           fqcn  = fill_ok && vmatch(vpn_e[r], fill_vpn, fill_lvl) && ft == lte[r];
           mk_q  <= rst ? '0 : mkn;
           fqc_q <= !rst && fqcn;
-          mi_q  <= enc(mkn) | (fqcn ? fv : '0);
+          mi_q  <= enc(mkn);
         end
         always_comb begin
           m[r] = mk_q;
           if (fqc_q) m[r][uf_q] = 1'b1;
         end
-        assign mi[r] = mi_q;
+        assign mi[r] = mi_q | (fqc_q ? uf_q : '0);
         assign mh[r] = |mk_q || fqc_q;
       end else begin : g_now
         logic [NE-1:0] mn;
