@@ -106,6 +106,7 @@ A 64-bit pair is written low half first. The low half waits in a shadow register
 | `0x030` | `FROMHOST` | RO | 64-bit, from the host |
 | `0x038` | `DOORBELL` | WO | any write rings the host (`MBOX_IN`) |
 | `0x040` | `MBOX_PENDING` | RO, W1C | `[0]` the host rang (drives PLIC source 11); write 1 to clear |
+| `0x048` | `L2_PACE` | RW | the L2's write-back batching ([l2.md](l2.md), with `tg_uncore` `L2_WB_PACE`): `[3:0]` the batch (0 or 1: none), `[11:4]` the cycles a ready write-back may wait for it; `L2_PACE_INIT` at reset (`{64, 1}`). Without `L2_WB_PACE` it has no effect |
 
 ## Commit trace
 
