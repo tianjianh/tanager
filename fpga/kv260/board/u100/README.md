@@ -228,7 +228,12 @@ The board moved on to rc2 on 10-23 at 16:20 UTC ([`../rc2/README.md`](../rc2/REA
   - It had passed 14 rounds and round 15's first two steps: 44 stress passes, 44 DR-141 sets, 14 `hart_check`s and 14 rounds of hart stop and start.
   - 0 fails. Its 5 notes were CoreMark's timing rule, with the CRCs right.
   - No trouble line in the kernel log.
-- **The soak restarted on u100 at 23:52 UTC** (`soak4-u100c`), after the probe, while rc3 builds.
+- **The soak restarted on u100 at 23:52 UTC** ([`soak4_u100c.log`](soak4_u100c.log)), after the probe, while rc3 built.
+  - It stopped at a step boundary at 01:37 UTC on 10-24, for rc3.
+  - It had passed 10 rounds and round 11's first two steps: 32 stress passes, 32 DR-141 sets, 10 `hart_check`s and 10 rounds of hart stop and start.
+  - 0 fails, one CoreMark timing note, and no trouble line in the kernel log.
+- **In all, on 10-23 and 10-24 u100 soaked 4.2 hours clean, in two runs:** 24 rounds, 76 stress passes, 76 DR-141 sets, 24 `hart_check`s and 24 hotplug rounds.
+- **The board moved on to rc3 at 01:41 UTC on 10-24** ([`../rc3/README.md`](../rc3/README.md)).
 
 The kept images:
 - **u100 is kept on p1** in `tanager-u100/`, with tg1's `fw_jump.bin` and `fw_jump.bin.b0094d23`. To bring it back, in ARM mode: `FH_BACKUP=tanager-u100 bash ~/tanager/runs/fh_p1.sh back`.

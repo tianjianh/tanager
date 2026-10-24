@@ -2,9 +2,10 @@
 """Every MMIO range in a Tanager device tree must cover whole 4 KiB pages (soc.md §4, "PMP regions: whole pages").
 
 OpenSBI gives each device it uses (its console, the reset syscons, the ACLINT, the PLIC) a PMP region of that device's
-reg range. A region smaller than 4 KiB, or one not on a 4 KiB boundary, clears the core's "every 4K page is
-PMP-homogeneous" flag (tg_csr pmp_al), so no 4K page caches its PMP result in the TLB any more: on the board that cost
--23.6% on a store loop and +10% on rdtime (RISC-V mode's memory gap, docs/spec/soc-d4-modes.md). So this checks every
+reg range. Until DR-182 a region smaller than 4 KiB, or one not on a 4 KiB boundary, cleared the core's "every 4K page
+is PMP-homogeneous" flag (tg_csr pmp_al), so no 4K page cached its PMP result in the TLB: on the board that cost -23.6%
+on a store loop and +10% on rdtime (RISC-V mode's memory gap, docs/spec/soc-d4-modes.md). Since DR-182 it costs only its
+own page's cached result; the rule stays, as it costs nothing. So this checks every
 reg with a size: its base and its size are multiples of 4 KiB. Nodes whose reg has no size (cpus, MDIO PHYs) are skipped.
   check_pages.py <tree.dtb>...        exit status 1 and one line per range at fault
 """

@@ -22,9 +22,12 @@ module tg_l2_bank
   parameter bit RSLICE_DSP = 1'b0,    // the R slice's data register in DSP48E2s (tg_skid DSP; DR-136)
   parameter bit MWAY_OH    = 1'b1,    // each MSHR's way kept one-hot in flip-flops (else binary), so the
                                       // reservations and the ProbeAck search take it with no decode (DR-142)
-  parameter bit DIR_S3     = 1'b1     // the directory RAM written a cycle after S2, from the newest history
+  parameter bit DIR_S3     = 1'b1,    // the directory RAM written a cycle after S2, from the newest history
                                       // entry, with a third entry in the bypass: no S2 path ends at the RAM's
                                       // pins (DR-142; cycle-identical either way)
+  parameter bit WB_PACE    = 1'b0     // write-back batching (docs/spec/l2.md): the send engine waits for a batch of
+                                      // ready write-backs (wb_batch_i), then sends them back to back; off: each
+                                      // goes as soon as it is ready, as before
 ) (
   input  logic    clk,
   input  logic    rst,
@@ -60,6 +63,10 @@ module tg_l2_bank
   input  axi_b_t  bresp_i,
   input  logic    bresp_valid_i,
   output logic    bresp_ready_o,
+  // Write-back batching's settings (WB_PACE; the host-control block's L2_PACE): the batch (0 or 1: none) and the
+  // cycles the oldest ready write-back may wait for it
+  input  logic [3:0] wb_batch_i,
+  input  logic [11:0] wb_hold_i,
 
   output logic    init_done_o,
   output logic    ev_hit_o,
@@ -1144,6 +1151,25 @@ module tg_l2_bank
     ws_pick = '0;
     for (int i = N_WB - 1; i >= 0; i--) if (wb_ready_q[i]) ws_pick = WBW'(i);
   end
+  // Write-back batching (WB_PACE): the send engine starts when wb_batch_i write-backs are ready, when one has waited
+  // wb_hold_i cycles, or when no buffer is left for a victim read-out, and then sends every ready one back to back
+  // (ws_burst_q). A write stream's ownership reads and write-backs then reach the DRAM's controller in runs, not
+  // alternately, so it turns its bus round once a batch rather than once a line (soc.md §8.5).
+  logic       ws_go, ws_burst_q;
+  logic [11:0] ws_wait_q;
+  if (WB_PACE) begin : g_pace
+    logic [WBW:0] wb_nready;
+    always_comb begin
+      wb_nready = '0;
+      for (int i = 0; i < N_WB; i++) wb_nready += (WBW + 1)'(wb_ready_q[i]);
+    end
+    assign ws_go = |wb_ready_q && (wb_batch_i <= 4'd1 || ws_burst_q || 4'(wb_nready) >= wb_batch_i ||
+                                   ws_wait_q >= wb_hold_i || !(|wb_free_q));
+  end else begin : g_nopace
+    assign ws_go = |wb_ready_q;
+    logic unused_pace;
+    assign unused_pace = ^{wb_batch_i, wb_hold_i, ws_burst_q, ws_wait_q};
+  end
   // Write-back buffer owner and line, written at the read-out start and read by the send engine
   typedef struct packed {
     logic [MW-1:0]    owner;
@@ -1573,6 +1599,8 @@ module tg_l2_bank
       pb_free_q   <= '1;
       wb_free_q   <= '1;
       wb_ready_q  <= '0;
+      ws_burst_q  <= 1'b0;
+      ws_wait_q   <= '0;
       mcmd_ptr_q  <= '0;
       pr_ptr_q    <= '0;
       pr_m_q      <= '0;                 // rr_pick of no requests
@@ -1677,7 +1705,7 @@ module tg_l2_bank
       end
       if (rt_out.v && rt_out.to_wb && rt_out.vr_last) wb_ready_q[rt_out.wb_addr[WBW:1]] <= 1'b1;
 
-      if (!ws_busy_q && |wb_ready_q) begin
+      if (!ws_busy_q && ws_go) begin
         ws_busy_q            <= 1'b1;
         ws_aw_done_q         <= 1'b0;
         ws_buf_q             <= ws_pick;
@@ -1693,6 +1721,11 @@ module tg_l2_bank
           end
         end
       end
+      // (WB_PACE) a burst lasts while write-backs are ready; the wait counts the cycles some are held
+      if (!ws_busy_q && ws_go)                ws_burst_q <= 1'b1;
+      else if (!ws_busy_q && !(|wb_ready_q))  ws_burst_q <= 1'b0;
+      if (!(|wb_ready_q) || (!ws_busy_q && ws_go)) ws_wait_q <= '0;
+      else if (!ws_busy_q && ws_wait_q != 12'hFFF) ws_wait_q <= ws_wait_q + 1'b1;
 
       if (!rs_busy_q && |rs_req) begin
         rs_busy_q <= 1'b1;
