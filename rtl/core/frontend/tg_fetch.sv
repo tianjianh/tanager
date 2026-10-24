@@ -806,17 +806,20 @@ module tg_fetch
     // to the stack's top; a JALR otherwise only where the micro-BTB predicts it
     logic [63:0]   rtgt;
     assign rtgt = {{25{ras_top[38]}}, ras_top, 1'b0};
-    // The indirect-target table's entry (ITT_ON), by its last parcel's slot: a JALR there is a candidate, as at the
-    // micro-BTB's slot, and goes to the entry's target unless it is a return the stack predicts (its target replaces
-    // the micro-BTB's). Like the micro-BTB's hit, the table's does not wait for pre-decode's pop bit (timing: with it,
-    // spikes-2's 10-24 run had 21 levels from the I$ data to kr_q), and neither does the exit's kind (xitt): the
-    // stack's top comes first where it predicts (fx_tgt, ki_q, f3_itt_q). The table trains only on JALRs that do not
-    // pop, so a hit at a return's slot is an alias; with the stack empty that return goes to the entry's target
-    logic [NP-1:0] ith;
-    logic          ith_s;                  // ... a straddler's, at slot 0
-    logic [63:0]   itgt;
-    assign ith_s = ITT_ON && itt_hit && itt_slot == '0;
+    // The indirect-target table's entry (ITT_ON), by its last parcel's slot. The exit search takes one predicted
+    // JALR slot, as without the table: the table's where it hits, else the micro-BTB's (phit, pslot), chosen on the
+    // RAM's output before the search, so each slot's taken term keeps the table-off inputs. A hit inside the taken
+    // terms, even beside the micro-BTB's, put fetch's decision 4-6 levels deeper from the I$ data (spikes-2's 10-24
+    // runs of 1f5f9e18 and 188328af). Where the exit is a JALR at the entry's slot (the stack's top first), its target
+    // is the entry's; the exit's kind (xitt) is found after the search, beside the stack's (xras). The micro-BTB's own
+    // check (sm, xovr) stays on its slot: F1 followed its target
+    logic [NP-1:0]     ith;
+    logic [63:0]       itgt;
+    logic              phit;
+    logic [SLOT_W-1:0] pslot;
     assign itgt  = {{25{itt_tgt[38]}}, itt_tgt, 1'b0};
+    assign phit  = f2_hit_q || (ITT_ON && itt_hit);
+    assign pslot = (ITT_ON && itt_hit) ? itt_slot : f2_slot_q;
     // A 32-bit instruction that straddles in from the previous block (its first half in sp_q) is the
     // block's first instruction, its last parcel at slot 0: decoded here from its halves, it is a
     // candidate like the others (a branch with TAGE's slot 0), the exit fe_s
@@ -841,7 +844,7 @@ module tg_fetch
       // prediction there is no real exit and uok is false; only the stack takes a straddling JALR.
       // It is never trained on one either: a hit at slot 0 here is another block's entry, through
       // the partial tag, and F1 followed its target: decode checks it, fx_tsrc below)
-      sx_tk   = (sx_br && tdir[0]) || sx_jal || (sx_jalr && ((RAS_FE && sx_pop && ras_v) || ith_s));
+      sx_tk   = (sx_br && tdir[0]) || sx_jal || (sx_jalr && RAS_FE && sx_pop && ras_v);
     end
     assign fe_s = sx_tk;
     for (genvar p = 0; p < NP; p++) begin : g_cand
@@ -850,12 +853,11 @@ module tg_fetch
       assign cbr[p]  = pd_start[p] && pd_br[p] && !outp[p];
       assign rp[p]   = RAS_FE && pd_pop[p] && ras_v;
       // A JALR at the micro-BTB's exit slot is a real exit by itself (pred_ok holds there), so the
-      // candidate does not wait for uok, the whole block's check
-      logic hs, jh;
-      assign hs = f2_hit_q && (wide[p] ? f2_slot_q == SLOT_W'(p + 1) : f2_slot_q == SLOT_W'(p));
+      // candidate does not wait for uok, the whole block's check (at the table's slot: its tag and privilege)
+      logic hs;                                   // the predicted JALR slot (the table's, else the micro-BTB's)
+      assign hs = phit && (wide[p] ? pslot == SLOT_W'(p + 1) : pslot == SLOT_W'(p));
       assign ith[p]  = ITT_ON && itt_hit && itt_slot == lsl[p];
-      assign jh      = hs || ith[p];              // a target predicted here: the micro-BTB's or the table's
-      assign tkn[p]  = (pd_start[p] && !outp[p] && (pd_jal[p] || (pd_jalr[p] && (rp[p] || jh)))) ||
+      assign tkn[p]  = (pd_start[p] && !outp[p] && (pd_jal[p] || (pd_jalr[p] && (rp[p] || hs)))) ||
                        (cbr[p] && (wide[p] ? tdir[(p + 1) % NP] : tdir[p]));
     end
     // ns[p]: nothing decided before p: no candidate there (tb) and no third conditional branch (at
@@ -970,7 +972,7 @@ module tg_fetch
         xcall   = sx_call;
         xpop    = sx_pop;
         xcbr    = sx_br;
-        xitt    = sx_jalr && ith_s;
+        xitt    = 1'b0;                    // (only the stack takes a straddler)
         sm      = f2_slot_q == '0;
         fx_slot = '0;
         xoff    = 4'd1;
@@ -1090,8 +1092,8 @@ module tg_fetch
           o        = wide[p] && p == NP - 1;
           r_cbr[p] = pd_start[p] && pd_br[p] && !o;
           r_rp[p]  = RAS_FE && pd_pop[p] && ras_v;
-          ujx      = pd_start[p] && !o && (pd_jal[p] || (pd_jalr[p] && (r_rp[p] || (uok && f2_slot_q == lsl[p]) ||
-                                                                         (ITT_ON && itt_hit && itt_slot == lsl[p]))));
+          ujx      = pd_start[p] && !o && (pd_jal[p] || (pd_jalr[p] && (r_rp[p] ||
+                     ((ITT_ON && itt_hit) ? itt_slot == lsl[p] : uok && f2_slot_q == lsl[p]))));
           r_tkn[p] = ujx || (r_cbr[p] && tdir[lsl[p]]);
           if (!seen && r_cbr[p] && nb == 2) begin
             seen = 1'b1; r_c3_v = 1'b1; r_c3_p = SLOT_W'(p);
@@ -1140,8 +1142,7 @@ module tg_fetch
       logic [38:1] r_rlink;
       logic [63:0] r_tgt;
       assign r_fe_ras  = r_tk && (fe_s ? RAS_FE && sx_pop && ras_v : r_rp[r_fe_p]);
-      assign r_fe_itt  = r_tk && ITT_ON && itt_hit && (fe_s ? sx_jalr && itt_slot == '0
-                                                           : pd_jalr[r_fe_p] && itt_slot == lsl[r_fe_p]);
+      assign r_fe_itt  = r_tk && ITT_ON && itt_hit && !fe_s && pd_jalr[r_fe_p] && itt_slot == lsl[r_fe_p];
       assign r_ovr     = !r_isf && !r_pcut && !r_ccut &&
                          (r_tk ? !(f2_hit_q && f2_slot_q == r_fx_slot && (!r_fe_ras || f2_tgt_q == rtgt) &&
                                    (!r_fe_itt || f2_tgt_q == itgt)) : f2_hit_q);
