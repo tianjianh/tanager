@@ -3,7 +3,8 @@
 #   - 1 rebuilds the stage C trees (first made for sc3's package) and the bench tree byte for byte, and RISC-V mode's
 #     as before but without the MAC (DR-192).
 #   - 2 gives M7's four harts (DR-175, docs/spec/m7-smt2-plan.md), for a bitstream with hart 1 on (step 5c).
-#   bash sw/dts/board-trees.sh <out-dir> [1|2]          (default 1)
+#   bash sw/dts/board-trees.sh <out-dir> [1|2]          (default 1; HPM=1 for a TG_HPM=1 bitstream: M9's counters,
+#                                                        DR-190)
 #   RISC-V mode's trees carry no MAC (DR-192): riscv.cmd puts the board's own in at boot, from the ethaddr the A53's
 #   U-Boot reads from the SOM's EEPROM, so one package serves every KV260. ETH_MAC=xx:xx:xx:xx:xx:xx fixes one in (a
 #   test; the boot's fix-up still writes ethaddr over it).
@@ -19,6 +20,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 out=${1:?usage: board-trees.sh <out-dir> [1|2]}
 rt=${2:-1}
 mac=${ETH_MAC:-}
+hpm=${HPM:-0}
 [ "$rt" = 1 ] || [ "$rt" = 2 ] || { echo "board-trees.sh: RUN_THREADS is 1 or 2" >&2; exit 2; }
 mkdir -p "$out"
 tmp=$(mktemp -d)
@@ -26,7 +28,7 @@ trap 'rm -rf "$tmp"' EXIT
 one() {  # <name> <make variables...>
   local n=$1
   shift
-  make -s -B -C "$here" O="$tmp/$n" CORES=2 THREADS=2 RUN_THREADS="$rt" "$@" > /dev/null
+  make -s -B -C "$here" O="$tmp/$n" CORES=2 THREADS=2 RUN_THREADS="$rt" HPM="$hpm" "$@" > /dev/null
   cp "$tmp/$n/tanager-kv260.dtb" "$out/tanager-kv260-$n.dtb"
 }
 one virtio MEM=0x40000000 VIRTIO=1
@@ -34,4 +36,4 @@ one virtio-768m MEM=0x30000000 VIRTIO=1
 one bench MEM=0x40000000 PMU=1 BOOTARGS="console=ttyS0,115200 earlycon tanager.bench=1"
 one riscv MEM=0x40000000 UART1=1 UART1_STDOUT=0 SD1=1 BOARD_RESET=1 ETH=1 ${mac:+ETH_MAC=$mac}
 one riscv-rel MEM=0x40000000 UART1=1 UART1_STDOUT=0 SD1=1 BOARD_RESET=1 ETH=1 ${mac:+ETH_MAC=$mac} RELEASE=1
-echo "board-trees.sh: RUN_THREADS=$rt, $(( rt == 2 ? 4 : 2 )) harts, in $out"
+echo "board-trees.sh: RUN_THREADS=$rt, $(( rt == 2 ? 4 : 2 )) harts$([ "$hpm" = 1 ] && echo ", HPM=1"), in $out"
