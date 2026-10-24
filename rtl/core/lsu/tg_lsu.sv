@@ -710,8 +710,6 @@ module tg_lsu
   logic        nl_mis, nl_pf, nl_tm, nl_acc, nl_mmio, nl_exc, nl_go, nl_pmpc, nl_pmpd;
   logic        nl_lpc, lpc_r;                     // #13: an untranslated S/U load's region cached (g_lpc); its read verdict
   logic        lps_hit, lps_r, lps_w;             // ... the deciding store's (sn_va), and its read and write verdicts
-  logic        unused_lps;                        // (until the store's decision takes them: soc-2's side)
-  assign unused_lps = ^{lps_hit, lps_r, lps_w};
   logic [0:0]  nl_chk;
   logic [PA_W-1:0] lck_pa;                        // the checker's access: a registered PA and size
   logic        lck_dbl;
@@ -1561,6 +1559,7 @@ module tg_lsu
   // atomics only in main memory (interfaces.md §2.4)
   assign sa_acc  = (xl_s ? dt_pte[1].big : sn_va[63:PA_W] != '0) ||
                    (sa_pmpc && !(sa_lr ? dt_pte[1].pr : dt_pte[1].pw)) || (!CKR && sa_pck && !sa_chk[0]) ||
+                   (lps_hit && !(sa_lr ? lps_r : lps_w)) ||   // (#13: a bare S/U store in a cached region)
                    sa_pma == PMA_NONE || sa_pma == PMA_ROM || (sa_amo && sa_pma != PMA_MEM);
   assign sa_exc  = sa_mis || sa_pf || (!sa_tm && sa_acc);
   assign sa_mmio = sa_pma == PMA_DEVICE && !sa_amo;
@@ -1753,9 +1752,12 @@ module tg_lsu
     ck_nh_q  <= pg_nh;
   end
   always_ff @(posedge clk) begin
-    s2_v_q   <= !rst && ((sa_ok && ((xl_s && !sa_pmpc) || (CKR && sa_pck))) || (s2_v_q && !s2_go && !kill_t[s2_t_q]));
+    s2_v_q   <= !rst && ((sa_ok && ((xl_s && !sa_pmpc) || (CKR && sa_pck && !lps_hit))) ||
+                         (s2_v_q && !s2_go && !kill_t[s2_t_q]));
     // (S2 waits with a store at the decision only for another thread's bare store, which does not enter S2; with #13
-    // a bare store enters S2 and none checks at its decision, so S2 waits only for the walker, with no store deciding)
+    // a bare store enters S2 and none checks at its decision, so S2 waits only for the walker, with no store deciding.
+    // A bare S/U store in a region the cache holds (lps_hit) decides with its cached verdict instead, as a translated
+    // store with sa_pmpc does, and takes no S2: so its check no longer meets the next load's M2 check)
     if (sn_v && !(s2_v_q && bst)) begin
       s2_pa_q  <= sa_pa;
       s2_dbl_q <= sn_size == 2'd3;
