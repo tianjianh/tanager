@@ -40,11 +40,14 @@ LAT_INJ ?= 1
 # (+define+TG_COMMIT_TRACE=0) and SERIAL=1, the console on the serial line alone; the idle host DMA port in its
 # release form; the device trees with the PLIC's M contexts absent (sw/dts RELEASE=1)
 RELEASE ?= 0
+# HPM=1: M9's performance counters in the core (+define+TG_HPM=1, DR-190) and the device trees that describe them
+# (sw/dts HPM=1: Sscofpmf and the riscv,pmu event map), each in a directory of its own
+HPM ?= 0
 ifeq ($(RELEASE),1)
   override LAT_INJ := 0
   override SERIAL := 1
 endif
-NAME   := boot$(TAG)$(TC_SUFFIX)$(if $(filter 1,$(SERIAL)),_ser)$(if $(filter 0,$(LAT_INJ)),_rel)$(if $(filter 1,$(RELEASE)),ease)_c$(CORES)_t$(VTHREADS)
+NAME   := boot$(TAG)$(TC_SUFFIX)$(if $(filter 1,$(HPM)),_hpm)$(if $(filter 1,$(SERIAL)),_ser)$(if $(filter 0,$(LAT_INJ)),_rel)$(if $(filter 1,$(RELEASE)),ease)_c$(CORES)_t$(VTHREADS)
 TB     := $(CURDIR)/tb_boot.sv
 # MEM_PARAMS: the DDR models' timing (tb_boot MEM_*), for example the board's fixed latency:
 #   MEM_PARAMS="-GMEM_LAT_MIN=22 -GMEM_LAT_MAX=22 -GMEM_READY_PCT=100 -GMEM_OOO=0 -GMEM_R_PCT=100" TAG=_lat22
@@ -52,14 +55,14 @@ MEM_PARAMS ?=
 PARAMS := -GN_CORES=$(CORES) -GUART_SERIAL_TB=$(SERIAL) $(MEM_PARAMS) $(if $(filter 0,$(LAT_INJ)),-GLAT_INJ_TB=0) \
           $(if $(filter 1,$(RELEASE)),-GRELEASE_TB=1 -GHOST_DMA_TB=1)
 EXTRA_VFLAGS := -CFLAGS -O2 $(if $(filter-out 1,$(VTHREADS)),--threads $(VTHREADS)) $(TC_DEF) \
-                $(if $(filter 1,$(RELEASE)),+define+TG_COMMIT_TRACE=0)
+                $(if $(filter 1,$(RELEASE)),+define+TG_COMMIT_TRACE=0) $(if $(filter 1,$(HPM)),+define+TG_HPM=1)
 include ../common/unit.mk
 
 THREADS := $(if $(filter smt2%,$(CFG)),2,1)
 # RUN_THREADS=1 with CFG=smt2: the device tree describes thread 0 of each core only (harts 0 and 2),
 # the board's shape until M7 (DR-147); each choice builds its trees in a directory of its own
 RUN_THREADS ?= $(THREADS)
-DTS_SFX := $(if $(filter-out $(THREADS),$(RUN_THREADS)),-r$(RUN_THREADS))
+DTS_SFX := $(if $(filter-out $(THREADS),$(RUN_THREADS)),-r$(RUN_THREADS))$(if $(filter 1,$(HPM)),-hpm)
 # MCYC: the OpenSBI runs' cycle limit, in millions: 20 (the banner comes by 10.7 M cycles at 2x2), or 60 with the
 # console on the serial line (SERIAL=1, RELEASE=1), where "Boot HART MEDELEG" ends about 2,700 characters in, at
 # 8,680 cycles each (115200 baud at 100 MHz): about 24 M cycles
@@ -79,10 +82,10 @@ $(OUTDIR)/$(TOP): $(wildcard $(CORE_DIR)/*.sv $(CORE_DIR)/*/*.sv $(CORE_DIR)/*.f
 # BOOTARGS: the kernel command line in the device trees (earlycon=sbi prints through OpenSBI)
 BOOTARGS ?= console=ttyS0,115200 earlycon
 $(DTB): $(REPO)/sw/dts/tanager-kv260.dts $(REPO)/sw/dts/tanager.dtsi Makefile
-	$(MAKE) --no-print-directory -B -C $(REPO)/sw/dts O=$(OUTDIR)/dts$(DTS_SFX) CORES=$(CORES) THREADS=$(THREADS) RUN_THREADS=$(RUN_THREADS) MEM=0x08000000 FPU=0 RELEASE=$(RELEASE) BOOTARGS="$(BOOTARGS)"
+	$(MAKE) --no-print-directory -B -C $(REPO)/sw/dts O=$(OUTDIR)/dts$(DTS_SFX) CORES=$(CORES) THREADS=$(THREADS) RUN_THREADS=$(RUN_THREADS) MEM=0x08000000 FPU=0 RELEASE=$(RELEASE) HPM=$(HPM) BOOTARGS="$(BOOTARGS)"
 DTB_FPU := $(OUTDIR)/dts-fpu$(DTS_SFX)/tanager-kv260.dtb
 $(DTB_FPU): $(REPO)/sw/dts/tanager-kv260.dts $(REPO)/sw/dts/tanager.dtsi Makefile
-	$(MAKE) --no-print-directory -B -C $(REPO)/sw/dts O=$(OUTDIR)/dts-fpu$(DTS_SFX) CORES=$(CORES) THREADS=$(THREADS) RUN_THREADS=$(RUN_THREADS) MEM=0x08000000 FPU=1 RELEASE=$(RELEASE) BOOTARGS="$(BOOTARGS)"
+	$(MAKE) --no-print-directory -B -C $(REPO)/sw/dts O=$(OUTDIR)/dts-fpu$(DTS_SFX) CORES=$(CORES) THREADS=$(THREADS) RUN_THREADS=$(RUN_THREADS) MEM=0x08000000 FPU=1 RELEASE=$(RELEASE) HPM=$(HPM) BOOTARGS="$(BOOTARGS)"
 
 KERNEL     ?= $(SOC_BUILD)/br-tanager_lp64d/images/Image
 LINUX_MCYC ?= 1500
