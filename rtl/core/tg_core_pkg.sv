@@ -92,6 +92,13 @@ package tg_core_pkg;
 `else
   localparam bit LSU_CHK_REG = TIMING_CUTS;
 `endif
+  // ... with #13, untranslated S/U loads keep the verdicts of LPC_N 2 MiB regions (tg_lsu's g_lpc), so a bare-mode load
+  // (U-Boot's) needs no check and completes in M2 when its region is cached (0: none; TG_LPC_N=N)
+`ifdef TG_LPC_N
+  localparam int LPC_N = `TG_LPC_N;
+`else
+  localparam int LPC_N = 2;
+`endif
   // DR-149: misses the L1D keeps in flight, 4 (four MSHRs, a request register for the loads' misses,
   // per-entry refill wakeups) in both profiles since DR-156 (the user, 10-17), or 1 (one MSHR, the L1D
   // as before, cycle for cycle): TG_DC_MSHRS=1

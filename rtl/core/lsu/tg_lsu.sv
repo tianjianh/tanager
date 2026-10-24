@@ -708,6 +708,7 @@ module tg_lsu
   // its issue held until then).
   logic [PA_W-1:0] nl_pa;
   logic        nl_mis, nl_pf, nl_tm, nl_acc, nl_mmio, nl_exc, nl_go, nl_pmpc, nl_pmpd;
+  logic        nl_lpc, lpc_r;                     // #13: an untranslated S/U load's region cached (g_lpc); its read verdict
   logic [0:0]  nl_chk;
   logic [PA_W-1:0] lck_pa;                        // the checker's access: a registered PA and size
   logic        lck_dbl;
@@ -767,11 +768,11 @@ module tg_lsu
     assign pmp_hit_ld = 1'b0;
     assign pmp_rwx_ld = '0;
   end
-  assign nl_pmpc = xl_l && dt_pte[0].ph;          // the cached result applies
+  assign nl_pmpc = (xl_l && dt_pte[0].ph) || nl_lpc;   // a cached result applies: the DTLB's, or bare the region's
   // ... else the checker decides, later; with PMP_FILL not M-mode while its hart has no locked entry (DR-183)
   assign nl_pmpd = !nl_pmpc && !(PMP_FILL && priv_d[t_ln] == PRIV_M && !pmp_lk_h[t_ln]);
   assign nl_acc  = (xl_l ? dt_pte[0].big : ln_va[63:PA_W] != '0) || nl_pma == PMA_NONE ||
-                   (nl_pmpc && !dt_pte[0].pr);
+                   (nl_pmpc && !(xl_l ? dt_pte[0].pr : lpc_r));
   assign nl_mmio = nl_pma == PMA_DEVICE || nl_pma == PMA_ROM;
   assign nl_exc  = nl_mis || nl_pf || (!nl_tm && nl_acc);
   assign nl_go   = !nl_exc && !nl_tm && !nl_mmio;
@@ -964,6 +965,55 @@ module tg_lsu
     end
     assign ch_take = lg_v_q && lg_k_q == LG_HOLD && ck_ok_q && !kill_t[lg_t_q];
     assign lg_den  = lg_v_q && !ck_ok_q && !kill_t[lg_t_q];
+    if (LPC_N > 0) begin : g_lpc
+      // The bare-mode region cache: the verdicts of LPC_N 2 MiB regions for untranslated S/U loads, as the DTLB caches
+      // a translated page's (a checked load completes a cycle late, and its dependants miss SPEC_WAKE's M2 bypass: a
+      // bare pointer chase ran 2x slower). A granted load's check fills an entry when no region boundary lies inside
+      // its region (the page test at level 1, ck_nh_q) and the access was S/U's: the deciding entry's read permission,
+      // hit ? r : 0. A new load whose region hits needs no check: it completes in M2, or faults at M1. A TLB flush of
+      // the hart (PMP, satp or SFENCE.VMA writes) empties its entries and drops a fill in the same cycle; round robin
+      localparam int LW = (LPC_N > 1) ? $clog2(LPC_N) : 1;
+      logic [LPC_N-1:0]            lv_q, lr_q;
+      tid_t [LPC_N-1:0]            lt_q;
+      logic [LPC_N-1:0][PA_W-22:0] lrg_q;
+      logic [LW-1:0]               lrr_q;
+      logic [PA_W-22:0]            lg_rg_q;      // the granted load's region and S/U-ness, with lg_*
+      logic                        lg_m_q;
+      logic [LPC_N-1:0]            lph, lpf;       // M1's new load's region hits; the fill's is there already
+      logic                        fill;
+      always_ff @(posedge clk) begin
+        lg_rg_q <= lck_pa[PA_W-1:21];
+        lg_m_q  <= ck_ml;
+      end
+      always_comb
+        for (int i = 0; i < LPC_N; i++) begin
+          lph[i] = lv_q[i] && lt_q[i] == t_ln && lrg_q[i] == ln_va[PA_W-1:21];
+          lpf[i] = lv_q[i] && lt_q[i] == lg_t_q && lrg_q[i] == lg_rg_q;
+        end
+      assign nl_lpc = !xl_l && priv_d[t_ln] != PRIV_M && |lph;
+      assign lpc_r  = |(lph & lr_q);
+      assign fill   = lg_v_q && lg_k_q != LG_MMIO && !kill_t[lg_t_q] && !lg_m_q && !ck_nh_q && !(|lpf) &&
+                      !(tlb_flush && (NT == 1 || lg_t_q == tlb_flush_tid));
+      always_ff @(posedge clk) begin
+        if (rst) begin
+          lv_q  <= '0;
+          lrr_q <= '0;
+        end else begin
+          if (fill) begin
+            lv_q[lrr_q]  <= 1'b1;
+            lt_q[lrr_q]  <= lg_t_q;
+            lrg_q[lrr_q] <= lg_rg_q;
+            lr_q[lrr_q]  <= ck_hit_q && ck_rwx_q[2];
+            lrr_q        <= (int'(lrr_q) == LPC_N - 1) ? '0 : lrr_q + 1'b1;
+          end
+          if (tlb_flush)
+            for (int i = 0; i < LPC_N; i++) if (NT == 1 || lt_q[i] == tlb_flush_tid) lv_q[i] <= 1'b0;
+        end
+      end
+    end else begin : g_nolpc
+      assign nl_lpc = 1'b0;
+      assign lpc_r  = 1'b0;
+    end
 `ifndef SYNTHESIS
     // +chkstat: the verdicts taken a cycle late, by kind, the held loads' takes and the denials
     bit ck_on;
@@ -994,6 +1044,8 @@ module tg_lsu
     assign ch_llt_q  = '0;
     assign ch_take   = 1'b0;
     assign lg_den    = 1'b0;
+    assign nl_lpc    = 1'b0;
+    assign lpc_r     = 1'b0;
     logic unused_mck;                             // (the parked MMIO load's check: CK_LD's)
     assign unused_mck = m2_mck;
   end
@@ -1532,10 +1584,10 @@ module tg_lsu
   end
   always_ff @(posedge clk)
     if (!rst) begin
-      if (ln_v && nl_pmpc && dt_hit[0] && !nl_mis && !nl_pf && !nl_tm)
-        assert (sh_ld_ok == dt_pte[0].pr)
+      if (ln_v && nl_pmpc && (!xl_l || dt_hit[0]) && !nl_mis && !nl_pf && !nl_tm)
+        assert (sh_ld_ok == (xl_l ? dt_pte[0].pr : lpc_r))
           else $error("tg_lsu: a load's cached PMP result (r %b) differs from the full check (%b) at PA %h",
-                      dt_pte[0].pr, sh_ld_ok, nl_pa);
+                      xl_l ? dt_pte[0].pr : lpc_r, sh_ld_ok, nl_pa);
       if (sn_v && sa_pmpc && dt_hit[1] && !sa_mis && !sa_pf && !sa_tm)
         assert (sh_st_ok == (sa_lr ? dt_pte[1].pr : dt_pte[1].pw))
           else $error("tg_lsu: a store's cached PMP result (r %b w %b) differs from the full check (%b) at PA %h",
@@ -1626,9 +1678,12 @@ module tg_lsu
     logic [PMP_GW-1:0] pg;
     logic [1:0]        pg_lvl;
     tid_t              pg_t;
-    assign pg     = PMP_GW'({w_use ? pc_pa[PA_W-1:12] : pfc_pa[PA_W-1:12], 10'b0});   // the page base, in granules
-    assign pg_lvl = w_use ? pc_lvl : 2'd0;
-    assign pg_t   = w_use ? pc_t : pfc_tid;
+    // (#13, g_lpc: or a granted load's 2 MiB region, for the bare-mode region cache)
+    logic lpg;
+    assign lpg    = CK_LD && LPC_N > 0 && l_ask && l_gnt;
+    assign pg     = PMP_GW'({w_use ? pc_pa[PA_W-1:12] : lpg ? {lck_pa[PA_W-1:21], 9'b0} : pfc_pa[PA_W-1:12], 10'b0});
+    assign pg_lvl = w_use ? pc_lvl : lpg ? 2'd1 : 2'd0;
+    assign pg_t   = w_use ? pc_t : lpg ? t_lck : pfc_tid;
     always_comb begin
       logic [PMP_GW-1:0] alm;
       logic              in_pg, sub_pg, bound, msk;
