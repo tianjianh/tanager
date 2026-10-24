@@ -21,7 +21,7 @@ module tb_tlb
   localparam logic [NR-1:0] EARLY = NR'(EARLYN);
   logic clk = 1'b0, rst = 1'b1;
   logic [NR-1:0][26:0] vpn, vpn_e, vpn_next;
-  tid_t [NR-1:0]       lk_tid, d_lk_tid;
+  tid_t [NR-1:0]       lk_tid, d_lk_tid, lk_next, d_lk_tid_e;   // this cycle's lookups' threads; the next cycle's
   logic [NR-1:0]       hit;
   tlb_pte_t [NR-1:0]   pte;
   logic                fill, flush;
@@ -30,9 +30,10 @@ module tb_tlb
   tlb_pte_t            fill_pte;
   tid_t                fill_tid, d_fill_tid, flush_tid;
 `ifdef TB_LKTID0
-  always_comb for (int r = 0; r < NR; r++) d_lk_tid[r] = '0;
+  always_comb for (int r = 0; r < NR; r++) begin d_lk_tid[r] = '0; d_lk_tid_e[r] = '0; end
 `else
-  assign d_lk_tid = lk_tid;
+  assign d_lk_tid   = lk_tid;
+  assign d_lk_tid_e = lk_next;            // an EARLY port's thread comes a cycle ahead, with its VPN (vpn_e)
 `endif
 `ifdef TB_FILLTID0
   assign d_fill_tid = '0;
@@ -40,7 +41,7 @@ module tb_tlb
   assign d_fill_tid = fill_tid;
 `endif
   tg_tlb #(.NE(NE), .NR(NR), .CAM(CAM), .EARLY(EARLY)) dut (
-    .clk, .rst, .vpn, .vpn_e, .lk_tid(d_lk_tid), .hit, .pte, .fill, .fill_vpn, .fill_lvl, .fill_pte,
+    .clk, .rst, .vpn, .vpn_e, .lk_tid(d_lk_tid), .lk_tid_e(d_lk_tid_e), .hit, .pte, .fill, .fill_vpn, .fill_lvl, .fill_pte,
     .fill_tid(d_fill_tid), .flush, .flush_tid);
 
   // ---- The model: each thread's pages ----
@@ -69,30 +70,26 @@ module tb_tlb
   logic        live_v;                   // check the page filled at the last edge
   logic [26:0] live_vpn;
   tid_t        live_t;
-  logic        nx_live;                  // port 0's next lookup is this cycle's fill (its VPN went out as vpn_e)
-  tid_t        nx_t;
   initial begin
     void'($urandom(SEED));
     for (int i = 0; i < 24; i++) pool[i] = 27'($urandom);
     mism = 0; nhit = 0; nlk = 0; nfill = 0; nflush = 0; nlive = 0;
     fill = 1'b0; flush = 1'b0; fill_vpn = '0; fill_lvl = '0; fill_pte = '0; fill_tid = '0; flush_tid = '0;
-    for (int r = 0; r < NR; r++) begin vpn[r] = pick_vpn(); vpn_next[r] = pick_vpn(); lk_tid[r] = '0; end
+    for (int r = 0; r < NR; r++) begin vpn[r] = pick_vpn(); vpn_next[r] = pick_vpn(); lk_tid[r] = '0; lk_next[r] = '0; end
     vpn_e = vpn_next;
     live_v = 1'b0;
-    nx_live = 1'b0;
-    nx_t = '0;
     gap = 8;
     repeat (3) @(posedge clk);
     @(negedge clk) rst = 1'b0;
     repeat (40) @(negedge clk);           // the CAM's table sweep (32 cycles)
     for (int cyc = 0; cyc < CYCLES; cyc++) begin
-      // This cycle's lookups: last cycle's next VPNs (an EARLY port saw them a cycle ahead)
-      vpn = vpn_next;
+      // This cycle's lookups: last cycle's next VPNs and threads (an EARLY port saw them a cycle ahead)
+      vpn    = vpn_next;
+      lk_tid = lk_next;
       for (int r = 0; r < NR; r++) begin
-        lk_tid[r]   = tid_t'($urandom_range(0, NT - 1));
+        lk_next[r]  = tid_t'($urandom_range(0, NT - 1));
         vpn_next[r] = pick_vpn();
       end
-      if (nx_live) lk_tid[0] = nx_t;       // port 0 looks up the page filled at the last edge, by its thread
       // Fill: at least 6 cycles apart
       fill = 1'b0;
       if (gap > 0) gap--;
@@ -106,8 +103,7 @@ module tb_tlb
       end
       flush = ($urandom_range(0, 99) < 2);
       flush_tid = tid_t'($urandom_range(0, NT - 1));
-      nx_live = fill;                     // next cycle, port 0 looks up this fill's page (a cycle ahead: vpn_e)
-      if (fill) begin vpn_next[0] = fill_vpn; nx_t = fill_tid; end
+      if (fill) begin vpn_next[0] = fill_vpn; lk_next[0] = fill_tid; end   // (port 0's next lookup: the fill's page, by its thread)
       vpn_e = vpn_next;
       #1;
       // ---- Checks at every port ----
