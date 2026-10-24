@@ -17,7 +17,7 @@
 H=/home/tanager; S=${SOAK_DIR:-$H/soak4}; B=$H/baseline/bin
 mkdir -p "$S" && cd "$S" || exit 1
 L=$S/soak.log
-BAD='Oops|BUG:|Kernel panic|rcu_.*stall|rcu: INFO|watchdog: BUG|soft lockup|hard LOCKUP|segfault|Unable to handle|blocked for more than|sbi.*(fail|error)|hsm.*(fail|error)|failed to (start|come online)|CPU[0-9]+: failed'
+BAD='Oops|BUG:|Kernel panic|rcu_.*stall|rcu: INFO|watchdog: BUG|soft lockup|hard LOCKUP|segfault|Unable to handle|blocked for more than|sbi.*(fail|error)|hsm.*(fail|error)|failed to (start|come online)|CPU[0-9]+: failed|mmc[0-9]+: Timeout waiting'
 log() { echo "$(date -u +%FT%TZ) up=$(cut -d' ' -f1 /proc/uptime) $*" >> "$L"; }
 mark=$(dmesg | wc -l)
 # The one known line (fpga/kv260/README.md's known issues): OpenSBI 1.9 refusing a remote fence that names a hart just
