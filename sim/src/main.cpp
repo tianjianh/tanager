@@ -367,6 +367,8 @@ int main(int argc, char** argv) {
     lc.rom_size = mc.rom_size;
     lc.dev_regions = mc.dev_regions;
     lc.deny = mc.deny;
+    // --dbg-win (a TG_DEBUG core): outside debug mode the core faults on the debug window, so Spike must too
+    if (mc.dbg_win) lc.deny.push_back({mc.dbg_base, mc.dbg_size});
     lc.mtgsmt = hw.hart1_on;  // a core with hart 1 has mtgsmt (0x7C0); without it the CSR is illegal
     ls = std::make_unique<lockstep_t>(lc, mem, &elf);
     if (lc.hartids.size() > 1) order = std::make_unique<hart_order_t>(*ls, lc.hartids);
