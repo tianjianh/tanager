@@ -104,6 +104,7 @@ module tg_fetch
   input  logic [NUM_THREADS-1:0] xl_h,   // per hart (F1's block's thread's is used): fetch translates: S or U, Sv39
   input  dec_state_t [NUM_THREADS-1:0] dst,   // each hart's decode state, for the queue's decode bits
   input  priv_e  [NUM_THREADS-1:0] priv_h,
+  input  logic   [NUM_THREADS-1:0] dm_h,   // each hart in debug mode (DEBUG_ON): the debug window is fetchable then
   input  pmp_d_t [NUM_THREADS-1:0][PMP_ENTRIES-1:0] pmp_d_h,
   input  logic        pmp_busy,       // PMP descriptors being recomputed: F1 waits
   input  logic [NUM_THREADS-1:0] pmp_lk_h,   // DR-183: each hart's active locked entries
@@ -300,8 +301,12 @@ module tg_fetch
   assign f1_pf    = xl_i && !va_canon(fpc_q);
   assign f1_tm    = xl_i && !f1_pf && !f1_xf && !(it_hit[0] && pte_ok(it_pte[0], ACC_X, priv, 1'b0, 1'b0));
   assign f1_pma   = pma_of(f1_pa);
+  // Debug mode (DEBUG_ON; core-priv.md): the debug window is fetched through the I$ as the boot ROM is, by a thread
+  // in debug mode only; outside it the window faults, as any device does
+  logic  f1_dwin;
+  assign f1_dwin  = DEBUG_ON && dm_h[f1_tid] && in_rg(f1_pa, DEBUG_BASE, DEBUG_SIZE);
   assign f1_acc   = (xl_i ? it_pte[0].big : fpc_q[63:PA_W] != '0) ||
-                    (f1_pma != PMA_MEM && f1_pma != PMA_ROM);
+                    (f1_pma != PMA_MEM && f1_pma != PMA_ROM && !f1_dwin);
   assign f1_fault = f1_pf || f1_xf || (!f1_tm && f1_acc);     // the whole block
   assign f1_fpf   = f1_pf || (f1_xf && xf_pf_q);
   // PMP per word (used in F2, where instruction boundaries are known)
