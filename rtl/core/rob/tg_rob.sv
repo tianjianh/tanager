@@ -702,22 +702,22 @@ module tg_rob
   logic [63:0] hd_pc_inc;
   assign hd_pc_inc = hp[0].pc + (hp[0].dexc ? {62'b0, hp[0].dexc_hi, 1'b0} : (hp[0].rvc ? 64'd2 : 64'd4));
   // pc40 (DR-195, core-pipeline.md §8.6): fetch takes a redirect outside Sv39's range (full_bad) as a pc40 marked bad,
-  // which drops the value's upper bits, and flush_pc is one register for both threads. So each thread keeps a bad
-  // redirect's full value, bpc_q, and bpb_q says the thread's last redirect was bad. While it is set the thread's only
+  // which keeps the value's bits 38:0 alone, and flush_pc is one register for both threads. So each thread keeps a bad
+  // redirect's bits 63:39, bpc_q, and bpb_q says the thread's last redirect was bad. While it is set the thread's only
   // instruction is that redirect's fault block, the whole block faulting at its first byte: the head's pc in full
-  // (mepc or sepc and the trap record, dpc at a halt or a step's entry) and the fault's tval are bpc_q.
-  logic [NT-1:0][63:0] bpc_q;
-  logic [NT-1:0]       bpb_q;
+  // (mepc or sepc and the trap record, dpc at a halt or a step's entry) and the fault's tval take bits 63:39 from bpc_q.
+  logic [NT-1:0][63:39] bpc_q;
+  logic [NT-1:0]        bpb_q;
   always_ff @(posedge clk)
     if (rst) bpb_q <= '0;
     else if (flush) begin
       bpb_q[t_fl] <= full_bad(flush_pc);
-      if (full_bad(flush_pc)) bpc_q[t_fl] <= flush_pc;
+      if (full_bad(flush_pc)) bpc_q[t_fl] <= flush_pc[63:39];
     end
   logic        bpb_h;
   logic [63:0] hd_pc;
   assign bpb_h = bpb_q[t_cm];
-  assign hd_pc = bpb_h ? bpc_q[t_cm] : hp[0].pc;
+  assign hd_pc = {bpb_h ? bpc_q[t_cm] : hp[0].pc[63:39], hp[0].pc[38:0]};
   always_comb begin
     ret = '0;
     do_flush = 1'b0; do_trap = 1'b0; do_irq = 1'b0; do_icinv = 1'b0; do_csr = 1'b0; do_mret = 1'b0;
@@ -781,7 +781,7 @@ module tg_rob
           unique case (hp[0].dexc_cause)
             EXC_ILLEGAL: t_tval = {32'b0, hp[0].insn};
             EXC_BREAK: t_tval = hp[0].pc;
-            EXC_IACCESS, EXC_IPAGE: t_tval = bpb_h ? bpc_q[t_cm] : hd_pc_inc;
+            EXC_IACCESS, EXC_IPAGE: t_tval = {bpb_h ? bpc_q[t_cm] : hd_pc_inc[63:39], hd_pc_inc[38:0]};
             default: t_tval = '0;
           endcase
         end else begin
