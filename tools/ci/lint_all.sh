@@ -78,6 +78,9 @@ else echo "lint-all: tanager_soc has no LAT_INJ; skipping LAT_INJ=0"; fi
 if grep -qsw RELEASE "$ROOT/rtl/soc/tanager_soc.sv"; then
   profiles+=("RELEASE=1 LAT_INJ=0 COMMIT_TRACE=0" "RELEASE=1 LAT_INJ=0 COMMIT_TRACE=0 SYNTH=1")
 else echo "lint-all: tanager_soc has no RELEASE; skipping RELEASE=1"; fi
+# The L2's write-back batching (tanager_soc L2_WB_PACE, a parameter; 8 write-back buffers and L2_PACE), in both views
+if grep -qsw L2_WB_PACE "$ROOT/rtl/soc/tanager_soc.sv"; then profiles+=("L2_WB_PACE=1" "L2_WB_PACE=1 SYNTH=1")
+else echo "lint-all: tanager_soc has no L2_WB_PACE; skipping L2_WB_PACE=1"; fi
 # M7's test mode (SOLO_TID=1, DR-175) exists only in the SMT2 configurations (TID_W = 1)
 solo=""; if mentioned TG_SOLO_TID; then solo=1; else echo "lint-all: no RTL mentions TG_SOLO_TID; skipping SOLO_TID=1"; fi
 # ... and its split mode (SPLIT=1), alone and with SOLO_TID=1

@@ -8,6 +8,7 @@
 # no host console (the bench reads the UART's own output), the PLIC's S contexts alone, no TTC1 source, the DMA
 # port without completions or line counters. ipirace RELEASE=1 runs the directed IPI test on such a build.
 # XBAR_SLICE=1 MEM_SLICE=1: the uncore's register slices back on (off by default since DR-186; area_switches.md).
+# L2_WB_PACE=1: the L2's write-back batching (tanager_soc L2_WB_PACE; batches of 4 from reset, tb_soc L2_PACE_INIT).
 TOP    := tb_soc
 KIND   ?= core
 COMMIT_TRACE ?= 1
@@ -29,13 +30,14 @@ ifeq ($(RELEASE),1)
   override COMMIT_TRACE := 0
 endif
 SDPROG ?= sd_irq            # sd_irq_smt2s: S-mode with ticks, the contender on hart 2 (KIND=core CFG=smt2)
-NAME   := soc_$(KIND)$(if $(filter 0,$(COMMIT_TRACE)),_notrace)$(if $(filter 1,$(VIRTIO)),_virtio)$(if $(filter 1,$(HOST_DMA)),_hdma)$(if $(filter 1,$(PS_WINDOW)),_pswin)$(if $(filter 1,$(SDIRQ)),_sdirq)$(if $(filter 0,$(LAT_INJ)),_rel)$(if $(filter 1,$(RELEASE)),ease)$(if $(filter 1,$(XBAR_SLICE)),_xs)$(if $(filter 1,$(MEM_SLICE)),_ms)
+NAME   := soc_$(KIND)$(if $(filter 0,$(COMMIT_TRACE)),_notrace)$(if $(filter 1,$(VIRTIO)),_virtio)$(if $(filter 1,$(HOST_DMA)),_hdma)$(if $(filter 1,$(PS_WINDOW)),_pswin)$(if $(filter 1,$(SDIRQ)),_sdirq)$(if $(filter 0,$(LAT_INJ)),_rel)$(if $(filter 1,$(RELEASE)),ease)$(if $(filter 1,$(XBAR_SLICE)),_xs)$(if $(filter 1,$(MEM_SLICE)),_ms)$(if $(filter 1,$(L2_WB_PACE)),_wbp)
 EXTRA_VFLAGS += $(if $(filter 0,$(COMMIT_TRACE)),+define+TG_COMMIT_TRACE=0) $(if $(filter 1,$(PS_WINDOW) $(SDIRQ)),+define+TG_PS_WINDOW=1)
 # TB_SOC_CORE: the real cores are in (KIND=core), so the bench may name their insides (tb_soc's +ipi_race)
 EXTRA_VFLAGS += $(if $(filter core,$(KIND)),+define+TB_SOC_CORE)
 TB     := $(CURDIR)/tb_soc.sv
 PARAMS := -GKIND='"$(KIND)"' -GVIRTIO=$(VIRTIO) -GHOST_DMA=$(HOST_DMA) -GSDIRQ=$(SDIRQ) -GLAT_INJ=$(LAT_INJ) -GRELEASE=$(RELEASE) \
-          $(if $(XBAR_SLICE),-GXBAR_SLICE=$(XBAR_SLICE)) $(if $(MEM_SLICE),-GMEM_SLICE=$(MEM_SLICE))
+          $(if $(XBAR_SLICE),-GXBAR_SLICE=$(XBAR_SLICE)) $(if $(MEM_SLICE),-GMEM_SLICE=$(MEM_SLICE)) \
+          $(if $(L2_WB_PACE),-GL2_WB_PACE=$(L2_WB_PACE))
 include ../common/unit.mk
 ifeq ($(KIND),tcore)
 # The verification track's test core stands in for tg_core (tcore_as_core.sv); rtl/core is left out.
@@ -67,6 +69,7 @@ short: prog
 	@$(MAKE) --no-print-directory run KIND=trafgen RELEASE=1 | grep -q "TEST PASSED" || { echo "FAIL trafgen RELEASE=1"; exit 1; }; echo "soc trafgen, a release build (DR-180): PASS"
 	@$(MAKE) --no-print-directory run KIND=trafgen XBAR_SLICE=1 MEM_SLICE=1 | grep -q "TEST PASSED" || { echo "FAIL trafgen XBAR_SLICE=1 MEM_SLICE=1"; exit 1; }; echo "soc trafgen with the uncore's register slices on (DR-186's off form): PASS"
 	@$(MAKE) --no-print-directory run KIND=tcore RELEASE=1 HOST_DMA=1 PS_WINDOW=1 | grep -q "TEST PASSED" || { echo "FAIL tcore RELEASE=1 HOST_DMA=1 PS_WINDOW=1"; exit 1; }; echo "soc tcore, a release build with the DMA port and the PS window (DR-180): PASS"
+	@for k in trafgen tcore; do $(MAKE) --no-print-directory run KIND=$$k L2_WB_PACE=1 | grep -q "TEST PASSED" || { echo "FAIL $$k L2_WB_PACE=1"; exit 1; }; echo "soc $$k with the L2's write-back batching (batches of 4): PASS"; done
 # ipirace: the directed test of SD1's lost interrupt (10-20): on the real smt2 cores, in S-mode as Linux, an IPI to
 # hart 0 (MSIP) made pending in the very cycle its LSU issues PLIC claim number IPIRACE (tb_soc +ipi_race). The ROB
 # could take an interrupt in the cycle the LSU issues the head's MMIO load, so the claim went out, the load was

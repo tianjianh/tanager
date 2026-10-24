@@ -1,0 +1,31 @@
+== memcal at 22:33:36 (the A53's clock)
+app files: 2a47608a94ce0f20 6193da61462b56e7 
+loaded tanager-rc3 at 22:33:41; fpga0 operating
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+run 1 at 22:33:46 UTC
+run 1: exit 124;  [tanager-host] timeout 
+run 2 at 22:34:06 UTC
+run 2: exit 124;  [tanager-host] timeout 
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 22:34:29
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+done at 22:34:30
+== wsd at 22:34:30
+app files: 2a47608a94ce0f20 6193da61462b56e7 
+loaded tanager-rc3 at 22:34:36; fpga0 operating
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+run 1 at 22:34:36 UTC
+run 1: exit 124;  [tanager-host] timeout 
+run 2 at 22:34:57 UTC
+run 2: exit 124;  [tanager-host] timeout 
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 22:35:20
+fan: pwm1 17/255, AMS temp1 34 C, fancontrol active
+fan: pwm1 17/255, AMS temp1 34 C, fancontrol active
+done at 22:35:20
+== done
