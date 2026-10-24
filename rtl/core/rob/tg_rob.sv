@@ -248,7 +248,7 @@ module tg_rob
       {dpl[k].ras_push, dpl[k].ras_pop} = ras_op(ds_uop[k].d);
       // the indirect-target table trains on a JALR that is not a return (no pop), without a decode exception
       dpl[k].ijmp       = ITT_ON && ds_uop[k].d.cls == C_BR && ds_uop[k].d.br_kind == BR_JALR &&
-                          !ras_op(ds_uop[k].d)[0] && !ds_uop[k].d.exc;
+                          !dpl[k].ras_pop && !ds_uop[k].d.exc;
       // TAGE trains on the conditional branches its blocks predict (a straddler with the block its
       // last parcel is in, at slot 0), not one with a decode exception
       dpl[k].cbr        = TAGE_ON && ds_uop[k].d.cls == C_BR && ds_uop[k].d.br_kind == BR_COND && !ds_uop[k].d.exc;
