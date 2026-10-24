@@ -49,7 +49,6 @@ NAME = "boot-lockstep"
 CACHE = os.path.join(ci.TB, "boot-lockstep")
 WORK = os.path.join(ci.TB, ci.WT, "boot-lockstep")
 SOAK_FAIL = os.path.join(ci.TB, "soak", "fail")
-KEEP_BUILDS = 4           # tb_boot builds kept, binaries only (least recently used go first)
 KEEP_RUNS = 30            # run directories kept (logs and reports), newest first
 MEM_PARAMS = "-GL2_SETS_TB=1024"   # the board's L2 sets; the DDR timing is set at run time (TIMINGS)
 # shape: (CFG, cores, threads, threads Linux runs, Verilator threads). smp4 is M7's four harts, both threads of both
@@ -134,8 +133,7 @@ class Build:
     def build(self, jobs):
         """None, or why it failed."""
         os.makedirs(os.path.dirname(self.dir), exist_ok=True)
-        with open(self.dir + ".lock", "a") as lk:
-            fcntl.flock(lk, fcntl.LOCK_EX)  # another run may be building the same tree
+        with ci.lock_build(self.dir + ".lock", fcntl.LOCK_EX):  # another run may be building the same tree
             if self.built():
                 os.utime(self.dir)
                 return None
@@ -161,26 +159,29 @@ class Build:
             tb = self.tb()
             if not tb:
                 return "the build left no single tb_boot"
-            # Keep what the runs need: Verilator's objects and precompiled headers are most of a build's 300 MB
+            # Keep what the runs need: Verilator's objects and precompiled headers are most of a build's 300 MB, and
+            # the runs read nothing from the sources (tb_boot and tanager-lockstep are both under obj)
             for f in glob.glob(os.path.join(os.path.dirname(tb), "*")):
                 if f != tb:
                     shutil.rmtree(f) if os.path.isdir(f) else os.remove(f)
+            shutil.rmtree(self.src, ignore_errors=True)
             open(os.path.join(self.dir, "OK"), "w").close()
             return None
 
 
 def prune_builds(keep):
+    """The build cache's trim after the builds (cycle-identical's prune_cache: the newest 40 builds within 15 GB, never
+    one in use or used in the last hour); this run's builds stay (keep). A finished build that an older copy of this
+    script made still has its sources (3.4 GB once, from a check slot's sim/ build output): they go, under its lock."""
     bdir = os.path.join(CACHE, "build")
-    dirs = [d for d in os.listdir(bdir) if os.path.isdir(os.path.join(bdir, d))]
-    for d in sorted(dirs, key=lambda d: -os.path.getmtime(os.path.join(bdir, d)))[KEEP_BUILDS:]:
-        if d in keep:
-            continue
-        with open(os.path.join(bdir, d + ".lock"), "a") as lk:
-            try:
-                fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                continue
-            shutil.rmtree(os.path.join(bdir, d), ignore_errors=True)
+    for d in os.listdir(bdir):
+        src = os.path.join(bdir, d, "src")
+        if os.path.exists(os.path.join(bdir, d, "OK")) and os.path.isdir(src):
+            lk = ci.lock_build(os.path.join(bdir, d + ".lock"), fcntl.LOCK_EX, wait=False)
+            if lk:
+                with lk:
+                    shutil.rmtree(src, ignore_errors=True)
+    ci.prune_cache(bdir, keep)
 
 
 def dts_takes_hpm(harness_src):
