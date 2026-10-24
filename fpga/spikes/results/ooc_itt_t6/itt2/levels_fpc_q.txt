@@ -1,0 +1,84 @@
+== fpc_q
+lvl loc            type    net in   cell      at   fo  input pin -> output net
+  1 SLICE_X12Y65   LUT6     0.594  0.138   2.780    1  u_fetch/u_itlb/u_leaf_i_141__0/I0 -> u_fetch/u_itlb/u_leaf_i_141__0_n_0
+  2 SLICE_X7Y66    LUT5     0.413  0.226   3.419    1  u_fetch/u_itlb/u_leaf_i_67__0/I4 -> u_fetch/u_itlb/vmatch10_return0
+  3 SLICE_X6Y76    LUT4     0.363  0.150   3.932    3  u_fetch/u_itlb/u_leaf_i_26__0/I1 -> u_fetch/u_itlb/m[0]_36[11]
+  4 SLICE_X9Y76    LUT6     0.334  0.221   4.487    2  u_fetch/u_itlb/u_leaf_i_21__0/I1 -> u_fetch/u_itlb/u_leaf_i_21__0_n_0
+  5 SLICE_X12Y77   LUT3     0.434  0.137   5.059   36  u_fetch/u_itlb/u_leaf_i_6__0/I1 -> u_fetch/u_itlb/u_leaf/g_m32.g_prim[0].u_ram/ADDRB3
+  6 SLICE_X13Y78   RAMD32   0.316  0.137   5.512    2  u_fetch/u_itlb/u_leaf/g_m32.g_prim[0].u_ram/RAMB_D1/RADR3 -> u_fetch/u_itlb/it_pte[0][ph]
+  7 SLICE_X21Y82   LUT5     0.480  0.186   6.178    1  u_fetch/u_itlb/g_pmpf.rq_tid_q[0]_i_7/I2 -> u_fetch/u_itlb/g_pmpf.rq_tid_q[0]_i_7_n_0
+  8 SLICE_X21Y89   LUT6     0.233  0.082   6.493    3  u_fetch/u_itlb/g_pmpf.rq_tid_q[0]_i_4/I3 -> u_fetch/u_itlb/g_pmpf.rq_tid_q[0]_i_4_n_0
+  9 SLICE_X21Y89   LUT2     0.063  0.152   6.707    5  u_fetch/u_itlb/f2_valid_q_i_4/I1 -> u_fetch/u_itlb/f2_valid_q_i_4_n_0
+ 10 SLICE_X20Y87   LUT2     0.182  0.082   6.971    3  u_fetch/u_itlb/f2_valid_q_i_3/I0 -> u_fetch/u_itlb/ka_q_reg_2
+ 11 SLICE_X20Y87   LUT4     0.108  0.056   7.135   65  u_fetch/u_itlb/spc_s_q[0][43]_i_9/I3 -> u_fetch/u_itlb/spc_s_q[0][43]_i_9_n_0
+ 12 SLICE_X15Y84   LUT6     0.421  0.224   7.781   41  u_fetch/u_itlb/sv_s_q[0]_i_4/I4 -> u_fetch/u_cmp/fpc_q[33]_i_10_0
+ 13 SLICE_X14Y84   LUT4     0.179  0.083   8.043    1  u_fetch/u_cmp/fpc_q[63]_i_10/I2 -> u_fetch/u_itlb/fpc_q[1]_i_3_1
+ 14 SLICE_X14Y84   LUT5     0.101  0.150   8.294   59  u_fetch/u_itlb/fpc_q[63]_i_6/I4 -> u_fetch/u_itlb/stop_s_q_reg[1]_0
+ 15 SLICE_X13Y84   LUT6     0.159  0.226   8.679    4  u_fetch/u_itlb/ft_q_i_4/I4 -> u_fetch/u_cmp/fpc_q[33]_i_3_1
+ 16 SLICE_X14Y83   LUT5     0.170  0.137   8.986    2  u_fetch/u_cmp/spc_s_q[0][63]_i_5/I4 -> u_rob/spc_s_q_reg[0][63]_0
+ 17 SLICE_X14Y83   LUT4     0.105  0.136   9.227   67  u_rob/fpc_q[33]_i_3/I3 -> u_rob/flush_slp_reg_1
+ 18 SLICE_X14Y83   LUT5     0.129  0.057   9.413   65  u_rob/spc_s_q[1][40]_i_2/I0 -> u_de/fpc_q_reg[33]_1
+ 19 SLICE_X12Y83   LUT2     0.203  0.056   9.672   67  u_de/ft_q_i_3/I1 -> u_de/dred_tid_reg[0]_0
+ 20 SLICE_X9Y83    LUT4     0.551  0.081  10.304   63  u_de/fpc_q[33]_i_1/I0 -> u_fetch/fpc_q_reg[33]_0
+end: u_fetch/fpc_q_reg[8]/CE (net in 0.715)
+Data Path Delay:        9.087ns  (logic 2.832ns (31.165%)  route 6.255ns (68.835%))
+Clock Path Skew:        -0.132ns
+
+== fpc_q_f3s
+lvl loc            type    net in   cell      at   fo  input pin -> output net
+  1 SLICE_X31Y90   LUT4     0.128  0.152   2.160    9  u_fetch/u_cmp/g_bank[0].u_ram_i_232/I1 -> u_fetch/u_cmp/g_bank[0].u_ram_i_232_n_0
+  2 SLICE_X30Y89   LUT5     0.230  0.057   2.448    2  u_fetch/u_cmp/done_q[3]_i_14/I3 -> u_fetch/u_cmp/done_q[3]_i_14_n_0
+  3 SLICE_X30Y89   LUT3     0.111  0.056   2.615    3  u_fetch/u_cmp/done_q[3]_i_10/I0 -> u_fetch/u_cmp/done_q[3]_i_10_n_0
+  4 SLICE_X30Y90   LUT5     0.159  0.056   2.830    2  u_fetch/u_cmp/done_q[3]_i_13/I3 -> u_fetch/u_cmp/done_q[3]_i_13_n_0
+  5 SLICE_X30Y90   LUT6     0.118  0.185   3.133    2  u_fetch/u_cmp/hv_q[1]_i_5/I2 -> u_fetch/u_cmp/hv_q[1]_i_5_n_0
+  6 SLICE_X30Y90   LUT5     0.051  0.151   3.335   14  u_fetch/u_cmp/done_q[0]_i_2/I4 -> u_fetch/u_cmp/done_q[0]_i_2_n_0
+  7 SLICE_X27Y97   LUT6     0.345  0.137   3.817    1  u_fetch/u_cmp/g_bank[0].u_ram_i_216/I0 -> u_fetch/u_cmp/g_bank[0].u_ram_i_216_n_0
+  8 SLICE_X27Y97   LUT5     0.054  0.150   4.021   23  u_fetch/u_cmp/g_bank[0].u_ram_i_161/I3 -> u_fetch/u_cmp/p_56_in
+  9 SLICE_X27Y92   LUT6     0.191  0.138   4.350    8  u_fetch/u_cmp/hv_q[1]_i_4/I0 -> u_fetch/u_cmp/hv_q[1]_i_4_n_0
+ 10 SLICE_X27Y91   LUT2     0.106  0.057   4.513    6  u_fetch/u_cmp/f3_meta_q[fault]_i_3/I1 -> u_fetch/g_tage.u_tage/f3_valid_q_reg_0
+ 11 SLICE_X25Y90   LUT6     0.268  0.060   4.841    2  u_fetch/g_tage.u_tage/g_way[0].u_data_i_14/I1 -> u_fetch/g_tage.u_tage/g_way[0].u_data_i_14_n_0
+ 12 SLICE_X25Y90   LUT5     0.105  0.056   5.002    5  u_fetch/g_tage.u_tage/g_way[0].u_data_i_13/I4 -> u_fetch/g_tage.u_tage/f2_valid_q_reg_0
+ 13 SLICE_X25Y90   LUT2     0.054  0.139   5.195  125  u_fetch/g_tage.u_tage/g_way[0].u_data_i_10/I1 -> u_fetch/u_itlb/f2_hw_q_reg[0]
+ 14 SLICE_X20Y87   LUT2     0.778  0.057   6.030    3  u_fetch/u_itlb/f2_valid_q_i_3/I1 -> u_fetch/u_itlb/ka_q_reg_2
+ 15 SLICE_X20Y87   LUT4     0.108  0.056   6.194   65  u_fetch/u_itlb/spc_s_q[0][43]_i_9/I3 -> u_fetch/u_itlb/spc_s_q[0][43]_i_9_n_0
+ 16 SLICE_X15Y84   LUT6     0.421  0.224   6.839   41  u_fetch/u_itlb/sv_s_q[0]_i_4/I4 -> u_fetch/u_cmp/fpc_q[33]_i_10_0
+ 17 SLICE_X14Y84   LUT4     0.179  0.083   7.102    1  u_fetch/u_cmp/fpc_q[63]_i_10/I2 -> u_fetch/u_itlb/fpc_q[1]_i_3_1
+ 18 SLICE_X14Y84   LUT5     0.101  0.150   7.353   59  u_fetch/u_itlb/fpc_q[63]_i_6/I4 -> u_fetch/u_itlb/stop_s_q_reg[1]_0
+ 19 SLICE_X13Y84   LUT6     0.159  0.226   7.738    4  u_fetch/u_itlb/ft_q_i_4/I4 -> u_fetch/u_cmp/fpc_q[33]_i_3_1
+ 20 SLICE_X14Y83   LUT5     0.170  0.137   8.045    2  u_fetch/u_cmp/spc_s_q[0][63]_i_5/I4 -> u_rob/spc_s_q_reg[0][63]_0
+ 21 SLICE_X14Y83   LUT4     0.105  0.136   8.285   67  u_rob/fpc_q[33]_i_3/I3 -> u_rob/flush_slp_reg_1
+ 22 SLICE_X14Y83   LUT5     0.129  0.057   8.472   65  u_rob/spc_s_q[1][40]_i_2/I0 -> u_de/fpc_q_reg[33]_1
+ 23 SLICE_X12Y83   LUT2     0.203  0.056   8.730   67  u_de/ft_q_i_3/I1 -> u_de/dred_tid_reg[0]_0
+ 24 SLICE_X9Y83    LUT4     0.551  0.081   9.363   63  u_de/fpc_q[33]_i_1/I0 -> u_fetch/fpc_q_reg[33]_0
+end: u_fetch/fpc_q_reg[8]/CE (net in 0.715)
+Data Path Delay:        8.311ns  (logic 2.771ns (33.340%)  route 5.540ns (66.660%))
+Clock Path Skew:        0.028ns
+
+== fpc_q_f3st
+lvl loc            type    net in   cell      at   fo  input pin -> output net
+  1 SLICE_X32Y87   LUT2     0.281  0.149   2.305   16  u_fetch/u_cmp/g_bank[0].u_ram_i_218/I0 -> u_fetch/u_cmp/g_bank[0].u_ram_i_218_n_0
+  2 SLICE_X30Y90   LUT5     0.456  0.150   2.910    2  u_fetch/u_cmp/done_q[3]_i_13/I4 -> u_fetch/u_cmp/done_q[3]_i_13_n_0
+  3 SLICE_X30Y90   LUT6     0.118  0.185   3.213    2  u_fetch/u_cmp/hv_q[1]_i_5/I2 -> u_fetch/u_cmp/hv_q[1]_i_5_n_0
+  4 SLICE_X30Y90   LUT5     0.051  0.151   3.415   14  u_fetch/u_cmp/done_q[0]_i_2/I4 -> u_fetch/u_cmp/done_q[0]_i_2_n_0
+  5 SLICE_X27Y97   LUT6     0.345  0.137   3.897    1  u_fetch/u_cmp/g_bank[0].u_ram_i_216/I0 -> u_fetch/u_cmp/g_bank[0].u_ram_i_216_n_0
+  6 SLICE_X27Y97   LUT5     0.054  0.150   4.101   23  u_fetch/u_cmp/g_bank[0].u_ram_i_161/I3 -> u_fetch/u_cmp/p_56_in
+  7 SLICE_X27Y92   LUT6     0.191  0.138   4.430    8  u_fetch/u_cmp/hv_q[1]_i_4/I0 -> u_fetch/u_cmp/hv_q[1]_i_4_n_0
+  8 SLICE_X27Y91   LUT2     0.106  0.057   4.593    6  u_fetch/u_cmp/f3_meta_q[fault]_i_3/I1 -> u_fetch/g_tage.u_tage/f3_valid_q_reg_0
+  9 SLICE_X25Y90   LUT6     0.268  0.060   4.921    2  u_fetch/g_tage.u_tage/g_way[0].u_data_i_14/I1 -> u_fetch/g_tage.u_tage/g_way[0].u_data_i_14_n_0
+ 10 SLICE_X25Y90   LUT5     0.105  0.056   5.082    5  u_fetch/g_tage.u_tage/g_way[0].u_data_i_13/I4 -> u_fetch/g_tage.u_tage/f2_valid_q_reg_0
+ 11 SLICE_X25Y90   LUT2     0.054  0.139   5.275  125  u_fetch/g_tage.u_tage/g_way[0].u_data_i_10/I1 -> u_fetch/u_itlb/f2_hw_q_reg[0]
+ 12 SLICE_X20Y87   LUT2     0.778  0.057   6.110    3  u_fetch/u_itlb/f2_valid_q_i_3/I1 -> u_fetch/u_itlb/ka_q_reg_2
+ 13 SLICE_X20Y87   LUT4     0.108  0.056   6.274   65  u_fetch/u_itlb/spc_s_q[0][43]_i_9/I3 -> u_fetch/u_itlb/spc_s_q[0][43]_i_9_n_0
+ 14 SLICE_X15Y84   LUT6     0.421  0.224   6.920   41  u_fetch/u_itlb/sv_s_q[0]_i_4/I4 -> u_fetch/u_cmp/fpc_q[33]_i_10_0
+ 15 SLICE_X14Y84   LUT4     0.179  0.083   7.182    1  u_fetch/u_cmp/fpc_q[63]_i_10/I2 -> u_fetch/u_itlb/fpc_q[1]_i_3_1
+ 16 SLICE_X14Y84   LUT5     0.101  0.150   7.433   59  u_fetch/u_itlb/fpc_q[63]_i_6/I4 -> u_fetch/u_itlb/stop_s_q_reg[1]_0
+ 17 SLICE_X13Y84   LUT6     0.159  0.226   7.818    4  u_fetch/u_itlb/ft_q_i_4/I4 -> u_fetch/u_cmp/fpc_q[33]_i_3_1
+ 18 SLICE_X14Y83   LUT5     0.170  0.137   8.125    2  u_fetch/u_cmp/spc_s_q[0][63]_i_5/I4 -> u_rob/spc_s_q_reg[0][63]_0
+ 19 SLICE_X14Y83   LUT4     0.105  0.136   8.366   67  u_rob/fpc_q[33]_i_3/I3 -> u_rob/flush_slp_reg_1
+ 20 SLICE_X14Y83   LUT5     0.129  0.057   8.552   65  u_rob/spc_s_q[1][40]_i_2/I0 -> u_de/fpc_q_reg[33]_1
+ 21 SLICE_X12Y83   LUT2     0.203  0.056   8.811   67  u_de/ft_q_i_3/I1 -> u_de/dred_tid_reg[0]_0
+ 22 SLICE_X9Y83    LUT4     0.551  0.081   9.443   63  u_de/fpc_q[33]_i_1/I0 -> u_fetch/fpc_q_reg[33]_0
+end: u_fetch/fpc_q_reg[8]/CE (net in 0.715)
+Data Path Delay:        8.398ns  (logic 2.749ns (32.734%)  route 5.649ns (67.266%))
+Clock Path Skew:        0.034ns
+

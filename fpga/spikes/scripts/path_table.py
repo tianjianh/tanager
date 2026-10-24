@@ -10,7 +10,8 @@ short = lambda s: re.sub(r'u_soc/g_core\[(\d)\]\.g_tgc\.u_core/', r'c\1:', s)
 rows, pend_net, cur = [], None, None
 started = False
 for k, l in enumerate(lines):
-    if re.search(r'FDRE \(Prop_|FDSE \(Prop_|FDCE \(Prop_|FDPE \(Prop_', l):
+    # A register or a block RAM (the I$ data, TAGE's tables) starts the path
+    if re.search(r'(FD[RSCP]E|RAMB(36|18)E2) \(Prop_', l):
         started = True
     if not started:
         continue
@@ -22,7 +23,8 @@ for k, l in enumerate(lines):
             cur = None
         pend_net = float(m.group(2))
         continue
-    m = re.match(r'\s+(SLICE_\S+|RAMB\S+|DSP\S+)\s+([rf])\s+(\S+)$', l.rstrip())
+    # An out-of-context run's reports carry a PBlock column before the pin
+    m = re.match(r'\s+(SLICE_\S+|RAMB\S+|DSP\S+)\s+([rf])\s+(?:\S+\s+)?(\S+)$', l.rstrip())
     if m and pend_net is not None:
         cur = {'loc': m.group(1), 'pin': short(m.group(3)), 'net_in': pend_net}
         continue
