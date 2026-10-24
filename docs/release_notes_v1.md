@@ -136,6 +136,38 @@ How the board runs them (RISC-V mode, DR-172; [soc-d4-modes.md](spec/soc-d4-mode
 **Errata already fixed:**
 - **Remote fences during hart hotplug:** upstream OpenSBI 1.9 failed a whole remote fence when one target hart was stopped. Patch set tg1 fixes it; the kept image `fw_jump.bin.b0094d23` is still affected ([fpga/kv260/README.md](../fpga/kv260/README.md)).
 - **SD1's lost interrupt** (DR-176): a core race, fixed in d4r2, back in rc2 through the first form of CoRR's fix, and fixed again by b30b57b3, which rc3 has.
+- **Same-address load order (CoRR, DR-176's addendum):** a hart's two loads of one address could see another hart's writes in the wrong order, which RVWMO forbids. d4r2, dr187b and u100 lack the fix. rc2's first form replayed device loads (SD1's lost interrupt, above). rc3 has the fix, b30b57b3; the four-hart litmus runs are in [verification.md](spec/verification.md).
+- **FENCE.I against I$ refills:** an I$ refill during a FENCE.I's sweep lost its line, so code written and then run could execute stale instructions. That was rc2's known gap ([board/rc2/README.md](../fpga/kv260/board/rc2/README.md)). e407528c fixed it, and rc3 has it.
+- **The micro-BTB's target check:** Linux found a micro-BTB bug when M6 first ran on the board (10-18). The target check in c261c1f fixed it; d4s2 and later images have it ([area_recovery.md](perf/area_recovery.md)). It prompted the long-boot lockstep check (DR-173).
+- **Two-thread pair hangs (M7 step 7, DR-189):** with both harts of a core busy, some program pairs hung one thread. Step 7's bank rule (002ea157) fixed them. dr187b and u100 predate it; rc3 has it.
+
+**The core, for firmware and OS developers** (v1 as on main; [core-pipeline.md](spec/core-pipeline.md), [core-lsu.md](spec/core-lsu.md), [core-mmu.md](spec/core-mmu.md), [core-priv.md](spec/core-priv.md)):
+- **No mitigations for speculative side channels.**
+  - Loads run ahead of older stores whose addresses are unknown; the 16-entry load-wait table is off by default.
+  - Wrong-path branches train the predictors.
+  - Speculative page walks read PTEs without searching the store queue.
+  - A load that PMP denies never delivers its data to a register (#13's hold), but its miss may still refill the line. In rc3, which lacks #13, the denied load's dependants could read the value until the trap's flush.
+  - A store's ownership prefetch doesn't wait for its PMP check.
+- **What a core's two harts share:**
+  - the I$;
+  - the D$ and its miss entries;
+  - both TLBs, whose entries are tagged by thread;
+  - the micro-BTB, whose entries are tagged by thread but not by privilege or ASID, and survive a privilege change, a satp write and SFENCE.VMA;
+  - TAGE's tables. The thread is folded into address bit 38, so one thread's blocks share entries with the other's at the address with bit 38 flipped, which in Sv39 is the other half of the address space;
+  - one page walker and one PMP checker.
+
+  Each hart has its own return-address stack, branch histories, load- and store-queue halves and LR reservation ([threading.md](spec/threading.md)). No control flushes the predictors. `mtgsmt.HART1_OFF` keeps hart 1 asleep (SMT off); the firmware leaves it at 0.
+- **PMP:**
+  - 8 entries a hart; entries 8–15 read zero.
+  - Verdicts are cached in the TLB entries and, for bare S/U accesses, in a 4-entry region cache.
+  - A PMP write flushes the writing hart's TLB entries, its walk in flight and the region cache. So the SFENCE.VMA the privileged spec asks for after a PMP write isn't needed here, though portable firmware runs it ([pmp-at-fill.md](spec/pmp-at-fill.md)).
+  - Entry 0 comes out of reset allowing everything (NAPOT, RWX), as Spike's model does.
+- **No ASIDs:** every SFENCE.VMA and SINVAL.VMA form flushes the hart's whole TLBs, and a satp write flushes them even with an unchanged value.
+- **A store the uncore denies after it commits** (a `denied` Grant) can't raise a precise fault: it is dropped and counted.
+- **A PTE in a device region** gives an access fault, where Spike would read the device.
+- **LR/SC:** one reservation per hart, on its 64-byte line. Any trap or xRET clears it, and so does a store or an atomic's write to that line by the core's other hart.
+- **WARL choices:** an MPP of 2 writes as U, medeleg bit 19 (hardware error) is writable but never raised, and a satp write with an unsupported MODE has no effect.
+- **Zkt and divides:** divides aren't in Zkt's list. A divide's operand-dependent latency can delay a later instruction on ALU1 by a cycle ([m9-isa-check.md](spec/m9-isa-check.md)).
 
 **Open before v1:**
 - M8's 72-hour stress on the release image. It was stopped after 2 h 43 min with 0 failures, and restarts on the user's word ([rc3/README.md](../fpga/kv260/board/rc3/README.md)).
