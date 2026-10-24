@@ -1,6 +1,6 @@
 /* M9's performance counters (TG_HPM, docs/spec/m9-plan.md §1): mhpmcounter3-6 counting mhpmevent's event (1 cycles,
-   2 instructions retired, 3 branch mispredicts, 5 L1D load misses, 6 data walks, 7 fetch's walks, 8 I$ misses, 0
-   nothing); mcountinhibit; Sscofpmf's mode inhibits (MINH, SINH, UINH) read in M, S and U; OF set by a wrap and not by
+   2 instructions retired, 3 branch mispredicts, 5 L1D load misses, 6 data walks, 7 fetch's walks, 8 I$ misses, 10 the
+   walker's busy cycles, 11 L1D store misses, 0 nothing); mcountinhibit; Sscofpmf's mode inhibits (MINH, SINH, UINH) read in M, S and U; OF set by a wrap and not by
    a write (a write across bit 63, counting and stopped), a counter written as -1 wrapping at its next count; LCOFIP set
    as OF rises, not by a second wrap or by software's OF; LCOFI taken in M, delegated in S, and from S in M; scountovf in
    M and from S under mcounteren. Passes at once without the counters (mhpmevent3 reads zero: TG_HPM off, Spike, the
@@ -9,6 +9,9 @@
 #include "tg_test.h"
 #define LCOF      (1 << 13)
 #define SCOUNTOVF 0xda0
+#ifndef SMISS_LO
+#define SMISS_LO 64
+#endif
 /* mhpmevent: OF (63), MINH (62), SINH (61), UINH (60), the event (7:0) */
 #define EV_OF     0x8000000000000000
 #define EV_MINH   0x4000000000000000
@@ -392,8 +395,11 @@ m_m:
   csrw mhpmevent4, t0
   li t0, 7
   csrw mhpmevent5, t0
+  li t0, 10
+  csrw mhpmevent6, t0
   csrw mhpmcounter4, zero
   csrw mhpmcounter5, zero
+  csrw mhpmcounter6, zero
   li t0, (8 << 60) | (0x80100000 >> 12)
   csrw satp, t0
   sfence.vma
@@ -409,9 +415,38 @@ m_vm:
   sfence.vma
   csrr t3, mhpmcounter4
   csrr t4, mhpmcounter5
+  csrr t5, mhpmcounter6
   li t2, 2
   bltu t3, t2, f16                     /* a walk for each load */
   bltu t4, t2, f17                     /* and for fetch, before and after SFENCE.VMA */
+  add t3, t3, t4
+  slli t3, t3, 1
+  bltu t5, t3, f18                     /* the walker busy two cycles a walk at least (a PTE read each) */
+
+  /* 12. L1D store misses (a committed store's line without T at its write, once a store): one store a line to 1,024
+     lines never touched, two lines apart in alternate pages, so the store prefetch's one pending line is replaced before
+     it is fetched for many of them */
+  li t0, 11
+  csrw mhpmevent4, t0
+  csrw mhpmevent5, zero
+  csrw mhpmevent6, zero
+  csrw mhpmcounter4, zero
+  li t1, 0x80400000
+  li t4, 0x80600000
+  li t2, 512
+1:
+  sd t2, 0(t1)
+  sd t2, 0(t4)
+  addi t1, t1, 128
+  addi t4, t4, 128
+  addi t2, t2, -1
+  bnez t2, 1b
+  fence
+  csrr t1, mhpmcounter4
+  li t2, SMISS_LO
+  bltu t1, t2, f19
+  li t2, 1025
+  bgeu t1, t2, f19                     /* once a store */
   .align 2
 pass:
   TEST_PASS
@@ -432,6 +467,8 @@ f14: TEST_FAIL(14)
 f15: TEST_FAIL(15)
 f16: TEST_FAIL(16)
 f17: TEST_FAIL(17)
+f18: TEST_FAIL(18)
+f19: TEST_FAIL(19)
 
   /* M handler (t5, t6): LCOFI counted, its LCOFIP cleared; an ECALL from S or U continues in M at a7 */
   .align 2
