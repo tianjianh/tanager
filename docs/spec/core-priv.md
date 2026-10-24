@@ -127,7 +127,7 @@ Status: spec for review (core-2), 2026-10-24. soc-2's Debug Module, DTM and debu
 - **Counters:** `mcycle`, `minstret` and the HPM counters don't count; `time` does.
 - **Control transfers and `auipc`** behave as usual, since the ROM jumps between its loop, the abstract area and the program buffer.
 - **The debug window** (`DEBUG_BASE` 0x1100_0000, 64 KiB):
-  - in debug mode it is fetchable through the I$, as the boot ROM is (line refills), with loads and stores uncached on the device path, and it is exempt from PMP;
+  - in debug mode it is fetchable through the I$, as the boot ROM is (line refills), with loads and stores uncached on the device path. PMP checks it as any M-mode access, through locked entries only (the spec leaves the DM's memory to the implementation), and the firmware locks none over it;
   - outside debug mode, every fetch, load and store to it is an access fault. The PMA check comes before the I$, so a line left in the I$ can't be fetched;
   - the ROM executes `fence.i` before jumping into the abstract area or the program buffer, which the DM has just written (soc.md §9.5).
 - **The commit trace:** no records in debug mode, and one marker record at entry, where verif-2's checker stops, since a debugger can change state that Spike can't follow.
@@ -156,7 +156,7 @@ Status: spec for review (core-2), 2026-10-24. soc-2's Debug Module, DTM and debu
   - debug-mode exceptions to 0x808 and `ebreak` to 0x800;
   - the trace's suppression and its marker.
 - **`tg_fetch`:** the window's fetch permission, by the thread's debug mode.
-- **`tg_lsu`:** the window's loads and stores in debug mode only, PMP-exempt, and MPRV ignored in debug mode.
+- **`tg_lsu`:** the window's loads and stores in debug mode only. MPRV is ignored in debug mode (tg_csr's data mode).
 - **`tg_core`:** `debug_req_i` connected, and the halt request among the sleepers' wake events.
 
 ### Cost and checks

@@ -296,7 +296,7 @@ module tg_core
     .ras_rv(fras_rv), .ras_rwr(fras_rwr), .ras_rtos(fras_rtos), .ras_rcnt(fras_rcnt), .ras_rtop(fras_rtop),
     .upd_valid, .upd_way, .upd_pc, .upd_slot, .upd_target, .upd_inval, .upd_tid,
     .iq_valid, .iq_insn, .iq_take, .iq_take_t, .iq_take_n, .iq_tnz_t, .iq_tnz_n, .de_take,
-    .xl_h(xl_f_q), .dst(de_state_h), .priv_h(priv_f_q), .pmp_d_h, .pmp_busy, .rn_block(rn_blk), .rn_acc,
+    .xl_h(xl_f_q), .dst(de_state_h), .priv_h(priv_f_q), .dm_h(dm_r_q), .pmp_d_h, .pmp_busy, .rn_block(rn_blk), .rn_acc,
     .pmp_lk_h, .pfc_req, .pfc_page, .pfc_tag, .pfc_tid, .pfc_pa, .pfc_m, .pfc_rsp_v, .pfc_rsp_tag, .pfc_rsp_ok, .pfc_rsp_nh,
     .pfc_rsp_x,
     .tlb_flush, .tlb_flush_tid,
@@ -659,7 +659,7 @@ module tg_core
     .tr_sq, .tr_st_wr, .tr_st_va,
     .tr_st_data,
     .tr_st_size, .tr_lq, .tr_ld_va, .tr_ld_size, .sq_drained, .mmio_busy, .irq_go(tr_irq), .rsv_clr, .st_dropped,
-    .priv(priv_l_q), .priv_d(priv_dl_q), .sum(sum_l_q), .mxr(mxr_l_q), .satp_sv39(sv39_l_q),
+    .priv(priv_l_q), .priv_d(priv_dl_q), .dm(dm_r_q), .sum(sum_l_q), .mxr(mxr_l_q), .satp_sv39(sv39_l_q),
     .satp_ppn(satp_ppn_l_q), .pmp_d(pmp_d_h), .pmp_pal(pmp_pal_h), .pmp_lk_h, .tlb_flush, .tlb_flush_tid,
     .pfc_req, .pfc_page, .pfc_tag, .pfc_tid, .pfc_pa, .pfc_m, .pfc_rsp_v, .pfc_rsp_tag, .pfc_rsp_ok, .pfc_rsp_nh, .pfc_rsp_x,
     .tlbm_valid, .tlbm_rob, .hd_tlb, .hd_retry, .hd_fault, .hd_cause, .hd_lva, .hd_sva,
@@ -685,6 +685,9 @@ module tg_core
   logic [2:0]       dbg_cause;
   logic [63:0]      dbg_epc;
   logic [NUM_THREADS-1:0] dm_h, dstep_h, debk_h;
+  logic [NUM_THREADS-1:0] dm_r_q;          // each hart's debug mode, registered as priv for fetch and the LSU (a flush
+  always_ff @(posedge clk)                 // follows each change)
+    dm_r_q <= (rst || !DEBUG_ON) ? '0 : dm_h;
   assign rsv_clr = tr_valid || mret || sret;
   assign priv_cm = MT ? priv_h[rob_hd_tid] : priv;
   // M9's counters (HPM_N > 0; tg_csr's mhpmevent 3 ..): each hart's events (tg_core_pkg's HPM_EV), registered: 3
