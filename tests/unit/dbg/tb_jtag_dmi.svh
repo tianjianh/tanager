@@ -160,13 +160,13 @@ task automatic progbuf(input logic [31:0] i0, input logic [31:0] i1, output logi
   dmi_wr(DM_PROGBUF1, i1);
   cmd(ar_cmd(0, 1'b0, 1'b0, 1'b1), err);
 endtask
-task automatic status(output logic [31:0] s);
+task automatic dm_status(output logic [31:0] s);
   dmi_rd(DM_DMSTATUS, s);
 endtask
 task automatic wait_halted(input int h, input int tries = 100);
   logic [31:0] s;
   for (int k = 0; k < tries; k++) begin
-    status(s);
+    dm_status(s);
     if (s[9]) return;
   end
   dbg_check(0, $sformatf("hart %0d never halted", h));

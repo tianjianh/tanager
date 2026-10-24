@@ -648,7 +648,7 @@ module tb_boot;
       jir(JTAG_IR_USER4);
       dmi_wr(DM_DMCONTROL, 32'd1);
       dmi_rd(DM_DMCONTROL, r);
-      status(s);
+      dm_status(s);
       dbg_check(r[0] && s[3:0] == 4'd3, $sformatf("no 1.0 DM answers (dmcontrol %h, dmstatus %h): a DEBUG=1 build?", r, s));
       for (int h = 0; h < NH_TB && dbg_errors == 0; h++) begin
         if (!mask[h]) continue;
@@ -691,7 +691,7 @@ module tb_boot;
         end
         progbuf(32'h7B02_7073, RV_NOP, err);                 // csrci dcsr, 4
         dmi_wr(DM_DMCONTROL, ctl(h, 0, 1));
-        status(s);
+        dm_status(s);
         dbg_check(s[17] && !s[9], $sformatf("hart %0d: not resumed (dmstatus %h)", h, s));
         $display("tb_boot: dbg: hart %0d halted at %h (prv %0d, sp %h), %0d steps, resumed", h, pc0, dcsr[1:0], sp, steps);
       end
