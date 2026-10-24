@@ -228,6 +228,14 @@ time, which Spike doesn't model, and ACT4's Zihintpause plan runs with the full 
   - Today's string puts `zicond` after `zbs`. The board's kernel prints its own order anyway (d4r2's `/proc/cpuinfo`,
     release_notes_v1.md:45).
 
+## The check's results (soc-2, 10-24; the RTL of main 16b6d5d1)
+- **`zicntr`: met.** `tg_csr` reads `cycle`, `time` and `instret` (0xC00–0xC02) as the hart's `mcycle`, the core's `mtime` copy and the hart's `minstret`. Below M, `mcounteren` gates 0xC00–0xC1F by bit, and in U `scounteren` as well. Both enables keep all 32 bits writable.
+- **`zihpm`: met.** `hpmcounter3–31` (0xC03–0xC1F) read the HPM file, zero without `TG_HPM` and counters 3–6 with it, under the same gating.
+- **`za64rs`: met.** Each hart's reservation is a 64-byte line (`tg_lsu` `rsv_line_q`, PA[33:6]), set by an LR as it completes and ended by any SC, a lost line or the sibling's store to it.
+- **`zihintpause`: met.** Decode takes every MISC-MEM encoding with funct3 0 as a FENCE, whatever its fm, pred, succ, rs1 and rd, so PAUSE never traps. As a FENCE it serialises (bounded).
+- **`zkt`: met** (core-2's audit, its MR ab2b2436): `tg_alu` and `tg_mul` have no operand-dependent early-out, and a cycle-exact directed test over every operand class gives identical counts.
+- **The trees** (DR-194, sw/dts/tanager.dtsi): `rv64imafdc_zicntr_zicond_zicsr_zifencei_zihintpause_zihpm_za64rs_zba_zbb_zbs_zkt_sstc`, with `sscofpmf` before `sstc` in `TG_HPM` builds. `svinval` stays out. QEMU's tree keeps today's list (`TG_ISA_PRE194`), byte for byte main's.
+
 ## Not in the target
 Outside core-priv.md's target, for the notes. v1 doesn't aim at RVA22S64 or RVA23S64 (release_notes_v1.md:49; DR-190).
 - **`sscofpmf`:** listed only by a v1 built with `TG_HPM` (above).
