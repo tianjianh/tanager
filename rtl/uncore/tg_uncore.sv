@@ -632,7 +632,7 @@ module tg_uncore
   tl_d_t brom_d; logic brom_dv, brom_dr;
   logic  ndmreset;                              // the DM's reset of the cores and the uncore
   assign brom_a = rom_a;
-  if (DEBUG_WINDOW) begin : g_dbg
+  if (DEBUG_WINDOW) begin : g_dm
     logic dm_av, dm_ar, dm_dv;
     tl_d_t dm_d;
     logic        dmi_req, dmi_rsp;
@@ -661,7 +661,7 @@ module tg_uncore
       .a_i (rom_a), .a_valid_i (dm_av), .a_ready_o (dm_ar), .d_o (dm_d), .d_valid_o (dm_dv), .d_ready_i (rom_dr),
       .haltreq_o (dbg_haltreq_o), .unavail_i (dbg_unavail_i), .hart_rst_i (core_rst_o), .ndmreset_o (ndmreset)
     );
-  end else begin : g_nodbg
+  end else begin : g_nodm
     assign brom_av       = rom_av;
     assign rom_ar        = brom_ar;
     assign rom_d         = brom_d;

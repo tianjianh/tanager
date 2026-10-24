@@ -912,7 +912,7 @@ laptop: GDB ── OpenOCD ── USB-JTAG ── device TAP ──USER3──> 
                                     the debug window 0x1100_0000 behind the boot ROM's crossbar port: fetch, loads, stores
 ```
 - `kv260_top` (`DEBUG_WINDOW`): two BSCANE2s, `JTAG_CHAIN` 3 and 4. Every BSCANE2 gives the TAP's same TCK, TDI and state outputs (UG974), so the DTM takes them from USER3's and SEL from each; TCK goes through a BUFG. `tanager_soc` and `tg_uncore` carry them as `jtag_tck_i`, `jtag_i` (`tg_uncore_pkg::jtag_t`) and `jtag_tdo_o`; testbenches tie them off or drive them from a TAP model.
-- `tg_uncore` (`g_dbg`): `tg_dtm`, `tg_dm`, and a split of the boot ROM's crossbar port between `tg_bootrom` and the window (one message at a time across the two). `tg_dm`'s `ndmreset` goes into the host bridge's reset levels. Without the switch, none of it: the ROM's port as before, TDO and the halt requests 0.
+- `tg_uncore` (`g_dm`): `tg_dtm`, `tg_dm`, and a split of the boot ROM's crossbar port between `tg_bootrom` and the window (one message at a time across the two). `tg_dm`'s `ndmreset` goes into the host bridge's reset levels. Without the switch, none of it: the ROM's port as before, TDO and the halt requests 0.
 - `tanager_soc`: each core's `debug_req_i` (its one debug port, tied to 0 before) from `dbg_haltreq`, and the harts' unavailability (§9.4).
 
 ### 9.2 The DTM (`tg_dtm`; Debug spec "JTAG Debug Transport Module")
