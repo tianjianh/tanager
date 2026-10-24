@@ -1,9 +1,12 @@
 # Device trees for the Tanager platform (docs/spec/soc.md §4, §6).
-#   make -C sw/dts [O=<dir>] [CORES=2] [THREADS=1] [RUN_THREADS=$(THREADS)] [MEM=0x40000000] [FPU=1] [PMU=0] [VIRTIO=0] [UART1=0] [SD1=0] [INITRD=0] [BOARD_RESET=0] [UART1_STDOUT=1] [ETH=0] [ETH_MAC=xx:xx:xx:xx:xx:xx] [RELEASE=0] [BOOTARGS="..."]
+#   make -C sw/dts [O=<dir>] [CORES=2] [THREADS=1] [RUN_THREADS=$(THREADS)] [MEM=0x40000000] [FPU=1] [PMU=0] [HPM=0] [VIRTIO=0] [UART1=0] [SD1=0] [INITRD=0] [BOARD_RESET=0] [UART1_STDOUT=1] [ETH=0] [ETH_MAC=xx:xx:xx:xx:xx:xx] [RELEASE=0] [BOOTARGS="..."]
 # RUN_THREADS=1 with THREADS=2: an SMT2 build that runs thread 0 of each core (until M7, DR-147),
 # so the tree describes harts 0 and 2.
 # PMU=1 adds OpenSBI's riscv,pmu event map, so Linux's PMU driver can count cycles and instructions
 # (the bench image, DR-141).
+# HPM=1, for a core built with TG_HPM=1 (M9's counters, DR-190): Sscofpmf in the ISA strings, and the riscv,pmu map
+# puts fpu-2's events on mhpmcounter3-6. Never for a core without them: OpenSBI and Linux would count on counters
+# that read zero (docs/spec/firmware_switches.md).
 # VIRTIO=1 lists the forwarded virtio window's four virtio-mmio slots (bitstreams built with
 # TG_VIRTIO_WINDOW=1; docs/spec/soc.md §8.1).
 # UART1=1 adds the PS's UART1, the board's USB serial port, through the PS window and makes it the
@@ -34,6 +37,7 @@ RUN_THREADS ?= $(THREADS)
 MEM     ?= 0x40000000
 FPU     ?= 1
 PMU     ?= 0
+HPM     ?= 0
 VIRTIO  ?= 0
 UART1   ?= 0
 SD1     ?= 0
@@ -56,7 +60,7 @@ endif
 DTC     ?= dtc
 CPP     ?= cpp
 
-DEFS := -DTG_NUM_CORES=$(CORES) -DTG_NUM_THREADS=$(THREADS) -DTG_RUN_THREADS=$(RUN_THREADS) -DTG_MEM_SIZE=$(MEM) -DTG_FPU=$(FPU) -DTG_PMU=$(PMU) -DTG_VIRTIO=$(VIRTIO) -DTG_UART1=$(UART1) -DTG_SD1=$(SD1) -DTG_INITRD=$(INITRD) -DTG_BOARD_RESET=$(BOARD_RESET) -DTG_UART1_STDOUT=$(UART1_STDOUT) -DTG_ETH=$(ETH) -DTG_RELEASE=$(RELEASE) \
+DEFS := -DTG_NUM_CORES=$(CORES) -DTG_NUM_THREADS=$(THREADS) -DTG_RUN_THREADS=$(RUN_THREADS) -DTG_MEM_SIZE=$(MEM) -DTG_FPU=$(FPU) -DTG_PMU=$(PMU) -DTG_HPM=$(or $(HPM),0) -DTG_VIRTIO=$(VIRTIO) -DTG_UART1=$(UART1) -DTG_SD1=$(SD1) -DTG_INITRD=$(INITRD) -DTG_BOARD_RESET=$(BOARD_RESET) -DTG_UART1_STDOUT=$(UART1_STDOUT) -DTG_ETH=$(ETH) -DTG_RELEASE=$(RELEASE) \
         $(if $(ETH_MAC),-DTG_ETH_MAC='$(subst :, ,$(ETH_MAC))') \
         -DTG_BOOTARGS='"$(BOOTARGS)"'
 

@@ -178,6 +178,7 @@ class lockstep_impl_t {
  public:
   lockstep_impl_t(const lockstep_cfg_t& cfg, const mem_t& image, const elf_t* elf)
       : cfg_(cfg), env_(new spike_env_t(platform_of(cfg), image)), elf_(elf) {
+    adopt_hpm_events() = cfg.isa.find("sscofpmf") != std::string::npos;
     for (size_t i = 0; i < env_->procs.size(); i++) {
       hart_state_t h;
       h.p = env_->procs[i];

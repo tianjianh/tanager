@@ -309,11 +309,19 @@ inline bool is_load_insn(uint32_t insn, bool rvc) {
   unsigned q = insn & 3, f3 = (insn >> 13) & 7;
   return (q == 0 || q == 2) && f3 >= 1 && f3 <= 3;  // c.fld c.lw c.ld / c.fldsp c.lwsp c.ldsp
 }
-// CSRs whose reads the checker adopts (verification.md §3.4).
+// Whether the checker takes the reads of M9's counter events too (adopted_csr): set when Spike runs with Sscofpmf, the
+// core's counters (TG_HPM, sim/profile.mk's HPM=1). Without them both read zero and are compared.
+inline bool& adopt_hpm_events() {
+  static bool on = false;
+  return on;
+}
+// CSRs whose reads the checker adopts (verification.md §3.4). With M9's counters, mhpmevent3-31 and scountovf too: Spike
+// keeps only OF and the mode inhibits of an mhpmevent, and sets OF only by software, where the core's counters count and
+// overflow.
 inline bool adopted_csr(unsigned csr) {
   return csr == 0xC00 || csr == 0xC01 || (csr >= 0xC03 && csr <= 0xC1F) || csr == 0xB00 ||
          (csr >= 0xB03 && csr <= 0xB1F) || csr == 0x344 || csr == 0x144 || csr == 0xF11 ||
-         csr == 0xF12 || csr == 0xF13;
+         csr == 0xF12 || csr == 0xF13 || (adopt_hpm_events() && ((csr >= 0x323 && csr <= 0x33F) || csr == 0xDA0));
 }
 
 }  // namespace tg

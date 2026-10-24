@@ -40,7 +40,7 @@ A success fills the requester's TLB with the leaf and its level.
 - **Load / store address:** new loads and STA look the DTLB up at AG (LQ replays reuse the PA in the LQ). The LQ and SQ keep the VA (trace, tval, walks) and the PA (D$, forwarding, ordering checks, drain). A miss marks the ROB entry `replay` + `tlb`, puts the load in `L_TLB` (or the store's SQ entry in `tlb`), does not access memory, and offers the VA to the prefetch buffer.
 - **Commit, head with `replay` + `tlb`:**
   1. If the DTLB now translates the head's VA (it looks it up with the third port), flush and refetch at its PC (`hd_retry`).
-  2. Otherwise, once the walker is free and the committed stores have drained (so the PTE reads see them), the deciding walk starts.
+  2. Otherwise, once the walker is free and the committed stores have drained (so the PTE reads see them), the deciding walk starts. With #12 (`LSU_HDWALK_REG`, the default; core-pipeline §13) the request takes the head's lookup as registered: the walk starts a cycle after the lookup that missed, and never in the cycle after a DTLB fill of the hart, whose lookup could not see the fill.
   3. A fill → the head finds it and refetches. A fault → the head traps with its cause and tval = VA (`hd_fault`), precisely.
 
   Speculative walks (fetch, prefetch) never raise exceptions in the data path; a fetch walk's fault reaches the trap only through a fault block that commits.
@@ -107,6 +107,7 @@ satp write, SFENCE.VMA or a PMP write flushes its hart's entries: M7's step 4, t
   - **Source:** the spikes track's `tg_cam_lut` (slice tables, key store), extended for superpage levels, two lookups and the overlap check.
 - **The walker's checks use the STA port's checker** (DR-139, the user's decision, superseding DR-122).
   - The walker checks the PTE address (W_CHK) and the leaf's page base (W_PMP) in a cycle without a store address at the decision (`chk_gnt`: AG without the split, M1 with it), so a walk step waits a cycle whenever a store address decides.
+  - With #13 (`LSU_CHK_REG`, DR-191, core-lsu.md) the answer comes the cycle after the grant, from the LSU's registers (`ck_*_q`): W_CHK and W_PMP wait for it (`ckw_q`) and ask no more meanwhile, a cycle more per PTE address and per fill's page check.
   - The request (`chk_req`) and the address come from flip-flops, each loaded with the value the walk's state gives it in the next cycle (timing, DR-145: the walker's VA, its canonical check and the address multiplexer left the checker's paths into the store's decision; asserted equal to the combinational form).
   - A translated store without the DTLB's cached result checks a cycle after its decision (S2, core-lsu), on the same checker. When the walker takes it (`chk_req` and the grant), the S2 check waits a cycle. The walker never checks two cycles running, and no store reaches S2 in the cycle after the walker's grant, so the wait is one cycle and walks keep their timing. A bare-mode store checks at its decision; no walk of its thread runs then (another thread's walk step waits for it, as for any store address at the decision, and so does another thread's S2 check: M7).
   - −0.83K LUTs per core. Cost by `make cycle-identical`, st / smt2: isa +0.05% / +0.23%, bench 0.

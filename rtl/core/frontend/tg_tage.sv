@@ -249,55 +249,67 @@ module tg_tage
 `endif
 
   // ---- T2: the update ----
+  // In one-hot terms over the tables, with no index compares or serial flags between the read and the write (spikes.md
+  // §8.18, fix 5): the provider is the first match in table order (the longest history first, way 0 before way 1), the
+  // alternate the first in a lower table, and an allocation takes the lowest table above the provider with a candidate
   always_comb begin
-    int  pt, pw, at, aw, nw;
-    logic pdir, adir, done;
-    logic [SW-1:0] s;
-    done = 1'b0;
-    s  = t2_q.slot;
-    wb = rb;
-    bwb = brb;
-    pt = -1; pw = 0; at = -1; aw = 0; nw = -1;
-    for (int t = NT - 1; t >= 0; t--)
+    logic [SW-1:0]      s;
+    logic [NT-1:0][1:0] m, pv, al;         // matches; the provider; the allocated sub-entry
+    logic [NT-1:0]      mt, hi, abv, cand, cw, adir;
+    logic               mis, ac;
+    s   = t2_q.slot;
+    mis = t2_q.pred != t2_q.taken;
+    for (int t = 0; t < NT; t++)
       for (int w = 0; w < 2; w++)
-        if (rb[t][w].v && rb[t][w].tag == ix_tag(t2_q.ix, t) && rb[t][w].slot == s) begin
-          if (pt < 0) begin pt = t; pw = w; end
-          else if (at < 0 && t < pt) begin at = t; aw = w; end
-        end
-    adir = (at >= 0) ? rb[at][aw].ctr[2] : brb[s][1];
-    pdir = (pt >= 0) ? rb[pt][pw].ctr[2] : adir;
-    if (pt >= 0) begin
-      if (t2_q.taken && rb[pt][pw].ctr != 3'd7) wb[pt][pw].ctr = rb[pt][pw].ctr + 1'b1;
-      if (!t2_q.taken && rb[pt][pw].ctr != 3'd0) wb[pt][pw].ctr = rb[pt][pw].ctr - 1'b1;
-      if (pdir != adir) begin
-        if (pdir == t2_q.taken && rb[pt][pw].u != 2'd3) wb[pt][pw].u = rb[pt][pw].u + 1'b1;
-        if (pdir != t2_q.taken && rb[pt][pw].u != 2'd0) wb[pt][pw].u = rb[pt][pw].u - 1'b1;
-      end
-    end else begin
-      if (t2_q.taken && brb[s] != 2'd3) bwb[s] = brb[s] + 1'b1;
-      if (!t2_q.taken && brb[s] != 2'd0) bwb[s] = brb[s] - 1'b1;
+        m[t][w] = rb[t][w].v && rb[t][w].tag == ix_tag(t2_q.ix, t) && rb[t][w].slot == s;
+    for (int t = 0; t < NT; t++) mt[t] = |m[t];
+    // hi: a match in a higher table; abv: a table above the provider (every table without one)
+    for (int t = 0; t < NT; t++) begin
+      hi[t] = 1'b0;
+      for (int h = t + 1; h < NT; h++) hi[t] |= mt[h];
+      abv[t] = !mt[t] && !hi[t];
     end
-    if (t2_q.pred != t2_q.taken && pt < NT - 1) begin
-      // An invalid way before a not-useful one: taking way 0 whenever it was either, two branches sharing an entry
-      // evicted each other's fresh way-0 sub-entry for ever while way 1 stayed invalid (ud's loop exits; smt2-study,
-      // area_recovery §6.16)
-      for (int t = 0; t < NT; t++)
-        if (t > pt && !done) begin
-          if      (!rb[t][0].v)        nw = 0;
-          else if (!rb[t][1].v)        nw = 1;
-          else if (rb[t][0].u == 2'd0) nw = 0;
-          else if (rb[t][1].u == 2'd0) nw = 1;
-          else                         nw = -1;
-          if (nw >= 0) begin
-            wb[t][nw] = '{v: 1'b1, slot: s, tag: ix_tag(t2_q.ix, t), ctr: t2_q.taken ? 3'd4 : 3'd3, u: 2'd0};
-            done = 1'b1;
+    // the provider: the highest table with a match, way 0 before way 1
+    for (int t = 0; t < NT; t++) begin
+      pv[t][0] = mt[t] && !hi[t] && m[t][0];
+      pv[t][1] = mt[t] && !hi[t] && !m[t][0];
+    end
+    // the alternate's direction were table t the provider: the highest lower table's match, else the base's
+    for (int t = 0; t < NT; t++) begin
+      adir[t] = brb[s][1];
+      for (int l = 0; l < t; l++)
+        if (mt[l]) adir[t] = m[l][0] ? rb[l][0].ctr[2] : rb[l][1].ctr[2];
+    end
+    // a table's candidate (an invalid way first, else one not useful; way 0 before way 1) and its way
+    for (int t = 0; t < NT; t++) begin
+      cand[t] = !rb[t][0].v || !rb[t][1].v || rb[t][0].u == 2'd0 || rb[t][1].u == 2'd0;
+      cw[t]   = rb[t][0].v && (!rb[t][1].v || rb[t][0].u != 2'd0);
+    end
+    ac = 1'b0;                             // a lower table above the provider has a candidate
+    for (int t = 0; t < NT; t++) begin
+      al[t][0] = mis && abv[t] && cand[t] && !ac && !cw[t];
+      al[t][1] = mis && abv[t] && cand[t] && !ac && cw[t];
+      ac |= abv[t] && cand[t];
+    end
+    wb  = rb;
+    bwb = brb;
+    for (int t = 0; t < NT; t++)
+      for (int w = 0; w < 2; w++) begin
+        if (pv[t][w]) begin
+          if (t2_q.taken && rb[t][w].ctr != 3'd7) wb[t][w].ctr = rb[t][w].ctr + 1'b1;
+          if (!t2_q.taken && rb[t][w].ctr != 3'd0) wb[t][w].ctr = rb[t][w].ctr - 1'b1;
+          if (rb[t][w].ctr[2] != adir[t]) begin
+            if (rb[t][w].ctr[2] == t2_q.taken && rb[t][w].u != 2'd3) wb[t][w].u = rb[t][w].u + 1'b1;
+            if (rb[t][w].ctr[2] != t2_q.taken && rb[t][w].u != 2'd0) wb[t][w].u = rb[t][w].u - 1'b1;
           end
         end
-      if (!done)
-        for (int t = 0; t < NT; t++)
-          if (t > pt)
-            for (int w = 0; w < 2; w++)
-              if (rb[t][w].u != 2'd0) wb[t][w].u = rb[t][w].u - 1'b1;
+        if (al[t][w]) wb[t][w] = '{v: 1'b1, slot: s, tag: ix_tag(t2_q.ix, t), ctr: t2_q.taken ? 3'd4 : 3'd3, u: 2'd0};
+        // no candidate above the provider: every sub-entry there ages
+        if (mis && abv[t] && !ac && rb[t][w].u != 2'd0) wb[t][w].u = rb[t][w].u - 1'b1;
+      end
+    if (!(|mt)) begin                      // no provider: the base counter moves
+      if (t2_q.taken && brb[s] != 2'd3) bwb[s] = brb[s] + 1'b1;
+      if (!t2_q.taken && brb[s] != 2'd0) bwb[s] = brb[s] - 1'b1;
     end
   end
 

@@ -127,10 +127,11 @@ Each row is one outside document, with where `docs/` cites it.
 | F. de Dinechin and B. Pasca, "Large multipliers with fewer DSP blocks", FPL 2009 | spec/fpu.md:875 (Provenance) |
 | J. E. Smith and A. R. Pleszkun, 1988 (likely "Implementing precise interrupts in pipelined processors", IEEE Transactions on Computers) | spec/core-pipeline.md:632 (§15) |
 | J. L. Hennessy and D. A. Patterson, *Computer Architecture: A Quantitative Approach*, 6th edition, chapter 3 | spec/core-pipeline.md:632 (§15); spec/core-lsu.md:276 (Provenance) |
-| A. Seznec et al., MICRO 2002: register write specialisation | spec/core-pipeline.md:633 (§15); AP §4.7 (492), Appendix A (1381) |
-| H. Wong's papers on FPGA schedulers and processors (likely FCCM 2016 and his 2017 thesis), as the plan cites them | spec/core-pipeline.md:633 (§15); AP §4.7 (492), Appendix A (1381, 1382, 1386, 1398) |
+| Seznec, Toullec and Rochecouste, MICRO 2002: register write specialisation (named in the literature review, which could not retrieve it) | spec/core-pipeline.md §15; AP §4.7 (492), Appendix A (1381, and its source list) |
+| Henry Wong, FCCM 2016 (www.eecg.utoronto.ca/~jayar/pubs/wong/wongfccm16.pdf) and TRETS 2016 (…/wongtrets16.pdf), and his PhD thesis, University of Toronto, 2017 (…/theses/HWong/HenryWong.pdf): FPGA schedulers and a superscalar out-of-order x86 soft processor | spec/core-pipeline.md §15; AP §4.7 (492), Appendix A (1381, 1382, 1386, 1398, and its source list) |
+| Goshima et al., MICRO 2001: the matrix scheduler (through Wong's summary; the review could not retrieve the original) | spec/core-pipeline.md §15 |
 | G. Reinman, B. Calder and T. Austin, ISCA 1999 (likely "A scalable front-end architecture for fast instruction delivery"); fetch-directed prefetch | spec/core-pipeline.md:634 (§15); AP §4.2 (337); FDIP named at perf/dse_report.md:92, 378; perf/area_recovery.md §6.3, §6.7, §6.11 |
-| C. E. LaForest et al., FPGA 2012 (likely the XOR-based multi-ported memories), and the live-value table | spec/core-pipeline.md:211, 236 (§5.2); LVT and XOR forms named at perf/fpga_friendly.md §2–§4, perf/spikes.md:2697, perf/hart1_ram_form.md:36 |
+| LaForest et al., FPGA 2012: XOR-based multi-ported memories (people.csail.mit.edu/ml/pubs/fpga12_xor.pdf); LaForest and Steffan, FPGA 2010: the live-value table (www.eecg.utoronto.ca/~steffan/papers/laforest_fpga10.pdf); LaForest et al., TRETS 2014 (people.csail.mit.edu/ml/pubs/trets_multiport.pdf) | spec/core-pipeline.md §5.2, §15; perf/fpga_friendly.md (the rules, item 4); LVT and XOR forms named at perf/fpga_friendly.md §2–§4, perf/spikes.md:2697, perf/hart1_ram_form.md:36 |
 | J. Cortadella and J. M. Llabería, IEEE Transactions on Computers, 1992 (likely the carry-free test of A + B = K) | spec/core-pipeline.md:125 (§3.4) |
 | A. Moshovos et al., memory dependence speculation (likely ISCA 1997) | spec/core-lsu.md:276 (Provenance) |
 | D. J. Sorin, M. D. Hill and D. A. Wood, *A Primer on Memory Consistency and Cache Coherence*, 2nd edition, 2020, chapter 8 | spec/l2.md:294 (Provenance) |
@@ -138,26 +139,33 @@ Each row is one outside document, with where `docs/` cites it.
 | S. E. Raasch and S. K. Reinhardt, resource partitioning in SMT processors, PACT 2003 | spec/m7-smt2-plan.md:234–235 (§8) |
 | D. T. Marr et al., "Hyper-Threading Technology Architecture and Microarchitecture", Intel Technology Journal 6(1), 2002 | spec/m7-smt2-plan.md:90, 236–237 (§8); AP Appendix A (1402) |
 | K. Luo et al. (likely "Balancing throughput and fairness in SMT processors", ISPASS 2001): the harmonic mean of per-thread speedups | perf/smt2_report.md:190 (§2.4) |
-| RSD's papers (Mashimo et al.'s FPGA out-of-order RISC-V core), and OPA | perf/fpga_friendly.md:18; AP §4.7, Appendix A (1380, 1383, 1385, 1397); DR-123; DL 10-14 10:15 |
-| SonicBOOM (likely Zhao et al., CARRV 2020) and BOOM | AP §4.3 (383), Appendix A (1384, 1385, 1387) |
-| C. Celio et al., macro-op fusion (likely the 2016 technical report) | AP Appendix A (1388) |
-| SmolRV64, as the plan cites it | AP §4.7 (492), Appendix A (1381, 1404) |
-| CVA6S+, as the plan cites it | AP Appendix A (1400) |
-| Rocket's blocking-eviction measurement (source not named) | AP §4.11 (552), Appendix A (1398) |
+| Mashimo et al., "An Open Source FPGA-Optimized Out-of-Order RISC-V Soft Processor", ICFPT 2019, pp. 63–71 (RSD; www.rsg.ci.i.u-tokyo.ac.jp/members/shioya/pdfs/Mashimo-FPT%2719.pdf) | perf/fpga_friendly.md (the rules, item 4); AP §4.7, Appendix A (1380, 1383, 1385, 1397, and its source list); DR-123; DL 10-14 10:15 |
+| OPA, ORConf 2015 (github.com/terpstra/opa), as the RSD paper measures it | AP Appendix A (1397, and its source list) |
+| Zhao et al., SonicBOOM, CARRV 2020 (carrv.github.io/2020/papers/CARRV2020_paper_15_Zhao.pdf); also the source of Rocket's blocking-eviction measurement | AP §4.3 (383), §4.11 (552), Appendix A (1384, 1385, 1387, 1398, and its source list) |
+| Celio et al., arXiv 1607.02318 (2016): macro-op fusion | AP Appendix A (1388, and its source list) |
+| SmolRV64: an independent design of 2026, described in its project's README (github.com/tommythorn/smolrv64); not a paper | AP §4.7 (492), Appendix A (1381, 1404, and its source list) |
+| CVA6S+: the papers the review names as Tedeschi (arXiv 2505.03762) and Fu (arXiv 2505.24363, CF 2025) | AP Appendix A (1400, and its source list) |
+| Chrysos and Emer, Store Sets, ISCA 1998 (acg.cis.upenn.edu/milom/cis501-Fall10/papers/store-sets.pdf) | spec/m9-plan.md (Sources); perf/area_recovery.md §7.11; AP Appendix A (1397, and its source list) |
+| Seznec's limited-budget TAGE-SC-L entry to CBP-2016 (jilp.org/cbp2016/paper/AndreSeznecLimited.pdf) | spec/core-pipeline.md §15 |
 | XiangShan's published papers and documentation (its FPGA prototype's latency injection) | spec/uncore-mem.md:76 (Provenance); AP §5.6 (772) |
 | Pollack's rule | AP §2.5 (234) |
 | Spectre variant 2 | AP §6.2 (792); perf/smt2_report.md:382 (§5) |
 
-**Techniques named without a citation in `docs/`**:
-- TAGE and TAGE-lite: spec/core-pipeline.md:14, 92–94, 378; spec/threading.md:58; spec/area_switches.md:51; perf/dse_report.md, perf/spikes.md §7–§8, perf/area_recovery.md §6.3–§6.19. core-pipeline.md points to `reports/m6-tage-design.md`.
+**Not in the literature review.** These papers are cited in `docs/` by author and venue only, and the review does not hold them either, so their titles above remain identifications from the docs' own wording:
+- Smith and Pleszkun;
+- Reinman et al.;
+- Cortadella and Llabería;
+- Moshovos et al. (core-lsu.md's background reference; the review's Moshovos papers are Aasaraai and Moshovos's FPGA work);
+- Luo et al.
+
+**Techniques named without a paper in `docs/` or the literature review:**
+- TAGE itself. The specs cite Seznec's CBP-2016 TAGE-SC-L, but the original TAGE paper is not in the review. core-pipeline.md §3 points to `reports/m6-tage-design.md`, which is not in the repository.
+- ITTAGE, which the review names only as a part of XiangShan.
+- The load-wait table.
 - gshare: perf/dse_tables.md:93, perf/ledger_table.md:3, 30.
-- Store sets and the load-wait table: spec/m9-plan.md §5; perf/dse_report.md, perf/area_recovery.md §7.11.
 - Weighted speedup: perf/smt2_report.md §1–§2.
-- The matrix wakeup: perf/budgets.md:62, perf/spikes.md.
 - The R10K-style rename: AP Appendix B (1411).
 - Others: radix-4 and radix-16 division, MESI, and the age matrix.
-
-For the release, the TAGE paper (Seznec and Michaud) and the store-sets paper (Chrysos and Emer) could be added to the specs that use them, as plan §2.3 (point 2) asks.
 
 ### 3.3 Benchmark documentation
 
@@ -421,19 +429,24 @@ For the release, the TAGE paper (Seznec and Michaud) and the store-sets paper (C
 The release image of record is rc3u095r's `p1:/tanager/` (the M8 release image, 10-23; [firmware_switches.md](spec/firmware_switches.md)). It holds `fw_jump.bin` `62349a65…`, `payload.bin` `459992b8…`, `tanager.dtb` `18afd230…` and `tanager-h01.dtb` `15cd197c…`.
 - **Pins and checks:** versions are pinned in [sw/versions.sh](../sw/versions.sh), with SHA-256 sums recorded at the first download and checked on every fetch (`sw/sha256sums`).
 - **Third-party source** is fetched at build time and never committed (conventions §11).
-- **Licences:** each one below is as the project's own licence file states it. For OpenSBI, U-Boot and Buildroot they were read in the fetched trees on the build host (DR-192 covers reading OpenSBI and U-Boot). The rest are as the projects publish them, and are to be confirmed against their tarballs before the release (§7).
+- **Licences:** each one below is as the project's own licence files state it. Every one was read on the build host on 2026-10-24:
+  - **OpenSBI, U-Boot and Buildroot:** in their fetched trees (DR-192 covers reading OpenSBI and U-Boot);
+  - **Linux:** the kernel's `COPYING`, in the Linux 6.18.56 tarball;
+  - **The Bootlin toolchains:** their `summary.csv`, which is Buildroot's licence record of each package and names its licence files;
+  - **The xPack toolchain:** its `distro-info/licenses/` folders.
+  - **Still to read:** only Debian's own copyright file for the board's kernel package, which is not on the build host (§7).
 
 | Component | Version | Our changes | Licence | Where |
 |---|---|---|---|---|
 | **OpenSBI** | 1.9 (released 2026-07-01) | **Patch set tg1:** one patch, `sw/buildroot/patches/opensbi/0001-lib-sbi_ipi-skip-harts-that-cannot-take-an-IPI.patch`. Remote fences and S-mode IPIs skip the domain's harts that cannot take an IPI (stopped, starting, stopping), instead of failing the whole call. It was written from the SBI specification and the behaviour seen on the board. The build is upstream's `generic` platform with `fw_jump` and no Tanager Kconfig fragment | BSD-2-Clause (its `COPYING.BSD`) | `sw/build_opensbi.sh`; firmware_switches.md §OpenSBI; soc.md §5; DR-099, DR-147, DR-192 |
 | **U-Boot** | 2026.07 | **None in the code:** configured only, `sw/uboot/tanager.config` over `qemu-riscv64_smode_defconfig`. It runs in S-mode after OpenSBI's `fw_jump` | GPL-2.0; most of it also under any later version, with per-file exceptions (its `Licenses/README`) | `sw/build_uboot.sh`; firmware_switches.md §U-Boot; DR-147, DR-192 |
-| **Linux, on the board** | Debian 13's own riscv64 kernel package (6.12) | **None** (DR-147). `tanager-ps-dkms` builds the processor side's missing drivers from Debian's own `linux-source` (DR-168) | GPL-2.0 with the Linux syscall note (the kernel's `COPYING`) | `sw/build_debian.sh`; debian-kernel.md |
-| **Linux, in simulation** | 6.18.56 (longterm, released 2026-10-11), with Buildroot | None | GPL-2.0 with the Linux syscall note | `sw/build_linux.sh`; DR-099 |
+| **Linux, on the board** | Debian 13's own riscv64 kernel package (6.12) | **None** (DR-147). `tanager-ps-dkms` builds the processor side's missing drivers from Debian's own `linux-source` (DR-168) | The kernel's: `GPL-2.0 WITH Linux-syscall-note`, the GPL version 2 only (its `COPYING`, read in 6.18.56's tarball). Debian's copyright file for the package, `/usr/share/doc/linux-image-6.12.113+deb13-riscv64/copyright`, is to read on the board | `sw/build_debian.sh`; debian-kernel.md |
+| **Linux, in simulation** | 6.18.56 (longterm, released 2026-10-11), with Buildroot | None | `GPL-2.0 WITH Linux-syscall-note` (its `COPYING`) | `sw/build_linux.sh`; DR-099 |
 | **Buildroot** | 2026.08 (stable, released 2026-09-04) | Our defconfigs (`sw/buildroot`) | GPL-2.0-or-later, with the exceptions its `COPYING` lists | DR-099 |
 | **Debian 13 (trixie)** | snapshot.debian.org 20261015T000000Z | Unmodified packages; the image is assembled by `sw/build_debian.sh` | Each package's own (Debian's free-software guidelines) | DR-147, DR-168 |
-| **Bootlin toolchain, riscv64** | `riscv64-lp64d--glibc--stable-2026.08-1`: GCC 15.3.0, glibc 2.44, binutils 2.45.1 | None | GCC: GPL-3.0-or-later with the runtime library exception; glibc: LGPL-2.1-or-later; binutils: GPL-3.0-or-later | DR-099 |
-| **Bootlin toolchain, aarch64** (for `tanager-host`, the A53 program) | `aarch64--musl--stable-2026.08-1` (GCC 15) | None | As above, with musl's MIT licence | `sw/versions.sh` |
-| **xPack GNU RISC-V toolchain** | `riscv-none-elf-gcc` 15.2.0-1 | None | GCC's and newlib's licences | `tools/versions.sh`; plan Appendix C |
+| **Bootlin toolchain, riscv64** | `riscv64-lp64d--glibc--stable-2026.08-1`: GCC 15.3.0, glibc 2.44, binutils 2.45.1, kernel headers 5.10.269 | None | From its `summary.csv`:<br>• GCC's target libraries: `GPL-3.0-with-GCC-exception` (`COPYING.RUNTIME`); the compiler itself: GPL-2.0, GPL-3.0, LGPL-2.1, LGPL-3.0;<br>• glibc: GPL-2.0+ for its programs; LGPL-2.1+, BSD-2-Clause, BSD-3-Clause and other permissive licences for the library;<br>• binutils: GPL-3.0+, GPL-2.0+, LGPL-2.1+;<br>• the kernel headers: GPL-2.0 | DR-099 |
+| **Bootlin toolchain, aarch64** (for `tanager-host`, the A53 program) | `aarch64--musl--stable-2026.08-1`: GCC 15.3.0, binutils 2.45.1, musl 1.2.6 | None | From its `summary.csv`:<br>• musl: MIT (`COPYRIGHT`);<br>• GCC, binutils and the kernel headers as above | `sw/versions.sh` |
+| **xPack GNU RISC-V toolchain** | `riscv-none-elf-gcc` 15.2.0-1: GCC 15.2.0, binutils 2.45, newlib 4.5.0 | None | From its `distro-info/licenses/`:<br>• GCC: the GPL version 3 (`COPYING3`) with the GCC Runtime Library Exception 3.1 (`COPYING.RUNTIME`);<br>• binutils: the GPL version 3 (`COPYING3`);<br>• newlib: a collection of licences from its several sources (`COPYING.NEWLIB`) | `tools/versions.sh`; plan Appendix C |
 
 What is ours, under our licences (§6):
 - the device trees (`sw/dts`);
@@ -467,5 +480,11 @@ The A53's own boot firmware is not changed: the QSPI keeps `K26-BootFW-01.02` in
    - AMD's embeddedsw headers, AMD's `zynqmp_atb` patch series as LWN carried it, and the upstream ZynqMP device trees, all read for the board's PS registers. They are vendor material, and none describes the CPU, but the patch series and the device trees are Linux source.
    - pmp-at-fill.md (10-21) describes OpenSBI's internals two days before DR-192 allowed reading OpenSBI's code.
    - verification.md names Linux's `head.S`.
-4. **Licences to confirm.** The toolchains' and the kernel's licences in §5 are stated as the projects publish them, not read from their tarballs here.
-5. **Citations to complete.** Several papers are cited by name only (Wong, RSD, SmolRV64, OPA, CVA6S+, SonicBOOM, Celio; TAGE and store sets not at all). Their full references are in the literature review; the specs that use them could carry them (plan §2.3, point 2).
+4. **Licences, confirmed.** §5's licences were read from each project's own licence files on the build host (2026-10-24). The one left is Debian's copyright file for the board's kernel package, to read on the board.
+5. **Citations, completed from the literature review (2026-10-24).** The places that cite papers by name now carry the review's references:
+   - plan Appendix A, which has a source list;
+   - core-pipeline.md §15;
+   - fpga_friendly.md;
+   - m9-plan.md's Sources;
+   - area_recovery.md §7.11.
+   The review does not hold these, so they stay identifications: Smith and Pleszkun; Reinman et al.; Cortadella and Llabería; Moshovos et al.; Luo et al.; the original TAGE paper; ITTAGE; the load-wait table (§3.2). core-pipeline.md's `reports/m6-tage-design.md` is not in the repository.

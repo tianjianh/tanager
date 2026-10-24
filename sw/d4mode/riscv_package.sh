@@ -17,6 +17,8 @@
 # - UBOOT: U-Boot d4, default sw/build_uboot.sh d4's: payload.bin in the package.
 # - The trees (sw/dts/board-trees.sh 2, four harts): tanager.dtb is tanager-kv260-riscv-rel.dtb for a release build,
 #   tanager-kv260-riscv.dtb otherwise; tanager-h01.dtb is the same with CORES=1 (harts 0 and 1), the fallback tree.
+#   A bitstream built with TG_HPM=1 (its summary's defines: M9's counters, DR-190) gets the HPM=1 trees, Sscofpmf
+#   and the riscv,pmu map; any other the trees without.
 # - SOURCE_DATE_EPOCH: riscv.scr's image time (mkimage), default the commit's time, so a package rebuilds byte for byte.
 #   SHA256SUMS lists the files in sort's order under the caller's locale, as build.sh does (rc3's: en_US.UTF-8).
 # Needs sw/build_uboot.sh's stage C build for mkimage (sw/d4mode/build.sh) and the device-tree compiler.
@@ -38,6 +40,7 @@ grep -q '^profile=.* defines=.*\bTG_HART1=1\b' "$S" || { echo "$0: $run wasn't b
 [ -z "$fw_sha" ] || [ "$(sha256sum < "$fw" | cut -c1-64)" = "$fw_sha" ] ||
   { echo "$0: $fw is not OpenSBI ${fw_sha:0:8}... (FW_SHA= takes another)" >&2; exit 1; }
 rel=$(grep -q '^release=1' "$S" && echo 1 || echo 0)
+hpm=$(grep -q '^profile=.* defines=.*\bTG_HPM=1\b' "$S" && echo 1 || echo 0)
 mhz=$(sed -n 's/.* core_mhz=\([0-9]*\).*/\1/p' "$S" | head -1)
 [ -n "$mhz" ] || { echo "$0: no core_mhz in $S" >&2; exit 1; }
 place=$(sed -n 's/^place=\([^ ]*\).*/\1/p' "$S")
@@ -54,9 +57,9 @@ rv=$root/$name-riscv
 [ ! -e "$rv" ] || { echo "$0: $rv exists: pick a new name or out-root" >&2; exit 1; }
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-ETH_MAC= bash "$top/sw/dts/board-trees.sh" "$tmp/trees" 2 > /dev/null
+HPM=$hpm ETH_MAC= bash "$top/sw/dts/board-trees.sh" "$tmp/trees" 2 > /dev/null
 make -s -B -C "$top/sw/dts" O="$tmp/h01" CORES=1 THREADS=2 RUN_THREADS=2 MEM=0x40000000 UART1=1 UART1_STDOUT=0 SD1=1 \
-  BOARD_RESET=1 ETH=1 ETH_MAC= RELEASE=$rel > /dev/null
+  BOARD_RESET=1 ETH=1 ETH_MAC= RELEASE=$rel HPM=$hpm > /dev/null
 tree=$tmp/trees/tanager-kv260-riscv$([ "$rel" = 1 ] && echo -rel).dtb
 export SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-$(git -C "$top" log -1 --format=%ct)}
 mkdir -p "$root"
@@ -68,7 +71,7 @@ sed -e "s|@NAME@|$name|g" -e "s|@COMMIT@|$commit|" -e "s|@TIMING@|$timing|" -e "
 tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner -C "$root" -cf - "$name-riscv" |
   gzip -n > "$rv.tar.gz"
 echo "riscv_package.sh: $rv ($([ "$rel" = 1 ] && echo "a release build: tanager-kv260-riscv-rel.dtb" ||
-  echo "a development build: tanager-kv260-riscv.dtb"), $mhz MHz, SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH)"
+  echo "a development build: tanager-kv260-riscv.dtb")$([ "$hpm" = 1 ] && echo ", HPM=1 trees"), $mhz MHz, SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH)"
 sha256sum "$rv.tar.gz" "$rv/tanager/tanager.bit.bin"
 for f in tanager.dtb tanager-h01.dtb; do
   echo "$f: $(dtc -q -I dtb -O dts "$rv/tanager/$f" | grep -c 'device_type = "cpu"') harts"

@@ -711,6 +711,7 @@ module tg_lsu
   // its issue held until then).
   logic [PA_W-1:0] nl_pa;
   logic        nl_mis, nl_pf, nl_tm, nl_acc, nl_mmio, nl_exc, nl_go, nl_pmpc, nl_pmpd;
+  logic        nl_lpc, lpc_r;                     // #13: an untranslated S/U load's region cached (g_lpc); its read verdict
   logic [0:0]  nl_chk;
   logic [PA_W-1:0] lck_pa;                        // the checker's access: a registered PA and size
   logic        lck_dbl;
@@ -739,6 +740,28 @@ module tg_lsu
   // DR-183 (PMP_FILL): no load checker; the shared one (u_pmp_st) checks a load in a cycle it grants it (l_gnt)
   logic l_ask, l_gnt, l_nok;     // a load (or a parked MMIO load) asks the checker; granted; an M2 load unchecked
   logic [0:0] sa_chk;
+  // #13 (DR-191; spikes §8.18, fix 1): the shared checker's answer, registered every cycle (below, after fetch's
+  // response): with LSU_CHK_REG (CKR) each user takes it the cycle after its grant, so no path runs from the checker's
+  // compare into the LQ, the SQ's decision or the walker. A bare store checks in S2 instead of at its decision; the
+  // head's MMIO load and the walker take the answer a cycle later; a load's (core-2's side) likewise
+  localparam bit CKR = PMP_FILL && LSU_CHK_REG;
+  logic       ck_ok_q, ck_hit_q, ck_nh_q;
+  logic [2:0] ck_rwx_q;
+  // #13, the loads' side (fix 1; with the split): a load or MMIO load granted its check in M2 takes ck_ok_q the cycle
+  // after (lg_*): a load that would complete waits that cycle in the hold (ch_*, integer results) and then takes the
+  // result register first, a denied one goes to L_EXC and reports then (g_ckld, below M2)
+  localparam bit CK_LD = PMP_FILL && LSU_CHK_REG && LSU_AG_SPLIT;
+  logic           m2_ck, m2_mck;                  // M2's load checks this cycle; M2's parked MMIO load does (g_split)
+  typedef enum logic [1:0] { LG_HOLD, LG_RDY, LG_KEEP, LG_MMIO } lg_e;
+  logic           lg_v_q, lg_den, ch_take;
+  lg_e            lg_k_q;
+  logic [LIW-1:0] lg_lq_q;
+  tid_t           lg_t_q;
+  robid_t         lg_rob_q;
+  logic           ch_dv_q;                        // the hold's result: its write, register, data, LLT
+  logic [LDW-1:0] ch_dst_q;
+  logic [63:0]    ch_data_q;
+  llt_t           ch_llt_q;
   if (!PMP_FILL) begin : g_pmp_ld
     tg_pmp #(.S(1)) u_pmp_ld (.pa(lck_pa), .dbl(lck_dbl), .acc(ACC_R),
                               .m_mode(ck_ml), .d(pmp_d[t_lck]), .ok(nl_chk), .hit(pmp_hit_ld),
@@ -748,11 +771,11 @@ module tg_lsu
     assign pmp_hit_ld = 1'b0;
     assign pmp_rwx_ld = '0;
   end
-  assign nl_pmpc = xl_l && dt_pte[0].ph;          // the cached result applies
+  assign nl_pmpc = (xl_l && dt_pte[0].ph) || nl_lpc;   // a cached result applies: the DTLB's, or bare the region's
   // ... else the checker decides, later; with PMP_FILL not M-mode while its hart has no locked entry (DR-183)
   assign nl_pmpd = !nl_pmpc && !(PMP_FILL && priv_d[t_ln] == PRIV_M && !pmp_lk_h[t_ln]);
   assign nl_acc  = (xl_l ? dt_pte[0].big : ln_va[63:PA_W] != '0) || nl_pma == PMA_NONE ||
-                   (nl_pmpc && !dt_pte[0].pr);
+                   (nl_pmpc && !(xl_l ? dt_pte[0].pr : lpc_r));
   assign nl_mmio = nl_pma == PMA_DEVICE || nl_pma == PMA_ROM;
   assign nl_exc  = nl_mis || nl_pf || (!nl_tm && nl_acc);
   assign nl_go   = !nl_exc && !nl_tm && !nl_mmio;
@@ -882,7 +905,7 @@ module tg_lsu
   assign sqsz_ra[TRP] = m2_fidx;
   assign m2_fdword = rep(sqd_rd[TRP], sqsz_rd[TRP]);   // LUTRAM reads at m2_fidx
 
-  typedef enum logic [2:0] { O_OK, O_STQ, O_MISS, O_RETRY, O_FAULT } m2_out_e;
+  typedef enum logic [2:0] { O_OK, O_STQ, O_MISS, O_RETRY, O_FAULT, O_HOLD } m2_out_e;
   m2_out_e   m2_out, m2_out_w;                      // the outcome; ... before the PMP checker's verdict
   logic [63:0] m2_val;
   always_comb begin
@@ -901,7 +924,18 @@ module tg_lsu
   end
   // a PMP denial found after the decision: first. DR-183 (PMP_FILL): a load whose check found the shared checker
   // taken does not complete, and replays with its check pending; one that would not complete keeps its outcome
-  assign m2_out = l_den ? O_FAULT : (l_nok && m2_out_w == O_OK) ? O_RETRY : m2_out_w;
+  // #13 (CK_LD): a granted checked load completes nothing in M2 (O_HOLD: it waits a cycle for its verdict, in the
+  // hold or its entry); M2's load yields the result register to the hold's take and port 1 to its denial (O_RETRY)
+  m2_out_e   m2_out_ck;
+  always_comb begin
+    m2_out_ck = m2_out_w;
+    if (m2_out_w == O_FAULT)                         m2_out_ck = lg_den ? O_RETRY : O_FAULT;
+    else if (m2_out_w == O_OK || m2_out_w == O_RETRY) begin
+      if (m2_ck)                                     m2_out_ck = l_gnt ? O_HOLD : O_RETRY;
+      else if (ch_take && m2_out_w == O_OK)          m2_out_ck = O_RETRY;
+    end
+  end
+  assign m2_out = CK_LD ? m2_out_ck : l_den ? O_FAULT : (l_nok && m2_out_w == O_OK) ? O_RETRY : m2_out_w;
   // PTE reads: the cache's dword (no forwarding: the deciding walk runs with the SQ drained)
   logic m2_ok, pt_rsp, pt_hit, pt_den;
   assign pt_rsp = m2_v_q && m2_pt_q && !kill_t[t_m2];
@@ -912,9 +946,112 @@ module tg_lsu
   logic m2_okw;
   // (m2_out_w == O_OK, written out: the denied-line compare only chooses between two outcomes that
   // are not O_OK, so it stays off the wakeup path)
-  assign m2_okw = m2_v_q && !m2_pt_q && !kill_t[t_m2] && !l_nok &&
+  assign m2_okw = m2_v_q && !m2_pt_q && !kill_t[t_m2] && !(CK_LD ? m2_ck || ch_take : l_nok) &&
                   (m2_fhit_q ? m2_fcov_q && m2_fdat_q : !m2_clash_q && m2_hit_q);
   assign m2_ok  = m2_okw && !l_den;
+  if (CK_LD) begin : g_ckld
+    // A check granted in M2 (a load going on, or a parked MMIO load's), its kind for the verdict next cycle: a load
+    // that would complete with an integer result (or none) waits in the hold, one that would complete an FP result or
+    // met a clash replays (L_READY: P4's bank and the clash wait for a new pass), one that misses or waits for a store
+    // keeps its state, and an MMIO load stays parked; each goes to L_EXC instead if the checker denied it
+    always_ff @(posedge clk) begin
+      lg_v_q    <= !rst && !kill_t[t_m2] && l_gnt && (m2_mck || (m2_ck && m2_v_q && !m2_pt_q && m2_out_w != O_FAULT));
+      lg_k_q    <= m2_mck ? LG_MMIO : (m2_out_w == O_MISS || m2_out_w == O_STQ) ? LG_KEEP :
+                   (m2_out_w == O_OK && !(lqc_rd[0].dv && lqc_rd[0].fp)) ? LG_HOLD : LG_RDY;
+      lg_lq_q   <= m2_lq_q;
+      lg_t_q    <= t_m2;
+      lg_rob_q  <= lqc_rd[0].rob;
+      ch_dv_q   <= lqc_rd[0].dv;
+      ch_dst_q  <= lqc_rd[0].dst;
+      ch_data_q <= m2_val;
+      ch_llt_q  <= lqc_rd[0].llt;
+    end
+    assign ch_take = lg_v_q && lg_k_q == LG_HOLD && ck_ok_q && !kill_t[lg_t_q];
+    assign lg_den  = lg_v_q && !ck_ok_q && !kill_t[lg_t_q];
+    if (LPC_N > 0) begin : g_lpc
+      // The bare-mode region cache: the verdicts of LPC_N 2 MiB regions for untranslated S/U loads, as the DTLB caches
+      // a translated page's (a checked load completes a cycle late, and its dependants miss SPEC_WAKE's M2 bypass: a
+      // bare pointer chase ran 2x slower). A granted load's check fills an entry when no region boundary lies inside
+      // its region (the page test at level 1, ck_nh_q) and the access was S/U's: the deciding entry's read permission,
+      // hit ? r : 0. A new load whose region hits needs no check: it completes in M2, or faults at M1. A TLB flush of
+      // the hart (PMP, satp or SFENCE.VMA writes) empties its entries and drops a fill in the same cycle; round robin
+      localparam int LW = (LPC_N > 1) ? $clog2(LPC_N) : 1;
+      logic [LPC_N-1:0]            lv_q, lr_q;
+      tid_t [LPC_N-1:0]            lt_q;
+      logic [LPC_N-1:0][PA_W-22:0] lrg_q;
+      logic [LW-1:0]               lrr_q;
+      logic [PA_W-22:0]            lg_rg_q;      // the granted load's region and S/U-ness, with lg_*
+      logic                        lg_m_q;
+      logic [LPC_N-1:0]            lph, lpf;       // M1's new load's region hits; the fill's is there already
+      logic                        fill;
+      always_ff @(posedge clk) begin
+        lg_rg_q <= lck_pa[PA_W-1:21];
+        lg_m_q  <= ck_ml;
+      end
+      always_comb
+        for (int i = 0; i < LPC_N; i++) begin
+          lph[i] = lv_q[i] && lt_q[i] == t_ln && lrg_q[i] == ln_va[PA_W-1:21];
+          lpf[i] = lv_q[i] && lt_q[i] == lg_t_q && lrg_q[i] == lg_rg_q;
+        end
+      assign nl_lpc = !xl_l && priv_d[t_ln] != PRIV_M && |lph;
+      assign lpc_r  = |(lph & lr_q);
+      assign fill   = lg_v_q && lg_k_q != LG_MMIO && !kill_t[lg_t_q] && !lg_m_q && !ck_nh_q && !(|lpf) &&
+                      !(tlb_flush && (NT == 1 || lg_t_q == tlb_flush_tid));
+      always_ff @(posedge clk) begin
+        if (rst) begin
+          lv_q  <= '0;
+          lrr_q <= '0;
+        end else begin
+          if (fill) begin
+            lv_q[lrr_q]  <= 1'b1;
+            lt_q[lrr_q]  <= lg_t_q;
+            lrg_q[lrr_q] <= lg_rg_q;
+            lr_q[lrr_q]  <= ck_hit_q && ck_rwx_q[2];
+            lrr_q        <= (int'(lrr_q) == LPC_N - 1) ? '0 : lrr_q + 1'b1;
+          end
+          if (tlb_flush)
+            for (int i = 0; i < LPC_N; i++) if (NT == 1 || lt_q[i] == tlb_flush_tid) lv_q[i] <= 1'b0;
+        end
+      end
+    end else begin : g_nolpc
+      assign nl_lpc = 1'b0;
+      assign lpc_r  = 1'b0;
+    end
+`ifndef SYNTHESIS
+    // +chkstat: the verdicts taken a cycle late, by kind, the held loads' takes and the denials
+    bit ck_on;
+    initial ck_on = $test$plusargs("chkstat");
+    longint unsigned ck_n [4];
+    longint unsigned ck_n_take, ck_n_den;
+    always_ff @(posedge clk)
+      if (rst) begin
+        ck_n <= '{default: 0}; ck_n_take <= 0; ck_n_den <= 0;
+      end else if (lg_v_q && !kill_t[lg_t_q]) begin
+        ck_n[lg_k_q] <= ck_n[lg_k_q] + 1;
+        ck_n_take    <= ck_n_take + (ch_take ? 1 : 0);
+        ck_n_den     <= ck_n_den + (lg_den ? 1 : 0);
+      end
+    final if (ck_on)
+      $fwrite(32'h8000_0002, "TG-CHK %m: verdicts held %0d (taken %0d), to replay %0d, kept %0d, MMIO %0d; denied %0d\n",
+              ck_n[LG_HOLD], ck_n_take, ck_n[LG_RDY], ck_n[LG_KEEP], ck_n[LG_MMIO], ck_n_den);
+`endif
+  end else begin : g_nockld
+    assign lg_v_q    = 1'b0;
+    assign lg_k_q    = LG_HOLD;
+    assign lg_lq_q   = '0;
+    assign lg_t_q    = '0;
+    assign lg_rob_q  = '0;
+    assign ch_dv_q   = 1'b0;
+    assign ch_dst_q  = '0;
+    assign ch_data_q = '0;
+    assign ch_llt_q  = '0;
+    assign ch_take   = 1'b0;
+    assign lg_den    = 1'b0;
+    assign nl_lpc    = 1'b0;
+    assign lpc_r     = 1'b0;
+    logic unused_mck;                             // (the parked MMIO load's check: CK_LD's)
+    assign unused_mck = m2_mck;
+  end
   // FP banks of 64 with renaming across both (DR-179): each FP bank has one write port, and P4's stream takes it in
   // priority (its pipelines cannot hold). An FP load completing in M2 whose write (next cycle) meets P4's announced
   // write in its bank is held: its result waits in fh_* (below) with no wakeup and no completion, and takes the
@@ -1082,7 +1219,7 @@ module tg_lsu
   // blocks IQ-FP's select meanwhile (fp_block, below)
   logic xr_take, xr_fcol;
   assign xr_fcol = FP_XBANK && lqc_rd[1].dv && lqc_rd[1].fp && ((p4_nx_we && p4_nx_bank == lqc_rd[1].fb) || fk_hold);
-  assign xr_take = xr_v_q && !m2_okw && !kill_t[x_t] && !xr_fcol;
+  assign xr_take = xr_v_q && !m2_okw && !ch_take && !kill_t[x_t] && !xr_fcol;
   // A held FP load's result (DR-179; M2 above): it takes the result register last, when nothing else does and P4
   // leaves its bank next cycle, so its write never meets P4's; a flush of its thread drops it
   tid_t            fh_tid_q;
@@ -1124,19 +1261,29 @@ module tg_lsu
   // flags ahead of the checker's operand select: spikes-2, 10-23); the grant still needs the MMIO port, so its
   // exception report, free in its own cycle
   logic            mh_ask, mh_q, mh_dbl_q, mh_m_q;
+  logic            mhg_v_q;                       // #13: a check granted last cycle, its answer now (ck_ok_q) ...
+  tid_t            mhg_t_q;                       // ... for this load
+  logic [LIW-1:0]  mhg_lq_q;
+  robid_t          mhg_rob_q;
   logic [PA_W-1:0] mh_pa_q;
   tid_t            mh_t_q;
   logic [LIW-1:0]  mh_lq_q;
   robid_t          mh_rob_q;
   assign mh_ask = PMP_FILL && mm_cand && lq_pck_q[hl] && xs_q == X_IDLE && !xr_v_q && am_st_q == AM_IDLE;
   always_ff @(posedge clk) begin
-    mh_q     <= !rst && mh_ask && !mh_gnt && !kill_t[t_hd];
+    mh_q     <= !rst && mh_ask && !mh_gnt && !mhg_v_q && !kill_t[t_hd];   // (#13: not again while its answer comes)
     mh_pa_q  <= lq_pa_q[hl];
     mh_dbl_q <= lq_size_q[hl] == 2'd3;
     mh_m_q   <= priv_d[t_hd] == PRIV_M;
     mh_t_q   <= t_hd;
     mh_lq_q  <= hl;
     mh_rob_q <= lqc_rd[2].rob;
+    mhg_v_q  <= !rst && CKR && mh_gnt && !kill_t[mh_t_q];
+    if (mh_gnt) begin
+      mhg_t_q   <= mh_t_q;
+      mhg_lq_q  <= mh_lq_q;
+      mhg_rob_q <= mh_rob_q;
+    end
   end
   assign mh_req = mh_q && xs_q == X_IDLE && !xr_v_q && am_st_q == AM_IDLE;
   tid_t              am_t_q;                // the FSM's atomic's thread
@@ -1168,7 +1315,8 @@ module tg_lsu
   assign am_sc    = am_op == AMO_SC;
   assign am_go    = am_v_q[t_dr_q] && am_st_q == AM_IDLE && sq_v_q[dh] && sq_av_q[dh] && sq_dv_q[dh] &&
                     sq_head_q[t_dr_q] == am_sq_q[t_dr_q] && rob_head[t_dr_q] == am_rob_q[t_dr_q] &&
-                    !(s2_v_q && s2_idx_q == dh) && !kill_t[t_dr_q] && !(HART1_ON && NT > 1 && fpc_t[t_dro]);
+                    !(s2_v_q && s2_idx_q == dh) && !kill_t[t_dr_q] && !(HART1_ON && NT > 1 && fpc_t[t_dro]) &&
+                    !(CKR && mh_gnt);   // (#13: the head's MMIO check's answer takes exception port 2 next cycle)
   // Its PMP check (S2) denied it: it faults as it starts, without an access. It starts only after
   // that check (timing: the checker's verdict, which the walker's address also reaches, stays off
   // the atomic's start)
@@ -1187,11 +1335,22 @@ module tg_lsu
   assign am_wmask = (am_req && am_ack && am_wr) ? {8'b0, bmask(am_pa[2:0], am_size)} << {am_pa[3], 3'b000}
                                                  : 16'h0;
   assign am_wdata = rep(am_new, am_size);
-  assign am_take  = am_st_q == AM_RES && !m2_okw && !xr_take && !kill_t[am_t_q];
-  assign fh_take  = fh_v_q && !m2_okw && !xr_take && !am_take && !kill_t[fh_tid_q] &&
+  assign am_take  = am_st_q == AM_RES && !m2_okw && !ch_take && !xr_take && !kill_t[am_t_q];
+  assign fh_take  = fh_v_q && !m2_okw && !ch_take && !xr_take && !am_take && !kill_t[fh_tid_q] &&
                     !(p4_nx_we && p4_nx_bank == fh_fb_q) && !fk_hold;
   assign fh_stay  = fh_v_q && !fh_take && !kill_t[fh_tid_q];
   assign fh_hole_ag = FH_HOLE && fh_v_q && fh_w_q == 3'd4;
+`ifndef SYNTHESIS
+  // #13 (CK_LD): one take of the result register a cycle; a load waiting for its verdict (held, or to replay) is still
+  // in L_PIPE then, as M2 left it
+  always_ff @(posedge clk)
+    if (md_rs && !rst) begin
+      assert ($onehot0({ch_take, m2_ok && !m2_fcol, xr_take, am_take, fh_take}))
+        else $error("tg_lsu: two takes of the result register in a cycle");
+      if (CK_LD && lg_v_q && !kill_t[lg_t_q] && (lg_k_q == LG_HOLD || lg_k_q == LG_RDY))
+        assert (lq_v_q[lg_lq_q] && lq_st_q[lg_lq_q] == L_PIPE) else $error("tg_lsu: a load waiting for its PMP verdict left L_PIPE");
+    end
+`endif
 `ifndef SYNTHESIS
   // A held load never outlives its thread's flush: the flush frees its LLT and its register at once (rename), so a
   // later take would wake an LLT given out again and write a register with a new owner
@@ -1304,6 +1463,7 @@ module tg_lsu
     wake_ld = '0;
     if (m2_okw && lqc_rd[0].dv && !m2_fcol) wake_ld[llt_col(int'(lqc_rd[0].llt))] = 1'b1;
     if (fh_take) wake_ld[llt_col(int'(fh_llt_q))] = 1'b1;
+    if (ch_take && ch_dv_q) wake_ld[llt_col(int'(ch_llt_q))] = 1'b1;
     if (xr_take && lqc_rd[1].dv) wake_ld[llt_col(int'(lqc_rd[1].llt))] = 1'b1;
     if (am_take && am_dv_q[am_t_q]) wake_ld[llt_col(int'(am_llt_q[am_t_q]))] = 1'b1;
   end
@@ -1388,7 +1548,7 @@ module tg_lsu
   logic sa_pck;
   // atomics only in main memory (interfaces.md §2.4)
   assign sa_acc  = (xl_s ? dt_pte[1].big : sn_va[63:PA_W] != '0) ||
-                   (sa_pmpc && !(sa_lr ? dt_pte[1].pr : dt_pte[1].pw)) || (sa_pck && !sa_chk[0]) ||
+                   (sa_pmpc && !(sa_lr ? dt_pte[1].pr : dt_pte[1].pw)) || (!CKR && sa_pck && !sa_chk[0]) ||
                    sa_pma == PMA_NONE || sa_pma == PMA_ROM || (sa_amo && sa_pma != PMA_MEM);
   assign sa_exc  = sa_mis || sa_pf || (!sa_tm && sa_acc);
   assign sa_mmio = sa_pma == PMA_DEVICE && !sa_amo;
@@ -1427,10 +1587,10 @@ module tg_lsu
   end
   always_ff @(posedge clk)
     if (!rst) begin
-      if (ln_v && nl_pmpc && dt_hit[0] && !nl_mis && !nl_pf && !nl_tm)
-        assert (sh_ld_ok == dt_pte[0].pr)
+      if (ln_v && nl_pmpc && (!xl_l || dt_hit[0]) && !nl_mis && !nl_pf && !nl_tm)
+        assert (sh_ld_ok == (xl_l ? dt_pte[0].pr : lpc_r))
           else $error("tg_lsu: a load's cached PMP result (r %b) differs from the full check (%b) at PA %h",
-                      dt_pte[0].pr, sh_ld_ok, nl_pa);
+                      xl_l ? dt_pte[0].pr : lpc_r, sh_ld_ok, nl_pa);
       if (sn_v && sa_pmpc && dt_hit[1] && !sa_mis && !sa_pf && !sa_tm)
         assert (sh_st_ok == (sa_lr ? dt_pte[1].pr : dt_pte[1].pw))
           else $error("tg_lsu: a store's cached PMP result (r %b w %b) differs from the full check (%b) at PA %h",
@@ -1460,7 +1620,7 @@ module tg_lsu
   logic [PA_W-1:0] s2_pa_q;
   robid_t          s2_rob_q, s3_rob_q;
   tid_t            pc_t, s2_t_q, t_pst;            // the walk's thread, S2's store's, the checker's user's
-  assign bst    = sn_v && sa_pck;
+  assign bst    = sn_v && sa_pck && !CKR;                   // (#13: a bare store checks in S2, as below)
   assign w_use  = pw_chk && !sn_v;
   assign s2_go  = s2_v_q && !w_use && !bst;
   assign s2_den = s2_go && !sa_chk[0] && !kill_t[s2_t_q];
@@ -1521,9 +1681,12 @@ module tg_lsu
     logic [PMP_GW-1:0] pg;
     logic [1:0]        pg_lvl;
     tid_t              pg_t;
-    assign pg     = PMP_GW'({w_use ? pc_pa[PA_W-1:12] : pfc_pa[PA_W-1:12], 10'b0});   // the page base, in granules
-    assign pg_lvl = w_use ? pc_lvl : 2'd0;
-    assign pg_t   = w_use ? pc_t : pfc_tid;
+    // (#13, g_lpc: or a granted load's 2 MiB region, for the bare-mode region cache)
+    logic lpg;
+    assign lpg    = CK_LD && LPC_N > 0 && l_ask && l_gnt;
+    assign pg     = PMP_GW'({w_use ? pc_pa[PA_W-1:12] : lpg ? {lck_pa[PA_W-1:21], 9'b0} : pfc_pa[PA_W-1:12], 10'b0});
+    assign pg_lvl = w_use ? pc_lvl : lpg ? 2'd1 : 2'd0;
+    assign pg_t   = w_use ? pc_t : lpg ? t_lck : pfc_tid;
     always_comb begin
       logic [PMP_GW-1:0] alm;
       logic              in_pg, sub_pg, bound, msk;
@@ -1567,8 +1730,15 @@ module tg_lsu
     assign unused_pfc = ^{pfc_req, pfc_page, pfc_tag, pfc_tid, pfc_pa, pfc_m, pmp_lk_h, pc_lvl, pfc_gnt};
   end
   always_ff @(posedge clk) begin
-    s2_v_q   <= !rst && ((sa_ok && xl_s && !sa_pmpc) || (s2_v_q && !s2_go && !kill_t[s2_t_q]));
-    // (S2 waits with a store at the decision only for another thread's bare store, which does not enter S2)
+    ck_ok_q  <= sa_chk[0];
+    ck_hit_q <= pmp_hit_st;
+    ck_rwx_q <= pmp_rwx_st;
+    ck_nh_q  <= pg_nh;
+  end
+  always_ff @(posedge clk) begin
+    s2_v_q   <= !rst && ((sa_ok && ((xl_s && !sa_pmpc) || (CKR && sa_pck))) || (s2_v_q && !s2_go && !kill_t[s2_t_q]));
+    // (S2 waits with a store at the decision only for another thread's bare store, which does not enter S2; with #13
+    // a bare store enters S2 and none checks at its decision, so S2 waits only for the walker, with no store deciding)
     if (sn_v && !(s2_v_q && bst)) begin
       s2_pa_q  <= sa_pa;
       s2_dbl_q <= sn_size == 2'd3;
@@ -1765,7 +1935,7 @@ module tg_lsu
     // reads them only with exc_valid, and its age compares then start early
     exc_rob[0]   = ln_rob;
     exc_cause[0] = nl_mis ? EXC_LMISALIGN : nl_pf ? EXC_LPAGE : EXC_LACCESS;
-    exc_rob[1]   = lqc_rd[0].rob;
+    exc_rob[1]   = (CK_LD && lg_v_q && !ck_ok_q) ? lg_rob_q : lqc_rd[0].rob;   // (#13: last cycle's check's denial)
     exc_cause[1] = EXC_LACCESS;
     exc_rob[3]   = sn_rob;
     exc_cause[3] = sa_mis ? (sa_lr ? EXC_LMISALIGN : EXC_SMISALIGN) :
@@ -1773,14 +1943,15 @@ module tg_lsu
     // loads: AG checks of a new load, or a denied line at M2
     if (ln_v && !kill_t[t_ln] && nl_exc) exc_valid[0] = 1'b1;
     if (((m2_v_q && m2_out == O_FAULT) || lm_den) && !kill_t[t_m2]) exc_valid[1] = 1'b1;  // lm_lq is m2_lq_q
+    if (lg_den) exc_valid[1] = 1'b1;               // (#13: M2's own denied line yields, O_RETRY)
     if (xs_q == X_WAIT && !x_st_q && !x_kill_q && mmio_d_valid_i && (mmio_d_i.denied || mmio_d_i.corrupt)
         && !kill_t[x_t]) begin
       exc_valid[2] = 1'b1;
       exc_rob[2]   = lqc_rd[1].rob;
       exc_cause[2] = EXC_LACCESS;
-    end else if (mh_gnt && !sa_chk[0] && !kill_t[mh_t_q]) begin  // DR-183: the head's MMIO load, PMP denied
-      exc_valid[2] = 1'b1;
-      exc_rob[2]   = mh_rob_q;
+    end else if (CKR ? mhg_v_q && !ck_ok_q && !kill_t[mhg_t_q] : mh_gnt && !sa_chk[0] && !kill_t[mh_t_q]) begin
+      exc_valid[2] = 1'b1;                        // DR-183: the head's MMIO load, PMP denied (#13: a cycle after its grant)
+      exc_rob[2]   = CKR ? mhg_rob_q : mh_rob_q;
       exc_cause[2] = EXC_LACCESS;
     end else if ((am_req && am_den) || (am_st_q == AM_REQ && am_pden_q && !kill_t[am_t_q])) begin  // its line or PMP denied it
       exc_valid[2] = 1'b1;
@@ -1819,7 +1990,7 @@ module tg_lsu
   // commit thread alternates, so the check's registers are per thread, each written in its thread's
   // cycles: consecutive cycles of the thread (its head cannot change between them but by its flush).
   logic [NT-1:0] hd_tok_q, hd_need_q;
-  logic          hd_walk;
+  logic          hd_walk, hd_wtok;                // the walk request's lookup terms: it may walk; this cycle's lookup hit
   if (ROB_HEAD_TLB_LATE) begin : g_hd_late
     // B3: the lookup takes the head's VA as registered a cycle earlier, so it starts from
     // flip-flops; the check, and the walk request that waits for it, count from the second cycle
@@ -1849,7 +2020,26 @@ module tg_lsu
     assign dt_vpn[2] = hd_vpn2_q;
     assign hd_tok    = hd_need_q[t_hd] && !sta_ag_valid && dt_hit[2] &&
                        pte_ok(dt_pte[2], hd_at2_q, priv_d[t_hd], sum[t_hd], mxr[t_hd]);
-    assign hd_walk   = hd_need_q[t_hd];
+    if (LSU_HDWALK_REG) begin : g_hdw_reg
+      // #12 (DR-191; spikes §8.18, fix 4): the walk request takes the lookup as registered, a valid miss in the
+      // thread's last cycle, so the walker's start (its request select, then chk_pa_q, va_q and base_q) no longer
+      // follows the DTLB's match and leaf read (19 levels into chk_pa_q on the chip): a deciding walk starts a cycle
+      // later. The head is the same op in both cycles (both need a translation). A fill of the thread's DTLB at
+      // that lookup's edge or after holds the request a cycle (the lookup could not see it), so a prefetch's fill
+      // of the head's page starts no second walk
+      logic [NT-1:0] hd_ms_q, hd_fs_q;
+      always_ff @(posedge clk) begin
+        hd_ms_q[t_hd] <= hd_need && hd_need_q[t_hd] && !sta_ag_valid &&
+                         !(dt_hit[2] && pte_ok(dt_pte[2], hd_at2_q, priv_d[t_hd], sum[t_hd], mxr[t_hd]));
+        for (int t = 0; t < NT; t++)
+          hd_fs_q[t] <= !rst && ((dt_fill && pw_dtid == tid_t'(t)) || (t_hd != tid_t'(t) && hd_fs_q[t]));
+      end
+      assign hd_walk = hd_ms_q[t_hd] && !hd_fs_q[t_hd];
+      assign hd_wtok = 1'b0;
+    end else begin : g_hdw_now
+      assign hd_walk = hd_need_q[t_hd];
+      assign hd_wtok = hd_tok;
+    end
   end else begin : g_hd_two
     // B2: both candidates are looked up, the LQ head's VA (port 2) and the committing store's
     // (port 3), and hd_ld picks last, so the lookups do not wait for the head's selection (an LR
@@ -1863,6 +2053,7 @@ module tg_lsu
                               : dt_hit[3] && pte_ok(dt_pte[3], (sq_amo_q[hs] && am_op_q[t_hd] == AMO_LR) ? ACC_R : ACC_W,
                                                     priv_d[t_hd], sum[t_hd], mxr[t_hd]));
     assign hd_walk   = 1'b1;
+    assign hd_wtok   = hd_tok;
   end
   // The ROB sees the head's DTLB retry a cycle later (DR-140 #3; timing: the head's DTLB lookup
   // leaves the commit redirect)
@@ -1903,7 +2094,14 @@ module tg_lsu
   priv_e [2:0]      pw_mode;
   logic             pw_done, pw_ok;
   logic [3:0]       pw_cause;
-  assign pw_req[0]  = hd_need && hd_walk && !sta_ag_valid && !hd_tok && !hdf_q[t_hd] && sq_drn[t_hd];
+  assign pw_req[0]  = hd_need && hd_walk && !sta_ag_valid && !hd_wtok && !hdf_q[t_hd] && sq_drn[t_hd];
+`ifndef SYNTHESIS
+  // (#12, core-2's check) A deciding walk never asks while the DTLB already translates the head: the registered miss
+  // and the fill guard keep the request off once a fill has made the head's page hit
+  always_ff @(posedge clk)
+    if (md_rs && !rst && ROB_HEAD_TLB_LATE && LSU_HDWALK_REG)
+      assert (!(pw_req[0] && hd_tok)) else $error("tg_lsu: a deciding walk asks while the DTLB translates the head (#12)");
+`endif
   assign pw_va[0]   = hd_va;
   assign pw_at[0]   = hd_at;
   assign pw_mode[0] = priv_d[t_hd];
@@ -1934,8 +2132,8 @@ module tg_lsu
   tg_ptw u_ptw (
     .clk, .rst, .flush, .flush_tid(t_fl), .satp_ppn, .sum, .mxr, .pmp_d, .pmp_pal,
     .chk_pa(pc_pa), .chk_lvl(pc_lvl), .chk_dbl(pc_dbl), .chk_tid(pc_t), .chk_req(pw_chk), .chk_gnt(!sn_v),
-    .chk_ok(sa_chk[0]), .chk_nh(pg_nh),
-    .chk_hit(pmp_hit_st), .chk_rwx(pmp_rwx_st),
+    .chk_ok(CKR ? ck_ok_q : sa_chk[0]), .chk_nh(CKR ? ck_nh_q : pg_nh),   // (#13: the answer a cycle after chk_gnt)
+    .chk_hit(CKR ? ck_hit_q : pmp_hit_st), .chk_rwx(CKR ? ck_rwx_q : pmp_rwx_st),
     .req(pw_req), .req_va(pw_va), .req_acc(pw_at), .req_mode(pw_mode), .req_tid(pw_tid), .ack(pw_ack),
     .pt_req, .pt_pa, .pt_gnt, .pt_rsp, .pt_hit, .pt_den, .pt_data(m2_dword_q),
     .mshr_idle(DC_MSHRS == 1 ? mshr_idle : m_wake_any),   // (DR-149: any install, or none busy)
@@ -2264,7 +2462,17 @@ module tg_lsu
         fh_rob_q  <= lqc_rd[0].rob;
         fh_llt_q  <= lqc_rd[0].llt;
       end
-      if (m2_ok && !m2_fcol) begin
+      if (ch_take) begin                      // (#13: a held load's verdict allows it; M2 and the others wait)
+        r_v_q    <= 1'b1;
+        r_dv_q   <= ch_dv_q;
+        r_fv_q   <= 1'b0;
+        r_fb_q   <= 1'b0;
+        r_dst_q  <= ch_dst_q;
+        r_data_q <= ch_data_q;
+        r_rob_q  <= lg_rob_q;
+        r_llt_q  <= ch_llt_q;
+        r_mmio_q <= 1'b0;
+      end else if (m2_ok && !m2_fcol) begin
         r_v_q    <= 1'b1;
         r_dv_q   <= lqc_rd[0].dv;
         r_fv_q   <= EXT_FD && lqc_rd[0].dv && lqc_rd[0].fp;
@@ -2314,6 +2522,7 @@ module tg_lsu
           O_STQ:   lq_st_q[m2_lq_q] <= L_STQ;
           O_MISS:  lq_st_q[m2_lq_q] <= L_MISS;
           O_RETRY: lq_st_q[m2_lq_q] <= L_READY;
+          O_HOLD:  ;                                                   // (#13: L_PIPE until its verdict, below)
           default: lq_st_q[m2_lq_q] <= L_EXC;
         endcase
         // The blocking store's fields go in on the outcome before the PMP checker's verdict (timing:
@@ -2331,9 +2540,10 @@ module tg_lsu
       if (lm_st && !kill_t[lq_tid(int'(lm_lq), md)]) lq_st_q[lm_lq] <= L_EXC;    // an MMIO load the PMP checker denied
       // DR-183 (PMP_FILL): a parked MMIO load's check, and the head's (a denial is its exception, port 2)
       if (lmc_v) lq_pck_q[lmc_lq] <= !l_gnt;
-      if (mh_gnt) begin
-        lq_pck_q[mh_lq_q] <= 1'b0;
-        if (!sa_chk[0] && !kill_t[mh_t_q]) lq_st_q[mh_lq_q] <= L_EXC;
+      if (CKR ? mhg_v_q : mh_gnt) begin
+        lq_pck_q[CKR ? mhg_lq_q : mh_lq_q] <= 1'b0;
+        if (CKR ? !ck_ok_q && !kill_t[mhg_t_q] : !sa_chk[0] && !kill_t[mh_t_q])
+          lq_st_q[CKR ? mhg_lq_q : mh_lq_q] <= L_EXC;
       end
 
       // ---- M1 -> M2 ----
@@ -2413,6 +2623,13 @@ module tg_lsu
         end
       end
       if (mm_go) lq_st_q[mm_idx] <= L_PIPE;   // MMIO request out (not L_MMIO any more)
+      // #13 (CK_LD): last cycle's granted check, its verdict: a denied load goes to L_EXC whatever its state took since
+      // (here, after the waits); one allowed leaves the hold with its take (L_DONE) or replays without a check (L_READY)
+      if (CK_LD && lg_v_q && !kill_t[lg_t_q]) begin
+        if (!ck_ok_q)               lq_st_q[lg_lq_q] <= L_EXC;
+        else if (lg_k_q == LG_HOLD) lq_st_q[lg_lq_q] <= L_DONE;
+        else if (lg_k_q == LG_RDY)  lq_st_q[lg_lq_q] <= L_READY;
+      end
 
       // ---- Store data capture ----
       if (cap_v) sq_dv_q[cap_idx] <= 1'b1;            // the data goes into the LUTRAM
@@ -2612,9 +2829,17 @@ module tg_lsu
     assign l_nok   = PMP_FILL && (m2_pck_q || m2_rck_q) && !l_gnt;
     assign lmc_v   = PMP_FILL && m2_mck_q;
     assign lmc_lq  = m2_lq_q;
-    assign l_den   = (PMP_FILL ? (m2_pck_q || m2_rck_q) && l_gnt : m2_pck_q) && !nl_chk[0];
-    assign lm_den  = (PMP_FILL ? m2_mck_q && l_gnt : m2_mck_q) && !nl_chk[0];
-    if (LSU_MMIO_PMP_REG) begin : g_mreg
+    assign l_den   = !CK_LD && (PMP_FILL ? (m2_pck_q || m2_rck_q) && l_gnt : m2_pck_q) && !nl_chk[0];
+    assign lm_den  = !CK_LD && (PMP_FILL ? m2_mck_q && l_gnt : m2_mck_q) && !nl_chk[0];
+    assign m2_ck   = m2_pck_q || m2_rck_q;
+    assign m2_mck  = m2_mck_q;
+    if (CK_LD) begin : g_mck
+      // #13: a parked MMIO load's denial comes the cycle after its grant (g_ckld; its state with the loads', above);
+      // the head's issue waits while its load checks and the cycle after
+      assign lm_st   = 1'b0;
+      assign lm_lq   = lg_lq_q;
+      assign mm_hold_p = (m2_mck_q && m2_lq_q == hl) || (lg_v_q && lg_k_q == LG_MMIO && lg_lq_q == hl);
+    end else if (LSU_MMIO_PMP_REG) begin : g_mreg
       // #10: the verdict registered, for the state a cycle later; the head's issue waits while its
       // load checks, then on the registered denial (timing: the checker leaves the LQ state's
       // enables, through the issue)
@@ -2740,6 +2965,8 @@ module tg_lsu
     assign ck_ml   = priv_d[t_lck] == PRIV_M;
     assign sa_pck  = !xl_s && !(PMP_FILL && priv_d[t_sn] == PRIV_M && !pmp_lk_h[t_sn]);
     assign l_den   = m2_lden_q;
+    assign m2_ck   = 1'b0;                        // (#13's loads' side needs the split: CK_LD)
+    assign m2_mck  = 1'b0;
     assign lm_den  = m2_mden_q;
     assign lm_st   = m2_mden_q;
     assign lm_lq   = m2_lq_q;
