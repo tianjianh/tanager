@@ -169,18 +169,29 @@ class Build:
             return None
 
 
-def prune_builds(keep):
-    """The build cache's trim after the builds (cycle-identical's prune_cache: the newest 40 builds within 15 GB, never
-    one in use or used in the last hour); this run's builds stay (keep). A finished build that an older copy of this
-    script made still has its sources (3.4 GB once, from a check slot's sim/ build output): they go, under its lock."""
-    bdir = os.path.join(CACHE, "build")
+def drop_sources(bdir, dry_run=False):
+    """A finished build keeps only what its runs need; one that an older copy of this script made still has its
+    sources (3.4 GB once, a check slot's sim/ build output): they go, each under its build's lock taken without
+    waiting. Returns (builds, bytes) dropped, or with dry_run that would be."""
+    n, size = 0, 0
     for d in os.listdir(bdir):
         src = os.path.join(bdir, d, "src")
         if os.path.exists(os.path.join(bdir, d, "OK")) and os.path.isdir(src):
             lk = ci.lock_build(os.path.join(bdir, d + ".lock"), fcntl.LOCK_EX, wait=False)
             if lk:
                 with lk:
-                    shutil.rmtree(src, ignore_errors=True)
+                    n, size = n + 1, size + ci.tree_stats(src)[0]
+                    if not dry_run:
+                        shutil.rmtree(src, ignore_errors=True)
+    return n, size
+
+
+def prune_builds(keep):
+    """The build cache's trim after the builds: older builds' sources (drop_sources), then cycle-identical's
+    prune_cache (the newest 40 builds within 15 GB, never one in use or used in the last hour); this run's builds
+    stay (keep)."""
+    bdir = os.path.join(CACHE, "build")
+    drop_sources(bdir)
     ci.prune_cache(bdir, keep)
 
 
