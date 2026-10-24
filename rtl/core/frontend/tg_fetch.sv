@@ -124,6 +124,7 @@ module tg_fetch
   input  tid_t        it_fill_tid,
   output logic        iw_req,         // a walk for iw_va, held until iw_ack
   output tid_t        iw_tid,         // ... of this thread's (M7)
+  output logic [NUM_THREADS-1:0] hpm_imiss,  // M9's counters (TG_HPM): each thread's I$ misses, pulses (tg_core registers them)
   output logic [63:0] iw_va,
   input  logic        iw_ack,
   input  logic        iw_done,        // a fetch walk ended
@@ -2322,4 +2323,9 @@ module tg_fetch
   final if (MT) $fwrite(32'h8000_0002, "TG-FQPARK %m: F2 parked a stream on its queue's room %0d times (%0d stream-cycles parked)\n",
                         n_qpark, n_qparkc);
 `endif
+  // M9's counters (TG_HPM): an I$ miss as F2's action parks its stream on one (once a miss: a line that became valid
+  // meanwhile is no miss), counted for the stream's thread
+  always_comb
+    for (int t = 0; t < NUM_THREADS; t++)
+      hpm_imiss[t] = ka_q && k_miss_q && (MT ? k_s_q == 1'(t) : tid_t'(t) == RUN_TID);
 endmodule
