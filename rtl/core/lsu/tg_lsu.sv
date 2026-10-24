@@ -709,6 +709,9 @@ module tg_lsu
   logic [PA_W-1:0] nl_pa;
   logic        nl_mis, nl_pf, nl_tm, nl_acc, nl_mmio, nl_exc, nl_go, nl_pmpc, nl_pmpd;
   logic        nl_lpc, lpc_r;                     // #13: an untranslated S/U load's region cached (g_lpc); its read verdict
+  logic        lps_hit, lps_r, lps_w;             // ... the deciding store's (sn_va), and its read and write verdicts
+  logic        unused_lps;                        // (until the store's decision takes them: soc-2's side)
+  assign unused_lps = ^{lps_hit, lps_r, lps_w};
   logic [0:0]  nl_chk;
   logic [PA_W-1:0] lck_pa;                        // the checker's access: a registered PA and size
   logic        lck_dbl;
@@ -973,13 +976,13 @@ module tg_lsu
       // hit ? r : 0. A new load whose region hits needs no check: it completes in M2, or faults at M1. A TLB flush of
       // the hart (PMP, satp or SFENCE.VMA writes) empties its entries and drops a fill in the same cycle; round robin
       localparam int LW = (LPC_N > 1) ? $clog2(LPC_N) : 1;
-      logic [LPC_N-1:0]            lv_q, lr_q;
+      logic [LPC_N-1:0]            lv_q, lr_q, lw_q;
       tid_t [LPC_N-1:0]            lt_q;
       logic [LPC_N-1:0][PA_W-22:0] lrg_q;
       logic [LW-1:0]               lrr_q;
       logic [PA_W-22:0]            lg_rg_q;      // the granted load's region and S/U-ness, with lg_*
       logic                        lg_m_q;
-      logic [LPC_N-1:0]            lph, lpf;       // M1's new load's region hits; the fill's is there already
+      logic [LPC_N-1:0]            lph, lpf, lps;  // M1's new load's region hits; the fill's is there already; the store's
       logic                        fill;
       always_ff @(posedge clk) begin
         lg_rg_q <= lck_pa[PA_W-1:21];
@@ -989,9 +992,14 @@ module tg_lsu
         for (int i = 0; i < LPC_N; i++) begin
           lph[i] = lv_q[i] && lt_q[i] == t_ln && lrg_q[i] == ln_va[PA_W-1:21];
           lpf[i] = lv_q[i] && lt_q[i] == lg_t_q && lrg_q[i] == lg_rg_q;
+          lps[i] = lv_q[i] && lt_q[i] == t_sn && lrg_q[i] == sn_va[PA_W-1:21];
         end
       assign nl_lpc = !xl_l && priv_d[t_ln] != PRIV_M && |lph;
       assign lpc_r  = |(lph & lr_q);
+      // (a store's decision, for soc-2's side: an untranslated S/U store whose region is cached decides with its R and W)
+      assign lps_hit = !xl_s && priv_d[t_sn] != PRIV_M && |lps;
+      assign lps_r   = |(lps & lr_q);
+      assign lps_w   = |(lps & lw_q);
       assign fill   = lg_v_q && lg_k_q != LG_MMIO && !kill_t[lg_t_q] && !lg_m_q && !ck_nh_q && !(|lpf) &&
                       !(tlb_flush && (NT == 1 || lg_t_q == tlb_flush_tid));
       always_ff @(posedge clk) begin
@@ -1004,6 +1012,7 @@ module tg_lsu
             lt_q[lrr_q]  <= lg_t_q;
             lrg_q[lrr_q] <= lg_rg_q;
             lr_q[lrr_q]  <= ck_hit_q && ck_rwx_q[2];
+            lw_q[lrr_q]  <= ck_hit_q && ck_rwx_q[1];
             lrr_q        <= (int'(lrr_q) == LPC_N - 1) ? '0 : lrr_q + 1'b1;
           end
           if (tlb_flush)
@@ -1011,8 +1020,11 @@ module tg_lsu
         end
       end
     end else begin : g_nolpc
-      assign nl_lpc = 1'b0;
-      assign lpc_r  = 1'b0;
+      assign nl_lpc  = 1'b0;
+      assign lpc_r   = 1'b0;
+      assign lps_hit = 1'b0;
+      assign lps_r   = 1'b0;
+      assign lps_w   = 1'b0;
     end
 `ifndef SYNTHESIS
     // +chkstat: the verdicts taken a cycle late, by kind, the held loads' takes and the denials
@@ -1046,6 +1058,9 @@ module tg_lsu
     assign lg_den    = 1'b0;
     assign nl_lpc    = 1'b0;
     assign lpc_r     = 1'b0;
+    assign lps_hit   = 1'b0;
+    assign lps_r     = 1'b0;
+    assign lps_w     = 1'b0;
     logic unused_mck;                             // (the parked MMIO load's check: CK_LD's)
     assign unused_mck = m2_mck;
   end
@@ -1588,6 +1603,11 @@ module tg_lsu
         assert (sh_ld_ok == (xl_l ? dt_pte[0].pr : lpc_r))
           else $error("tg_lsu: a load's cached PMP result (r %b) differs from the full check (%b) at PA %h",
                       xl_l ? dt_pte[0].pr : lpc_r, sh_ld_ok, nl_pa);
+      // (#13's region cache: the port a store's decision may take, soc-2's side; its verdict against the full check)
+      if (sn_v && lps_hit && !sa_mis && !sa_pf && !sa_tm)
+        assert (sh_st_ok == (sa_lr ? lps_r : lps_w))
+          else $error("tg_lsu: a store's region-cache result (r %b w %b) differs from the full check (%b) at PA %h",
+                      lps_r, lps_w, sh_st_ok, sa_pa);
       if (sn_v && sa_pmpc && dt_hit[1] && !sa_mis && !sa_pf && !sa_tm)
         assert (sh_st_ok == (sa_lr ? dt_pte[1].pr : dt_pte[1].pw))
           else $error("tg_lsu: a store's cached PMP result (r %b w %b) differs from the full check (%b) at PA %h",
