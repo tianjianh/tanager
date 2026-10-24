@@ -296,9 +296,9 @@
 		// window, which passes that word while the host's BOARD_CTRL[1] is set (riscv.scr sets it). Its
 		// SOFT_RESET bit resets the PS and the PL, and the A53's U-Boot chooses the mode again.
 		// The syscon spans RESET_CTRL's whole 4 KiB page (the window still passes that word alone): OpenSBI
-		// gives a reset syscon a PMP region of the syscon's size, and a region smaller than a page clears the
-		// core's "every 4K page is PMP-homogeneous" flag (tg_csr pmp_al), so no 4K page caches its PMP result
-		// and every store and fetch redirect takes the slow check: RISC-V mode's memory gap (10-21)
+		// gives a reset syscon a PMP region of the syscon's size. Until DR-182 a region smaller than a page
+		// cleared the core's "every 4K page is PMP-homogeneous" flag (tg_csr pmp_al), so no 4K page cached its
+		// PMP result and every store and fetch redirect took the slow check: RISC-V mode's memory gap (10-21)
 		crl_reset: syscon@ff5e0000 {
 			compatible = "syscon";
 			reg = <0x0 0xff5e0000 0x0 0x1000>;

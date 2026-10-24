@@ -152,9 +152,9 @@ Plan §7.2. With `DRAM_BASE` = `0x8000_0000`:
 
 | Address | Contents | Loaded by |
 |---|---|---|
-| `0x8000_0000` | OpenSBI `fw_jump.bin` (generic platform) | host |
-| `0x8020_0000` | Linux `Image` with the initramfs built in (`FW_JUMP_ADDR`) | host |
-| `0x8220_0000` | DTB (`FW_JUMP_FDT_ADDR` = OpenSBI's generic default, `FW_TEXT_START + 0x220_0000`); OpenSBI skips its copy when the DTB is already there | host |
+| `0x8000_0000` | OpenSBI `fw_jump.bin` (generic platform, `FW_TEXT_START`) | host; in RISC-V mode the A53's `riscv.scr` |
+| `0x8020_0000` | OpenSBI's next stage, at the generic platform's `FW_TEXT_START + 0x20_0000` (no build sets `FW_JUMP_ADDR`): Linux's `Image` with the initramfs built in (simulation, stage C), or U-Boot d4 (`payload.bin`, RISC-V mode), which loads Debian's kernel itself | the same |
+| `0x8220_0000` | DTB, at the generic platform's `FW_TEXT_START + 0x220_0000` (no build sets `FW_JUMP_FDT_ADDR`); OpenSBI skips its copy when the DTB is already there | the same |
 
 1. Every hart starts in the boot ROM. It sets `a0 = mhartid` and `a1 = DTB_ADDR`, then jumps to `BOOT_ENTRY` (host control; reset values `0x8220_0000` and `0x8000_0000`).
 2. OpenSBI picks the cold-boot hart and boots Linux at `0x8020_0000` in S-mode. Linux brings up the other harts through SBI HSM.
@@ -167,7 +167,10 @@ The kernel's effective size (the `Image` header's `image_size`) must stay below 
 - cores (1 or 2) and threads per core (1 or 2), and the threads that run (`RUN_THREADS=1`: thread 0 of each core, harts 0 and 2);
 - DRAM size;
 - whether F and D exist (M4's core may lack them);
-- `VIRTIO=1`: the forwarded virtio window's slots (§8.1), for bitstreams built with it.
+- `VIRTIO=1`: the forwarded virtio window's slots (§8.1), for bitstreams built with it;
+- the KV260's peripherals and builds (`UART1`, `SD1`, `BOARD_RESET`, `ETH`, `RELEASE`): every switch, with RISC-V mode's values, is in [firmware_switches.md](firmware_switches.md).
+
+The table gives the default tree's nodes; RISC-V mode's trees differ where noted.
 
 | Node | Compatible | Notes |
 |---|---|---|
@@ -177,8 +180,8 @@ The kernel's effective size (the `Image` header's `image_size`) must stay below 
 | `serial@10000000` | `ns16550a` | `clock-frequency` 3 686 400, PLIC 10 |
 | `syscon@10001000` | `tanager,hostctl`, `syscon` | host control (KV260 tree), PLIC 11 |
 | `virtio_mmio@10010000` … `@10013000` | `virtio,mmio` | with `VIRTIO=1`: the window's slots 0–3, PLIC 1–4 |
-| `poweroff`, `reboot` | `syscon-poweroff`, `syscon-reboot` | value `0x5555` / `0x7777` |
-| `chosen` | | `stdout-path` = the UART; `bootargs` = `console=ttyS0,115200 earlycon` |
+| `poweroff`, `reboot` | `syscon-poweroff`, `syscon-reboot` | on the host control's `POWER`, value `0x5555` / `0x7777`; with `BOARD_RESET=1` (RISC-V mode) on the PS's `RESET_CTRL` (`crl_reset`, +0x218, value and mask `0x10`) |
+| `chosen` | | `stdout-path` = the UART (with `UART1=1 UART1_STDOUT=1`, the PS's UART1); `bootargs` = `console=ttyS0,115200 earlycon`, or with `SD1=1` the card's root (`root=LABEL=tanager-root rootwait`), which Debian's extlinux replaces |
 
 `sw/dts/Makefile` builds `tanager-kv260.dtb` and `tanager-qemu.dtb` for one configuration.
 
@@ -187,11 +190,12 @@ The kernel's effective size (the `Image` header's `image_size`) must stay below 
   - OpenSBI makes a PMP region of each device it uses (its console, the reset syscons, the ACLINT, the PLIC), as large as that node's `reg`.
   - Firmware that adds PMP regions of its own keeps to the same rule.
 - **The cost of breaking it:** a region smaller than 4 KiB costs every page its cached PMP result. On d4r2 that was −23.6% on a store loop, +10% on `rdtime` and `clock_gettime`, and −12.7% on sysbench memory.
-  - The core caches a 4K page's PMP result in its TLB entry only while `tg_csr`'s flag says every 4K page is PMP-homogeneous (`pmp_al`), and any region smaller than a page clears it.
+  - Until DR-182 the core cached a 4K page's PMP result only while `tg_csr`'s flag (`pmp_al`) said every 4K page was PMP-homogeneous, so any region smaller than a page cost every page. Since DR-182 the walker checks each leaf page against every region, and such a region costs only its own page's cached result. The rule stays: it costs nothing.
   - A 4-byte reset syscon did it in RISC-V mode's tree. Its whole page fixed it.
 - **The check:** `sw/dts/check_pages.py` runs on every tree the Makefile builds, and the build stops on a range that breaks the rule. Nodes whose `reg` has no size (CPUs, MDIO PHYs) are skipped.
-- **Until the core checks each 4K page itself** (the coordinator's follow-up for core-2, after M7's current steps), this rule is what keeps the cache on. `sw/dts/board-trees.sh <dir> [1|2]`
-builds every tree the board's packages carry:
+- **The core checks each page itself since DR-182**, so the rule now keeps only each MMIO page's own result cached.
+
+`sw/dts/board-trees.sh <dir> [1|2]` builds every tree the board's packages carry:
 - stage C's virtio trees, in 1 GiB and 768 MiB;
 - the Linux bench's (DR-141);
 - RISC-V mode's (D4, D5).
