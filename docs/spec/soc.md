@@ -893,6 +893,94 @@ Main df08b40, with the M6 set on by default (the 32-entry RAS, two-table TAGE-li
   - The cost: about 80 LUTs and 66 FFs a chip, no RAM.
   - **On the board:** pending. spikes-2's measurement image (6c41bb53 with rc3_u095r's flow, the batching off at reset) and `tests/bench/mem` `wsdp.bin`, which sweeps the batch and the wait; the setting that wins becomes the KV260 product build's `TG_L2_PACE_INIT`.
 
+## 9. Debug module (`TG_DEBUG`, DR-190 item 4; development builds only)
+
+Status: draft for review (soc-2, with core-2's Sdext in core-priv.md) — 2026-10-24.
+
+**Purpose.** Halt a hung board, read and write its registers and memory, and step it, with GDB through OpenOCD. OpenOCD runs on the laptop and reaches the RISC-V over the KV260's USB-JTAG (the coordinator, 10-24): that path works in every mode, including RISC-V mode, where the A53 is parked (DR-172). A JTAG port the A53 could drive (AXI GPIO, OpenOCD's `remote_bitbang`) is left out; it would be a small add-on behind its own switch.
+- **The switch:** `TG_DEBUG` (off by default) builds the Debug Module, the DTM and the core's debug mode. A release build has none of them (as the virtio window, DR-180), and a build without the switch is cycle for cycle the one before.
+- **Sources** (DR-138): the RISC-V Debug Specification, version 1.0, for everything below; AMD UG974 for BSCANE2, and UG570 and UG1085 for the device's TAP; OpenOCD's manual for its configuration only. No other implementation is read.
+- **The cable:** OpenOCD and Vivado's `hw_server` share the board's one USB-JTAG cable, so only one of them holds it at a time.
+- **Split of the work:** the DTM, the Debug Module and their place in the uncore are this section's (soc-2). The hart's debug mode (Sdext: `dcsr`, `dpc`, `dscratch0`/`1`, `dret`, halt at commit, step, `ebreak` into debug mode) is core-pipeline's and core-priv.md's (core-2).
+
+### 9.1 Structure
+```
+laptop: GDB ── OpenOCD ── USB-JTAG ── device TAP ──USER3──> tg_dtm (dtmcs)        tck domain
+                                                 └──USER4──> tg_dtm (dmi) ──CDC──> tg_dm   uncore clock
+                                                                                   │  ├─ DMI registers
+                                                     dbg_haltreq[h], hart_unavail[h], havereset[h] ── cores
+                                                     the debug window 0x1100_0000 (a crossbar target) ── fetch, loads, stores
+```
+
+### 9.2 The DTM (`tg_dtm`; Debug spec "JTAG Debug Transport Module")
+- **Two BSCANE2 primitives** (UG974) in `kv260_top`: `JTAG_CHAIN = 3` carries `dtmcs`, `JTAG_CHAIN = 4` carries `dmi`. OpenOCD addresses them with its manual's `riscv set_ir dtmcs <USER3>` and `riscv set_ir dmi <USER4>`, so each register is a plain data register of the device's TAP: no tunnel framing. USER1 stays free for Vivado's debug hub (ILAs). The device's own IDCODE identifies the TAP.
+- **`dtmcs`** (32 bits): `version` 1 (the 0.13 and 1.0 DTM), `abits` 7, `dmistat`, `idle` (the Run-Test/Idle cycles OpenOCD waits between scans, set to cover the clock crossing's round trip), `dmireset` and `dtmhardreset` (write 1), `errinfo` 0 (not implemented).
+- **`dmi`** (41 bits: `address` 7, `data` 32, `op` 2): at Capture-DR it returns the last request's data and status; at Update-DR it starts `op` 1 (read) or 2 (write) if none is pending. A scan that finds a request still pending reports 3 (busy) and sets `dmistat` sticky until `dmireset`, as the spec has it; the request is dropped. `op` 2 (failed) is never returned.
+- **Clocks:** the DTM runs on BSCANE2's TCK. A request crosses to the uncore clock by a toggle and two-flop synchronizers, and the answer comes back the same way. TCK is slow (a few MHz at most), so the crossing takes a fraction of a TCK period.
+
+### 9.3 The Debug Module (`tg_dm`; Debug spec chapter 3)
+**Registers on the DMI** (unimplemented addresses read 0 and ignore writes):
+
+| Address | Register | Implemented |
+|---|---|---|
+| 0x04, 0x05 | `data0`, `data1` | 32 bits each (`datacount` 2) |
+| 0x10 | `dmcontrol` | `haltreq`, `resumereq`, `ackhavereset`, `hartsello` (2 bits: up to 4 harts), `ndmreset`, `dmactive`. `hartreset`, `hasel`, `setresethaltreq` and `clrresethaltreq` read 0 (not implemented) |
+| 0x11 | `dmstatus` | `version` 3 (1.0), `authenticated` 1, `impebreak` 1, the all/any pairs of `halted`, `running`, `unavail`, `nonexistent`, `resumeack` and `havereset` for the selected hart, `hasresethaltreq` 0 |
+| 0x12 | `hartinfo` | 0: the data registers are not in the hart's address space for program buffer code, and the ROM keeps both `dscratch` registers (`nscratch` 0) |
+| 0x13 | `haltsum1` | 0 (at most 32 harts) |
+| 0x16 | `abstractcs` | `progbufsize` 2, `busy`, `cmderr` (1 busy, 2 not supported, 3 exception, 4 halt/resume, 7 other), `datacount` 2 |
+| 0x17 | `command` | Access Register (`cmdtype` 0): `aarsize` 2 or 3, `postexec`, `transfer`, `write`, `regno` 0x1000–0x101F (the GPRs). Other register numbers, `aarpostincrement` and other command types end with `cmderr` 2; OpenOCD then reaches FPRs and CSRs through the program buffer |
+| 0x18 | `abstractauto` | 0 (not implemented) |
+| 0x20, 0x21 | `progbuf0`, `progbuf1` | 32 bits each, followed by an implicit `ebreak` |
+| 0x40 | `haltsum0` | a bit per hart, halted |
+
+- **`dmactive` 0** holds the DM in reset (its registers, flags and the halt requests cleared) except `dmactive` itself.
+- **`ndmreset`** holds every core and the uncore in reset except the DM and the DTM, through `tanager_soc`'s reset network, until the debugger clears it.
+- **Halt and resume:** `haltreq` drives `dbg_haltreq[h]` of the selected hart until the hart reports halted. `resumereq` (with `haltreq` 0) clears the hart's `resumeack` and sets its RESUME flag; the ROM answers. Requests to an unavailable or nonexistent hart do nothing.
+
+### 9.4 The hart side (agreed with core-2; core-priv.md has the core's half)
+- **`dbg_haltreq[h]`** (level, per hart): the core takes it at commit as the highest-priority interrupt: `dpc` is the next pc to commit, `dcsr.cause` 3, debug mode, and a jump to 0x1100_0800. A hart asleep in WFI wakes for it and then halts. Split mode makes no difference.
+- **`hart_unavail[h]`:** a hart in reset or held off (hart 1 in a build without it, or with `mtgsmt.HART1_OFF`). **`havereset[h]`:** a pulse when a hart's reset ends; the DM keeps it sticky until `ackhavereset`.
+- **Debug mode** (core-2): M privilege, interrupts masked, `dcsr.stopcount` 1 (counters stop), `stoptime` 0 (`time` is the shared ACLINT's), `stepie` 0. Fetches are untranslated; loads and stores translate only with `dcsr.mprven` and MPRV. The debug window is reachable in debug mode only: its fetches go through the I$ as the boot ROM's do, its loads and stores take the MMIO path, and PMP does not apply to it. Outside debug mode every access to it faults, fetch included.
+- **`ebreak` in debug mode** re-enters at 0x1100_0800; an exception in debug mode jumps to 0x1100_0808 without changing `mepc`, `mcause` or `mtval`.
+- **Lockstep** (verif-2's call): the core emits no commit records in debug mode, and a marker record at entry, where the checker stops: a debugger may change state that Spike cannot follow.
+
+### 9.5 The debug window (`DEBUG_BASE` 0x1100_0000, 64 KiB; a crossbar target with `TG_DEBUG`, the error target without)
+It answers Gets of up to 64 bytes (the I$'s line refills and the hart's loads) and Puts of up to 8 bytes (the hart's stores), as `tg_bootrom` does. All of it sits in the first page:
+
+| Offset | Contents | Hart access |
+|---|---|---|
+| 0x000 + 4·h | FLAGS of hart h: bit 0 GO (run the abstract area), bit 1 RESUME | read |
+| 0x100 | HALTED: the hart writes its `mhartid` on entering the loop | write |
+| 0x104 | GOING: the hart writes its id as it takes GO. `abstractcs.busy` stays set until the hart is back in the loop (HALTED again) or reports EXCEPTION | write |
+| 0x108 | RESUMING: the hart writes its id before `dret` (sets `resumeack`, clears halted) | write |
+| 0x10C | EXCEPTION: the hart writes its id from 0x808 (`cmderr` 3) | write |
+| 0x200, 0x204 | `data0`, `data1` | read, write |
+| 0x300 | The abstract area, 8 words the DM writes for each command (below) | fetch |
+| 0x340 | `progbuf0`, `progbuf1`, then `ebreak` (`impebreak`) | fetch |
+| 0x800 | The ROM's entry (a jump past 0x808) and its halt loop | fetch |
+| 0x808 | The ROM's exception entry | fetch |
+
+**The ROM and the abstract area** (written for this section from the spec's description of execution-based abstract commands; the instruction listings go in `tg_dm` with its tests):
+- **Registers:** the program buffer runs with the hart's own register values. The ROM and the abstract area need two working registers, the window's base and the hart's id, so they keep the hart's `s0` and `s1` in `dscratch0` and `dscratch1` while they run, and restore them before the program buffer and before `dret`.
+- **The ROM:** at entry (from a halt, a step, `ebreak`, or the program buffer's closing `ebreak`) it saves `s0` and `s1`, sets `s0` to the window's base and `s1` to `mhartid`, writes HALTED, and loops reading its FLAGS word.
+  - GO: write GOING, then `fence.i`, since the DM has just written the abstract area or the program buffer and the I$ may hold stale lines (core-2). Then jump to 0x300.
+  - RESUME: write RESUMING, restore `s0` and `s1`, `dret`.
+- **The abstract area** holds the command's transfer, then its exit:
+  - a transfer of a GPR other than `s0` and `s1` is one load or store between it and `data0`, based on `s0`; for `s0` or `s1` it goes through `dscratch0` or `dscratch1` by way of `s1`, which the ROM no longer needs;
+  - without `postexec` the exit jumps back to the loop, which reads `mhartid` again; with `postexec` it restores `s0` and `s1` and jumps to 0x340, whose `ebreak` re-enters the ROM.
+  - Either way the hart's return to the loop (HALTED) ends the command.
+- **0x808** (an exception in the program buffer, where the registers are the hart's own): save `s0` and `s1` as at entry, write EXCEPTION, then go on as the loop. An exception cannot come from the ROM or the abstract area: their only accesses are to the window.
+
+### 9.6 Verification
+- **Units** (`tests/unit/dbg`): `tg_dtm` with a behavioural BSCANE2 (UG974's Capture, Shift, Update and SEL), driven by JTAG sequences written from the spec and OpenOCD's documented flow (read `dtmcs`, then DMI reads and writes, with and without busy); `tg_dm` with a DMI driver and a hart model that runs the ROM's protocol.
+- **With the real core** (`tb_boot`, `TG_DEBUG=1`): halt Linux mid-boot, read the GPRs and `dpc` by Access Register, read memory through the program buffer, step, resume, and check the boot goes on to its marker. Halt each hart of a four-hart boot in turn.
+- **With the switch off:** cycle-identical, and lint-all with and without it.
+- **On the board, later:** OpenOCD on the laptop (when the user approves installing it): `jtag newtap` for the device's PL TAP with the IR length and USER3/USER4 codes from UG570 and UG1085, confirmed with `scan_chain`; `riscv set_ir` as above; then halt, `reg`, `mdw`, `step` and `resume` on a running board.
+
+### 9.7 Cost
+DR-190 expects 1.5–2.5K LUTs a chip for the DM, the DTM and Sdext together; measured when built. A release build pays nothing.
+
 ## Verification
 
 `tests/unit/soc`: `tanager_soc` in Verilator with `CORE_KIND = "core"` (stubs) and `"trafgen"`, AXI memory models on the memory ports, and a host-port driver. It checks:
