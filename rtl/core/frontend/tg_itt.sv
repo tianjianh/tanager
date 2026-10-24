@@ -7,12 +7,15 @@
 //           history shifted right by 8 (the model's).
 //   MODE 2: two of 128: one indexed so (to 7 bits), one by the block address alone. The path half's entry when it
 //           matches, else the block half's (smt2-study's split).
-// An entry: {valid, slot, an 8-bit tag (the block address folded another way), U (the privilege it was trained in:
-// U against S and M, so U-mode code never steers an S-mode jump), the target's bits 38:1}: 51 bits in a 72-bit row of
-// block memory, one RAMB36 a table. F1 reads it as the block moves into F2 (re); F2 gets the entry's hit (valid, tag
-// and privilege), its slot and its target, and the lookup's coordinates (ri: the index or indices and the tag), which
-// the FTQ keeps for the block. Commit writes {1, slot, tag, U, target} at the coordinates the jump's block read (w_ri),
-// so lookup and training agree without the block's address or history at commit (the coordinator's trim, 10-24).
+// An entry: a key {valid, slot, an 8-bit tag (the block address folded another way), U (the privilege it was trained
+// in: U against S and M, so U-mode code never steers an S-mode jump)}, 13 bits in LUT RAM, and the target's bits 38:1
+// in block memory, one RAMB36 a table. F1 checks the key (valid, tag, privilege) as the block moves into F2 (re) and
+// gives its hit and slot (hit1, slot1), which fetch registers beside the micro-BTB's: so F2's exit search takes its
+// predicted slot from registers, as without the table (the coordinator's restructure, 10-24: with the key read from
+// block memory, the search was 2-4 levels deeper from the I$ data in spikes-2's placed runs). F2 gets the same hit and
+// slot registered, the target, and the lookup's coordinates (ri: the index or indices and the tag), which the FTQ
+// keeps for the block. Commit writes the key and the target at the coordinates the jump's block read (w_ri), so lookup
+// and training agree without the block's address or history at commit. Both memories read first, as one row did.
 module tg_itt
   import tg_pkg::*;
 #(
@@ -24,13 +27,16 @@ module tg_itt
   localparam int TW  = 8,
   localparam int RIW = (MODE == 2 ? 2 * LI : LI) + TW   // the coordinates: {path index, [block index,] tag}
 ) (
-  input  logic          clk,
+  input  logic           clk,
   // F1: the lookup, read as the block moves into F2 (re): the stream's block (TAGE's), its path history, its privilege
-  input  logic          re,
-  input  logic [38:4]   blk,
-  input  logic [HW-1:0] ph,
-  input  logic          pu,
-  // F2: the block's entry, and the coordinates its lookup read
+  input  logic           re,
+  input  logic [38:4]    blk,
+  input  logic [HW-1:0]  ph,
+  input  logic           pu,
+  // F1: the key's check, for fetch's predicted-slot registers
+  output logic           hit1,
+  output logic [SW-1:0]  slot1,
+  // F2: the block's entry (the check registered on re, and the target), and the coordinates its lookup read
   output logic           hit,
   output logic [SW-1:0]  slot,
   output logic [38:1]    tgt,
@@ -48,9 +54,8 @@ module tg_itt
     logic [SW-1:0] slot;
     logic [TW-1:0] tag;
     logic          pu;
-    logic [38:1]   tgt;
-  } ent_t;
-  localparam int EW = $bits(ent_t);
+  } key_t;
+  localparam int KW = $bits(key_t);
 
   // The block address folded to LI bits, as TAGE's (blk[38:4], 35 bits; the stream's bit is the top one); the tag
   // walks it from the top, so the two folds take different bits together
@@ -74,52 +79,62 @@ module tg_itt
     return r;
   endfunction
 
-  // F1: the indices; the tag and privilege go with the block into F2, the indices too (the coordinates)
+  // F1: the indices and the tag
   logic [LI-1:0] pi, bi, pi_q, bi_q;
-  logic [TW-1:0] tg_q;
-  logic          pu_q;
+  logic [TW-1:0] tg, tg_q;
   assign pi = pidx(blk, ph);
   assign bi = ifold(blk);
-  always_ff @(posedge clk)
-    if (re) begin
-      pi_q <= pi;
-      bi_q <= bi;
-      tg_q <= tfold(blk);
-      pu_q <= pu;
-    end
-  // the write's coordinates
+  assign tg = tfold(blk);
+  // the write's coordinates and key
   logic [LI-1:0] w_pi, w_bi;
   logic [TW-1:0] w_tg;
-  ent_t wd;
-  assign wd = '{v: 1'b1, slot: w_slot, tag: w_tg, pu: w_pu, tgt: w_tgt};
-  ent_t          ep, eb;
-  logic [EW-1:0] dp;
-  tg_ram_sdp #(.DEPTH(1 << LI), .WIDTH(EW)) u_path (
-    .clk, .we(we), .waddr(w_pi), .wdata(wd), .re, .raddr(pi), .rdata(dp));
-  assign ep = ent_t'(dp);
+  key_t          wk;
+  assign wk = '{v: 1'b1, slot: w_slot, tag: w_tg, pu: w_pu};
+  // the path table: its keys in LUT RAM (read at F1), its targets in block memory (read on re)
+  key_t          kp, kb;
+  logic [KW-1:0] kpr;
+  logic [38:1]   tp, tb;
+  tg_ram_lut #(.DEPTH(1 << LI), .WIDTH(KW), .NR(1)) u_pkey (
+    .clk, .we(we), .waddr(w_pi), .wdata(wk), .raddr(pi), .rdata(kpr));
+  assign kp = key_t'(kpr);
+  tg_ram_sdp #(.DEPTH(1 << LI), .WIDTH(38)) u_path (
+    .clk, .we(we), .waddr(w_pi), .wdata(w_tgt), .re, .raddr(pi), .rdata(tp));
   if (MODE == 2) begin : g_blk
-    logic [EW-1:0] db;
-    tg_ram_sdp #(.DEPTH(1 << LI), .WIDTH(EW)) u_blk (
-      .clk, .we(we), .waddr(w_bi), .wdata(wd), .re, .raddr(bi), .rdata(db));
-    assign eb = ent_t'(db);
+    logic [KW-1:0] kbr;
+    tg_ram_lut #(.DEPTH(1 << LI), .WIDTH(KW), .NR(1)) u_bkey (
+      .clk, .we(we), .waddr(w_bi), .wdata(wk), .raddr(bi), .rdata(kbr));
+    assign kb = key_t'(kbr);
+    tg_ram_sdp #(.DEPTH(1 << LI), .WIDTH(38)) u_blk (
+      .clk, .we(we), .waddr(w_bi), .wdata(w_tgt), .re, .raddr(bi), .rdata(tb));
     assign ri = {pi_q, bi_q, tg_q};
     assign {w_pi, w_bi, w_tg} = w_ri;
   end else begin : g_one
-    assign eb = '0;
-    assign ri = {pi_q, tg_q};
+    assign kb   = '0;
+    assign tb   = '0;
+    assign ri   = {pi_q, tg_q};
     assign {w_pi, w_tg} = w_ri;
     assign w_bi = '0;
     logic unused_bi;
     assign unused_bi = ^{bi_q, w_bi};
   end
 
-  // F2: the path half's entry when it matches, else the block half's
-  logic hp, hb;
-  assign hp   = ep.v && ep.tag == tg_q && ep.pu == pu_q;
-  assign hb   = eb.v && eb.tag == tg_q && eb.pu == pu_q;
-  assign hit  = hp || hb;
-  assign slot = hp ? ep.slot : eb.slot;
-  assign tgt  = hp ? ep.tgt : eb.tgt;
+  // F1: the keys' check, the path half's entry when it matches, else the block half's
+  logic hp1, hb1, hp_q;
+  assign hp1   = kp.v && kp.tag == tg && kp.pu == pu;
+  assign hb1   = kb.v && kb.tag == tg && kb.pu == pu;
+  assign hit1  = hp1 || hb1;
+  assign slot1 = hp1 ? kp.slot : kb.slot;
+  // F2: the check and the coordinates registered with the targets' read
+  always_ff @(posedge clk)
+    if (re) begin
+      pi_q <= pi;
+      bi_q <= bi;
+      tg_q <= tg;
+      hit  <= hit1;
+      slot <= slot1;
+      hp_q <= hp1;
+    end
+  assign tgt = hp_q ? tp : tb;
 
 `ifndef SYNTHESIS
   initial if (MODE < 1 || MODE > 2) $error("tg_itt: MODE is 1 or 2");

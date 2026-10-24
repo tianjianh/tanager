@@ -106,7 +106,7 @@ M2 is the plan's "conservative out-of-order" core. It must pass riscv-tests (`rv
     - 2: the split, 128 entries by path and 128 by block, smt2-study's best on the boot (§7.12: +4.1% on core 0's boot against +2.9%).
   - **Sources:** the table is the model's (tgsim's `itt_entries`: a target per path of recent indirect targets), with the changes this front end needs, marked *model* below. Path history for indirect jumps: Driesen and Hölzle, ISCA 1998. A tagged target cache: Chang, Hao and Patt, ISCA 1997. ITTAGE (Seznec, JWAC-2, 2011) is the many-table form, not built.
   - **Table** (block memory):
-    - An entry holds {valid, slot, an 8-bit tag, a privilege bit, the target's bits 38:1}: 51 bits in a 72-bit simple-dual-port row. Port A reads at F1; port B takes the training's writes.
+    - An entry's key {valid, slot, an 8-bit tag, a privilege bit} (13 bits) is in LUT RAM, read and checked at F1. Its target's bits 38:1 are in block memory, read at F1 for F2. Training writes both; both read first.
     - Mode 1 is one RAMB36 a core. Mode 2 is two, one a half, since the halves are read with different indices in one cycle (24 of 144 are free on rc3_u095r).
     - It is keyed as TAGE is: by the 16-byte block (the stream's bit at the top, so two threads' blocks use different entries), with the slot of the JALR's last parcel. So F1 reads it before pre-decode knows which parcel jumps. *Model:* keyed by the JALR's address.
   - **Index and tag:**
@@ -139,9 +139,9 @@ M2 is the plan's "conservative out-of-order" core. It must pass riscv-tests (`rv
     - The entry is overwritten, with no confidence counter, as the model's.
   - **The ROB's part:** a payload bit for a JALR that does not pop, and the retiring slots' address bits 17:2 (the path history's) to fetch, beside the FTQ entries, slots and trap record it already gives.
   - **Timing:**
-    - The hit (the tag and slot compares on the RAM's output) chooses the predicted slot (`phit`, `pslot`) before the exit search. So each slot's taken term keeps the table-off inputs: a hit and a 3-bit slot against the slot's own, as the micro-BTB's alone.
+    - The key is checked at F1. The predicted JALR slot (the table's where its key matched, else the micro-BTB's) is registered beside the micro-BTB's own (`phit_q`, `pslot_q`). So each slot's taken term takes a hit and a 3-bit slot from registers, as without the table.
       - A hit inside the taken terms, even joined to the micro-BTB's per slot (188328af), made the search's priority chain over the slots 4 levels deeper from the I$ data. spikes-2's out-of-context runs (10-24) had `ka_q`, `kr_q` and `f3_ras_q` at 23 levels against 18–19 off, and the stack's push and pop at 24–25 against 19.
-      - With the choice before the search, my synthesis has them at off's depth: 20 levels against 19–21, the push and pop 21 against 20.
+      - The slot chosen on the RAM's output before the search (a6f51752) still left them 2–4 levels deeper in spikes-2's placed run. The pop decode became critical, ahead of the taken term whose slot came from the RAM.
     - The exit's kind (`xitt`: a JALR at the entry's slot) is found after the search, beside the stack's (`xras`). It feeds the refetch's target select, the target compare and the history's pending target.
     - The path history's pending target takes the micro-BTB's and the table's bits from registers of their own, selected after them. Taking it from the exit's chosen target let synthesis share that multiplexer with the refetch's target compare, which put a 38-bit compare after the decision: 6 more levels into `ka_q` (my routed core, 10-24).
     - The target compare for the refetch feeds F2's registered action, as the stack's does.

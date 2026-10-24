@@ -677,6 +677,12 @@ module tg_fetch
   logic               itt_hit;
   logic [SLOT_W-1:0]  itt_slot;
   logic [38:1]        itt_tgt;
+  // ITT_ON: the entry's key checked at F1 (hit, slot), and the predicted JALR slot F2's exit search takes: the
+  // table's where it hits, else the micro-BTB's, registered beside f2_hit_q and f2_slot_q (the decision's depth)
+  logic               itt_hit1;
+  logic [SLOT_W-1:0]  itt_slot1;
+  logic               phit_q;
+  logic [SLOT_W-1:0]  pslot_q;
   logic               ovr_s;              // TAGE_ON: ... the exit is a straddler (its PC: the block - 2)
   logic [20:0]        ovr_imm;            // ... the exit's offset
   logic               f2_rpush, f2_rpop;  // RAS_FE: the exit's stack operation, and a push's link
@@ -807,19 +813,20 @@ module tg_fetch
     logic [63:0]   rtgt;
     assign rtgt = {{25{ras_top[38]}}, ras_top, 1'b0};
     // The indirect-target table's entry (ITT_ON), by its last parcel's slot. The exit search takes one predicted
-    // JALR slot, as without the table: the table's where it hits, else the micro-BTB's (phit, pslot), chosen on the
-    // RAM's output before the search, so each slot's taken term keeps the table-off inputs. A hit inside the taken
-    // terms, even beside the micro-BTB's, put fetch's decision 4-6 levels deeper from the I$ data (spikes-2's 10-24
-    // runs of 1f5f9e18 and 188328af). Where the exit is a JALR at the entry's slot (the stack's top first), its target
-    // is the entry's; the exit's kind (xitt) is found after the search, beside the stack's (xras). The micro-BTB's own
-    // check (sm, xovr) stays on its slot: F1 followed its target
+    // JALR slot, as without the table: the table's where its key matched at F1, else the micro-BTB's, from registers
+    // loaded with f2_hit_q and f2_slot_q (phit_q, pslot_q), so each slot's taken term has the table-off inputs and
+    // timing. A hit inside the taken terms put fetch's decision 4-6 levels deeper from the I$ data (spikes-2's 10-24
+    // runs of 1f5f9e18 and 188328af), and a slot chosen on the RAM's output still 2-4 (a6f51752). Where the exit is a
+    // JALR at the entry's slot (the stack's top first), its target is the entry's; the exit's kind (xitt) is found
+    // after the search, beside the stack's (xras). The micro-BTB's own check (sm, xovr) stays on its slot: F1
+    // followed its target
     logic [NP-1:0]     ith;
     logic [63:0]       itgt;
     logic              phit;
     logic [SLOT_W-1:0] pslot;
     assign itgt  = {{25{itt_tgt[38]}}, itt_tgt, 1'b0};
-    assign phit  = f2_hit_q || (ITT_ON && itt_hit);
-    assign pslot = (ITT_ON && itt_hit) ? itt_slot : f2_slot_q;
+    assign phit  = ITT_ON ? phit_q : f2_hit_q;
+    assign pslot = ITT_ON ? pslot_q : f2_slot_q;
     // A 32-bit instruction that straddles in from the previous block (its first half in sp_q) is the
     // block's first instruction, its last parcel at slot 0: decoded here from its halves, it is a
     // candidate like the others (a branch with TAGE's slot 0), the exit fe_s
@@ -1625,7 +1632,7 @@ module tg_fetch
           ph_e_s[t] = (ipw_q && ips_q == 1'(t)) ? padd(ph_s_q[t][PW-5:0], ipi_q ? ipx_q : ipt_q) : ph_s_q[t];
       tg_itt #(.MODE(ITT_MODE), .NP(NP), .HW(PW)) u_itt (
         .clk, .re(f2_ld), .blk(tblk), .ph(ph_e_s[ft_q]), .pu(priv == PRIV_U),
-        .hit(itt_hit), .slot(itt_slot), .tgt(itt_tgt), .ri(iri),
+        .hit1(itt_hit1), .slot1(itt_slot1), .hit(itt_hit), .slot(itt_slot), .tgt(itt_tgt), .ri(iri),
         .we(iw_q), .w_ri(iwr_q), .w_pu(iwu_q), .w_slot(iws_q), .w_tgt(iwt_q));
       always_ff @(posedge clk) begin
         ipw_q <= !rst && ft_we && f2_ijx;
@@ -1752,6 +1759,8 @@ module tg_fetch
       assign itt_hit  = 1'b0;
       assign itt_slot = '0;
       assign itt_tgt  = '0;
+      assign itt_hit1  = 1'b0;
+      assign itt_slot1 = '0;
       logic unused_itt;
       assign unused_itt = ^{c_ret, c_pc, c_ijmp, c_trv, c_trepc, f2_ijx};
     end
@@ -1808,6 +1817,8 @@ module tg_fetch
     assign itt_hit  = 1'b0;
     assign itt_slot = '0;
     assign itt_tgt  = '0;
+    assign itt_hit1  = 1'b0;
+    assign itt_slot1 = '0;
     assign ft_tail = '0;
     assign tdir    = '0;
     assign kt_tgt  = '0;
@@ -2360,6 +2371,8 @@ module tg_fetch
         f2_hit_q   <= pred_hit;
         f2_way_q   <= ub_way;
         f2_slot_q  <= ub_slot;
+        phit_q     <= pred_hit || (ITT_ON && itt_hit1);       // (the table's read is with this load: f2_ld)
+        pslot_q    <= (ITT_ON && itt_hit1) ? itt_slot1 : ub_slot;
         f2_tgt_q   <= pred_tgt;
         f2_wh_q    <= f1_wh;
         f2_hw_q    <= f1_hw;
