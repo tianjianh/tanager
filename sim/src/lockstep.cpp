@@ -1406,6 +1406,35 @@ class lockstep_impl_t {
     return false;
   }
 
+  // late_find takes the newest late lander that shows a byte. Where an older lander of the same hart shows every byte
+  // a read took the younger one for, the older one is the one to settle: one hart's stores land in order, so the younger
+  // may still land later (seed 3420615 of the soak, 10-24: two sd's of hart 0 both wrote zeros where hart 1's AMO read
+  // zeros; settling the younger dropped it, and it landed after the AMO, under hart 1's next load of the doubleword)
+  void oldest_landers(uint64_t dw, uint64_t pa, unsigned n, uint64_t* late, const uint8_t* got) const {
+    auto it = late_.find(dw);
+    if (it == late_.end()) return;
+    const auto& v = it->second;  // by id
+    for (unsigned i = 0; i < n; i++) {
+      if (late[i] == HW_NONE) continue;
+      const uint64_t id = late[i];
+      auto c = std::find_if(v.begin(), v.end(), [&](const late_t& x) { return x.id == id; });
+      for (auto o = v.begin(); o != c && c != v.end(); ++o) {
+        if (o->hart != c->hart) continue;
+        bool all = true;
+        for (unsigned j = 0; j < n && all; j++)
+          if (late[j] == id) {
+            const unsigned b = unsigned(pa - dw) + j;
+            all = (o->mask >> b & 1) && o->nw[b] == got[j];
+          }
+        if (all) {
+          for (unsigned j = 0; j < n; j++)
+            if (late[j] == id) late[j] = o->id;
+          break;
+        }
+      }
+    }
+  }
+
   // A read of n bytes at pa that returned `got` showed the late landers late[0..n) (ids; HW_NONE: none): each
   // reached memory after the writes it may land on, so Spike's memory gets its bytes where the read shows them, and
   // its write moves behind them in the history, as if it had just been written (old bytes: those it replaced;
@@ -1413,14 +1442,16 @@ class lockstep_impl_t {
   // Bytes the read did not cover stay as they were, it may still land on them. Its hart's earlier late landers on
   // the bytes it settled came before it. Plain stores it landed over that the reading hart hi might not have seen
   // yet (in its window) may still land on top: they become late landers there.
-  void late_settle(size_t hi, uint64_t pa, unsigned n, const uint64_t* late, const uint8_t* got) {
+  void late_settle(size_t hi, uint64_t pa, unsigned n, const uint64_t* late_in, const uint8_t* got) {
+    const uint64_t dw = pa & ~7ull;
+    std::vector<uint64_t> late(late_in, late_in + n);
+    oldest_landers(dw, pa, n, late.data(), got);
     std::vector<uint64_t> ids;
     for (unsigned i = 0; i < n; i++)
       if (late[i] != HW_NONE) ids.push_back(late[i]);
     if (ids.empty()) return;
     std::sort(ids.begin(), ids.end());
     ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
-    const uint64_t dw = pa & ~7ull;
     uint8_t* m = mem_at(dw);
     std::vector<std::pair<unsigned, uint64_t>> landed;  // (hart, id) of the late landers this read settled
     for (uint64_t id : ids) {
