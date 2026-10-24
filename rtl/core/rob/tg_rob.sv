@@ -99,11 +99,9 @@ module tg_rob
   output logic [CW-1:0]                cm_cpred,
   output logic [CW-1:0][FTQW-1:0]      cm_cftq,
   output logic [CW-1:0][SLOT_W-1:0]    cm_cslot,
-  // The indirect-target table (ITT_ON) from commit: each retiring slot's address, a JALR that is not a return, and
-  // the slot whose mispredict ends the group (its flush's address is its target)
+  // The indirect-target table (ITT_ON) from commit: each retiring slot's address, and a JALR that is not a return
   output logic [CW-1:0][38:1]          cm_pc,
   output logic [CW-1:0]                cm_ijmp,
-  output logic [CW-1:0]                cm_jmisp,
   output logic                         cm_hv,
   output logic [FTQW-1:0]              cm_hftq,
   // To the LSU
@@ -791,7 +789,6 @@ module tg_rob
       cm_cslot[j]    = hp[j].pc[SLOT_W:1] + SLOT_W'(!hp[j].rvc);
       cm_pc[j]       = hp[j].pc[38:1];
       cm_ijmp[j]     = ret[j] && hp[j].ijmp;
-      cm_jmisp[j]    = ret[j] && mf[j];
       tr_sq[j]    = COMMIT_TRACE ? hp[j].sq : '0;       // the trace's reads (DR-146: none without it)
       tr_lq[j]    = COMMIT_TRACE ? hp[j].lq : '0;
       tr_tag[j]   = COMMIT_TRACE ? hp[j].dst : '0;

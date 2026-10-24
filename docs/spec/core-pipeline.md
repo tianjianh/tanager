@@ -127,11 +127,11 @@ M2 is the plan's "conservative out-of-order" core. It must pass riscv-tests (`rv
   - **FTQ:** each entry also keeps the history its block's lookup used (16 bits). Decode's repair reads it, and so does training, which recomputes the index and tag from it.
   - **Training at commit:**
     - A retiring JALR that is not a return writes {valid, its slot, the tag, its target} where its block read: the index and tag from its FTQ entry's history and its own address.
-    - It does so once its target is known: its thread's next retiring instruction's address, its own mispredict's flush address, or a trap's or interrupt's `epc`. Any other flush of its thread before that drops it (core-2's review).
+    - It does so once its target is known: its thread's next retiring instruction's address, a trap's or interrupt's `epc`, or else a flush's address. A flush of its thread before the next instruction retires comes from that instruction, the one at its target (a replay; its own mispredict's correction; after a trap's record), so that address is the target (core-2's review).
     - Commit's history moves with the same target.
     - One write a cycle: a second such jump in one commit group moves the history but does not train.
     - The entry is overwritten, with no confidence counter, as the model's.
-  - **The ROB's part:** a payload bit for a JALR that does not pop, and the retiring slots' addresses to fetch.
+  - **The ROB's part:** a payload bit for a JALR that does not pop, and the retiring slots' addresses to fetch, beside the trap record it already gives.
   - **Timing:**
     - The hit check (the tag and slot compares on the RAM's output) runs beside TAGE's provider select and enters the exit search as one more candidate term.
     - The target compare for the refetch feeds F2's registered action, as the stack's does.

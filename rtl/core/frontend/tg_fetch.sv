@@ -60,11 +60,10 @@ module tg_fetch
   input  logic [FTQW-1:0]                     c_hftq,
   input  tid_t                                c_tid,     // ... their thread (M7)
   // The indirect-target table (ITT_ON) from commit, the same thread's: each retiring slot, its address, a JALR that
-  // is not a return, and the slot whose mispredict ends the group; a trap or interrupt taken and its epc
+  // is not a return; a trap or interrupt taken and its epc
   input  logic [COMMIT_WIDTH-1:0]             c_ret,
   input  logic [COMMIT_WIDTH-1:0][38:1]       c_pc,
   input  logic [COMMIT_WIDTH-1:0]             c_ijmp,
-  input  logic [COMMIT_WIDTH-1:0]             c_jmisp,
   input  logic                                c_trv,
   input  logic [38:1]                         c_trepc,
   // The return-address stack's speculative side (RAS_FE): its top, pointer and count; each delivered
@@ -1636,14 +1635,16 @@ module tg_fetch
       tg_ram_lut #(.DEPTH(FTQ_ENTRIES << SB), .WIDTH(PW), .NR(2)) u_fil (
         .clk, .we(ft_we), .waddr(fqa(f2_s_q, ft_tail)), .wdata(ilk_q), .raddr(fl_ra), .rdata(fl_rd));
       // Commit: a retiring JALR that is not a return trains the table once its target is known: its thread's next
-      // retiring instruction's address (in its group or a later one), its own mispredict's flush address, or a trap's
-      // or interrupt's epc; any other flush of its thread drops it (core-2's review). Commit's history moves with the
-      // same target. One pending jump a stream (pj_*_q). One write a cycle: the older first; and only the group's
-      // first such jump reads its block's history (jc), so a second one moves the history and does not train
-      logic [NS-1:0]         pj_v_q, pj_m_q, pj_t_q, pj_u_q;    // pending; it mispredicted; it trains; it ran in U
+      // retiring instruction's address (in its group or a later one), a trap's or interrupt's epc, or else a flush's
+      // address. A flush of its thread before the next instruction retires comes from that instruction, the one at its
+      // target (a replay, its own mispredict's correction, after a trap's record): so that address is the target
+      // (core-2's review). Commit's history moves with the same target. One pending jump a stream (pj_*_q). One write a
+      // cycle: the older first; and only the group's first such jump reads its block's history (jc), so a second one
+      // moves the history and does not train
+      logic [NS-1:0]         pj_v_q, pj_t_q, pj_u_q;            // pending; it trains; it ran in U
       logic [NS-1:0][PW-1:0] pj_h_q;                            // its block's lookup history
       logic [NS-1:0][38:1]   pj_l_q;                            // its last parcel's address
-      logic [NS-1:0]         pjn_v, pjn_m, pjn_t, pjn_u;
+      logic [NS-1:0]         pjn_v, pjn_t, pjn_u;
       logic [NS-1:0][PW-1:0] pjn_h;
       logic [NS-1:0][38:1]   pjn_l;
       logic                  wr, wu;
@@ -1661,10 +1662,10 @@ module tg_fetch
         l  = '0;
         wr = 1'b0; wu = 1'b0; wl = '0; wt = '0; wh = '0;
         cph_n = cph_s_q;
-        pjn_v = pj_v_q; pjn_m = pj_m_q; pjn_t = pj_t_q; pjn_u = pj_u_q; pjn_h = pj_h_q; pjn_l = pj_l_q;
+        pjn_v = pj_v_q; pjn_t = pj_t_q; pjn_u = pj_u_q; pjn_h = pj_h_q; pjn_l = pj_l_q;
         for (int t = 0; t < NS; t++)
           if (fl_s[t]) begin                       // (nothing of the stream retires in its flush's cycle)
-            if (pj_v_q[t] && pj_m_q[t]) begin
+            if (pj_v_q[t]) begin
               cph_n[t] = padd(cph_n[t][PW-5:0], flush_pc[17:2]);
               if (pj_t_q[t] && !wr) begin wr = 1'b1; wl = pj_l_q[t]; wt = flush_pc[38:1]; wh = pj_h_q[t]; wu = pj_u_q[t]; end
             end
@@ -1686,7 +1687,6 @@ module tg_fetch
                   if (jc == JW'(j) && !wr) begin wr = 1'b1; wl = l; wt = rp[j + 1]; wh = fl_rd[1]; wu = cu; end
                 end else begin                     // the group's last retiring instruction: it pends
                   pjn_v[t] = 1'b1;
-                  pjn_m[t] = c_jmisp[j];
                   pjn_t[t] = jc == JW'(j);
                   pjn_u[t] = cu;
                   pjn_h[t] = fl_rd[1];
@@ -1708,7 +1708,6 @@ module tg_fetch
             else if (dr_s[t]) ph_s_q[t] <= fl_rd[0];      // decode's redirect: its block's lookup history
             else              ph_s_q[t] <= ph_e_s[t];
         end
-        pj_m_q <= pjn_m;
         pj_t_q <= pjn_t;
         pj_u_q <= pjn_u;
         pj_h_q <= pjn_h;
@@ -1721,18 +1720,11 @@ module tg_fetch
         iwt_q  <= wt;
       end
 `ifndef SYNTHESIS
-      // A mispredicted jump ends its group, and its flush comes next: nothing of its thread retires before it
-      logic it_rs_q;
+      logic it_rs_q;                                // the first reset has come
       initial it_rs_q = 1'b0;
       always @(posedge clk) if (rst) it_rs_q <= 1'b1;
-      always_ff @(posedge clk)
-        if (it_rs_q && !rst)
-          for (int t = 0; t < NS; t++)
-            if (pj_v_q[t] && pj_m_q[t] && !fl_s[t])
-              assert (!(cs == 1'(t) && |c_ret))
-                else $error("tg_fetch: an instruction retired between a mispredicted JALR and its flush");
       // +itt_stats: lookups, delivered exits the table predicted and those that refetched, the table's writes, the
-      // retiring jumps it trains on and their mispredicts
+      // retiring jumps it trains on, and those of them a flush resolved (mostly their own mispredicts)
       longint n_lk, n_ex, n_rf, n_wr, n_ij, n_im;
       initial begin n_lk = 0; n_ex = 0; n_rf = 0; n_wr = 0; n_ij = 0; n_im = 0; end
       always @(posedge clk)
@@ -1742,10 +1734,10 @@ module tg_fetch
           n_rf <= n_rf + longint'(ft_we && ovr_itt && f2_ovr);
           n_wr <= n_wr + longint'(iw_q);
           n_ij <= n_ij + longint'($countones(c_ijmp));
-          n_im <= n_im + longint'($countones(c_ijmp & c_jmisp));
+          n_im <= n_im + longint'($countones(pj_v_q & fl_s));
         end
       final if ($test$plusargs("itt_stats"))
-        $fwrite(32'h8000_0002, "TG-ITT %m: %0d lookups, %0d exits predicted (%0d refetched), %0d writes, %0d jumps retired, %0d mispredicted\n",
+        $fwrite(32'h8000_0002, "TG-ITT %m: %0d lookups, %0d exits predicted (%0d refetched), %0d writes, %0d jumps retired, %0d flushed\n",
                 n_lk, n_ex, n_rf, n_wr, n_ij, n_im);
 `endif
     end else begin : g_noitt
@@ -1753,7 +1745,7 @@ module tg_fetch
       assign itt_slot = '0;
       assign itt_tgt  = '0;
       logic unused_itt;
-      assign unused_itt = ^{c_ret, c_pc, c_ijmp, c_jmisp, c_trv, c_trepc, f2_ijx};
+      assign unused_itt = ^{c_ret, c_pc, c_ijmp, c_trv, c_trepc, f2_ijx};
     end
     assign kt_tgt = {miss_pc_q[63:4], 4'b0} + (ks_q ? 64'hFFFF_FFFF_FFFF_FFFE : 64'({kp_q, 1'b0})) +
                     {{43{kimm_q[20]}}, kimm_q};
@@ -1822,7 +1814,7 @@ module tg_fetch
     logic unused_tage;
     assign unused_tage = ^{dred_ftq, dred_slot, dred_rop, dred_rlink, c_cbr, c_taken, c_pred, c_ftq, c_slot, c_hv, c_hftq, gh_n, gh_b,
                            gh_cm, gh_pk, gh_mb, gh_lm, gh_xm, gh_wd, gh_c3, gh_sb, gh_sx, kp_q, kimm_q, ras_v, ras_top, ras_tos, ras_cnt, f2_rpush, f2_rpop,
-                           f2_rlink, krt_q, ks_q, c_ret, c_pc, c_ijmp, c_jmisp, c_trv, c_trepc, f2_ijx};
+                           f2_rlink, krt_q, ks_q, c_ret, c_pc, c_ijmp, c_trv, c_trepc, f2_ijx};
   end
 
   // ---- Refill engine (one Get at a time) ----

@@ -178,9 +178,8 @@ module tg_core
   logic                                cm_hv;
   logic [FTQW-1:0]                     cm_hftq;
   // ITT_ON, from commit (the indirect-target table's training): each retiring slot (itt_ret, cm_valid's copy declared
-  // ahead of the front end), its address, a JALR that is not a return, and the slot whose mispredict ends the group;
-  // a trap or interrupt taken (itt_trv) and its epc
-  logic [COMMIT_WIDTH-1:0]             itt_ret, cm_ijmp, cm_jmisp;
+  // ahead of the front end), its address, and a JALR that is not a return; a trap or interrupt taken (itt_trv), its epc
+  logic [COMMIT_WIDTH-1:0]             itt_ret, cm_ijmp;
   logic [COMMIT_WIDTH-1:0][38:1]       cm_pc;
   logic                                itt_trv;
   logic [38:1]                         itt_trepc;
@@ -297,7 +296,7 @@ module tg_core
     .flush, .flush_tid, .flush_pc, .fl_slp(flush_slp), .icinv, .dred, .dred_tid, .dred_pc, .dred_ftq, .dred_slot, .dred_rop, .dred_rlink,
     .c_cbr(cm_cbr), .c_taken(cm_ctaken), .c_pred(cm_cpred), .c_ftq(cm_cftq), .c_slot(cm_cslot),
     .c_hv(cm_hv), .c_hftq(cm_hftq), .c_tid(cm_tid[0]),
-    .c_ret(itt_ret), .c_pc(cm_pc), .c_ijmp(cm_ijmp), .c_jmisp(cm_jmisp), .c_trv(itt_trv), .c_trepc(itt_trepc),
+    .c_ret(itt_ret), .c_pc(cm_pc), .c_ijmp(cm_ijmp), .c_trv(itt_trv), .c_trepc(itt_trepc),
     .ras_v_s(ras_v_t), .ras_top_s(ras_top_t), .ras_tos_s(ras_tos_t), .ras_cnt_s(ras_cnt_t), .ras_tid(fras_tid),
     .ras_rtid(fras_rtid),
     .ras_push(fras_push), .ras_pop(fras_pop), .ras_link(fras_link),
@@ -753,7 +752,7 @@ module tg_core
     .tlbm_valid, .tlbm_rob, .hd_tlb, .hd_retry, .hd_fault, .hd_cause, .hd_lva, .hd_sva,
     .sq_drained, .mmio_busy,
     .cm_valid, .cm_rd_en, .cm_rd_fp, .cm_rd, .cm_dst, .cm_old, .cm_ras_push, .cm_ras_pop, .cm_ras_link,
-    .cm_cbr, .cm_ctaken, .cm_cpred, .cm_cftq, .cm_cslot, .cm_pc, .cm_ijmp, .cm_jmisp, .cm_hv, .cm_hftq,
+    .cm_cbr, .cm_ctaken, .cm_cpred, .cm_cftq, .cm_cslot, .cm_pc, .cm_ijmp, .cm_hv, .cm_hftq,
     .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va,
     .tr_st_data, .tr_st_size, .tr_lq, .tr_ld_va, .tr_ld_size, .tr_tag, .tr_data,
     .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret, .sret, .sfence,
