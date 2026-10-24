@@ -139,7 +139,9 @@ void l1i_model_t::cycle(const ul_in_t& in, ul_out_t& out) {
         ctx_.fail(strfmt("l1i A: source %u already in flight", a.source));
       d_msg_t m;
       m.ready_at = ctx_.now + ctx_.latency(ctx_.cfg.lat);
-      bool ok = (ctx_.in_dram(a.address, 1ull << a.size) || ctx_.in_rom(a.address, 1ull << a.size)) &&
+      bool in_dbg = ctx_.cfg.dbg_win && a.address >= ctx_.cfg.dbg_base &&
+                    a.address + (1ull << a.size) <= ctx_.cfg.dbg_base + ctx_.cfg.dbg_size;
+      bool ok = (ctx_.in_dram(a.address, 1ull << a.size) || ctx_.in_rom(a.address, 1ull << a.size) || in_dbg) &&
                 !ctx_.denied(a.address);
       m.hdr.opcode = D_ACCESS_ACK_DATA;
       m.hdr.size = a.size;
@@ -244,11 +246,14 @@ uint64_t mmio_model_t::dev_read(uint64_t addr, unsigned size, bool& ok) {
     return v;
   }
   if (addr >= c.clint_base && addr < c.clint_base + c.clint_size) return clint.read(addr - c.clint_base, size);
-  if (ctx_.in_rom(addr, 1ull << size)) {
+  if (ctx_.in_rom(addr, 1ull << size) ||
+      (c.dbg_win && addr >= c.dbg_base && addr + (1ull << size) <= c.dbg_base + c.dbg_size)) {
     uint64_t v = 0;
     ctx_.mem->read(addr, 1u << size, &v);
     return v;
   }
+  if (c.dbg_win && addr == c.dbg_req_addr && size == 2) return dbg_req;
+  if (c.dbg_win && addr == c.dbg_req_addr + 4 && size == 2) return 0x0DB6;   // announces --dbg-win to a test
   for (auto& r : c.dev_regions)
     if (addr >= r.first && addr < r.first + r.second) return 0;
   ok = false;
@@ -269,6 +274,14 @@ bool mmio_model_t::dev_write(uint64_t addr, unsigned size, uint64_t v) {
     uint32_t lines = uint32_t(v) & 0x7fffffffu;
     if (v & 0x80000000u) sig_lines |= lines;
     else sig_lines &= ~lines;
+    return true;
+  }
+  if (c.dbg_win && addr >= c.dbg_base && addr + (1ull << size) <= c.dbg_base + c.dbg_size) {
+    ctx_.mem->write(addr, 1u << size, &v);
+    return true;
+  }
+  if (c.dbg_win && addr == c.dbg_req_addr && size == 2) {
+    dbg_req = uint32_t(v);
     return true;
   }
   for (auto& r : c.dev_regions)
@@ -333,7 +346,10 @@ void mmio_model_t::cycle(const ul_in_t& in, ul_out_t& out) {
       bool ok;
       if (a.opcode == A_GET) {
         uint64_t v = ctx_.denied(a.address) ? (ok = false, 0) : dev_read(a.address, a.size, ok);
-        if (ok) reads.read(a.source, ctx_.now, a.address);   // its load retires once (main.cpp)
+        // its load retires once (main.cpp); --dbg-win: the debug window's reads come from debug mode, which leaves no
+        // trace record, so they are not counted
+        bool dbg = ctx_.cfg.dbg_win && a.address >= ctx_.cfg.dbg_base && a.address < ctx_.cfg.dbg_base + ctx_.cfg.dbg_size;
+        if (ok && !dbg) reads.read(a.source, ctx_.now, a.address);
         m.hdr.opcode = D_ACCESS_ACK_DATA;
         m.beats.push_back(beat_with(v, lane, n));
         m.hdr.corrupt = !ok;

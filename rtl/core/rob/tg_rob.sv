@@ -1035,10 +1035,12 @@ module tg_rob
           xr_s_q[t_ds] <= 1'b0;
           xr_d_q[t_ds] <= 1'b0;
           for (int k = 0; k < DISPATCH_WIDTH; k++) begin
+            // (a dret only in debug mode, which changes with flushes alone: outside it, it is an illegal instruction,
+            // whose trap needs port 1's trap vector, not dpc)
             if (ds_valid[k] && (ds_uop[k].d.sys == SYS_MRET || ds_uop[k].d.sys == SYS_SRET ||
-                                (DEBUG_ON && ds_uop[k].d.sys == SYS_DRET))) xr_v_q[t_ds] <= 1'b1;
+                                (DEBUG_ON && ds_uop[k].d.sys == SYS_DRET && dm_h[t_ds]))) xr_v_q[t_ds] <= 1'b1;
             if (ds_valid[k] && ds_uop[k].d.sys == SYS_SRET) xr_s_q[t_ds] <= 1'b1;
-            if (DEBUG_ON && ds_valid[k] && ds_uop[k].d.sys == SYS_DRET) xr_d_q[t_ds] <= 1'b1;
+            if (DEBUG_ON && ds_valid[k] && ds_uop[k].d.sys == SYS_DRET && dm_h[t_ds]) xr_d_q[t_ds] <= 1'b1;
           end
           tail_q[t_ds] <= rob_add_t(tail_q[t_ds], $countones(ds_valid), t_ds, md);
         end
@@ -1245,8 +1247,9 @@ module tg_rob
   always_ff @(posedge clk) begin
     if (!rst && !flush) begin
       assert (cnt >= 0 && cnt <= part_size(ROB_ENTRIES, md)) else $error("tg_rob: bad occupancy %0d", cnt);
-      if (do_trap && !hp[0].dexc && !tlbx)
+      if (do_trap && !hp[0].dexc && !tlbx && !(DEBUG_ON && hp[0].serial && hp[0].sys == SYS_DRET))   // (dret outside
         assert (exr_v_q[t_cm] && exr_rob_q[t_cm] == hid[0]) else $error("tg_rob: exception register does not hold the head");
+                                                                          // debug mode: commit's own illegal trap)
       for (int j = 0; j < CW; j++)
         if (ret[j] && misp_h[j])
           assert (mpr_v_q[t_cm] && mpr_rob_q[t_cm] == hid[j])

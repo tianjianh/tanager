@@ -136,6 +136,9 @@ extern "C" void tg_dpi_tl_c(svBit a_valid, int a_opcode, int a_param, int a_size
   *e_ready_n = out.e_ready;
 }
 
+// --dbg-win: the halt requests (a bit per hart) for the core's debug_req_i
+extern "C" int tg_dpi_dbg_req() { return int(tb().mmio.dbg_req); }
+
 extern "C" void tg_dpi_irq(int merr, int* mei_n, int* sei_n, int* mti_n, int* msi_n, int* ssi_n, long long* mtime_n) {
   tb_t& t = tb();
   model_ctx_t& ctx = t.ctx;

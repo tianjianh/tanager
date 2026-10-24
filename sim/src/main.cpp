@@ -88,7 +88,7 @@ void usage() {
           "               --grant-order=oldest|random|youngest --set-stride=BYTES --mmio-lat=N --d-stall-max=N\n"
           "               --mem-mb=N --rom=FILE\n"
           "               --deny=ADDR[:LEN] --boot=ADDR --tohost-va=ADDR\n"
-          "  devices:     --mtime-div=N --irq-rand=PERMILLE\n"
+          "  devices:     --mtime-div=N --irq-rand=PERMILLE --dbg-win (a TG_DEBUG core's debug window and halt register)\n"
           "  trace:       --trace-stall=PERMILLE [--trace-fifo=N]: a trace sink that drains at random, busy\n"
           "               for 1..64 cycles with this chance per cycle, drives trace_stall_i\n"
           "  RTL:         --rand-reset; +plusargs are passed to the model (tg_tcore: +tcore_defer=PCT\n"
@@ -199,6 +199,7 @@ opts_t parse(int argc, char** argv, model_cfg_t& mc) {
     else if (k == "tohost-va") o.tohost_va.push_back(num(need(), "--tohost-va"));
     else if (k == "mtime-div") mc.mtime_div = std::max(1u, unsigned(num(need(), "--mtime-div")));
     else if (k == "irq-rand") mc.irq_rand = unsigned(num(need(), "--irq-rand"));
+    else if (k == "dbg-win") mc.dbg_win = true;
     else if (k == "trace-stall") o.trace_stall = int(std::min<uint64_t>(1000, num(need(), "--trace-stall")));
     else if (k == "trace-fifo") o.trace_fifo = unsigned(num(need(), "--trace-fifo"));
     else { fprintf(stderr, "tg: unknown option --%s\n", k.c_str()); usage(); }
