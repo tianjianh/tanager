@@ -1,0 +1,10 @@
+# sim/Makefile builds into $(TANAGER_BUILD)/$(WT)/sim. For a worktree directly under $TANAGER_BUILD (the coordinator's
+# check slots) that is this folder. Its build output (<cfg>-core*, gen, lockstep, replay, unit) then went into every
+# tree that cycle-identical, perf and boot-lockstep make from the working copy (worktree_tree's git add -A): gigabytes
+# of loose objects, a new cache key at each check, 3.4 GB copied into a boot build. Every folder here but the sources
+# is build output; a new source folder needs a line below.
+/*/
+!/cov/
+!/src/
+!/tb/
+!/tcore/

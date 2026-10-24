@@ -73,6 +73,7 @@ module tg_dcache
   // M7 (two threads, SPLIT): the store port's request (a store or an atomic) needs a new miss entry and gets none
   // this cycle; and a store waits for one (the LSU's per-thread record of st_wait): loads leave it the last entry
   output logic              st_wait,
+  output logic              st_miss,      // M9's counters (TG_HPM): the store port's store finds its line without T
   input  logic              st_resv,
   // Atomics: read-modify-write of one row with the line held in T (never with st_req)
   input  logic              am_req,       // held until am_ack or am_den
@@ -352,6 +353,7 @@ module tg_dcache
   assign alloc_ld = al_base && m_free_ld && c_req && !(|ch) && !am_req && !(st_req && !s_hit_t && m_free_st) &&
                     !st_rsv;
   assign st_wait  = sx_req && !s_hit_t && !dn_hit && sx_new && !alloc_st;
+  assign st_miss  = st_req && !s_hit_t;
   // A store's ownership prefetch (STORE_PF, DC_MSHRS > 1): its line, absent or held in B, through the
   // controller port in a cycle without a load's request; never for a line held with T, beside an
   // atomic, or when the store port writes or allocates (m_free_pf: the store port then has no request,

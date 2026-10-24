@@ -9,17 +9,24 @@ run at their untraced speed: tb_boot's +trace_out goes through the stream, whose
 IPC 0.15. The images are cycle-identical's pinned references (REF_IMAGES), unwritten memory reads zero as for any
 traced run (+mem_zero), and a run stops at MCYC million cycles, or at TANAGER-BOOT-OK.
 
-  make boot-lockstep [BRANCH=<ref>] [SHAPE=st|board] [MCYC=100] [TIMING="default board"] [SEED=1] [profile switches]
+  make boot-lockstep [BRANCH=<ref>] [SHAPE=st|board] [MCYC=100] [TIMING="default board"] [SEED=1] [VTHREADS=N]
+                     [profile switches]
   make boot-lockstep-gate [BASE=<commit>] [BRANCH=<ref>] [profile switches]
   tools/ci/boot_lockstep.py --nightly           (the crontab's run: main, 400M cycles, st and board, the night's timing)
   tools/ci/boot_lockstep.py --install-cron      (the nightly's entry, with main's checkout's copy)
 
 The RTL is BRANCH's (default: this tree's, with its uncommitted changes); the harness (sim/, tests/unit, sw/dts)
 is this tree's, as in cycle-identical. SHAPE st is one st core; board is the board's: two smt2 cores, thread 0 of
-each (harts 0 and 2). TIMING names the DDR models' timing, one run each, side by side: board (a fixed 22 cycles,
+each (harts 0 and 2). VTHREADS sets the model's Verilator threads (the shape's by default: 1, 4, 4); one thread
+keeps its pace on a loaded host, where four stall at their barriers. TIMING names the DDR models' timing, one run each, side by side: board (a fixed 22 cycles,
 every ready at 100%), jitter (18-26 cycles), fixedN, default (tb_boot's own, 4-12). The gate runs st at 100M
 cycles with default and board timing when the change, against its merge base with BASE (main), reaches the core's
-fetch, decode, rename, LSU, MMU or CSR, or its top and package; otherwise it says so and passes.
+fetch, decode, rename, LSU, MMU or CSR, or its top and package, or how the boot is built and checked (GATE_HARNESS: the
+profile switches, the device trees, tb_boot's unit, the tap, tanager-lockstep's sources); otherwise it says so and
+passes.
+HPM=1 (M9's counters, DR-190) builds tanager-lockstep with Sscofpmf in Spike's ISA, as sim/Makefile's HPM=1, and the
+device tree with sw/dts HPM=1 where this tree's sw/dts takes it; the reference Image has no PMU driver, so a boot
+that should load Linux's names an Image with it (BOOT_KERNEL, the bench image's).
 Exit status: 0 every run checked clean; 1 a lockstep mismatch; 2 a run that could not be checked.
 """
 import argparse
@@ -42,7 +49,6 @@ NAME = "boot-lockstep"
 CACHE = os.path.join(ci.TB, "boot-lockstep")
 WORK = os.path.join(ci.TB, ci.WT, "boot-lockstep")
 SOAK_FAIL = os.path.join(ci.TB, "soak", "fail")
-KEEP_BUILDS = 4           # tb_boot builds kept, binaries only (least recently used go first)
 KEEP_RUNS = 30            # run directories kept (logs and reports), newest first
 MEM_PARAMS = "-GL2_SETS_TB=1024"   # the board's L2 sets; the DDR timing is set at run time (TIMINGS)
 # shape: (CFG, cores, threads, threads Linux runs, Verilator threads). smp4 is M7's four harts, both threads of both
@@ -51,6 +57,19 @@ MEM_PARAMS = "-GL2_SETS_TB=1024"   # the board's L2 sets; the DDR timing is set 
 SHAPES = {"st": ("st", 1, 1, 1, 1), "board": ("smt2", 2, 2, 1, 4), "smp4": ("smt2", 2, 2, 2, 4)}
 GATE_PATHS = tuple(f"rtl/core/{d}/" for d in ("frontend", "decode", "rename", "lsu", "mmu", "csr")) + \
              ("rtl/core/tg_core.sv", "rtl/core/tg_core_pkg.sv")
+# How the boot is built and checked runs the gate too, as a core change does: the profile switches, the device trees,
+# tb_boot and its unit's rules, the tap, tanager-lockstep's sources (sim/src's headers included), this script and the
+# build helpers it takes from cycle_identical.py, and sim/.gitignore (what of sim/ goes into the build). On 10-24
+# sim/profile.mk's empty HPM and the boot unit's new HPM=$(HPM) to sw/dts each passed alone and broke every tb_boot
+# together; and a checker change met its first Linux boot only at the next core change's gate.
+GATE_HARNESS = ("sim/profile.mk", "sim/Makefile", "sim/.gitignore", "sim/tb/tg_soc_tap", "sim/src/lockstep.cpp",
+                "sim/src/tanager_lockstep.cpp", "sim/src/elfload.cpp", "tests/unit/boot/", "tests/unit/common/",
+                "sw/dts/", "tools/ci/boot_lockstep.py", "tools/ci/cycle_identical.py")
+
+
+def gate_harness(path):
+    return path.startswith(GATE_HARNESS) or (path.startswith("sim/src/") and path.endswith(".h") and
+                                             "/" not in path[len("sim/src/"):])
 # The gate's two timings, the ones that caught M6's micro-BTB alias on 0a1a418 soonest: tb_boot's own random
 # timing (89.3M cycles) and the board's fixed 22 (106.2M); jitter (18-26) ran 100M without it (DR-173)
 GATE_MCYC, GATE_TIMINGS = 100, ("default", "board")
@@ -58,10 +77,14 @@ NIGHT_MCYC, NIGHT_SHAPES = 400, ("st", "board")
 NIGHT_TIMINGS = ("board", "jitter", "fixed30", "default")   # one a night, in turn
 NIGHT_MEM_GB = 12         # the nightly starts no run while MemAvailable is under this (as the soak)
 NIGHT_CRON = "15 0 * * *"
+# A run stops when tb_boot has printed nothing for STALL_S (it prints a line every million cycles), so a hung model or
+# checker (the tap blocks on a full FIFO) stops and a slow one on a loaded host finishes; none runs past WALL_CAP_S.
+# The fixed limit before (3 minutes a million cycles) stopped a clean smp4 HPM=1 run at a load of 54 (10-24).
+STALL_S, WALL_CAP_S = 1800, 86400
 SWITCH_VALUES = {"TIMING_CUTS": (0, 1), "DC_MSHRS": (1, 4), "QUEUE_DECODE": (0, 1), "SPEC_WAKE": (0, 1),
                  "STA_BASE": (0, 1), "STEER_LA": (0, 1), "PMP_ENTRIES": (8, 16), "STORE_PF": (0, 1), "URF": (0, 1),
                  "STORE_PF_MAX": (2, 3), "SOLO_TID": (0, 1), "SPLIT": (0, 1),
-                 "HART1": (0, 1), "SPEC_WAKE_FILT": (0, 1, 2), "PMP_FILL": (0, 1)}
+                 "HART1": (0, 1), "SPEC_WAKE_FILT": (0, 1, 2), "PMP_FILL": (0, 1), "HPM": (0, 1)}
 
 
 def log(msg):
@@ -93,8 +116,9 @@ class Build:
     """tb_boot with the tap, and tanager-lockstep, from the tested RTL and this tree's harness, in
     CACHE/build/<key>: the checker takes its boot ROM and PMP default from that RTL too."""
 
-    def __init__(self, rtl_src, harness_src, shape, prof, tool):
+    def __init__(self, rtl_src, harness_src, shape, prof, tool, vthreads=None):
         self.cfg, self.cores, _, _, self.vthreads = SHAPES[shape]
+        self.vthreads = vthreads or self.vthreads
         self.rtl_src, self.harness_src = rtl_src, harness_src
         self.prof = [f"{v}={prof[v]}" for v, _ in ci.PROFILE_VARS if v in prof]
         trees = [ci.git("rev-parse", f"{rtl_src}:rtl")] + [ci.git("rev-parse", f"{harness_src}:{p}")
@@ -114,8 +138,7 @@ class Build:
     def build(self, jobs):
         """None, or why it failed."""
         os.makedirs(os.path.dirname(self.dir), exist_ok=True)
-        with open(self.dir + ".lock", "a") as lk:
-            fcntl.flock(lk, fcntl.LOCK_EX)  # another run may be building the same tree
+        with ci.lock_build(self.dir + ".lock", fcntl.LOCK_EX):  # another run may be building the same tree
             if self.built():
                 os.utime(self.dir)
                 return None
@@ -132,7 +155,8 @@ class Build:
             for cmd in (["make", "-s", "-C", os.path.join(self.src, "tests", "unit", "boot"), f"CFG={self.cfg}",
                          f"CORES={self.cores}", f"VTHREADS={self.vthreads}", f"JOBS={jobs}", f"SOC_BUILD={self.obj}",
                          f"TB={tbs}", "TAG=_tap", f"MEM_PARAMS={MEM_PARAMS}", *self.prof, "build"],
-                        ["make", "-s", "-C", os.path.join(self.src, "sim"), f"TANAGER_BUILD={self.obj}", "lockstep"]):
+                        ["make", "-s", "-C", os.path.join(self.src, "sim"), f"TANAGER_BUILD={self.obj}",
+                         *(p for p in self.prof if p.startswith("HPM=")), "lockstep"]):   # Spike's ISA with the counters
                 p = subprocess.run(cmd, env=env, capture_output=True, text=True,
                                    preexec_fn=host_policy.preexec(1))
                 if p.returncode:
@@ -140,33 +164,53 @@ class Build:
             tb = self.tb()
             if not tb:
                 return "the build left no single tb_boot"
-            # Keep what the runs need: Verilator's objects and precompiled headers are most of a build's 300 MB
+            # Keep what the runs need: Verilator's objects and precompiled headers are most of a build's 300 MB, and
+            # the runs read nothing from the sources (tb_boot and tanager-lockstep are both under obj)
             for f in glob.glob(os.path.join(os.path.dirname(tb), "*")):
                 if f != tb:
                     shutil.rmtree(f) if os.path.isdir(f) else os.remove(f)
+            shutil.rmtree(self.src, ignore_errors=True)
             open(os.path.join(self.dir, "OK"), "w").close()
             return None
 
 
+def drop_sources(bdir, dry_run=False):
+    """A finished build keeps only what its runs need; one that an older copy of this script made still has its
+    sources (3.4 GB once, a check slot's sim/ build output): they go, each under its build's lock taken without
+    waiting. Returns (builds, bytes) dropped, or with dry_run that would be."""
+    n, size = 0, 0
+    for d in os.listdir(bdir):
+        src = os.path.join(bdir, d, "src")
+        if os.path.exists(os.path.join(bdir, d, "OK")) and os.path.isdir(src):
+            lk = ci.lock_build(os.path.join(bdir, d + ".lock"), fcntl.LOCK_EX, wait=False)
+            if lk:
+                with lk:
+                    n, size = n + 1, size + ci.tree_stats(src)[0]
+                    if not dry_run:
+                        shutil.rmtree(src, ignore_errors=True)
+    return n, size
+
+
 def prune_builds(keep):
+    """The build cache's trim after the builds: older builds' sources (drop_sources), then cycle-identical's
+    prune_cache (the newest 40 builds within 15 GB, never one in use or used in the last hour); this run's builds
+    stay (keep)."""
     bdir = os.path.join(CACHE, "build")
-    dirs = [d for d in os.listdir(bdir) if os.path.isdir(os.path.join(bdir, d))]
-    for d in sorted(dirs, key=lambda d: -os.path.getmtime(os.path.join(bdir, d)))[KEEP_BUILDS:]:
-        if d in keep:
-            continue
-        with open(os.path.join(bdir, d + ".lock"), "a") as lk:
-            try:
-                fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                continue
-            shutil.rmtree(os.path.join(bdir, d), ignore_errors=True)
+    drop_sources(bdir)
+    ci.prune_cache(bdir, keep)
 
 
-def device_tree(harness_src, shape):
-    """The shape's device tree from this tree's sw/dts, as cycle-identical's boot makes it (128 MiB, FPU)."""
+def dts_takes_hpm(harness_src):
+    """Whether this tree's sw/dts has HPM=1 (Sscofpmf and the counters' event map, for a core with TG_HPM=1)."""
+    return re.search(r"^HPM\s*\?=", ci.git("show", f"{harness_src}:sw/dts/Makefile"), re.M) is not None
+
+
+def device_tree(harness_src, shape, hpm=False):
+    """The shape's device tree from this tree's sw/dts, as cycle-identical's boot makes it (128 MiB, FPU); with hpm,
+    sw/dts HPM=1 (the caller checks dts_takes_hpm)."""
     _, cores, threads, run_threads, _ = SHAPES[shape]
     dsrc = ci.git("rev-parse", f"{harness_src}:sw/dts")
-    ddir = os.path.join(CACHE, "dts", f"{dsrc[:12]}-c{cores}t{threads}r{run_threads}")
+    ddir = os.path.join(CACHE, "dts", f"{dsrc[:12]}-c{cores}t{threads}r{run_threads}{'-hpm1' if hpm else ''}")
     dtb = os.path.join(ddir, "tanager-kv260.dtb")
     os.makedirs(os.path.dirname(ddir), exist_ok=True)
     with open(ddir + ".lock", "a") as lk:
@@ -179,7 +223,8 @@ def device_tree(harness_src, shape):
             subprocess.run(["tar", "-x", "-C", src], stdin=a.stdout, check=True)
             a.wait()
             p = subprocess.run(["make", "-s", "-C", os.path.join(src, "sw", "dts"), f"O={ddir}", f"CORES={cores}",
-                                f"THREADS={threads}", f"RUN_THREADS={run_threads}", *ci.BOOT_DTS],
+                                f"THREADS={threads}", f"RUN_THREADS={run_threads}", *ci.BOOT_DTS,
+                                *(["HPM=1"] if hpm else [])],
                                capture_output=True, text=True, env=ci.clean_env(), preexec_fn=host_policy.preexec(1))
             if p.returncode or not os.path.exists(dtb):
                 fail(f"building the {shape} device tree: {(p.stdout + p.stderr)[-1000:]}")
@@ -207,7 +252,7 @@ def run_one(build, dtb, images, shape, timing, mcyc, seed, outdir, nice=False, p
     fw, kernel = images["fw"][0], images["kernel"][0]
     # The host policy (verification.md §8): on a hybrid host every model and its checker at nice 10 or more, the
     # board and smp4 shapes' four-thread models and their checkers on the E-cores
-    pol = host_policy.preexec(SHAPES[shape][4])
+    pol = host_policy.preexec(build.vthreads)
 
     def pre():
         if nice:
@@ -226,16 +271,27 @@ def run_one(build, dtb, images, shape, timing, mcyc, seed, outdir, nice=False, p
                                f"+expect={ci.BOOT_EXPECT}", f"+max_mcycles={mcyc}", f"+verilator+seed+{seed}",
                                "+mem_zero", f"+tap_out={fifo}", *timing_args(timing)],
                               stdout=tf, stderr=subprocess.STDOUT, preexec_fn=pre if nice or pol else None)
-        limit = max(3600, mcyc * 180)   # wall seconds: 3 minutes a million cycles, four times today's pace
-        timed_out = False
-        for p in (tb, ls):
+        timed_out, size, moved = False, -1, time.time()
+        while tb.poll() is None:
+            time.sleep(15)
             try:
-                p.wait(timeout=max(1, limit - (time.time() - t0)))
-            except subprocess.TimeoutExpired:
+                grown = os.path.getsize(os.path.join(outdir, "tb_boot.log"))
+            except OSError:
+                grown = size
+            if grown != size:
+                size, moved = grown, time.time()
+            if time.time() - moved > STALL_S or time.time() - t0 > WALL_CAP_S:
                 timed_out = True
                 tb.kill()
                 ls.kill()
-                p.wait()
+                break
+        tb.wait()
+        try:
+            ls.wait(timeout=STALL_S)   # what the FIFO still holds
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            ls.kill()
+            ls.wait()
     minutes = (time.time() - t0) / 60
     os.remove(fifo)
     lsl = open(os.path.join(outdir, "lockstep.log"), errors="replace").read()
@@ -256,7 +312,7 @@ def run_one(build, dtb, images, shape, timing, mcyc, seed, outdir, nice=False, p
     if end and end[1] == "PASS" and (reached or limit_hit) and not timed_out:
         what = "to TANAGER-BOOT-OK" if reached else "to the cycle limit"
         return "PASS", f"{tag}: PASS, {int(end[2]):,} records {what} ({where}), {minutes:.0f} min", ""
-    why = ("wall-clock limit" if timed_out else
+    why = (f"no progress in {STALL_S // 60} minutes, or past {WALL_CAP_S // 3600} hours" if timed_out else
            next((l.strip() for l in (tbl + lsl).splitlines() if re.search(r"%Error|%Fatal|fatal|NOTHING|cannot", l)),
                 "no verdict from tanager-lockstep or tb_boot"))
     return "BROKEN", f"{tag}: could not be checked: {why[:200]} ({where}); logs in {outdir}", why
@@ -340,10 +396,15 @@ def checks(a, tool, nice=False, nightly=False):
             fail(f"this tree's sim/profile.mk does not take {v}")
     images = {k: ci.boot_image(k, a.boot_fw if k == "fw" else a.boot_kernel) for k in ("fw", "kernel")}
     log(f"{label}: {', '.join(shapes)}; timing {', '.join(timings)}; {a.mcyc}M cycles; seed {a.seed}"
-        f"{'; ' + ', '.join(f'{v}={p}' for v, p in prof.items()) if prof else ''}")
+        f"{'; ' + ', '.join(f'{v}={p}' for v, p in prof.items()) if prof else ''}"
+        f"{f'; {a.vthreads} Verilator thread(s)' if a.vthreads else ''}")
+    dts_hpm = prof.get("HPM") == 1 and dts_takes_hpm(harness)
+    if prof.get("HPM") == 1:
+        log("  device tree: sw/dts HPM=1 (Sscofpmf, the counters' event map)" if dts_hpm else
+            "  device tree: this tree's sw/dts has no HPM switch, so it leaves Sscofpmf and the counters' events out")
     for k, (path, h, what) in images.items():
         log(f"  {'firmware' if k == 'fw' else 'kernel  '}: sha256 {h} ({what}), {path}")
-    builds = {s: Build(rtl, harness, s, prof, tool) for s in shapes}
+    builds = {s: Build(rtl, harness, s, prof, tool, a.vthreads) for s in shapes}
     t0 = time.time()
     for s, b in builds.items():
         why = b.build(a.jobs)
@@ -351,7 +412,7 @@ def checks(a, tool, nice=False, nightly=False):
             fail(f"building {s}: {why}")
     log(f"built in {time.time() - t0:.0f} s; running {len(shapes) * len(timings)} boot(s) side by side")
     prune_builds({b.key for b in builds.values()})
-    dtbs = {s: device_tree(harness, s) for s in shapes}
+    dtbs = {s: device_tree(harness, s, dts_hpm) for s in shapes}
     stamp = time.strftime("%Y%m%d-%H%M%S")
     runs = [(s, t) for s in shapes for t in timings]
     with cf.ThreadPoolExecutor(max_workers=len(runs)) as ex:
@@ -387,14 +448,18 @@ def main():
     ap.add_argument("--timing", default="board", help="board, jitter, fixedN, default, or a list (one run each)")
     ap.add_argument("--mcyc", type=int, default=None, help=f"million cycles a run lasts at most (default {GATE_MCYC})")
     ap.add_argument("--seed", type=int, default=1, help="tb_boot's random seed (+verilator+seed+)")
+    ap.add_argument("--vthreads", type=int, default=None,
+                    help="the model's Verilator threads (default: the shape's, st 1, board and smp4 4); 1 keeps its pace "
+                         "on a loaded host, where four threads stall at their barriers")
     ap.add_argument("--jobs", type=int, default=8, help="make jobs for the builds")
     ap.add_argument("--boot-fw", default="", help="another fw_jump.bin than the pinned reference")
     ap.add_argument("--boot-kernel", default="", help="another Image than the pinned reference")
     ap.add_argument("--tb-params", default="", help="more tb_boot parameters for the build, after MEM_PARAMS (e.g. "
                                                     "'-GL2_WB_PACE_TB=1 -GL2_PACE_INIT_TB=4100'); part of the build's key")
     ap.add_argument("--gate", action="store_true",
-                    help=f"run only if the change against --base reaches the core's {', '.join(GATE_PATHS)}; "
-                         f"then st at {GATE_MCYC}M with {' and '.join(GATE_TIMINGS)}")
+                    help=f"run only if the change against --base reaches the core's {', '.join(GATE_PATHS)}, or how "
+                         f"the boot is built and checked ({', '.join(GATE_HARNESS)}, sim/src/*.h); then st at "
+                         f"{GATE_MCYC}M with {' and '.join(GATE_TIMINGS)}")
     ap.add_argument("--base", default="", help="the gate's base: the change is what BRANCH (or HEAD) adds to its "
                                                "merge base with it (default main)")
     ap.add_argument("--nightly", action="store_true", help="the crontab's run (main; see the description)")
@@ -425,14 +490,16 @@ def main():
         base = a.base or "main"
         fork = ci.git("merge-base", base, a.branch or "HEAD")
         rtl, label = resolve(a)
-        changed = [c for c in ci.git("diff", "--name-only", fork, rtl, "--", "rtl/core").splitlines()
+        changed = [c[len("rtl/core/"):] for c in ci.git("diff", "--name-only", fork, rtl, "--", "rtl/core").splitlines()
                    if c.startswith(GATE_PATHS)]
+        changed += [c for c in ci.git("diff", "--name-only", fork, rtl, "--", "sim", "tests/unit", "sw/dts",
+                                      "tools/ci").splitlines() if gate_harness(c)]
         if not changed:
-            log(f"gate: {label} changes nothing in the core's fetch, decode, rename, LSU, MMU or CSR against "
-                f"{fork[:10]} (its merge base with {base}): skipped")
+            log(f"gate: {label} changes nothing in the core's fetch, decode, rename, LSU, MMU or CSR, nor in how the "
+                f"boot is built and checked, against {fork[:10]} (its merge base with {base}): skipped")
             return 0
         log(f"gate: {len(changed)} file(s) against {fork[:10]} (the merge base with {base}): "
-            f"{', '.join(c[9:] for c in changed[:6])}{' ...' if len(changed) > 6 else ''}")
+            f"{', '.join(changed[:6])}{' ...' if len(changed) > 6 else ''}")
         a.shape, a.timing = "st", " ".join(GATE_TIMINGS)
     a.mcyc = a.mcyc or GATE_MCYC
     return checks(a, tool)
