@@ -2227,6 +2227,36 @@ Results: [`fpga/spikes/results/ooc_dr191/`](../../fpga/spikes/results/ooc_dr191/
 
 Results: `fpga/spikes/results/product_wt_rec_u095/` and `_u105/`, with `images_sha256_md5.txt`. The images and checkpoints are in `~/tanager-build/track-spikes-72f833/vivado/product_wt_rec_u095/` and `_u105/`, both on `KEEP.txt`.
 
+#### The write-pacing measurement image on main closes at +1.068 ns (2026-10-24)
+
+**Asked** (the coordinator): soc-2's measurement image for the board's write-pacing sweep ([soc.md](../spec/soc.md) §8.5, `tests/bench/mem` `wsdp.bin`).
+- **What's in it:** main 8a47f23b (all five DR-191 fixes) with `TG_L2_WB_PACE=1`. The batching is off at reset (`TG_L2_PACE_INIT=1025`, the default: a batch of 1, a wait of 64), so the sweep sets `L2_PACE` at run time.
+- **The flow:** the pair of record's clean placement (`rec_u105`): the product form, `AltSpreadLogic_high`, `AlternateCLBRouting`, 1.05 ns. One placement, no fallbacks.
+- **The snapshot:** `snap/product_wt2` 99fcb9376d8d (main plus the measurement commit), pinned `claude/spikes-2-board-wbpm`. Forward references and lint with `L2_WB_PACE=1` came back clean.
+
+| | **`wbpm_u105`** | for comparison: `rec_u105` |
+|---|---|---|
+| LUTs after synthesis / `opt_design` / routed | 119,907 / 115,755 / 113,122 (96.6%) | 119,547 / 115,574 / 112,862 (96.4%) |
+| FFs, control sets | 58,275, 2,847 | 58,210, 2,855 |
+| WNS after placement (estimated, uncertainty on) | +0.202 | +0.296 |
+| Routing | level 5, no trade; the whole build 1.5 h | level 5, no trade |
+| **WNS / TNS / WHS (ns)** | **+1.068 / 0 / +0.009** | +1.066 / 0 / +0.010 |
+| the core clock's WNS; `clk2x` within / into / back | +1.068; +1.292 / +1.083 / +1.150 | +1.157; +1.504 / +1.066 / +1.133 |
+| Endpoints within 1 ns | **none** | none |
+
+- **It closes with the pair of record's margin.** Against `rec_u105` it has +360 LUTs after synthesis, +260 routed and +65 FFs.
+  - The batching is about 80 LUTs and 66 FFs a chip ([soc.md](../spec/soc.md) §8.5).
+  - The rest is main's RTL since f3311cdd, with its switches off, and synthesis noise.
+- **The floorplan:** L2 bank 0 100%/76%, bank 1 104%/79%.
+
+**The image,** written by `run_bit_runs.sh` (write_bit_from_dcp.tcl); `timing_bit.rpt` says "All user specified timing constraints are met".
+
+| | `tanager.bit.bin` sha256 | `tanager.bit` sha256 |
+|---|---|---|
+| **`wbpm_u105`, soc-2's write-pacing image** | f73771bbc1fde0e0277e3db22f0aaed19519f77ab11003cde9e03d29cb138c20 | fc951f18036794d469ed7699d71d596fab9c87ff77bc29dac940a991cd0b8eb9 |
+
+Results: `fpga/spikes/results/product_wt2_wbpm_u105/`, with `images_sha256_md5.txt`. The image and checkpoint are in `~/tanager-build/track-spikes-72f833/vivado/product_wt2_wbpm_u105/`, on `KEEP.txt`.
+
 #### The preview pair with DR-191's fixes 3–5 (2026-10-24)
 
 **Asked** (the coordinator, 10-24): "a full-chip preview pair, product flow at 0.95 and 1.05 ns", on main d7c2d835 (fix 4 is 16b6d5d1) with fix 3 (core-2's tlbreg b3ab9dfe) and fix 5 (fpu-2's tageflat f6865c1e) merged. It is a preview: the pair of record waits for all five fixes on main.
