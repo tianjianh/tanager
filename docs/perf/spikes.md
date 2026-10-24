@@ -2125,6 +2125,39 @@ Each family runs 16–26 levels with 62–75% of its delay in wire, so the place
 
 Results: `fpga/spikes/results/product_wt4_rc3_u100/` (with the comparisons and the family chains) and `product_wt4_rc3_u105/`. The checkpoints are in `~/tanager-build/track-spikes-72f833/vivado/product_wt4_rc3_u100/` and `_u105/`.
 
+#### The recurring families: the fixes, before M9's RTL (2026-10-23)
+
+**Asked** (the coordinator, 10-23): the family-fix table across the last placements, with a structural fix, an owner and an effort for each recurring family. The reason: "closure took five tries for a dozen RTL lines, and M9 will change more"; each M9 change re-rolls closure, so the fixes come first where they can.
+
+| Family | fin1 u100 | s7d u105 | rc2 u100 | rc2 u105 | rc3 u100 | rc3 u105 | rc3 u110 | **rc3 u095r** | levels, wire |
+|---|---|---|---|---|---|---|---|---|---|
+| (WNS) | +0.257 | −0.422 | +0.296 | +0.188 | −1.104 | −0.959 | −0.237 | **+0.748** | |
+| the LSU state `lq_st_q` | +0.274 | −0.361 | +0.322 | +0.218 | −1.080 | −0.959 | −0.222 | +0.756 | 19–25, 64–74% |
+| `m2_foh_q` | +0.324 | +0.147 | +0.344 | +0.363 | −1.096 | −0.773 | −0.208 | +0.757 | 16–22, 66–75% |
+| the load data `r_data_q` | +0.267 | +0.188 | +0.529 | +0.925 | −1.066 | −0.954 | −0.016 | +1.000 | 18–24, 67–74% |
+| the walker's `chk_pa_q` | +0.585 | +0.223 | +0.801 | +0.411 | −1.104 | −0.696 | −0.144 | +0.811 | 17–20, 68–76% |
+| the I$ valid RAM | +0.261 | −0.248 | +0.349 | +0.420 | −1.086 | −0.746 | −0.237 | +0.773 | 20–26, 62–70% |
+| TAGE's tables | +0.761 | > +1.0 | > +1.0 | > +1.0 | −0.998 | +0.552 | +0.540 | +0.893 | 12–14, 57–66% |
+
+Every family sits 16–26 levels deep with two thirds of its delay in wire. At this fill a placement moves each by up to 2 ns, so a good placement passes them all and a congested one fails them all together. Cutting their depth is what stops the lottery.
+
+The chains below are rc3_u100's, by net name, in `fpga/spikes/results/product_wt4_rc3_u100/path_table_family_*.txt` and `report_timing_new_ival.txt`.
+
+| # | Family | Where the chain runs | Structural fix | Owner | Effort |
+|---|---|---|---|---|---|
+| 1 | the LSU state `lq_st_q`, the load data `r_data_q`, `lx_valid_q` (the store pipe into the shared PMP checker) | `sn_v_q` / `sn_pck_q` and the AMO FSM, 3–5 LUTs of request and select (a 780-fanout operand-select net), the operand mux, the compare (a LUT and two CARRY8s in `g_ckf.u_pmp_st`), `pfc_ok` (5 LUTs), **`sa_chk` at level 15–16 of 21**, then `m2_rck_q`'s cone (fanout 89) and 4–5 LUTs into the LQ entries' CE or the load result | a verdict register: `sa_chk` (each requester's result) registered, with the LQ state update and the load result a cycle later for checked accesses. That leaves about 15 levels ending at a register and 6 starting from one. Cheaper, cycle-identical but smaller: replicate the 780-fanout operand select | soc-2 (DR-183's checker), with core-2 for the LQ side | about a day with the checks; not cycle-identical, so DR-183's boot-cost bar applies |
+| 2 | `m2_foh_q` (M2's forward hit) | the store pipe's `sn_t_q`, 5 LUTs into the DTLB leaf LUTRAM's read address (fanout 36), the RAMD32, 8 LUTs of the leaf's compare, `m2_fhit` (4 LUTs), then `m2_foh_q`: 21 levels | the leaf read address from registers: the port's owner decided a stage ahead, as for the walker's DTLB port. About 5 levels off | core-2 | half a day; cycle-identical if the owner is known a cycle ahead |
+| 3 | the walker's `chk_pa_q` | the DTLB's valid bits `v_q`, the CAM match (a LUT6 and a MUXF7), 5 LUTs of hit encode, the leaf LUTRAM read (fanout 12), 8 LUTs, then the walker's VA/PA mux into `chk_pa_q`: 19 levels | the DTLB result registered before the walker's PMP check: a cycle more on a PTE read's check, cut at the LUTRAM's output (about 9 levels each side) | soc-2 (DR-183's walker check), with core-2 | half a day |
+| 4 | the I$ valid RAM (the L2's response into fetch) | the L2's `d_idx` / `dh_out`, `refill_done`, 3 LUTs into the valid RAM's read address (fanout 10), the RAMD64E read, 10 LUTs of way and valid merge (`pway_q`), then the valid RAM's write data: a read-modify-write in one cycle, 24 levels | `refill_done` registered (the valid write a cycle later, the line invalid until then), or the set's valid bits read at the refill's start so the write needs no read in the same cycle. About 6–10 levels off | core-2 | about a day; the FENCE.I sweep's new assert checks the valid RAM's writes |
+| 5 | TAGE's tables | the BRAM read, the update, then the BRAM write: 12–14 levels; it fails only in a congested placement | the read data registered before the update (the update a cycle later, with a bypass for back-to-back updates of an entry) | fpu-2 | half a day; lowest priority |
+
+- **The order:** 1 (the most endpoints, and the worst or near it in every placement), 4, 2 and 3 (both in the LSU's DTLB, and they could share a review), then 5.
+- **What it buys:** each fix takes 5–10 levels, 1.5–3 ns, off its family.
+  - With 1–4 in, the families that failed rc3_u100 by 1.1 ns would sit at about +0.5 or better in a placement like it.
+  - The next families down would be the margin's limit: decode's `dred_*` from the issue queues' `dep_q`, rename's RN register from `head_t_q`, the D$ RAMs and `sqh_q`, all 0.1–0.4 ns behind these in every placement.
+- **The flow stays as the release image's:** `TG_ROUTE_DIRECTIVE=AlternateCLBRouting` at `TG_PR_UNC=0.95` for product builds. It lowered the congestion from level 6 to 5 on the same netlist.
+- **Checking a fix:** a fix can be checked first on the release image's checkpoint, for the levels and slack of its own family, by a path query on a fresh build of the fix alone. A pair on main follows once several land.
+
 #### core-2's A/B: the read thread with and without per-bank copies (2026-10-22)
 
 The fixes preview's base with core-2's newer heads (`snap/product_wt` and `snap/product_wt3`): e5b304cd, TAGE 8cf8e262, DR-183 ecfcc8a5, and core-2's walker fix a6abdc5d. The walker fix registers the head lookup's VPN, so DTLB port 2 starts at one register. Then:
