@@ -176,7 +176,7 @@ The table gives the default tree's nodes; RISC-V mode's trees differ where noted
 |---|---|---|
 | `cpus` | `riscv` | `timebase-frequency` = 10 MHz; `riscv,isa-base` / `riscv,isa-extensions`; `mmu-type = riscv,sv39`; a `cpu-map` with SMT threads in the `smt2` build |
 | `clint@2000000` | `riscv,clint0` | ACLINT MSWI + MTIMER, CLINT layout |
-| `plic@c000000` | `riscv,plic0` | `riscv,ndev` = 31; contexts M, S per hart |
+| `interrupt-controller@c000000` (the PLIC, label `plic`) | `riscv,plic0` | `riscv,ndev` = 31; contexts M, S per hart |
 | `serial@10000000` | `ns16550a` | `clock-frequency` 3 686 400, PLIC 10 |
 | `syscon@10001000` | `tanager,hostctl`, `syscon` | host control (KV260 tree), PLIC 11 |
 | `virtio_mmio@10010000` … `@10013000` | `virtio,mmio` | with `VIRTIO=1`: the window's slots 0–3, PLIC 1–4 |
@@ -456,7 +456,7 @@ After the A53 boots it hands the board to the RISC-V and parks. The RISC-V's own
 6. **Release the RISC-V** (core reset off). Its Linux probes the controllers.
 
 **The RISC-V device tree.**
-- The four controllers get nodes with the generic compatibles: `arasan,sdhci-8.9a`, `cdns,gem`, `snps,dwc3` and `cdns,uart-r1p12`. The ZynqMP-specific ones call EEMI firmware through ARM SMC, which the RISC-V doesn't have.
+- The controllers' nodes list ZynqMP's compatible first, for the drivers' ZynqMP quirks, and the generic one after: `xlnx,zynqmp-8.9a` and `arasan,sdhci-8.9a`, `xlnx,zynqmp-gem` and `cdns,gem`, `xlnx,zynqmp-uart` and `cdns,uart-r1p12` (USB0's `snps,dwc3` waits for D6). Nothing in them calls the PMU firmware (EEMI through ARM SMC, which the RISC-V doesn't have): the clocks are fixed, and SD1's node has no `#clock-cells`, so its driver takes the ZynqMP quirks without the firmware's tap-delay calls (the plan here had been the generic compatibles alone).
 - **Clocks** are `fixed-clock` nodes at the rates the A53 left.
 - **Interrupts** go through the PLIC; **DMA** uses the `dma-ranges` above.
 
@@ -728,7 +728,7 @@ Each is checked on the board in stage D's first step, with the UART: the simples
       - COM7 (UART1, D3's path): the RISC-V's console and Debian's login.
       - **Recovery:** `poweroff` in Debian on COM7 returns the A53 to Ubuntu by itself. SSH can stop `tanager-host` and reboot. Failing both, a power cycle (the user's) boots Ubuntu.
     - **The card:** the handover kernel never probes SD1, the RISC-V mounts only `p3` (its root), and nothing writes `p1` or `p2`. Before any A53 reboot, Debian is powered off first.
-    - **The RISC-V's side:** a D4 tree (`sw/dts` `SD1=1`) with the controller as plain `arasan,sdhci-8.9a`. Linux's ZynqMP variant sets tap delays through the PMU firmware, which the RISC-V can't call, so it keeps the delays the A53 left. The tree also has `dma-ranges` for D-c, fixed clocks and PLIC source 21. Debian's `sdhci-of-arasan` is built out of tree with DKMS and goes into its initrd.
+    - **The RISC-V's side:** a D4 tree (`sw/dts` `SD1=1`) with the controller as plain `arasan,sdhci-8.9a`. Linux's ZynqMP variant sets tap delays through the PMU firmware, which the RISC-V can't call, so it keeps the delays the A53 left. (As built: ZynqMP's variant first, `xlnx,zynqmp-8.9a`, without `#clock-cells`, so its quirks and no firmware calls, with the tap delays `riscv.scr` sets; `tanager.dtsi`.) The tree also has `dma-ranges` for D-c, fixed clocks and PLIC source 21. Debian's `sdhci-of-arasan` is built out of tree with DKMS and goes into its initrd.
     - **Read-only probes first** (normal Ubuntu, no changes):
       - whether the kernel can kexec (`CONFIG_KEXEC`, `CONFIG_KEXEC_FILE`) and whether `kexec-tools` is installed (if not, installing it is an A53 package change, DR-147);
       - SD1's timing and signal voltage (`/sys/kernel/debug/mmc1/ios`). A card switched to 1.8 V can't go back to 3.3 V without a power cycle, so the RISC-V's driver must take the same mode;

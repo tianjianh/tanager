@@ -618,7 +618,7 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 
 - #3's cost differs from its first measurement, which was made on fn3. Since fn4 the head's check has its own DTLB lookup.
 
-*Build switches* (`tg_core_pkg`): generate branches, chosen at elaboration, so each setting builds only its own logic. `TG_TIMING_CUTS=0|1` forces a profile. Each switch also has its own define over its profile value (`TG_ROB_STORE_REPORT_LATE`, `TG_LSU_AG_SPLIT`, `TG_DC_AMO_READ_REG`, `TG_DE_STAGE`, `TG_ROB_HEAD_TLB_LATE`, `TG_LSU_MMIO_PMP_REG`, `TG_DC_PORTB_WREG`, `TG_LSU_HDWALK_REG`, each `=0|1`).
+*Build switches* (`tg_core_pkg`): generate branches, chosen at elaboration, so each setting builds only its own logic. `TG_TIMING_CUTS=0|1` forces a profile. Each switch also has its own define over its profile value (`TG_ROB_STORE_REPORT_LATE`, `TG_LSU_AG_SPLIT`, `TG_DC_AMO_READ_REG`, `TG_DE_STAGE`, `TG_ROB_HEAD_TLB_LATE`, `TG_LSU_MMIO_PMP_REG`, `TG_DC_PORTB_WREG`, `TG_LSU_HDWALK_REG`, `TG_LSU_CHK_REG`, each `=0|1`).
 
 | # | Switch | What | Timing |
 |---|---|---|---|
@@ -630,10 +630,11 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 | #10 | `LSU_MMIO_PMP_REG` | an MMIO load's PMP verdict is registered before its state takes it: the LQ head's MMIO issue waits while its load checks (bare and M mode, or a page that a region boundary splits); the fault reports in the check's cycle (DR-148; core-lsu.md) | the load PMP checker leaves the LQ state's enables, through the MMIO issue |
 | #11 | `DC_PORTB_WREG` | the D$'s port-B block-RAM writes come from a register a cycle later; port B's reads wait a cycle while one lands, and a load that read the row in the write's second cycle retries (DR-148; core-lsu.md) | the store port's decision leaves port B's address, byte enables and data into the 32 data block RAMs |
 | #12 | `LSU_HDWALK_REG` | with #9, the deciding walk's request takes the head's DTLB lookup as registered (a valid miss in the thread's last cycle), so a deciding walk starts a cycle later; a DTLB fill of the thread at that lookup's edge or after holds the request a cycle, so a prefetch's fill of the head's page starts no second walk. Without #9 it does nothing (DR-191; spikes §8.18, fix 4; core-mmu.md) | the DTLB's match and leaf read leave the walker's start: its request select, then `chk_pa_q`, `va_q` and `base_q` (19 levels into `chk_pa_q` on the chip) |
+| #13 | `LSU_CHK_REG` | with `PMP_FILL`: the shared PMP checker's answer is registered, and each user takes it the cycle after its grant: a checked load in a one-entry hold, a bare store in S2, the head's MMIO load and the walker. Bare S/U loads use a region cache of verdicts (`LPC_N`, 4 by default). Without `PMP_FILL` it does nothing (DR-191; spikes §8.18, fix 1; core-lsu.md) | the checker's compare leaves the LQ state's enables, the load result and the store pipe's valid (`lq_st_q`, `r_data_q`, `lx_valid_q`) |
 
 *Profiles* (only these are supported; DR-140 as the user decided it after DR-141's board runs):
-- **default** (the shipping profile): #4, #5, #9, #10, #11 and #12 on, #2 and #8 off (#10 and #11 added under DR-148, the 115 MHz target; #12 under DR-191).
-- **fallback** (`TG_TIMING_CUTS=0`): all eight off. It is cycle-identical to the core without the switches (fn5's da48d96) in all four configurations, 800 of 800 programs each; with #9 off it was checked again against fn7's fallback (fcd9298), also 800 of 800 in all four.
+- **default** (the shipping profile): #4, #5, #9, #10, #11, #12 and #13 on, #2 and #8 off (#10 and #11 added under DR-148, the 115 MHz target; #12 and #13 under DR-191).
+- **fallback** (`TG_TIMING_CUTS=0`): all nine off. It is cycle-identical to the core without the switches (fn5's da48d96) in all four configurations, 800 of 800 programs each; with #9 off it was checked again against fn7's fallback (fcd9298), also 800 of 800 in all four.
 - **#2 on** (`TG_ROB_STORE_REPORT_LATE=1`) and **#8 on** (`TG_DE_STAGE=1`) are lint-only, on top of the default. Each is verified again only if the user turns it on. #8 cost bench +2.5% / +2.3% when measured; #2's cost is below.
 
 *Costs* (isa / stress / bench / random): the fallback against fn4's head, and the default against the fallback (6857589 against 3735313).
