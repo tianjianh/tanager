@@ -15,6 +15,10 @@
 #define TG_SD1 0
 #undef TG_INITRD
 #define TG_INITRD 0
+// QEMU keeps the ISA list from before DR-194, and has no M9 counters (HPM)
+#define TG_ISA_PRE194 1
+#undef TG_HPM
+#define TG_HPM 0
 #include "tanager.dtsi"
 
 / {
