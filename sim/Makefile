@@ -19,6 +19,9 @@ CFGS := st smt2 st_w3 smt2_w3
 JOBS ?= 8
 
 ROOT     := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/..)
+# This file, before any include makes another one the last (its defaults, the ISA among them, are compiled into
+# tg_vsim and tanager-lockstep, so they depend on it)
+SIM_MK   := $(abspath $(lastword $(MAKEFILE_LIST)))
 WT       := $(notdir $(ROOT))
 TANAGER_BUILD ?= $(HOME)/tanager-build
 BUILD_ROOT := $(TANAGER_BUILD)/$(WT)/sim
@@ -61,7 +64,9 @@ ifeq ($(CORE),tcore)
   CORE_F   := -F $(ROOT)/rtl/common/common.f -F $(ROOT)/sim/tcore/tcore.f
   CORE_DEF := +define+TG_TCORE
 else ifeq ($(CORE),core)
-  ISA  ?= rv64imafdc_zicsr_zicntr_zihpm_zifencei_zba_zbb_zbs_zicond_sstc_svinval_za64rs$(if $(filter 1,$(HPM)),_sscofpmf)
+  # v1's string (DR-194, the device trees' riscv,isa) and svinval, whose instructions the core still executes (as
+  # SFENCE.VMA) though v1's trees leave the name out: Spike checks what the core runs, not what Linux is told
+  ISA  ?= rv64imafdc_zicsr_zicntr_zihpm_zifencei_zihintpause_zba_zbb_zbs_zicond_zkt_sstc_svinval_za64rs$(if $(filter 1,$(HPM)),_sscofpmf)
   PRIV ?= MSU
   PMP_TB := $(PMP_RTL)
   CORE_TOP := tg_core
@@ -106,7 +111,7 @@ all: build
 
 build: $(BUILD)/tg_vsim
 
-$(BUILD)/tg_vsim: $(SV) $(addprefix $(ROOT)/sim/src/,$(SRCS)) $(HDRS) $(ROOT)/sim/tb/tb.vlt $(lastword $(MAKEFILE_LIST))
+$(BUILD)/tg_vsim: $(SV) $(addprefix $(ROOT)/sim/src/,$(SRCS)) $(HDRS) $(ROOT)/sim/tb/tb.vlt $(SIM_MK) $(ROOT)/sim/profile.mk
 	@test -f $(RTL_CFG) || { echo "unknown CFG=$(CFG) (one of: $(CFGS))"; exit 2; }
 	@mkdir -p $(BUILD)
 	$(if $(COV),@{ printf '`verilator_config\n'; for d in $(COV_OFF); do printf 'coverage_off -file "*/rtl/core/%s/*"\n' $$d; done; \
@@ -158,7 +163,7 @@ $(LS_HDR): $(ROOT)/rtl/uncore/bootrom/tg_bootrom_img_pkg.sv $(ROOT)/sim/src/gen_
 	python3 -I $(ROOT)/sim/src/gen_bootrom_h.py $< > $@
 
 lockstep: $(LS_DIR)/tanager-lockstep
-$(LS_DIR)/tanager-lockstep: $(LS_SRCS) $(HDRS) $(LS_HDR) $(PMP_HDR)
+$(LS_DIR)/tanager-lockstep: $(LS_SRCS) $(HDRS) $(LS_HDR) $(PMP_HDR) $(SIM_MK)
 	$(CXX) -std=c++20 -O2 -Wall -Wextra -I$(ROOT)/sim/src -I$(LS_DIR) -I$(SPIKE_ROOT)/include $(LS_DEFS) \
 	  $(LS_SRCS) -o $@ $(LDFLAGS_TB)
 	@echo "built $@"
@@ -198,7 +203,7 @@ $(A64_SPIKE)/install/lib/libriscv.a: $(SPIKE_TAR) | $(A64_TC)/$(A64_TRIP)-g++
 	rm -rf $(A64_SPIKE)/build $(A64_SPIKE)/src
 
 lockstep-aarch64: $(LS_DIR)/aarch64/tanager-lockstep
-$(LS_DIR)/aarch64/tanager-lockstep: $(LS_SRCS) $(HDRS) $(LS_HDR) $(PMP_HDR) $(A64_SPIKE)/install/lib/libriscv.a
+$(LS_DIR)/aarch64/tanager-lockstep: $(LS_SRCS) $(HDRS) $(LS_HDR) $(PMP_HDR) $(SIM_MK) $(A64_SPIKE)/install/lib/libriscv.a
 	@mkdir -p $(dir $@)
 	$(A64_TC)/$(A64_TRIP)-g++ -std=c++20 -O2 -Wall -Wextra -static -I$(ROOT)/sim/src -I$(LS_DIR) \
 	  -I$(A64_SPIKE)/install/include \
