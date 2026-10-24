@@ -42,10 +42,10 @@ include ../common/unit.mk
 ifeq ($(KIND),tcore)
 # The verification track's test core stands in for tg_core (tcore_as_core.sv); rtl/core is left out.
 RTL_SRCS := $(REPO)/rtl/common/cfg/tg_cfg_$(CFG).sv -F $(REPO)/rtl/common/common.f \
-            -F $(REPO)/rtl/uncore/uncore.f -F $(REPO)/rtl/soc/soc.f \
+            -F $(REPO)/rtl/uncore/uncore.f $(CURDIR)/tcore_pkg.sv -F $(REPO)/rtl/soc/soc.f \
             $(REPO)/sim/tcore/tg_tcore.sv $(CURDIR)/tcore_as_core.sv
 ARGS = +prog=$(SOC_BUILD)/tests/soc_sw/$(if $(filter 1,$(SDIRQ)),$(strip $(SDPROG)),soc_test).bin
-$(OUTDIR)/$(TOP): $(CURDIR)/tcore_as_core.sv
+$(OUTDIR)/$(TOP): $(CURDIR)/tcore_as_core.sv $(CURDIR)/tcore_pkg.sv
 else
 RTL_SRCS := $(REPO)/rtl/common/cfg/tg_cfg_$(CFG).sv -F $(REPO)/rtl/rtl.f
 # The real cores: a change in the core, the SoC top or the shared packages rebuilds the model, as tests/unit/boot's

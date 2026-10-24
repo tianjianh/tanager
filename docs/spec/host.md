@@ -116,7 +116,7 @@ A 64-bit pair is written low half first. The low half waits in a shadow register
 
 ## Behaviour
 
-- **Resets.** `CTRL[1]` (uncore) and `CTRL[0]` (cores) are synchronised into `clk` (`xpm_cdc_sync_rst`, or a 3-flop synchroniser in simulation) and ORed with the SoC reset. The cores' reset is also asserted whenever the uncore's is. On the FPGA both reset to 1. The simulation top sets the reset values by parameter, so a testbench can run without a host.
+- **Resets.** `CTRL[1]` (uncore) and `CTRL[0]` (cores) are synchronised into `clk` (`xpm_cdc_sync_rst`, or a 3-flop synchroniser in simulation) and ORed with the SoC reset, and with the debug module's `ndmreset` (`TG_DEBUG`, soc.md §9.3), which holds both. The cores' reset is also asserted whenever the uncore's is. On the FPGA both reset to 1. The simulation top sets the reset values by parameter, so a testbench can run without a host.
 - **Configuration crossing.** All host-written configuration (DRAM window, boot entry, DTB, injector, `FROMHOST`, `CTRL[2]`) is one vector, copied to `clk` by `xpm_cdc_handshake` after each update. It is quasi-static by contract: the DRAM window is changed only while the uncore is in reset.
 - **Status crossing.** Statistics, `TOHOST`, the power request and the init flag cross back the same way, continuously.
 - **Streams.** Console bytes cross in asynchronous FIFOs (`xpm_fifo_async`: 2048 bytes RISC-V → host, 512 host → RISC-V). Doorbells and power requests cross as pulses (`xpm_cdc_pulse`).
