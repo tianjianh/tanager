@@ -28,11 +28,11 @@ page summarises a chapter, the check reads the chapter.
 | `za64rs` | reservation sets contiguous, naturally aligned, at most 64 bytes | an LR reserves its 64-byte line; one reservation per hart, ended by the sibling's stores | ACT4's Za64rs plan; Sail and Spike reserve the 64-byte block; lockstep's SC rule relies on it | confirm the reservation compares the line address and nothing coarser | **list it** |
 | `zihintpause` | PAUSE (a FENCE with pred = W, succ = 0) is a hint: it never traps; any effect is bounded | no spec line names PAUSE. FENCE is serialising: it retires alone with the hart's window and store queue drained, then refetches | ACT4's Zihintpause plan | confirm decode takes every FENCE encoding as FENCE, never illegal | **list it** |
 | `svinval` | SINVAL.VMA invalidates as SFENCE.VMA does; a simple implementation runs it as SFENCE.VMA and the two new fences as no-ops | all three serialising; each waits for the store queue and flushes the hart's whole ITLB and DTLB (no ASID tags) | ACT4's Svinval plan; lockstep (Spike's string has it) | a board measurement, with the name and without | **leave it out of v1** unless a board session measures no cost: here it buys only the name |
-| `zkt` | the listed instructions' latency does not depend on their operands' values | ALU ops take one cycle; MUL three fixed stages (MUL-to-use 5); divides are iterative but not listed | nothing: ACT4 and lockstep check values, not time | a directed timing test, and the core track's reading of the ALU and the multiplier | **list it after both** |
+| `zkt` | the listed instructions' latency does not depend on their operands' values | ALU ops take one cycle; MUL three fixed stages (MUL-to-use 5); divides are iterative but not listed | the directed timing test `zkt.S` and the core track's reading of the ALU and the multiplier (10-24): no value-dependent path | nothing | **list it** |
 
 **The order for the check:**
 1. The four reading items in one sitting, minutes each.
-2. `zkt`'s test and reading, about an hour.
+2. `zkt`'s test and reading, about an hour. Done on 10-24 (below).
 3. `svinval` on a board session, if one has an hour. Without one, v1 ships without it.
 
 ## Each extension
@@ -164,8 +164,23 @@ page summarises a chapter, the check reads the chapter.
   - **Not listed, for completeness:**
     - CLZ, CTZ and CPOP share P1's tag path (core-pipeline.md:222);
     - DIV and REM are radix-2 iterative on long-latency tags (core-pipeline.md:23, 323).
-- **Verified:** nothing yet. ACT4 and lockstep compare values, and `cycle-identical` compares builds, so none of them
-  times one instruction against its operands.
+- **Verified (10-24, the core track).** ACT4 and lockstep compare values, and `cycle-identical` compares builds, so
+  none of them times one instruction against its operands; this check does:
+  - **The reading:** `tg_alu` is combinational, and its result select takes only the decoded control bits: operand
+    values choose data, never timing. `tg_mul` is a fixed three-stage pipeline whose valid bits never look at the
+    operands. Neither has an early out, a zero skip or a stall on an operand pattern.
+  - **The test,** `tests/isa/directed/zkt.S`: the 45 listed instructions (register, immediate and W forms, the
+    multiplies, Zbkb's share of Zbb, LUI and AUIPC), each as a 64-long dependent chain timed with `mcycle` under every
+    class. Every class gives the same count: 82 cycles a chain for the ALU ops, 336 for the multiplies (5 cycles each,
+    the MUL-to-use delay). It passes in lockstep in `st`, `st_w3`, `smt2` with hart 1 off and idle, both `SOLO_TID=1`
+    forms and `PMP_FILL=1`, with the directed run's `--irq-rand=5`. Without Zbb (the test core) its probe traps and the
+    Zbkb part is skipped, as in `zbb.S`.
+  - **Runs that change cycle counts by design leave it out** (`tests/isa/exclude/directed-timing.txt`): regress's trace
+    back-pressure run (`--trace-stall=50`) and random-wake run (`+xwake=20`), and `cycle-identical`'s stress suite.
+    Under either perturbation it fails at its first instruction, as it must.
+  - **Outside Zkt's rule:** a divide (not listed; `n + 4` cycles, `n` from its operands' leading zeros, `tg_div.sv`)
+    blocks one ALU1 select when it writes back (`a1_block`, `tg_exec.sv`), as an FP-to-integer result does. A listed
+    instruction on ALU1 after a divide can therefore move by a cycle with the divide's operands, never with its own.
 - **The check:**
   - **A directed test** in `tg_vsim`. For each listed instruction, a 64-long dependent chain under each operand class:
     0, 1, −1, the sign bit alone, small, large, mixed signs, and shift amounts 0, 1, 31, 32, 63. Each chain is timed
@@ -174,7 +189,7 @@ page summarises a chapter, the check reads the chapter.
     - Run it in `st` and in `smt2` with hart 1 idle.
   - **The core track reads `tg_alu` and the multiplier** for any value-dependent path: an early out, a zero skip, or
     a stall on an operand pattern.
-  - Then list `zkt`.
+  - Then list `zkt`. Both done on 10-24 (above).
 
 ## The listed extensions
 `i`, `m`, `a`, `f`, `d`, `c`, `zicsr`, `zifencei`, `zba`, `zbb`, `zbs`, `zicond` and `sstc` are in the trees today.
@@ -212,6 +227,14 @@ time, which Spike doesn't model, and ACT4's Zihintpause plan runs with the full 
     `rv64imafdc_zicntr_zicond_zicsr_zifencei_zihintpause_zihpm_za64rs_zba_zbb_zbs_zkt_sstc`.
   - Today's string puts `zicond` after `zbs`. The board's kernel prints its own order anyway (d4r2's `/proc/cpuinfo`,
     release_notes_v1.md:45).
+
+## The check's results (soc-2, 10-24; the RTL of main 16b6d5d1)
+- **`zicntr`: met.** `tg_csr` reads `cycle`, `time` and `instret` (0xC00–0xC02) as the hart's `mcycle`, the core's `mtime` copy and the hart's `minstret`. Below M, `mcounteren` gates 0xC00–0xC1F by bit, and in U `scounteren` as well. Both enables keep all 32 bits writable.
+- **`zihpm`: met.** `hpmcounter3–31` (0xC03–0xC1F) read the HPM file, zero without `TG_HPM` and counters 3–6 with it, under the same gating.
+- **`za64rs`: met.** Each hart's reservation is a 64-byte line (`tg_lsu` `rsv_line_q`, PA[33:6]), set by an LR as it completes and ended by any SC, a lost line or the sibling's store to it.
+- **`zihintpause`: met.** Decode takes every MISC-MEM encoding with funct3 0 as a FENCE, whatever its fm, pred, succ, rs1 and rd, so PAUSE never traps. As a FENCE it serialises (bounded).
+- **`zkt`: met** (core-2's audit, its MR ab2b2436): `tg_alu` and `tg_mul` have no operand-dependent early-out, and a cycle-exact directed test over every operand class gives identical counts.
+- **The trees** (DR-194, sw/dts/tanager.dtsi): `rv64imafdc_zicntr_zicond_zicsr_zifencei_zihintpause_zihpm_za64rs_zba_zbb_zbs_zkt_sstc`, with `sscofpmf` before `sstc` in `TG_HPM` builds. `svinval` stays out. QEMU's tree keeps today's list (`TG_ISA_PRE194`), byte for byte main's.
 
 ## Not in the target
 Outside core-priv.md's target, for the notes. v1 doesn't aim at RVA22S64 or RVA23S64 (release_notes_v1.md:49; DR-190).

@@ -1,0 +1,10 @@
+== fix_slot_a against fix_f1_7895f450: WNS +0.636 (-0.062), LUTs 51732 (+282), FFs 23672 (+10), LUTRAM 8768 (+0), RAMB tiles 53.5 (+0)
+family                    slack    levels      logic ns        net ns  start of the fix's worst
+lq_st_q         +1.008->+0.636  19->18   2.18->2.32  6.65->6.93  u_is/g_q[4].u_iq/g_late.grant_q_reg[4]/C
+r_data_q        +1.681->+2.226  14->11   2.03->1.77  6.04->5.80  g_p4.u_p4/u_fpu/g_div_gs.u_div/u_outq/g_ptr.rd_q_reg[1]/C
+lx_valid_q      +1.933->+1.854  13->14   2.23->2.05  5.62->5.93  u_lsu/FSM_onehot_am_st_q_reg[3]/C
+m2_foh_q        +1.214->+0.987  18->19   2.32->2.46  6.30->6.48  u_lsu/lq_size_q_reg[7][1]/C
+chk_pa_q        +2.785->+2.290  12->10   1.79->1.34  5.27->6.13  u_lsu/lq_head_q_reg[1][1]/C
+ival_ram        +1.040->+0.911  24->23   2.88->3.34  5.81->5.53  u_fetch/ka_q_reg/C
+tage            +1.875->+1.958  13->10   3.37->2.89  3.91->4.47  u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_1/CLKARDCLK
+lq_st_q_sn      +3.852->+3.546   9->10   1.48->1.30  4.52->5.11  u_lsu/g_split.sn_v_q_reg/C

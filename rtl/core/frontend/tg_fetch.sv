@@ -284,7 +284,7 @@ module tg_fetch
   tlb_pte_t [0:0]   it_pte;
   assign it_vpn[0] = fpc_q[38:12];
   tg_tlb #(.NE(ITLB_ENTRIES), .NR(1)) u_itlb (
-    .clk, .rst, .vpn(it_vpn), .vpn_e('0), .lk_tid(f1_tid), .hit(it_hit), .pte(it_pte), .fill(it_fill),
+    .clk, .rst, .vpn(it_vpn), .vpn_e('0), .lk_tid(f1_tid), .lk_tid_e('0), .hit(it_hit), .pte(it_pte), .fill(it_fill),
     .fill_vpn(it_fill_vpn), .fill_lvl(it_fill_lvl),
     .fill_pte(it_fill_pte), .fill_tid(it_fill_tid), .flush(tlb_flush), .flush_tid(tlb_flush_tid));
   logic [PA_W-1:0] f1_pa;
@@ -1850,8 +1850,8 @@ module tg_fetch
 
   // Valid bits: a LUTRAM row per set (plan §8.3: no flip-flop arrays) of WAYS bits and the set's
   // 2-bit generation. Reads: the set F1 fetches, and the missed set (victim choice when the refill
-  // starts; the refill's read-modify-write when it ends). After reset a sweep clears every set while
-  // F1 waits.
+  // starts; its lines are then kept, rv_q, for the refill's write when it ends). After reset a sweep
+  // clears every set while F1 waits.
   // FENCE.I by generation (area_recovery.md §6.11; it swept every set, 64 cycles of fetch, 5,410
   // times in the boot's first 20M cycles): a set holds valid lines only while its generation is the
   // current one (gen_q). FENCE.I bumps gen_q, so every older line misses from the next cycle, and
@@ -1918,10 +1918,18 @@ module tg_fetch
   assign r_start  = rs_q == R_IDLE && (miss_any || am_go) && !rst && !pf_wait && !pv_go && !(am_rd && !miss_any) &&
                     ivs_done && !(icinv && gpend_q == 2'd3);
   assign tr_go    = IPF_ON && (r_start || pv_go) && mline[11:6] != 6'h3F && (ps_q == P_IDLE || ps_q == P_HELD);
-  assign p_inv_go = IPF_ON && ps_q == P_INV && ivs_done && !r_start && !tag_we && !pv_go;
-  assign gp_go    = !gps_q[SET_W] && ivs_done && !r_start && !tag_we && !pv_go && !p_inv_go;
+  // The second read port's address does not wait for the refill's last beat (spikes §8.18's I$ valid RAM family: the
+  // L2's beat, tag_we, this address, the read and the write data were one cycle): the refill's end writes rv_q and
+  // reads nothing, so the prefetch's invalidation and the pass choose the address alone (pi_c, gp_c), and only their
+  // writes yield to the refill's
+  logic            pi_c, gp_c;
+  logic [WAYS-1:0] rv_q;                    // the refill's set's valid lines, as the RAM holds them
+  assign pi_c     = IPF_ON && ps_q == P_INV && ivs_done && !r_start && !pv_go;
+  assign gp_c     = !gps_q[SET_W] && ivs_done && !r_start && !pv_go && !pi_c;
+  assign p_inv_go = pi_c && !tag_we;
+  assign gp_go    = gp_c && !tag_we;
   assign iv_ra[0] = fpc_q[6 +: SET_W];
-  assign iv_ra[1] = gp_go ? gps_q[SET_W-1:0] : p_inv_go ? pline_q[6 +: SET_W] :
+  assign iv_ra[1] = gp_c ? gps_q[SET_W-1:0] : pi_c ? pline_q[6 +: SET_W] :
                     (rs_q == R_IDLE) ? mpa[6 +: SET_W] : rline_q[6 +: SET_W];
   tg_ram_lut #(.DEPTH(SETS), .WIDTH(IVW), .NR(2)) u_ival (
     .clk, .we(iv_we), .waddr(iv_wa), .wdata(iv_wd), .raddr(iv_ra), .rdata(iv_rd));
@@ -1972,7 +1980,7 @@ module tg_fetch
   always_comb begin
     iv_we = tag_we;
     iv_wa = tag_set;
-    iv_wd = {gen_q, iv_v[1] | (WAYS'(1) << rway_q)};
+    iv_wd = {gen_q, rv_q | (WAYS'(1) << rway_q)};
     if (pv_go) begin                        // (no refill runs): the held line is valid
       iv_we = 1'b1;
       iv_wa = mpa[6 +: SET_W];
@@ -1998,6 +2006,12 @@ module tg_fetch
       iv_wa = ivs_q[SET_W-1:0];
       iv_wd = {gen_q, {WAYS{1'b0}}};
     end
+  end
+  // rv_q follows the refill's set from the start's write (its victim's line gone) through every write to the set;
+  // a FENCE.I's new generation leaves the set stale, so empty (a refill running then is poisoned and writes nothing)
+  always_ff @(posedge clk) begin
+    if (icinv)                                                    rv_q <= '0;
+    else if (iv_we && (r_start || iv_wa == rline_q[6 +: SET_W])) rv_q <= iv_wd[WAYS-1:0];
   end
 
   always_comb begin
@@ -2164,6 +2178,7 @@ module tg_fetch
       assert (iv_v[0] == ivref_q[iv_ra[0]]) else $error("tg_fetch: the I$ valid lines differ from the sweep's");
       if (r_start || p_inv_go || pv_go)
         assert (iv_v[1] == ivref_q[iv_ra[1]]) else $error("tg_fetch: the victim's set differs from the sweep's");
+      if (tag_we) assert (rv_q == ivref_q[tag_set]) else $error("tg_fetch: the refill's set's valid lines differ from the sweep's");
       assert (!(gp_go && (r_start || tag_we || pv_go || p_inv_go))) else $error("tg_fetch: the generation pass with a refill write");
       assert ($onehot0({r_start, tag_we, pv_go, p_inv_go})) else $error("tg_fetch: two valid-RAM writers in a cycle");
       if (IPF_ON && pv_go) assert (!iv_v[1][pway_q]) else $error("tg_fetch: the held line's way is valid at its validation");

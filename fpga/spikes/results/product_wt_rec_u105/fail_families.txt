@@ -1,0 +1,17 @@
+== /home/w/tanager-build/track-spikes-72f833/vivado/product_wt_rec_u105/routed.dcp (WNS 1.066)
+  endpoints by setup slack: < 0: 0, < 0.1: 0, < 0.2: 0, < 0.3: 0, < 0.5: 0, < 1.0: 0
+  all: 0 endpoints below 1.0 ns in 0 families
+  cones cut: F2 (840 cells: registers and I$ RAMs) -> fetch, TAGE and the RAS (8754); the queue head (0) -> the RAS (788)
+  without those cones: 0 endpoints below 1.0 ns in 0 families
+  without any path inside the front end (8754 -> 8754 cells): 0 endpoints below 1.0 ns in 0 families
+  the host bridge's core-reset registers (39 cells): their worst ten endpoints
+      2.437  17 levels, net 4.900 ns  u_soc/u_uncore/u_host/crst_q_reg_replica/C -> u_soc/g_core[1].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[1].u_ram/RAMF/I
+      2.455  18 levels, net 4.929 ns  u_soc/u_uncore/u_host/crst_q_reg_replica/C -> u_soc/g_core[1].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[0].u_ram/RAMD/I
+      2.462  18 levels, net 4.919 ns  u_soc/u_uncore/u_host/crst_q_reg_replica/C -> u_soc/g_core[1].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[1].u_ram/RAMG/I
+      2.472  18 levels, net 4.812 ns  u_soc/u_uncore/u_host/crst_q_reg_replica/C -> u_soc/g_core[1].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[2].u_ram/RAMD/I
+      2.473  18 levels, net 4.812 ns  u_soc/u_uncore/u_host/crst_q_reg_replica/C -> u_soc/g_core[1].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[1].u_ram/RAMA/I
+      2.503  17 levels, net 4.841 ns  u_soc/u_uncore/u_host/crst_q_reg_replica/C -> u_soc/g_core[1].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[0].u_ram/RAMC/I
+      2.509  18 levels, net 4.871 ns  u_soc/u_uncore/u_host/crst_q_reg_replica/C -> u_soc/g_core[1].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[0].u_ram/RAME/I
+      2.522  18 levels, net 4.858 ns  u_soc/u_uncore/u_host/crst_q_reg_replica/C -> u_soc/g_core[1].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[0].u_ram/RAMA/I
+      2.523  18 levels, net 4.850 ns  u_soc/u_uncore/u_host/crst_q_reg_replica/C -> u_soc/g_core[1].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[1].u_ram/RAMD/I
+      2.523  18 levels, net 4.842 ns  u_soc/u_uncore/u_host/crst_q_reg_replica/C -> u_soc/g_core[1].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[0].u_ram/RAMG/I

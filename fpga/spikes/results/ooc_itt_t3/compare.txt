@@ -1,0 +1,76 @@
+== fix_slot_a against fix_slot_c: WNS +0.268 (+0.193), LUTs 52228 (+482), FFs 23966 (+312), LUTRAM 8832 (+48), RAMB tiles 54.5 (+1)
+family                    slack    levels      logic ns        net ns  start of the fix's worst
+lq_st_q         +0.075->+0.992  22->21   2.93->2.69  6.64->5.99  u_lsu/sq_v_q_reg[4]/C
+r_data_q        +1.828->+2.576   6->12   0.83->2.13  7.32->5.06  u_lsu/m2_foh_q_reg[9]/C
+lx_valid_q      +2.454->+2.336  14->14   1.90->2.19  5.27->5.23  u_lsu/FSM_onehot_am_st_q_reg[3]/C
+m2_foh_q        +1.022->+1.368  14->19   1.93->3.01  6.99->5.41  u_lsu/lq_size_q_reg[7][1]/C
+chk_pa_q        +2.167->+2.104  12->12   2.08->1.82  5.64->6.09  u_rob/ct_q_reg[0]/C
+ival_ram        +1.443->+1.730  22->25   3.30->2.99  5.05->5.01  u_fetch/ka_q_reg/C
+tage            +1.634->+2.771   8->7    2.47->2.29  5.26->4.27  u_fetch/g_tage.u_tage/g_tab[0].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKARDCLK
+lq_st_q_sn      +3.426->+5.118   8->8    1.37->1.11  5.01->3.77  u_lsu/g_split.sn_v_q_reg/C
+kr_q            +1.667->+1.650  20->23   3.44->3.77  4.61->4.45  u_fetch/g_way[6].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK
+krt_q           +3.337->+4.521   6->7    1.16->1.22  5.59->4.24  g_ras.g_s[0].g_t0.u_ras/g_late.p_rv_q_reg/C
+f3_ras_q        +1.691->+1.567  20->23   3.44->3.77  4.59->4.54  u_fetch/g_way[6].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK
+f3_rtop_q       +4.021->+4.121   6->10   0.99->1.30  5.04->4.51  u_fetch/f3_start_q_reg[3]/C
+fpc_q           +1.069->+1.370  17->23   2.72->2.73  6.01->5.85  u_fetch/f3_start_q_reg[3]/C
+ka_q            +0.996->+1.073  21->23   3.56->3.75  5.30->4.98  u_fetch/g_way[6].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK
+k_ovr_q         +1.874->+1.508  20->23   3.44->3.85  4.40->4.52  u_fetch/g_way[6].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK
+kimm_q          +1.797->+1.567  19->23   3.48->3.98  4.45->4.18  u_fetch/g_way[6].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK
+ras_push        +1.389->+1.412  21->25   3.55->3.94  4.76->4.44  u_fetch/g_way[6].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK
+ras_pop         +1.328->+1.737  21->24   3.55->3.93  4.83->4.20  u_fetch/g_way[6].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK
+ka_q_tage       +0.996->+1.778  21->18   3.56->3.52  5.30->4.50  u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK
+kimm_q_tage     +1.797->+2.272  19->18   3.48->3.75  4.45->3.70  u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK
+ras_push_tage   +1.389->+2.117  21->20   3.55->3.70  4.76->3.96  u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK
+ras_pop_tage    +1.328->+2.442  21->19   3.55->3.69  4.83->3.71  u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK
+ka_q_ic         +1.053->+1.073  19->23   3.65->3.75  5.04->4.98  u_fetch/g_way[6].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK
+k_ovr_q_ic      +1.931->+1.508  18->23   3.53->3.85  4.13->4.52  u_fetch/g_way[6].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK
+kr_q_ic         +1.724->+1.650  18->23   3.53->3.77  4.35->4.45  u_fetch/g_way[6].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK
+f3_ras_q_ic     +1.748->+1.567  18->23   3.53->3.77  4.33->4.54  u_fetch/g_way[6].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK
+ras_push_ic     +1.446->+1.412  19->25   3.64->3.94  4.50->4.44  u_fetch/g_way[6].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK
+ras_pop_ic      +1.385->+1.737  19->24   3.64->3.93  4.57->4.20  u_fetch/g_way[6].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK
+itt_to_any       (new)  ->+2.367    ->14       ->3.02      ->4.43  u_fetch/g_tage.g_itt.u_itt/u_path/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg/CLKARDCLK -> u_fetch/ka_q_reg/D
+itt_write        (new)  ->+3.097    ->12       ->1.41      ->4.90  u_fetch/f3_start_q_reg[3]/C -> u_fetch/g_tage.g_itt.u_itt/u_path/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg/ENARDEN
+ki_q             (new)  ->+1.817    ->23       ->3.79      ->4.26  u_fetch/g_way[6].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK -> u_fetch/ki_q_reg/D
+kit_q            (new)  ->+5.037    ->2        ->1.57      ->3.13  u_fetch/g_tage.g_itt.u_itt/u_path/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg/CLKARDCLK -> u_fetch/kit_q_reg[18]/R
+f3_itt_q         (new)  ->+1.821    ->23       ->3.79      ->4.26  u_fetch/g_way[6].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK -> u_fetch/f3_itt_q_reg/D
+f3_itgt_q        (new)  ->+4.034    ->10       ->1.30      ->4.60  u_fetch/f3_start_q_reg[3]/C -> u_fetch/f3_itgt_q_reg[9]/CE
+ki_q_ic          (new)  ->+1.817    ->23       ->3.79      ->4.26  u_fetch/g_way[6].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK -> u_fetch/ki_q_reg/D
+f3_itt_q_ic      (new)  ->+1.821    ->23       ->3.79      ->4.26  u_fetch/g_way[6].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK -> u_fetch/f3_itt_q_reg/D
+== fix_slot_e against fix_slot_c: WNS +0.450 (+0.375), LUTs 51997 (+251), FFs 23989 (+335), LUTRAM 8840 (+56), RAMB tiles 55.5 (+2)
+family                    slack    levels      logic ns        net ns  start of the fix's worst
+lq_st_q         +0.075->+1.087  22->17   2.93->2.29  6.64->6.08  u_is/g_q[4].u_iq/g_late.grant_q_reg[4]/C
+r_data_q        +1.828->+2.113   6->10   0.83->1.59  7.32->6.13  g_p4.u_p4/u_fpu/g_div_gs.u_div/u_outq/g_ptr.rd_q_reg[1]/C
+lx_valid_q      +2.454->+2.282  14->13   1.90->2.41  5.27->4.99  u_lsu/sqh_q_reg[pa][6]/C
+m2_foh_q        +1.022->+1.310  14->15   1.93->2.39  6.99->6.05  u_lsu/lq_size_q_reg[23][1]/C
+chk_pa_q        +2.167->+2.424  12->12   2.08->1.69  5.64->5.79  u_lsu/lq_head_q_reg[1][0]/C
+ival_ram        +1.443->+1.257  22->25   3.30->3.61  5.05->5.03  u_fetch/ka_q_reg/C
+tage            +1.634->+3.121   8->6    2.47->1.23  5.26->5.09  u_fetch/g_tage.hr_c3_q_reg/C
+lq_st_q_sn      +3.426->+3.374   8->8    1.37->1.30  5.01->5.18  u_lsu/g_split.sn_v_q_reg/C
+kr_q            +1.667->+1.532  20->23   3.44->3.67  4.61->4.52  u_fetch/g_way[3].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK
+krt_q           +3.337->+4.043   6->7    1.16->1.07  5.59->4.95  g_ras.g_s[0].g_t0.u_ras/g_late.p_push_q_reg/C
+f3_ras_q        +1.691->+1.523  20->23   3.44->3.67  4.59->4.52  u_fetch/g_way[3].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK
+f3_rtop_q       +4.021->+3.938   6->7    0.99->1.07  5.04->5.03  g_ras.g_s[0].g_t0.u_ras/g_late.p_push_q_reg/C
+fpc_q           +1.069->+1.333  17->19   2.72->2.51  6.01->5.90  u_fetch/fpc_q_reg[30]/C
+ka_q            +0.996->+1.594  21->23   3.56->3.79  5.30->4.21  u_fetch/g_way[3].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK
+k_ovr_q         +1.874->+1.587  20->23   3.44->3.85  4.40->4.16  u_fetch/g_way[3].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK
+kimm_q          +1.797->+1.406  19->24   3.48->3.79  4.45->4.39  u_fetch/g_way[3].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK
+ras_push        +1.389->+1.412  21->24   3.55->3.81  4.76->4.39  u_fetch/g_way[3].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK
+ras_pop         +1.328->+1.815  21->23   3.55->3.70  4.83->4.08  u_fetch/g_way[3].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK
+ka_q_tage       +0.996->+2.148  21->19   3.56->3.57  5.30->3.87  u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK
+kimm_q_tage     +1.797->+1.961  19->20   3.48->3.57  4.45->4.05  u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK
+ras_push_tage   +1.389->+1.967  21->20   3.55->3.58  4.76->4.05  u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK
+ras_pop_tage    +1.328->+2.370  21->19   3.55->3.48  4.83->3.74  u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK
+ka_q_ic         +1.053->+1.594  19->23   3.65->3.79  5.04->4.21  u_fetch/g_way[3].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK
+k_ovr_q_ic      +1.931->+1.587  18->23   3.53->3.85  4.13->4.16  u_fetch/g_way[3].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK
+kr_q_ic         +1.724->+1.532  18->23   3.53->3.67  4.35->4.52  u_fetch/g_way[3].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK
+f3_ras_q_ic     +1.748->+1.523  18->23   3.53->3.67  4.33->4.52  u_fetch/g_way[3].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK
+ras_push_ic     +1.446->+1.412  19->24   3.64->3.81  4.50->4.39  u_fetch/g_way[3].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK
+ras_pop_ic      +1.385->+1.815  19->23   3.64->3.70  4.57->4.08  u_fetch/g_way[3].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK
+itt_to_any       (new)  ->+2.270    ->16       ->3.29      ->4.19  u_fetch/g_tage.g_itt.u_itt/u_path/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg/CLKARDCLK -> u_fetch/ki_q_reg/D
+itt_write        (new)  ->+3.895    ->12       ->1.65      ->3.89  u_fetch/f3_carry_q_reg/C -> u_fetch/g_tage.g_itt.u_itt/g_blk.u_blk/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg/ENARDEN
+ki_q             (new)  ->+1.215    ->23       ->3.67      ->4.83  u_fetch/g_way[3].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK -> u_fetch/ki_q_reg/D
+kit_q            (new)  ->+5.119    ->3        ->1.63      ->3.03  u_fetch/g_tage.g_itt.u_itt/u_path/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg/CLKARDCLK -> u_fetch/kit_q_reg[8]/D
+f3_itt_q         (new)  ->+1.219    ->23       ->3.67      ->4.84  u_fetch/g_way[3].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK -> u_fetch/f3_itt_q_reg/D
+f3_itgt_q        (new)  ->+4.387    ->10       ->1.60      ->3.98  u_fetch/f3_carry_q_reg/C -> u_fetch/f3_itgt_q_reg[3]/CE
+ki_q_ic          (new)  ->+1.215    ->23       ->3.67      ->4.83  u_fetch/g_way[3].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK -> u_fetch/ki_q_reg/D
+f3_itt_q_ic      (new)  ->+1.219    ->23       ->3.67      ->4.84  u_fetch/g_way[3].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK -> u_fetch/f3_itt_q_reg/D

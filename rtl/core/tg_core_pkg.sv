@@ -263,6 +263,14 @@ package tg_core_pkg;
 `else
   localparam bit IPF_ON = 1'b1;
 `endif
+  // The 16-entry load-wait table (M9, DR-190's addendum; area_recovery §7.11's mdp 1): a bit per hashed load PC, set
+  // by an ordering replay's mark and cleared every 64K cycles; a load whose bit is set does not complete while an
+  // older store of its thread has no address (core-lsu.md). Off by default for now; TG_LWT=1 turns it on.
+`ifdef TG_LWT
+  localparam bit LWT_ON = `TG_LWT;
+`else
+  localparam bit LWT_ON = 1'b0;
+`endif
   // DR-174 (the user, the area reserve): the integer register file in UltraRAM, double-pumped at clk2x (twice the
   // core clock, from the board's MMCM; spikes.md §8.14's "edge" plan). Off by default; TG_URF=1 turns it on, with
   // the same cycles. The core then needs clk2x.
@@ -333,8 +341,9 @@ package tg_core_pkg;
   localparam int HPM_N = 0;
 `endif
   // tg_core's events, mhpmevent 3 + e for hpm_ev[e]: 3 branch mispredicts (at execute, wrong-path ones too), 4 ordering
-  // replays, 5 L1D load misses, 6 data-side TLB walks, 7 instruction-side TLB walks, 8 I$ misses, 9 CoRR replays
-  localparam int HPM_EV = 7;
+  // replays, 5 L1D load misses, 6 data-side TLB walks, 7 instruction-side TLB walks, 8 I$ misses, 9 CoRR replays, 10 the
+  // walker's busy cycles (a walk's, for its thread), 11 L1D store misses (a committed store's line without T at its write)
+  localparam int HPM_EV = 9;
   // DR-185: rename's payload LUTRAM takes decode's write through a register, landing a cycle later (1, the default:
   // decode's paths end beside decode), or directly (0: about 770 flip-flops a core fewer, if those paths close)
 `ifdef TG_PAY_WREG
@@ -805,6 +814,7 @@ package tg_core_pkg;
     wid_t          wid;
     llt_t          llt;
     logic [63:0]   pc;
+    logic [3:0]    lwh;         // a load's index in the load-wait table (LWT_ON): its PC's bits 4:1 ^ 16:13
     br_kind_e      br_kind;
     logic [2:0]    br_f3;
     logic [63:0]   br_target;

@@ -159,7 +159,7 @@ Each row is one outside document, with where `docs/` cites it.
 - Luo et al.
 
 **Techniques named without a paper in `docs/` or the literature review:**
-- TAGE itself. The specs cite Seznec's CBP-2016 TAGE-SC-L, but the original TAGE paper is not in the review. core-pipeline.md §3 points to `reports/m6-tage-design.md`, which is not in the repository.
+- TAGE itself. The specs cite Seznec's CBP-2016 TAGE-SC-L, but the original TAGE paper is not in the review. core-pipeline.md §3 points to the core track's design note, docs/perf/m6-tage-design.md (in the repository since 10-24).
 - ITTAGE, which the review names only as a part of XiangShan.
 - The load-wait table.
 - gshare: perf/dse_tables.md:93, perf/ledger_table.md:3, 30.
@@ -487,4 +487,4 @@ The A53's own boot firmware is not changed: the QSPI keeps `K26-BootFW-01.02` in
    - fpga_friendly.md;
    - m9-plan.md's Sources;
    - area_recovery.md §7.11.
-   The review does not hold these, so they stay identifications: Smith and Pleszkun; Reinman et al.; Cortadella and Llabería; Moshovos et al.; Luo et al.; the original TAGE paper; ITTAGE; the load-wait table (§3.2). core-pipeline.md's `reports/m6-tage-design.md` is not in the repository.
+   The review does not hold these, so they stay identifications: Smith and Pleszkun; Reinman et al.; Cortadella and Llabería; Moshovos et al.; Luo et al.; the original TAGE paper; ITTAGE; the load-wait table (§3.2). core-pipeline.md's TAGE design note is docs/perf/m6-tage-design.md.

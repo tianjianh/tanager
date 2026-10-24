@@ -1,0 +1,17 @@
+lq_st_q                slack   0.870 levels 22 logic 2.893 net 5.888  u_lsu/sq_dv_q_reg[0]/C -> u_lsu/lq_st_q_reg[20][0]/CE
+r_data_q               slack   2.330 levels 10 logic 1.631 net 6.044  g_p4.u_p4/u_fpu/g_div_gs.u_div/u_outq/g_ptr.rd_q_reg[0]/C -> u_lsu/r_data_q_reg[63]/D
+lx_valid_q             slack   1.217 levels 12 logic 1.828 net 6.795  u_lsu/sqh_q_reg[pa][7]/C -> lx_valid_q_reg[2]/D
+m2_foh_q               slack   1.195 levels 18 logic 2.213 net 6.367  u_lsu/u_dtlb/g_cam.g_m[0].g_early.mq_reg[11]/C -> u_lsu/m2_foh_q_reg[10]/D
+chk_pa_q               slack   2.861 levels 11 logic 1.814 net 5.045  u_lsu/sq_cmt_q_reg[0][0]/C -> u_lsu/u_ptw/chk_pa_q_reg[10]/D
+ival_ram               slack   1.688 levels 21 logic 2.855 net 5.424  u_fetch/ka_q_reg/C -> u_fetch/u_ival/g_m64.g_bank[0].g_prim[2].u_ram/RAMC/I
+tage                   slack   2.252 levels  7 logic 2.731 net 4.349  u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_1/CLKARDCLK -> u_fetch/g_tage.u_tage/g_tab[0].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/DINADIN[8]
+lq_st_q_sn             slack   3.292 levels 12 logic 1.899 net 4.574  u_lsu/g_split.sn_v_q_reg/C -> u_lsu/lq_st_q_reg[7][2]/D
+chk_pa_q_dtlb          unconstrained
+itt_to_any             slack   2.219 levels 17 logic 3.261 net 4.390  u_fetch/g_tage.g_itt.u_itt/u_path/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg/CLKARDCLK -> u_fetch/f3_rtop_q_reg[17]/D
+itt_write              slack   4.367 levels 13 logic 1.975 net 2.954  u_fetch/u_cmp/hv_q_reg[1]/C -> u_fetch/g_tage.g_itt.u_itt/u_path/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg/ENARDEN
+itt_to_fpc             unconstrained
+kr_q                   slack   1.554 levels 18 logic 3.681 net 4.338  u_fetch/g_way[2].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_1/CLKARDCLK -> u_fetch/kr_q_reg/D
+krt_q                  slack   0.912 levels 18 logic 3.716 net 5.090  u_fetch/g_way[2].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_1/CLKARDCLK -> u_fetch/krt_q_reg[13]/D
+f3_ras_q               slack   1.556 levels 18 logic 3.629 net 4.394  u_fetch/g_way[2].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_1/CLKARDCLK -> u_fetch/f3_ras_q_reg/D
+f3_rtop_q              slack   0.896 levels 18 logic 3.610 net 5.218  u_fetch/g_way[2].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_1/CLKARDCLK -> u_fetch/f3_rtop_q_reg[17]/D
+fpc_q                  slack   1.429 levels 17 logic 2.651 net 6.013  u_fetch/ka_q_reg/C -> u_fetch/fpc_q_reg[30]/D

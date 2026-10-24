@@ -1,0 +1,4 @@
+ipi_q                  slack   2.001 levels 23 logic 3.766 net 3.953  u_fetch/g_way[6].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK -> u_fetch/g_tage.g_itt.ipi_q_reg/D
+ipw_q                  slack   2.075 levels 23 logic 3.792 net 3.856  u_fetch/g_way[6].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK -> u_fetch/g_tage.g_itt.ipw_q_reg/D
+ipi_q_ic               slack   2.001 levels 23 logic 3.766 net 3.953  u_fetch/g_way[6].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK -> u_fetch/g_tage.g_itt.ipi_q_reg/D
+ipw_q_ic               slack   2.075 levels 23 logic 3.792 net 3.856  u_fetch/g_way[6].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK -> u_fetch/g_tage.g_itt.ipw_q_reg/D
