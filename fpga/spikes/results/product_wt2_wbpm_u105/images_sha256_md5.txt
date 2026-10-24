@@ -1,0 +1,4 @@
+fc951f18036794d469ed7699d71d596fab9c87ff77bc29dac940a991cd0b8eb9  tanager.bit
+f73771bbc1fde0e0277e3db22f0aaed19519f77ab11003cde9e03d29cb138c20  tanager.bit.bin
+b13175dfa3afca245636c36e1c4b91ed  tanager.bit
+2089514c24331b7f5beeb763003244c2  tanager.bit.bin
