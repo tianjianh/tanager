@@ -520,9 +520,14 @@ int main(int argc, char** argv) {
   if (n_early)
     fprintf(stderr, "tanager-lockstep: %llu reads returned what another hart's AMO or SC wrote before its record "
                     "(up to %llu cycles before)\n", (unsigned long long)n_early, (unsigned long long)early_max);
+  if (status == EXIT_PASS && ls.stopped()) {  // a hart entered debug mode: checked up to there (verification.md §3.7)
+    status = EXIT_STOPPED;
+    fprintf(stderr, "tanager-lockstep: %s\n", ls.stopped_why().c_str());
+  }
   fprintf(stderr, "tanager-lockstep: %s after %llu records (%llu retired, %llu traps, %llu interrupts, %llu "
                   "writebacks) in %.1f s, %.0f records/s%s\n",
-          status == EXIT_PASS ? "PASS" : status == EXIT_MISMATCH ? "MISMATCH" : "NOTHING CHECKED",
+          status == EXIT_PASS ? "PASS" : status == EXIT_MISMATCH ? "MISMATCH" : status == EXIT_STOPPED ? "STOPPED"
+                                                                                                       : "NOTHING CHECKED",
           (unsigned long long)n, (unsigned long long)retired,
           (unsigned long long)traps, (unsigned long long)irqs, (unsigned long long)nwb, t, t > 0 ? n / t : 0.0,
           o.plant >= 0 && !planted ? "; nothing was planted (no compared value from there on)" : "");

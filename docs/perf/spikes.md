@@ -2227,6 +2227,36 @@ Results: [`fpga/spikes/results/ooc_dr191/`](../../fpga/spikes/results/ooc_dr191/
 
 Results: `fpga/spikes/results/product_wt_rec_u095/` and `_u105/`, with `images_sha256_md5.txt`. The images and checkpoints are in `~/tanager-build/track-spikes-72f833/vivado/product_wt_rec_u095/` and `_u105/`, both on `KEEP.txt`.
 
+#### The write-pacing measurement image on main closes at +1.068 ns (2026-10-24)
+
+**Asked** (the coordinator): soc-2's measurement image for the board's write-pacing sweep ([soc.md](../spec/soc.md) §8.5, `tests/bench/mem` `wsdp.bin`).
+- **What's in it:** main 8a47f23b (all five DR-191 fixes) with `TG_L2_WB_PACE=1`. The batching is off at reset (`TG_L2_PACE_INIT=1025`, the default: a batch of 1, a wait of 64), so the sweep sets `L2_PACE` at run time.
+- **The flow:** the pair of record's clean placement (`rec_u105`): the product form, `AltSpreadLogic_high`, `AlternateCLBRouting`, 1.05 ns. One placement, no fallbacks.
+- **The snapshot:** `snap/product_wt2` 99fcb9376d8d (main plus the measurement commit), pinned `claude/spikes-2-board-wbpm`. Forward references and lint with `L2_WB_PACE=1` came back clean.
+
+| | **`wbpm_u105`** | for comparison: `rec_u105` |
+|---|---|---|
+| LUTs after synthesis / `opt_design` / routed | 119,907 / 115,755 / 113,122 (96.6%) | 119,547 / 115,574 / 112,862 (96.4%) |
+| FFs, control sets | 58,275, 2,847 | 58,210, 2,855 |
+| WNS after placement (estimated, uncertainty on) | +0.202 | +0.296 |
+| Routing | level 5, no trade; the whole build 1.5 h | level 5, no trade |
+| **WNS / TNS / WHS (ns)** | **+1.068 / 0 / +0.009** | +1.066 / 0 / +0.010 |
+| the core clock's WNS; `clk2x` within / into / back | +1.068; +1.292 / +1.083 / +1.150 | +1.157; +1.504 / +1.066 / +1.133 |
+| Endpoints within 1 ns | **none** | none |
+
+- **It closes with the pair of record's margin.** Against `rec_u105` it has +360 LUTs after synthesis, +260 routed and +65 FFs.
+  - The batching is about 80 LUTs and 66 FFs a chip ([soc.md](../spec/soc.md) §8.5).
+  - The rest is main's RTL since f3311cdd, with its switches off, and synthesis noise.
+- **The floorplan:** L2 bank 0 100%/76%, bank 1 104%/79%.
+
+**The image,** written by `run_bit_runs.sh` (write_bit_from_dcp.tcl); `timing_bit.rpt` says "All user specified timing constraints are met".
+
+| | `tanager.bit.bin` sha256 | `tanager.bit` sha256 |
+|---|---|---|
+| **`wbpm_u105`, soc-2's write-pacing image** | f73771bbc1fde0e0277e3db22f0aaed19519f77ab11003cde9e03d29cb138c20 | fc951f18036794d469ed7699d71d596fab9c87ff77bc29dac940a991cd0b8eb9 |
+
+Results: `fpga/spikes/results/product_wt2_wbpm_u105/`, with `images_sha256_md5.txt`. The image and checkpoint are in `~/tanager-build/track-spikes-72f833/vivado/product_wt2_wbpm_u105/`, on `KEEP.txt`.
+
 #### The preview pair with DR-191's fixes 3–5 (2026-10-24)
 
 **Asked** (the coordinator, 10-24): "a full-chip preview pair, product flow at 0.95 and 1.05 ns", on main d7c2d835 (fix 4 is 16b6d5d1) with fix 3 (core-2's tlbreg b3ab9dfe) and fix 5 (fpu-2's tageflat f6865c1e) merged. It is a preview: the pair of record waits for all five fixes on main.
@@ -2334,6 +2364,47 @@ Results: [`fpga/spikes/results/ooc_itt/`](../../fpga/spikes/results/ooc_itt/) ho
 - **The trim (7ba9b0a0)** cut the area to +306 / +288 LUTs a core, against 1f5f9e18's +1,055 / +632. Its paths were not split by start. Results: `ooc_itt_trim/`.
 
 Results: [`fpga/spikes/results/ooc_itt_t3/`](../../fpga/spikes/results/ooc_itt_t3/) (188328af) and [`ooc_itt_t5/`](../../fpga/spikes/results/ooc_itt_t5/) (a6f51752), each with `compare.txt`. In `ooc_itt_t5/`, each form's `levels_ic.txt` lists the I$-data paths level by level, and `fpc_q_from_f3_start.txt` holds the `fpc_q` query.
+
+#### bf29152f: the table's keys in LUT RAM bring mode 2 back to off's depth (2026-10-24)
+
+**Asked** (fpu-2): bf29152f, which is a6f51752 plus one commit.
+- **The change:**
+  - The table's key {valid, slot, tag, privilege} is in LUT RAM, read and checked at F1 with the same index.
+  - Fetch registers the predicted JALR slot (`phit_q`, `pslot_q`) beside `f2_hit_q` and `f2_slot_q`. So the exit search takes it from registers, as with the table off.
+  - The targets stay in block RAM.
+- **The baseline:** the off design is unchanged (with the table off, `phit` and `pslot` are still `f2_hit_q` and `f2_slot_q`). So off is the same 7ba9b0a0 run, queried again with [`paths_itt5.tcl`](../../fpga/spikes/tcl/paths_itt5.tcl): `paths_itt4.tcl`'s paths plus `phit_q`, `pslot_q`, and `fpc_q` from the I$ data and from `f3_start_q`.
+
+| A core, out of context | off | a6f51752 `TG_ITT=2` | **bf29152f `TG_ITT=2`** | bf29152f `TG_ITT=1` |
+|---|---|---|---|---|
+| LUTs / LUTRAM LUTs / FFs (the forms against off) | 51,746 / 8,784 / 23,654 | +248 / +56 / +334 | +431 / +120 / +343 | +562 / +112 / +316 |
+| RAMB36 (against off) | | +2 | +2 | +1 |
+| From the I$ data, levels: `ka_q` | 19 | 22 | 19 | 18 |
+| `k_ovr_q` | 18 | 22 | 19 | 21 |
+| `kr_q`, `f3_ras_q` | 18 | 21 | 18 | 20 |
+| the stack's push | 19 | 21 | 20 | 21 |
+| the stack's pop | 19 | 21 | 19 | 20 |
+| `kimm_q` | 17 | 21 | 18 | 20 |
+| the table's `ki_q`, `f3_itt_q`, `ipi_q`, `ipw_q` | | 21 | 18 | 20 |
+| The level where the I$ data reaches TAGE | 8 | 11, after `pd_pop` and a table LUT | 9 | 7 |
+| From TAGE, the same registers | 19–21 | 16–17 | 18–21 | 20–23 |
+| `phit_q` / `pslot_q` | | | 9 / 9 levels | 6 / 6 levels |
+| `fpc_q`: the worst / from `f3_s_q` / from `f3_start_q` | 17 / 20 / 19 | 18 / 21 / 20 | 20 / 24 / 22 | 17 / 22 / 21 |
+| WNS, the worst path (not the table's) | +0.075 (LSU) | +0.715 (LSU) | +0.552 (the DTLB CAM → `rp_ra_q`, 22 levels) | +0.428 (LSU, 16) |
+
+- **Mode 2 meets the bar.** From the I$ data its decision registers are within a level of off's depth.
+  - No table cell and no `pd_pop` is on any of these paths.
+  - The I$ data reaches TAGE at level 9, against off's 8: it goes through the jump decode `pd_jal` instead of `pd_start`. From TAGE on, the depth is off's.
+- **Mode 1 doesn't:** it is 1–3 levels deeper than off from the I$ data (`ka_q` is one shallower), and 1–3 deeper from TAGE.
+  - Its paths reach TAGE at level 7, through fetch's own return decode `pd_pop`, which fetch's stack terms use with the table off too. They then run 13–14 levels inside TAGE, against off's 10–12.
+  - `k_ovr_q` also passes one table LUT two levels from its end: TAGE's `f3_nhs` into the table's `fx_nhs`.
+- **The new registers are clear.** `phit_q` and `pslot_q`: 6–9 levels, +2.4 to +3.2 ns. The table's target read is now short: into `ka_q` at 7–8 levels, +3.8 to +3.9 ns.
+- **`fpc_q` has no path from the I$ data in any of the three runs.** In mode 2 it is now 3–4 levels deeper than off from every start; in a6f51752 it was mode 1 that was 4 deeper. Both times, the extra levels are in fetch's control after F2's or F3's valid (the stall and redirect select into `fpc_q`'s enable), and no table cell is on the path.
+- **The area:** the keys cost +64 LUTRAM LUTs a core over a6f51752 in both forms. Against off: +431 LUTs a core in mode 2 and +562 in mode 1, about +860 and +1,120 a chip.
+- **In the chip:**
+  - Mode 2's I$-data paths at off's depth should leave the pair of record's I$-data family where it is: +0.345 ns at 21 levels in its congested placement.
+  - The one to watch is `fpc_q`. If its 3–4 extra levels carry into the chip, the pair of record's `fpc_q` family (+0.388 ns from `f3_carry_q` in the same placement) would be about 1 ns worse.
+
+Results: [`fpga/spikes/results/ooc_itt_t6/`](../../fpga/spikes/results/ooc_itt_t6/): `compare.txt` and `itt_levels.txt`; each form's `levels_ic.txt` and `levels_fpc_q.txt` list the paths level by level.
 
 #### core-2's A/B: the read thread with and without per-bank copies (2026-10-22)
 

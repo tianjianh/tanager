@@ -1,0 +1,286 @@
+== ka_q_ic
+lvl loc            type    net in   cell      at   fo  input pin -> output net
+  1 SLICE_X26Y102  LUT6     0.649  0.187   3.835    1  u_fetch/f3_parcel_q[0][9]_i_4/I0 -> u_fetch/f3_parcel_q[0][9]_i_4_n_0
+  2 SLICE_X26Y102  MUXF7    0.015  0.096   3.946    7  u_fetch/f3_parcel_q_reg[0][9]_i_2/I1 -> u_fetch/f3_parcel_q_reg[0][9]_i_2_n_0
+  3 SLICE_X28Y99   LUT4     0.747  0.157   4.850    1  u_fetch/g_tage.hr_xm_q[0]_i_8/I0 -> u_fetch/g_tage.hr_xm_q[0]_i_8_n_0
+  4 SLICE_X26Y99   LUT6     0.430  0.187   5.467    1  u_fetch/g_tage.hr_xm_q[0]_i_7/I3 -> u_fetch/g_tage.hr_xm_q[0]_i_7_n_0
+  5 SLICE_X25Y99   LUT6     0.095  0.058   5.620    2  u_fetch/g_tage.hr_xm_q[0]_i_5/I5 -> u_fetch/pd_pop[0]
+  6 SLICE_X26Y103  LUT6     0.201  0.227   6.048    2  u_fetch/g_tage.hr_xm_q[0]_i_2/I3 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q_reg[0]_0
+  7 SLICE_X26Y103  LUT6     0.161  0.152   6.361    2  u_fetch/g_tage.u_tage/fp_q[0]_i_6/I0 -> u_fetch/g_tage.u_tage/fp_q[0]_i_6_n_0
+  8 SLICE_X27Y103  LUT2     0.162  0.137   6.660    3  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[1]_i_6/I1 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[1]_i_6_n_0
+  9 SLICE_X28Y103  LUT6     0.207  0.084   6.951    2  u_fetch/g_tage.u_tage/fp_q[1]_i_8/I5 -> u_fetch/g_tage.u_tage/fp_q[1]_i_8_n_0
+ 10 SLICE_X28Y103  LUT3     0.101  0.057   7.109    4  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[2]_i_3/I0 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[2]_i_3_n_0
+ 11 SLICE_X30Y103  LUT2     0.280  0.162   7.551   23  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[2]_i_1/I1 -> u_fetch/g_tage.u_tage/p_31_out[0]
+ 12 SLICE_X32Y103  LUT2     0.336  0.080   7.968   10  u_fetch/g_tage.u_tage/g_late.p_link_q[3]_i_2/I1 -> u_fetch/g_tage.u_tage/g_late.p_link_q[3]_i_2_n_0
+ 13 SLICE_X30Y106  LUT2     0.318  0.217   8.503    3  u_fetch/g_tage.u_tage/g_tage.hr_lm_q[3]_i_2/I1 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[7]_i_6_0[3]
+ 14 SLICE_X25Y105  LUT5     0.389  0.135   9.027    1  u_fetch/g_tage.u_tage/kt_q_i_6/I4 -> u_fetch/g_tage.u_tage/kt_q_i_6_n_0
+ 15 SLICE_X25Y106  LUT6     0.098  0.060   9.185    1  u_fetch/g_tage.u_tage/kt_q_i_4/I3 -> u_fetch/g_tage.u_tage/kt_q_i_4_n_0
+ 16 SLICE_X25Y106  LUT4     0.049  0.082   9.316    6  u_fetch/g_tage.u_tage/kt_q_i_2/I1 -> u_fetch/g_tage.u_tage/kt_q_i_2_n_0
+ 17 SLICE_X25Y105  LUT4     0.119  0.084   9.519    2  u_fetch/g_tage.u_tage/k_ovr_q_i_2/I0 -> u_fetch/g_tage.u_tage/k_ovr_q_i_2_n_0
+ 18 SLICE_X18Y106  LUT6     0.639  0.228  10.386    1  u_fetch/g_tage.u_tage/ka_q_i_1/I0 -> u_fetch/g_tage.u_tage_n_274
+end: u_fetch/ka_q_reg/D (net in 0.078)
+Data Path Delay:        8.691ns  (logic 3.615ns (41.596%)  route 5.076ns (58.404%))
+Clock Path Skew:        -0.134ns
+
+== k_ovr_q_ic
+lvl loc            type    net in   cell      at   fo  input pin -> output net
+  1 SLICE_X26Y102  LUT6     0.649  0.187   3.835    1  u_fetch/f3_parcel_q[0][9]_i_4/I0 -> u_fetch/f3_parcel_q[0][9]_i_4_n_0
+  2 SLICE_X26Y102  MUXF7    0.015  0.096   3.946    7  u_fetch/f3_parcel_q_reg[0][9]_i_2/I1 -> u_fetch/f3_parcel_q_reg[0][9]_i_2_n_0
+  3 SLICE_X28Y99   LUT4     0.747  0.157   4.850    1  u_fetch/g_tage.hr_xm_q[0]_i_8/I0 -> u_fetch/g_tage.hr_xm_q[0]_i_8_n_0
+  4 SLICE_X26Y99   LUT6     0.430  0.187   5.467    1  u_fetch/g_tage.hr_xm_q[0]_i_7/I3 -> u_fetch/g_tage.hr_xm_q[0]_i_7_n_0
+  5 SLICE_X25Y99   LUT6     0.095  0.058   5.620    2  u_fetch/g_tage.hr_xm_q[0]_i_5/I5 -> u_fetch/pd_pop[0]
+  6 SLICE_X26Y103  LUT6     0.201  0.227   6.048    2  u_fetch/g_tage.hr_xm_q[0]_i_2/I3 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q_reg[0]_0
+  7 SLICE_X26Y103  LUT6     0.161  0.152   6.361    2  u_fetch/g_tage.u_tage/fp_q[0]_i_6/I0 -> u_fetch/g_tage.u_tage/fp_q[0]_i_6_n_0
+  8 SLICE_X27Y103  LUT2     0.162  0.137   6.660    3  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[1]_i_6/I1 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[1]_i_6_n_0
+  9 SLICE_X28Y103  LUT6     0.207  0.084   6.951    2  u_fetch/g_tage.u_tage/fp_q[1]_i_8/I5 -> u_fetch/g_tage.u_tage/fp_q[1]_i_8_n_0
+ 10 SLICE_X28Y103  LUT3     0.101  0.057   7.109    4  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[2]_i_3/I0 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[2]_i_3_n_0
+ 11 SLICE_X30Y103  LUT3     0.274  0.082   7.465    3  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[3]_i_6/I1 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[3]_i_6_n_0
+ 12 SLICE_X30Y103  LUT6     0.063  0.188   7.716    8  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[5]_i_3/I5 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[5]_i_3_n_0
+ 13 SLICE_X30Y103  LUT6     0.056  0.082   7.855    3  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[6]_i_6/I1 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[6]_i_6_n_0
+ 14 SLICE_X30Y105  LUT6     0.114  0.150   8.119    3  u_fetch/g_tage.u_tage/fp_q[2]_i_7/I5 -> u_fetch/g_tage.u_tage/fp_q[2]_i_7_n_0
+ 15 SLICE_X30Y105  LUT3     0.107  0.057   8.283    2  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[7]_i_6/I2 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[7]_i_6_n_0
+ 16 SLICE_X30Y105  LUT6     0.152  0.137   8.572   58  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[7]_i_1/I5 -> u_fetch/g_tage.u_tage/p_31_out[5]
+ 17 SLICE_X26Y106  LUT5     0.403  0.136   9.111    1  u_fetch/g_tage.u_tage/f3_nhs_q_i_3/I1 -> u_fetch/g_tage.u_tage/f3_nhs_q_i_3_n_0
+ 18 SLICE_X24Y106  LUT6     0.214  0.080   9.405    2  u_fetch/g_tage.u_tage/f3_nhs_q_i_1/I2 -> u_fetch/g_tage.g_itt.u_itt/fx_nhs
+ 19 SLICE_X23Y106  LUT5     0.159  0.083   9.647    1  u_fetch/g_tage.g_itt.u_itt/k_ovr_q_i_4/I2 -> u_fetch/g_tage.u_tage/ka_q_reg_11
+ 20 SLICE_X20Y106  LUT4     0.469  0.057  10.173    2  u_fetch/g_tage.u_tage/k_ovr_q_i_3/I0 -> u_fetch/g_tage.u_tage/k_ovr_q_i_3_n_0
+ 21 SLICE_X19Y106  LUT2     0.106  0.088  10.367    1  u_fetch/g_tage.u_tage/k_ovr_q_i_1/I1 -> u_fetch/f2_override
+end: u_fetch/k_ovr_q_reg/D (net in 0.024)
+Data Path Delay:        8.618ns  (logic 3.707ns (43.017%)  route 4.911ns (56.983%))
+Clock Path Skew:        -0.143ns
+
+== kr_q_ic
+lvl loc            type    net in   cell      at   fo  input pin -> output net
+  1 SLICE_X26Y102  LUT6     0.649  0.187   3.835    1  u_fetch/f3_parcel_q[0][9]_i_4/I0 -> u_fetch/f3_parcel_q[0][9]_i_4_n_0
+  2 SLICE_X26Y102  MUXF7    0.015  0.096   3.946    7  u_fetch/f3_parcel_q_reg[0][9]_i_2/I1 -> u_fetch/f3_parcel_q_reg[0][9]_i_2_n_0
+  3 SLICE_X28Y99   LUT4     0.747  0.157   4.850    1  u_fetch/g_tage.hr_xm_q[0]_i_8/I0 -> u_fetch/g_tage.hr_xm_q[0]_i_8_n_0
+  4 SLICE_X26Y99   LUT6     0.430  0.187   5.467    1  u_fetch/g_tage.hr_xm_q[0]_i_7/I3 -> u_fetch/g_tage.hr_xm_q[0]_i_7_n_0
+  5 SLICE_X25Y99   LUT6     0.095  0.058   5.620    2  u_fetch/g_tage.hr_xm_q[0]_i_5/I5 -> u_fetch/pd_pop[0]
+  6 SLICE_X26Y103  LUT6     0.201  0.227   6.048    2  u_fetch/g_tage.hr_xm_q[0]_i_2/I3 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q_reg[0]_0
+  7 SLICE_X26Y103  LUT6     0.161  0.152   6.361    2  u_fetch/g_tage.u_tage/fp_q[0]_i_6/I0 -> u_fetch/g_tage.u_tage/fp_q[0]_i_6_n_0
+  8 SLICE_X27Y103  LUT2     0.162  0.137   6.660    3  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[1]_i_6/I1 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[1]_i_6_n_0
+  9 SLICE_X28Y103  LUT6     0.207  0.084   6.951    2  u_fetch/g_tage.u_tage/fp_q[1]_i_8/I5 -> u_fetch/g_tage.u_tage/fp_q[1]_i_8_n_0
+ 10 SLICE_X28Y103  LUT3     0.101  0.057   7.109    4  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[2]_i_3/I0 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[2]_i_3_n_0
+ 11 SLICE_X30Y103  LUT3     0.274  0.082   7.465    3  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[3]_i_6/I1 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[3]_i_6_n_0
+ 12 SLICE_X30Y103  LUT6     0.063  0.188   7.716    8  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[5]_i_3/I5 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[5]_i_3_n_0
+ 13 SLICE_X30Y103  LUT6     0.056  0.082   7.855    3  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[6]_i_6/I1 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[6]_i_6_n_0
+ 14 SLICE_X30Y105  LUT6     0.114  0.150   8.119    3  u_fetch/g_tage.u_tage/fp_q[2]_i_7/I5 -> u_fetch/g_tage.u_tage/fp_q[2]_i_7_n_0
+ 15 SLICE_X30Y105  LUT3     0.107  0.057   8.283    2  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[7]_i_6/I2 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[7]_i_6_n_0
+ 16 SLICE_X30Y105  LUT6     0.152  0.137   8.572   58  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[7]_i_1/I5 -> u_fetch/g_tage.u_tage/p_31_out[5]
+ 17 SLICE_X29Y107  LUT6     0.183  0.185   8.940    4  u_fetch/g_tage.u_tage/f3_meta_q[slot][0]_i_2/I2 -> u_fetch/g_tage.u_tage/f3_meta_q[slot][0]_i_2_n_0
+ 18 SLICE_X25Y106  LUT2     0.295  0.083   9.318    3  u_fetch/g_tage.u_tage/kt_q_i_3/I0 -> u_fetch/g_tage.u_tage/kt_q_i_3_n_0
+ 19 SLICE_X25Y106  LUT3     0.110  0.152   9.581    9  u_fetch/g_tage.u_tage/kt_q_i_1/I1 -> u_fetch/g_tage.u_tage/k_stop_q_i_2
+ 20 SLICE_X24Y106  LUT3     0.189  0.084   9.854    2  u_fetch/g_tage.u_tage/kr_q_i_1/I0 -> u_fetch/f3_ras_q0
+end: u_fetch/kr_q_reg/D (net in 0.080)
+Data Path Delay:        8.160ns  (logic 3.767ns (46.164%)  route 4.393ns (53.836%))
+Clock Path Skew:        -0.282ns
+
+== f3_ras_q_ic
+lvl loc            type    net in   cell      at   fo  input pin -> output net
+  1 SLICE_X26Y102  LUT6     0.649  0.187   3.835    1  u_fetch/f3_parcel_q[0][9]_i_4/I0 -> u_fetch/f3_parcel_q[0][9]_i_4_n_0
+  2 SLICE_X26Y102  MUXF7    0.015  0.096   3.946    7  u_fetch/f3_parcel_q_reg[0][9]_i_2/I1 -> u_fetch/f3_parcel_q_reg[0][9]_i_2_n_0
+  3 SLICE_X28Y99   LUT4     0.747  0.157   4.850    1  u_fetch/g_tage.hr_xm_q[0]_i_8/I0 -> u_fetch/g_tage.hr_xm_q[0]_i_8_n_0
+  4 SLICE_X26Y99   LUT6     0.430  0.187   5.467    1  u_fetch/g_tage.hr_xm_q[0]_i_7/I3 -> u_fetch/g_tage.hr_xm_q[0]_i_7_n_0
+  5 SLICE_X25Y99   LUT6     0.095  0.058   5.620    2  u_fetch/g_tage.hr_xm_q[0]_i_5/I5 -> u_fetch/pd_pop[0]
+  6 SLICE_X26Y103  LUT6     0.201  0.227   6.048    2  u_fetch/g_tage.hr_xm_q[0]_i_2/I3 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q_reg[0]_0
+  7 SLICE_X26Y103  LUT6     0.161  0.152   6.361    2  u_fetch/g_tage.u_tage/fp_q[0]_i_6/I0 -> u_fetch/g_tage.u_tage/fp_q[0]_i_6_n_0
+  8 SLICE_X27Y103  LUT2     0.162  0.137   6.660    3  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[1]_i_6/I1 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[1]_i_6_n_0
+  9 SLICE_X28Y103  LUT6     0.207  0.084   6.951    2  u_fetch/g_tage.u_tage/fp_q[1]_i_8/I5 -> u_fetch/g_tage.u_tage/fp_q[1]_i_8_n_0
+ 10 SLICE_X28Y103  LUT3     0.101  0.057   7.109    4  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[2]_i_3/I0 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[2]_i_3_n_0
+ 11 SLICE_X30Y103  LUT3     0.274  0.082   7.465    3  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[3]_i_6/I1 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[3]_i_6_n_0
+ 12 SLICE_X30Y103  LUT6     0.063  0.188   7.716    8  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[5]_i_3/I5 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[5]_i_3_n_0
+ 13 SLICE_X30Y103  LUT6     0.056  0.082   7.855    3  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[6]_i_6/I1 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[6]_i_6_n_0
+ 14 SLICE_X30Y105  LUT6     0.114  0.150   8.119    3  u_fetch/g_tage.u_tage/fp_q[2]_i_7/I5 -> u_fetch/g_tage.u_tage/fp_q[2]_i_7_n_0
+ 15 SLICE_X30Y105  LUT3     0.107  0.057   8.283    2  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[7]_i_6/I2 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[7]_i_6_n_0
+ 16 SLICE_X30Y105  LUT6     0.152  0.137   8.572   58  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[7]_i_1/I5 -> u_fetch/g_tage.u_tage/p_31_out[5]
+ 17 SLICE_X29Y107  LUT6     0.183  0.185   8.940    4  u_fetch/g_tage.u_tage/f3_meta_q[slot][0]_i_2/I2 -> u_fetch/g_tage.u_tage/f3_meta_q[slot][0]_i_2_n_0
+ 18 SLICE_X25Y106  LUT2     0.295  0.083   9.318    3  u_fetch/g_tage.u_tage/kt_q_i_3/I0 -> u_fetch/g_tage.u_tage/kt_q_i_3_n_0
+ 19 SLICE_X25Y106  LUT3     0.110  0.152   9.581    9  u_fetch/g_tage.u_tage/kt_q_i_1/I1 -> u_fetch/g_tage.u_tage/k_stop_q_i_2
+ 20 SLICE_X24Y106  LUT3     0.189  0.084   9.854    2  u_fetch/g_tage.u_tage/kr_q_i_1/I0 -> u_fetch/f3_ras_q0
+end: u_fetch/f3_ras_q_reg/D (net in 0.232)
+Data Path Delay:        8.312ns  (logic 3.767ns (45.320%)  route 4.545ns (54.680%))
+Clock Path Skew:        -0.282ns
+
+== ras_push_ic
+lvl loc            type    net in   cell      at   fo  input pin -> output net
+  1 SLICE_X26Y102  LUT6     0.649  0.187   3.835    1  u_fetch/f3_parcel_q[0][9]_i_4/I0 -> u_fetch/f3_parcel_q[0][9]_i_4_n_0
+  2 SLICE_X26Y102  MUXF7    0.015  0.096   3.946    7  u_fetch/f3_parcel_q_reg[0][9]_i_2/I1 -> u_fetch/f3_parcel_q_reg[0][9]_i_2_n_0
+  3 SLICE_X28Y99   LUT4     0.747  0.157   4.850    1  u_fetch/g_tage.hr_xm_q[0]_i_8/I0 -> u_fetch/g_tage.hr_xm_q[0]_i_8_n_0
+  4 SLICE_X26Y99   LUT6     0.430  0.187   5.467    1  u_fetch/g_tage.hr_xm_q[0]_i_7/I3 -> u_fetch/g_tage.hr_xm_q[0]_i_7_n_0
+  5 SLICE_X25Y99   LUT6     0.095  0.058   5.620    2  u_fetch/g_tage.hr_xm_q[0]_i_5/I5 -> u_fetch/pd_pop[0]
+  6 SLICE_X26Y103  LUT6     0.201  0.227   6.048    2  u_fetch/g_tage.hr_xm_q[0]_i_2/I3 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q_reg[0]_0
+  7 SLICE_X26Y103  LUT6     0.161  0.152   6.361    2  u_fetch/g_tage.u_tage/fp_q[0]_i_6/I0 -> u_fetch/g_tage.u_tage/fp_q[0]_i_6_n_0
+  8 SLICE_X27Y103  LUT2     0.162  0.137   6.660    3  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[1]_i_6/I1 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[1]_i_6_n_0
+  9 SLICE_X28Y103  LUT6     0.207  0.084   6.951    2  u_fetch/g_tage.u_tage/fp_q[1]_i_8/I5 -> u_fetch/g_tage.u_tage/fp_q[1]_i_8_n_0
+ 10 SLICE_X28Y103  LUT3     0.101  0.057   7.109    4  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[2]_i_3/I0 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[2]_i_3_n_0
+ 11 SLICE_X30Y103  LUT3     0.274  0.082   7.465    3  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[3]_i_6/I1 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[3]_i_6_n_0
+ 12 SLICE_X30Y103  LUT6     0.063  0.188   7.716    8  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[5]_i_3/I5 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[5]_i_3_n_0
+ 13 SLICE_X30Y103  LUT6     0.056  0.082   7.855    3  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[6]_i_6/I1 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[6]_i_6_n_0
+ 14 SLICE_X30Y105  LUT6     0.114  0.150   8.119    3  u_fetch/g_tage.u_tage/fp_q[2]_i_7/I5 -> u_fetch/g_tage.u_tage/fp_q[2]_i_7_n_0
+ 15 SLICE_X30Y105  LUT3     0.107  0.057   8.283    2  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[7]_i_6/I2 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[7]_i_6_n_0
+ 16 SLICE_X30Y105  LUT6     0.152  0.137   8.572   58  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[7]_i_1/I5 -> u_fetch/g_tage.u_tage/p_31_out[5]
+ 17 SLICE_X29Y107  LUT6     0.183  0.185   8.940    4  u_fetch/g_tage.u_tage/f3_meta_q[slot][0]_i_2/I2 -> u_fetch/g_tage.u_tage/f3_meta_q[slot][0]_i_2_n_0
+ 18 SLICE_X25Y106  LUT2     0.295  0.083   9.318    3  u_fetch/g_tage.u_tage/kt_q_i_3/I0 -> u_fetch/g_tage.u_tage/kt_q_i_3_n_0
+ 19 SLICE_X25Y106  LUT3     0.110  0.152   9.581    9  u_fetch/g_tage.u_tage/kt_q_i_1/I1 -> u_fetch/g_tage.u_tage/k_stop_q_i_2
+ 20 SLICE_X28Y105  LUT6     0.397  0.082  10.059    2  u_fetch/g_tage.u_tage/g_late.p_push_q_i_2/I1 -> u_fetch/g_tage.u_tage/fras_push
+ 21 SLICE_X28Y108  LUT2     0.173  0.084  10.316    1  u_fetch/g_tage.u_tage/g_late.p_push_q_i_1__0/I0 -> g_ras.g_s[0].g_t0.u_ras/g_late.p_push_q_reg_1
+end: g_ras.g_s[0].g_t0.u_ras/g_late.p_push_q_reg/D (net in 0.080)
+Data Path Delay:        8.623ns  (logic 3.849ns (44.637%)  route 4.774ns (55.363%))
+Clock Path Skew:        -0.268ns
+
+== ras_pop_ic
+lvl loc            type    net in   cell      at   fo  input pin -> output net
+  1 SLICE_X26Y102  LUT6     0.649  0.187   3.835    1  u_fetch/f3_parcel_q[0][9]_i_4/I0 -> u_fetch/f3_parcel_q[0][9]_i_4_n_0
+  2 SLICE_X26Y102  MUXF7    0.015  0.096   3.946    7  u_fetch/f3_parcel_q_reg[0][9]_i_2/I1 -> u_fetch/f3_parcel_q_reg[0][9]_i_2_n_0
+  3 SLICE_X28Y99   LUT4     0.747  0.157   4.850    1  u_fetch/g_tage.hr_xm_q[0]_i_8/I0 -> u_fetch/g_tage.hr_xm_q[0]_i_8_n_0
+  4 SLICE_X26Y99   LUT6     0.430  0.187   5.467    1  u_fetch/g_tage.hr_xm_q[0]_i_7/I3 -> u_fetch/g_tage.hr_xm_q[0]_i_7_n_0
+  5 SLICE_X25Y99   LUT6     0.095  0.058   5.620    2  u_fetch/g_tage.hr_xm_q[0]_i_5/I5 -> u_fetch/pd_pop[0]
+  6 SLICE_X26Y103  LUT6     0.201  0.227   6.048    2  u_fetch/g_tage.hr_xm_q[0]_i_2/I3 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q_reg[0]_0
+  7 SLICE_X26Y103  LUT6     0.161  0.152   6.361    2  u_fetch/g_tage.u_tage/fp_q[0]_i_6/I0 -> u_fetch/g_tage.u_tage/fp_q[0]_i_6_n_0
+  8 SLICE_X27Y103  LUT2     0.162  0.137   6.660    3  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[1]_i_6/I1 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[1]_i_6_n_0
+  9 SLICE_X28Y103  LUT6     0.207  0.084   6.951    2  u_fetch/g_tage.u_tage/fp_q[1]_i_8/I5 -> u_fetch/g_tage.u_tage/fp_q[1]_i_8_n_0
+ 10 SLICE_X28Y103  LUT3     0.101  0.057   7.109    4  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[2]_i_3/I0 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[2]_i_3_n_0
+ 11 SLICE_X30Y103  LUT3     0.274  0.082   7.465    3  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[3]_i_6/I1 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[3]_i_6_n_0
+ 12 SLICE_X30Y103  LUT6     0.063  0.188   7.716    8  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[5]_i_3/I5 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[5]_i_3_n_0
+ 13 SLICE_X30Y103  LUT6     0.056  0.082   7.855    3  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[6]_i_6/I1 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[6]_i_6_n_0
+ 14 SLICE_X30Y105  LUT6     0.114  0.150   8.119    3  u_fetch/g_tage.u_tage/fp_q[2]_i_7/I5 -> u_fetch/g_tage.u_tage/fp_q[2]_i_7_n_0
+ 15 SLICE_X30Y105  LUT3     0.107  0.057   8.283    2  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[7]_i_6/I2 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[7]_i_6_n_0
+ 16 SLICE_X30Y105  LUT6     0.152  0.137   8.572   58  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[7]_i_1/I5 -> u_fetch/g_tage.u_tage/p_31_out[5]
+ 17 SLICE_X29Y107  LUT6     0.183  0.185   8.940    4  u_fetch/g_tage.u_tage/f3_meta_q[slot][0]_i_2/I2 -> u_fetch/g_tage.u_tage/f3_meta_q[slot][0]_i_2_n_0
+ 18 SLICE_X25Y106  LUT2     0.295  0.083   9.318    3  u_fetch/g_tage.u_tage/kt_q_i_3/I0 -> u_fetch/g_tage.u_tage/kt_q_i_3_n_0
+ 19 SLICE_X25Y106  LUT3     0.110  0.152   9.581    9  u_fetch/g_tage.u_tage/kt_q_i_1/I1 -> u_fetch/g_tage.u_tage/k_stop_q_i_2
+ 20 SLICE_X27Y107  LUT4     0.281  0.153  10.014    1  u_fetch/g_tage.u_tage/g_late.p_pop_q_i_1__0/I1 -> g_ras.g_s[0].g_t0.u_ras/g_late.p_pop_q_reg_0
+end: g_ras.g_s[0].g_t0.u_ras/g_late.p_pop_q_reg/D (net in 0.070)
+Data Path Delay:        8.311ns  (logic 3.836ns (46.156%)  route 4.475ns (53.843%))
+Clock Path Skew:        -0.276ns
+
+== kimm_q_ic
+lvl loc            type    net in   cell      at   fo  input pin -> output net
+  1 SLICE_X26Y102  LUT6     0.649  0.187   3.835    1  u_fetch/f3_parcel_q[0][9]_i_4/I0 -> u_fetch/f3_parcel_q[0][9]_i_4_n_0
+  2 SLICE_X26Y102  MUXF7    0.015  0.096   3.946    7  u_fetch/f3_parcel_q_reg[0][9]_i_2/I1 -> u_fetch/f3_parcel_q_reg[0][9]_i_2_n_0
+  3 SLICE_X28Y99   LUT4     0.747  0.157   4.850    1  u_fetch/g_tage.hr_xm_q[0]_i_8/I0 -> u_fetch/g_tage.hr_xm_q[0]_i_8_n_0
+  4 SLICE_X26Y99   LUT6     0.430  0.187   5.467    1  u_fetch/g_tage.hr_xm_q[0]_i_7/I3 -> u_fetch/g_tage.hr_xm_q[0]_i_7_n_0
+  5 SLICE_X25Y99   LUT6     0.095  0.058   5.620    2  u_fetch/g_tage.hr_xm_q[0]_i_5/I5 -> u_fetch/pd_pop[0]
+  6 SLICE_X26Y103  LUT6     0.201  0.227   6.048    2  u_fetch/g_tage.hr_xm_q[0]_i_2/I3 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q_reg[0]_0
+  7 SLICE_X26Y103  LUT6     0.161  0.152   6.361    2  u_fetch/g_tage.u_tage/fp_q[0]_i_6/I0 -> u_fetch/g_tage.u_tage/fp_q[0]_i_6_n_0
+  8 SLICE_X27Y103  LUT2     0.162  0.137   6.660    3  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[1]_i_6/I1 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[1]_i_6_n_0
+  9 SLICE_X28Y103  LUT6     0.207  0.084   6.951    2  u_fetch/g_tage.u_tage/fp_q[1]_i_8/I5 -> u_fetch/g_tage.u_tage/fp_q[1]_i_8_n_0
+ 10 SLICE_X28Y103  LUT3     0.101  0.057   7.109    4  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[2]_i_3/I0 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[2]_i_3_n_0
+ 11 SLICE_X30Y103  LUT3     0.274  0.082   7.465    3  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[3]_i_6/I1 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[3]_i_6_n_0
+ 12 SLICE_X30Y103  LUT6     0.063  0.188   7.716    8  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[5]_i_3/I5 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[5]_i_3_n_0
+ 13 SLICE_X29Y103  LUT3     0.135  0.188   8.039   21  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[4]_i_1/I1 -> u_fetch/g_tage.u_tage/p_31_out[2]
+ 14 SLICE_X32Y102  LUT2     0.276  0.138   8.453    8  u_fetch/g_tage.u_tage/kimm_q[1]_i_16/I0 -> u_fetch/g_tage.u_tage/kimm_q[1]_i_16_n_0
+ 15 SLICE_X33Y104  LUT4     0.242  0.137   8.833    1  u_fetch/g_tage.u_tage/kimm_q[9]_i_13/I0 -> u_fetch/g_tage.u_tage/kimm_q[9]_i_13_n_0
+ 16 SLICE_X33Y104  LUT5     0.157  0.152   9.142    1  u_fetch/g_tage.u_tage/kimm_q[9]_i_10/I4 -> u_fetch/g_tage.u_tage/kimm_q[9]_i_10_n_0
+ 17 SLICE_X31Y109  LUT6     0.302  0.056   9.500    1  u_fetch/g_tage.u_tage/kimm_q[9]_i_8/I5 -> u_fetch/g_tage.u_tage/kimm_q[9]_i_8_n_0
+ 18 SLICE_X31Y109  LUT5     0.048  0.138   9.686    1  u_fetch/g_tage.u_tage/kimm_q[9]_i_4/I0 -> u_fetch/g_tage.u_tage/kimm_q[9]_i_4_n_0
+ 19 SLICE_X30Y109  LUT5     0.192  0.138  10.016    1  u_fetch/g_tage.u_tage/kimm_q[9]_i_2/I0 -> u_fetch/g_tage.u_tage/kimm_q[9]_i_2_n_0
+ 20 SLICE_X30Y109  LUT5     0.045  0.056  10.117    1  u_fetch/g_tage.u_tage/kimm_q[9]_i_1/I2 -> u_fetch/ovr_imm[9]
+end: u_fetch/kimm_q_reg[9]/D (net in 0.069)
+Data Path Delay:        8.412ns  (logic 3.840ns (45.649%)  route 4.572ns (54.351%))
+Clock Path Skew:        -0.273ns
+
+== ki_q_ic
+lvl loc            type    net in   cell      at   fo  input pin -> output net
+  1 SLICE_X26Y102  LUT6     0.649  0.187   3.835    1  u_fetch/f3_parcel_q[0][9]_i_4/I0 -> u_fetch/f3_parcel_q[0][9]_i_4_n_0
+  2 SLICE_X26Y102  MUXF7    0.015  0.096   3.946    7  u_fetch/f3_parcel_q_reg[0][9]_i_2/I1 -> u_fetch/f3_parcel_q_reg[0][9]_i_2_n_0
+  3 SLICE_X28Y99   LUT4     0.747  0.157   4.850    1  u_fetch/g_tage.hr_xm_q[0]_i_8/I0 -> u_fetch/g_tage.hr_xm_q[0]_i_8_n_0
+  4 SLICE_X26Y99   LUT6     0.430  0.187   5.467    1  u_fetch/g_tage.hr_xm_q[0]_i_7/I3 -> u_fetch/g_tage.hr_xm_q[0]_i_7_n_0
+  5 SLICE_X25Y99   LUT6     0.095  0.058   5.620    2  u_fetch/g_tage.hr_xm_q[0]_i_5/I5 -> u_fetch/pd_pop[0]
+  6 SLICE_X26Y103  LUT6     0.201  0.227   6.048    2  u_fetch/g_tage.hr_xm_q[0]_i_2/I3 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q_reg[0]_0
+  7 SLICE_X26Y103  LUT6     0.161  0.152   6.361    2  u_fetch/g_tage.u_tage/fp_q[0]_i_6/I0 -> u_fetch/g_tage.u_tage/fp_q[0]_i_6_n_0
+  8 SLICE_X27Y103  LUT2     0.162  0.137   6.660    3  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[1]_i_6/I1 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[1]_i_6_n_0
+  9 SLICE_X28Y103  LUT6     0.207  0.084   6.951    2  u_fetch/g_tage.u_tage/fp_q[1]_i_8/I5 -> u_fetch/g_tage.u_tage/fp_q[1]_i_8_n_0
+ 10 SLICE_X28Y103  LUT3     0.101  0.057   7.109    4  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[2]_i_3/I0 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[2]_i_3_n_0
+ 11 SLICE_X30Y103  LUT3     0.274  0.082   7.465    3  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[3]_i_6/I1 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[3]_i_6_n_0
+ 12 SLICE_X30Y103  LUT6     0.063  0.188   7.716    8  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[5]_i_3/I5 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[5]_i_3_n_0
+ 13 SLICE_X30Y103  LUT6     0.056  0.082   7.855    3  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[6]_i_6/I1 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[6]_i_6_n_0
+ 14 SLICE_X30Y105  LUT6     0.114  0.150   8.119    3  u_fetch/g_tage.u_tage/fp_q[2]_i_7/I5 -> u_fetch/g_tage.u_tage/fp_q[2]_i_7_n_0
+ 15 SLICE_X30Y105  LUT3     0.107  0.057   8.283    2  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[7]_i_6/I2 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[7]_i_6_n_0
+ 16 SLICE_X30Y105  LUT6     0.152  0.137   8.572   58  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[7]_i_1/I5 -> u_fetch/g_tage.u_tage/p_31_out[5]
+ 17 SLICE_X29Y107  LUT6     0.183  0.185   8.940    4  u_fetch/g_tage.u_tage/f3_meta_q[slot][0]_i_2/I2 -> u_fetch/g_tage.u_tage/f3_meta_q[slot][0]_i_2_n_0
+ 18 SLICE_X25Y106  LUT2     0.295  0.083   9.318    3  u_fetch/g_tage.u_tage/kt_q_i_3/I0 -> u_fetch/g_tage.u_tage/kt_q_i_3_n_0
+ 19 SLICE_X25Y106  LUT3     0.110  0.152   9.581    9  u_fetch/g_tage.u_tage/kt_q_i_1/I1 -> u_fetch/g_tage.u_tage/k_stop_q_i_2
+ 20 SLICE_X27Y108  LUT2     0.344  0.082  10.006    2  u_fetch/g_tage.u_tage/ki_q_i_1/I1 -> u_fetch/g_tage.u_tage_n_2
+end: u_fetch/ki_q_reg/D (net in 0.066)
+Data Path Delay:        8.299ns  (logic 3.765ns (45.368%)  route 4.534ns (54.632%))
+Clock Path Skew:        -0.276ns
+
+== f3_itt_q_ic
+lvl loc            type    net in   cell      at   fo  input pin -> output net
+  1 SLICE_X26Y102  LUT6     0.649  0.187   3.835    1  u_fetch/f3_parcel_q[0][9]_i_4/I0 -> u_fetch/f3_parcel_q[0][9]_i_4_n_0
+  2 SLICE_X26Y102  MUXF7    0.015  0.096   3.946    7  u_fetch/f3_parcel_q_reg[0][9]_i_2/I1 -> u_fetch/f3_parcel_q_reg[0][9]_i_2_n_0
+  3 SLICE_X28Y99   LUT4     0.747  0.157   4.850    1  u_fetch/g_tage.hr_xm_q[0]_i_8/I0 -> u_fetch/g_tage.hr_xm_q[0]_i_8_n_0
+  4 SLICE_X26Y99   LUT6     0.430  0.187   5.467    1  u_fetch/g_tage.hr_xm_q[0]_i_7/I3 -> u_fetch/g_tage.hr_xm_q[0]_i_7_n_0
+  5 SLICE_X25Y99   LUT6     0.095  0.058   5.620    2  u_fetch/g_tage.hr_xm_q[0]_i_5/I5 -> u_fetch/pd_pop[0]
+  6 SLICE_X26Y103  LUT6     0.201  0.227   6.048    2  u_fetch/g_tage.hr_xm_q[0]_i_2/I3 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q_reg[0]_0
+  7 SLICE_X26Y103  LUT6     0.161  0.152   6.361    2  u_fetch/g_tage.u_tage/fp_q[0]_i_6/I0 -> u_fetch/g_tage.u_tage/fp_q[0]_i_6_n_0
+  8 SLICE_X27Y103  LUT2     0.162  0.137   6.660    3  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[1]_i_6/I1 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[1]_i_6_n_0
+  9 SLICE_X28Y103  LUT6     0.207  0.084   6.951    2  u_fetch/g_tage.u_tage/fp_q[1]_i_8/I5 -> u_fetch/g_tage.u_tage/fp_q[1]_i_8_n_0
+ 10 SLICE_X28Y103  LUT3     0.101  0.057   7.109    4  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[2]_i_3/I0 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[2]_i_3_n_0
+ 11 SLICE_X30Y103  LUT3     0.274  0.082   7.465    3  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[3]_i_6/I1 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[3]_i_6_n_0
+ 12 SLICE_X30Y103  LUT6     0.063  0.188   7.716    8  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[5]_i_3/I5 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[5]_i_3_n_0
+ 13 SLICE_X30Y103  LUT6     0.056  0.082   7.855    3  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[6]_i_6/I1 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[6]_i_6_n_0
+ 14 SLICE_X30Y105  LUT6     0.114  0.150   8.119    3  u_fetch/g_tage.u_tage/fp_q[2]_i_7/I5 -> u_fetch/g_tage.u_tage/fp_q[2]_i_7_n_0
+ 15 SLICE_X30Y105  LUT3     0.107  0.057   8.283    2  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[7]_i_6/I2 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[7]_i_6_n_0
+ 16 SLICE_X30Y105  LUT6     0.152  0.137   8.572   58  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[7]_i_1/I5 -> u_fetch/g_tage.u_tage/p_31_out[5]
+ 17 SLICE_X29Y107  LUT6     0.183  0.185   8.940    4  u_fetch/g_tage.u_tage/f3_meta_q[slot][0]_i_2/I2 -> u_fetch/g_tage.u_tage/f3_meta_q[slot][0]_i_2_n_0
+ 18 SLICE_X25Y106  LUT2     0.295  0.083   9.318    3  u_fetch/g_tage.u_tage/kt_q_i_3/I0 -> u_fetch/g_tage.u_tage/kt_q_i_3_n_0
+ 19 SLICE_X25Y106  LUT3     0.110  0.152   9.581    9  u_fetch/g_tage.u_tage/kt_q_i_1/I1 -> u_fetch/g_tage.u_tage/k_stop_q_i_2
+ 20 SLICE_X27Y108  LUT2     0.344  0.082  10.006    2  u_fetch/g_tage.u_tage/ki_q_i_1/I1 -> u_fetch/g_tage.u_tage_n_2
+end: u_fetch/f3_itt_q_reg/D (net in 0.216)
+Data Path Delay:        8.449ns  (logic 3.765ns (44.562%)  route 4.684ns (55.438%))
+Clock Path Skew:        -0.276ns
+
+== ipi_q_ic
+lvl loc            type    net in   cell      at   fo  input pin -> output net
+  1 SLICE_X26Y102  LUT6     0.649  0.187   3.835    1  u_fetch/f3_parcel_q[0][9]_i_4/I0 -> u_fetch/f3_parcel_q[0][9]_i_4_n_0
+  2 SLICE_X26Y102  MUXF7    0.015  0.096   3.946    7  u_fetch/f3_parcel_q_reg[0][9]_i_2/I1 -> u_fetch/f3_parcel_q_reg[0][9]_i_2_n_0
+  3 SLICE_X28Y99   LUT4     0.747  0.157   4.850    1  u_fetch/g_tage.hr_xm_q[0]_i_8/I0 -> u_fetch/g_tage.hr_xm_q[0]_i_8_n_0
+  4 SLICE_X26Y99   LUT6     0.430  0.187   5.467    1  u_fetch/g_tage.hr_xm_q[0]_i_7/I3 -> u_fetch/g_tage.hr_xm_q[0]_i_7_n_0
+  5 SLICE_X25Y99   LUT6     0.095  0.058   5.620    2  u_fetch/g_tage.hr_xm_q[0]_i_5/I5 -> u_fetch/pd_pop[0]
+  6 SLICE_X26Y103  LUT6     0.201  0.227   6.048    2  u_fetch/g_tage.hr_xm_q[0]_i_2/I3 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q_reg[0]_0
+  7 SLICE_X26Y103  LUT6     0.161  0.152   6.361    2  u_fetch/g_tage.u_tage/fp_q[0]_i_6/I0 -> u_fetch/g_tage.u_tage/fp_q[0]_i_6_n_0
+  8 SLICE_X27Y103  LUT2     0.162  0.137   6.660    3  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[1]_i_6/I1 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[1]_i_6_n_0
+  9 SLICE_X28Y103  LUT6     0.207  0.084   6.951    2  u_fetch/g_tage.u_tage/fp_q[1]_i_8/I5 -> u_fetch/g_tage.u_tage/fp_q[1]_i_8_n_0
+ 10 SLICE_X28Y103  LUT3     0.101  0.057   7.109    4  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[2]_i_3/I0 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[2]_i_3_n_0
+ 11 SLICE_X30Y103  LUT3     0.274  0.082   7.465    3  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[3]_i_6/I1 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[3]_i_6_n_0
+ 12 SLICE_X30Y103  LUT6     0.063  0.188   7.716    8  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[5]_i_3/I5 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[5]_i_3_n_0
+ 13 SLICE_X30Y103  LUT6     0.056  0.082   7.855    3  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[6]_i_6/I1 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[6]_i_6_n_0
+ 14 SLICE_X30Y105  LUT6     0.114  0.150   8.119    3  u_fetch/g_tage.u_tage/fp_q[2]_i_7/I5 -> u_fetch/g_tage.u_tage/fp_q[2]_i_7_n_0
+ 15 SLICE_X30Y105  LUT3     0.107  0.057   8.283    2  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[7]_i_6/I2 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[7]_i_6_n_0
+ 16 SLICE_X30Y105  LUT6     0.152  0.137   8.572   58  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[7]_i_1/I5 -> u_fetch/g_tage.u_tage/p_31_out[5]
+ 17 SLICE_X29Y107  LUT6     0.183  0.185   8.940    4  u_fetch/g_tage.u_tage/f3_meta_q[slot][0]_i_2/I2 -> u_fetch/g_tage.u_tage/f3_meta_q[slot][0]_i_2_n_0
+ 18 SLICE_X25Y106  LUT2     0.295  0.083   9.318    3  u_fetch/g_tage.u_tage/kt_q_i_3/I0 -> u_fetch/g_tage.u_tage/kt_q_i_3_n_0
+ 19 SLICE_X25Y106  LUT3     0.110  0.152   9.581    9  u_fetch/g_tage.u_tage/kt_q_i_1/I1 -> u_fetch/g_tage.u_tage/k_stop_q_i_2
+ 20 SLICE_X24Y105  LUT2     0.228  0.091   9.899    1  u_fetch/g_tage.u_tage/g_tage.g_itt.ipi_q_i_1/I0 -> u_fetch/g_f2t.fe_itt
+end: u_fetch/g_tage.g_itt.ipi_q_reg/D (net in 0.041)
+Data Path Delay:        8.167ns  (logic 3.774ns (46.212%)  route 4.393ns (53.788%))
+Clock Path Skew:        -0.283ns
+
+== ipw_q_ic
+lvl loc            type    net in   cell      at   fo  input pin -> output net
+  1 SLICE_X26Y102  LUT6     0.649  0.187   3.835    1  u_fetch/f3_parcel_q[0][9]_i_4/I0 -> u_fetch/f3_parcel_q[0][9]_i_4_n_0
+  2 SLICE_X26Y102  MUXF7    0.015  0.096   3.946    7  u_fetch/f3_parcel_q_reg[0][9]_i_2/I1 -> u_fetch/f3_parcel_q_reg[0][9]_i_2_n_0
+  3 SLICE_X28Y99   LUT4     0.747  0.157   4.850    1  u_fetch/g_tage.hr_xm_q[0]_i_8/I0 -> u_fetch/g_tage.hr_xm_q[0]_i_8_n_0
+  4 SLICE_X26Y99   LUT6     0.430  0.187   5.467    1  u_fetch/g_tage.hr_xm_q[0]_i_7/I3 -> u_fetch/g_tage.hr_xm_q[0]_i_7_n_0
+  5 SLICE_X25Y99   LUT6     0.095  0.058   5.620    2  u_fetch/g_tage.hr_xm_q[0]_i_5/I5 -> u_fetch/pd_pop[0]
+  6 SLICE_X26Y103  LUT6     0.201  0.227   6.048    2  u_fetch/g_tage.hr_xm_q[0]_i_2/I3 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q_reg[0]_0
+  7 SLICE_X26Y103  LUT6     0.161  0.152   6.361    2  u_fetch/g_tage.u_tage/fp_q[0]_i_6/I0 -> u_fetch/g_tage.u_tage/fp_q[0]_i_6_n_0
+  8 SLICE_X27Y103  LUT2     0.162  0.137   6.660    3  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[1]_i_6/I1 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[1]_i_6_n_0
+  9 SLICE_X28Y103  LUT6     0.207  0.084   6.951    2  u_fetch/g_tage.u_tage/fp_q[1]_i_8/I5 -> u_fetch/g_tage.u_tage/fp_q[1]_i_8_n_0
+ 10 SLICE_X28Y103  LUT3     0.101  0.057   7.109    4  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[2]_i_3/I0 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[2]_i_3_n_0
+ 11 SLICE_X30Y103  LUT3     0.274  0.082   7.465    3  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[3]_i_6/I1 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[3]_i_6_n_0
+ 12 SLICE_X30Y103  LUT6     0.063  0.188   7.716    8  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[5]_i_3/I5 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[5]_i_3_n_0
+ 13 SLICE_X30Y103  LUT6     0.056  0.082   7.855    3  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[6]_i_6/I1 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[6]_i_6_n_0
+ 14 SLICE_X30Y105  LUT6     0.114  0.150   8.119    3  u_fetch/g_tage.u_tage/fp_q[2]_i_7/I5 -> u_fetch/g_tage.u_tage/fp_q[2]_i_7_n_0
+ 15 SLICE_X30Y105  LUT3     0.107  0.057   8.283    2  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[7]_i_6/I2 -> u_fetch/g_tage.u_tage/g_tage.hr_xm_q[7]_i_6_n_0
+ 16 SLICE_X30Y105  LUT6     0.152  0.137   8.572   58  u_fetch/g_tage.u_tage/g_tage.hr_xm_q[7]_i_1/I5 -> u_fetch/g_tage.u_tage/p_31_out[5]
+ 17 SLICE_X29Y107  LUT6     0.183  0.185   8.940    4  u_fetch/g_tage.u_tage/f3_meta_q[slot][0]_i_2/I2 -> u_fetch/g_tage.u_tage/f3_meta_q[slot][0]_i_2_n_0
+ 18 SLICE_X25Y106  LUT2     0.295  0.083   9.318    3  u_fetch/g_tage.u_tage/kt_q_i_3/I0 -> u_fetch/g_tage.u_tage/kt_q_i_3_n_0
+ 19 SLICE_X25Y106  LUT3     0.110  0.152   9.581    9  u_fetch/g_tage.u_tage/kt_q_i_1/I1 -> u_fetch/g_tage.u_tage/k_stop_q_i_2
+ 20 SLICE_X26Y105  LUT6     0.177  0.058   9.815    1  u_fetch/g_tage.u_tage/g_tage.g_itt.ipw_q_i_1/I5 -> u_fetch/g_tage.g_itt.ipw_q0
+end: u_fetch/g_tage.g_itt.ipw_q_reg/D (net in 0.070)
+Data Path Delay:        8.112ns  (logic 3.741ns (46.119%)  route 4.371ns (53.881%))
+Clock Path Skew:        -0.285ns
+
