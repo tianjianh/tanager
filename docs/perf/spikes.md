@@ -2187,6 +2187,42 @@ The chains below are rc3_u100's, by net name, in `fpga/spikes/results/product_wt
 
 Results: [`fpga/spikes/results/ooc_dr191/`](../../fpga/spikes/results/ooc_dr191/) holds each run's summary, paths and per-family reports, and `compare.txt` (`fpga/spikes/scripts/ooc_compare.py`).
 
+#### The preview pair with DR-191's fixes 3–5 (2026-10-24)
+
+**Asked** (the coordinator, 10-24): "a full-chip preview pair, product flow at 0.95 and 1.05 ns", on main d7c2d835 (fix 4 is 16b6d5d1) with fix 3 (core-2's tlbreg b3ab9dfe) and fix 5 (fpu-2's tageflat f6865c1e) merged. It is a preview: the pair of record waits for all five fixes on main.
+- **Snapshot:** `snap/product_wt6` ffc9bb1fd548, pinned by `claude/spikes-2-board-pv3`.
+- **Flow:** the product form with `AltSpreadLogic_high` and main's `TG_ROUTE_DIRECTIVE=AlternateCLBRouting`.
+
+| | `pv3_u095` (0.95 ns) | `pv3_u105` (1.05 ns) |
+|---|---|---|
+| LUTs after `opt_design` / routed, FFs | 115,091 / 112,445 (96.0%), 57,795 | 115,091 / 112,535 (96.1%), 57,788 |
+| WNS after `phys_opt_design` (estimated, uncertainty on) | −0.072 | +0.001 |
+| Routing | level 6, **the router's trade** | level 5, no trade |
+| **WNS / TNS / WHS (ns)** | −1.161 / −542.2 / +0.009 (1,745 failing) | **−0.806 / −458.8 / +0.010** (1,720 failing) |
+
+- **Fixes 3–5 take their families out, even in the congested placement.** In u095, the same congestion and router trade as rc3_u100:
+
+  | Family | rc3_u100 | pv3_u095 |
+  |---|---|---|
+  | `m2_foh_q` | −1.096, 21 levels | +0.025, 12 levels |
+  | the walker's `chk_pa_q` | −1.104, 19 levels | +0.063, 12 levels |
+  | TAGE | −0.998, 14 levels | +0.134, 7 levels |
+
+  In u105 they are +0.60 or better.
+- **What fails is fixes 1 and 2's families and the next tier.**
+  - **Fix 1's** (on main since 6557e051, not in this preview): `lq_st_q` from the walker's `chk_req_q`, the checker's `pfc_wait_q` and the store FSM `xs_q` (−1.10 to −0.75, 22–24 levels); `fh_data_q`, `lx_valid_q`.
+  - **Fix 2's:** the I$ valid RAM from the L2's response (−1.161 at 25 levels in u095, −0.68 in core 1).
+  - **The next tier:**
+    - fetch's queue state from the issue queues' `dep_q` (`qs_q` −0.806, `rt_b_q`, `rn_v_q`, 19–21 levels);
+    - `occ_t_q` and rename's `pay_wd_q` from `head_t_q` (−0.74 / −0.66);
+    - the RAS's `p_push_q` / `p_pop_q` from the I$ data BRAM (−1.09 to −0.55, 16–18 levels);
+    - `m2_dword_q` from the DTLB CAM's `uf_q` (−1.151 in u095, 15 levels, 77% wire);
+    - the D$ meta and valid RAMs and `sq_head_q` / `sqh_q` from the L2 bank's `ms` (−0.84 to −0.58);
+    - CoRR's `ev1_v_q` (−0.786).
+- **The floorplan is OK:** l2b0 99%/76%, L2 bank 1 102%/78%, xbar 30%/24%.
+
+Results: `fpga/spikes/results/product_wt6_pv3_u095/` and `_u105/`.
+
 #### core-2's A/B: the read thread with and without per-bank copies (2026-10-22)
 
 The fixes preview's base with core-2's newer heads (`snap/product_wt` and `snap/product_wt3`): e5b304cd, TAGE 8cf8e262, DR-183 ecfcc8a5, and core-2's walker fix a6abdc5d. The walker fix registers the head lookup's VPN, so DTLB port 2 starts at one register. Then:
