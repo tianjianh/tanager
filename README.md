@@ -56,7 +56,7 @@ Tanager is a clean-room, 2-wide-decode, out-of-order RV64GC dual-core with two h
   - **First:** the hardening that costs no LUTs and the v1 documentation. The trigger CSRs are done (2026-10-23).
   - **Before the new RTL:** structural fixes for the timing paths that keep failing at 96% fill (DR-191), so the chip closes 100 MHz reliably.
   - **Then:**
-    - Performance counters with overflow interrupts (Sscofpmf), so `perf record` works on the board. On main since 2026-10-23, off by default (`TG_HPM`; about 870 LUTs a chip when on).
+    - Performance counters with overflow interrupts (Sscofpmf), so `perf record` works on the board. Complete on main since 2026-10-24, off by default (`TG_HPM`; about 870 LUTs a chip when on): the hardware, its checks under lockstep and the architecture tests, and the device-tree entries that OpenSBI and Linux read.
     - A 256-entry indirect-jump predictor, estimated at +2.4–2.9% of the two-hart Linux boot's busy cycles.
     - A 16-entry load-wait table, added by the user.
     - A JTAG debug module for OpenOCD and GDB, in development builds only.

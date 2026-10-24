@@ -336,6 +336,7 @@ A recommendation follows: what M9 builds and in what order, what waits for v2, a
     - `svinval` is implemented as serialising instructions, so a kernel that batches `sinval.vma` could run slower than
       with one `sfence.vma`. Measure before listing it.
     - `zkt` is a timing claim that needs an audit.
+  - The check's worksheet, extension by extension, from our specs: [m9-isa-check.md](m9-isa-check.md).
 - **Misaligned-access counts on the board** (§4) and **page-zeroing cycles** (§3): measurements that decide v1.x items.
 
 ## Recommendation
