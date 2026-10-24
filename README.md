@@ -47,6 +47,10 @@ Tanager is a clean-room, 2-wide-decode, out-of-order RV64GC dual-core with two h
     - two loads of one address could see a newer and then an older value (CoRR);
     - an instruction-cache refill during a FENCE.I sweep could lose its writes.
   - **The throughput target is met:** 1.226 / 1.217 / 1.192× one thread at 30 / 120 / 250 cycles.
+- **M8 (two SMT2 cores, four harts, on the board):** the release chip closes 100 MHz (2026-10-23).
+  - **The release image rc3_u095r:** WNS +0.748 ns, 112,806 LUTs (96.3% of the XCK26), built from main's design (tag m8-release-rc3).
+  - **The litmus exit is met,** and four-hart Linux runs on the board at 100 MHz.
+  - **Left for M8:** the 72-hour stress on the release image.
 - **M9 (hardening, the v1 release):** the scope was approved on 2026-10-23 (DR-190, [the M9 plan](docs/spec/m9-plan.md)).
   - **First:** the hardening that costs no LUTs and the v1 documentation.
   - **Then:** performance counters with overflow interrupts (Sscofpmf), so `perf record` works on the board; an indirect-jump predictor if the model shows at least 0.5%; and a JTAG debug module for OpenOCD and GDB in development builds only.
