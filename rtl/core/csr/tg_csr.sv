@@ -650,16 +650,18 @@ module tg_csr
   assign ins_wr = cm_csr && pv && pa == 12'hB02;
   // A write takes effect in the counter a cycle late (tg_dsp_ctr): in that cycle the write's
   // flush is on, so nothing reads the counter, and the pending write holds (a flush keeps EX from
-  // writing it). The retiring instructions are all slot 0's thread's. With hart 1 the next cycle's
-  // committing thread may be the other one, so each hart's counters load its own pending write.
+  // writing it). The retiring instructions are all slot 0's thread's. In the next cycle nothing
+  // commits, so slot 0's thread (wt, pd) need not be the writer's (with hart 1 the other one; with
+  // SOLO_TID=1 thread 0, whose pending write is zero, so a write loaded 0): each hart's counters load
+  // its own pending write
   for (genvar t = 0; t < NT; t++) begin : g_ctr
     logic ld_c, ld_i;
     assign ld_c = cyc_wr && wt == tid_t'(t);
     assign ld_i = ins_wr && wt == tid_t'(t);
     tg_dsp_ctr #(.IW(1)) u_mcycle (
-      .clk, .rst, .ld(ld_c), .d(MT ? pw_d_q[t] : pd), .inc(!h_q[t].mcountinhibit[0]), .q(mcycle_q[t]));
+      .clk, .rst, .ld(ld_c), .d(pw_d_q[t]), .inc(!h_q[t].mcountinhibit[0]), .q(mcycle_q[t]));
     tg_dsp_ctr #(.IW(CNW)) u_minstret (
-      .clk, .rst, .ld(ld_i),  .d(MT ? pw_d_q[t] : pd),
+      .clk, .rst, .ld(ld_i),  .d(pw_d_q[t]),
       .inc((h_q[t].mcountinhibit[2] || wt != tid_t'(t)) ? '0 : CNW'(cm_n)), .q(minstret_q[t]));
   end
 `ifndef SYNTHESIS

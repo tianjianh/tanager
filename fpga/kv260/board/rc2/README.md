@@ -44,7 +44,7 @@ The FENCE.I gap didn't show in this workload.
 - **The stress:** 10 of 10 passes clean (`STRESS stop after pass 10, fails=0`), at 113–117 s each.
 - **tg1 under the stress** ([`hsm_stress.txt`](hsm_stress.txt)): 30 rounds of hart stop and start, 8 s apart, all back to `0-3`. The 7 stress passes beside them were clean, with **0 failed remote fences** and no other kernel line.
 
-## Per MHz: rc2 is u100, with two store-heavy rows slower
+## Per MHz: rc2 is u100 (its two slow store rows were one set's luck)
 
 **The DR-141 set** ([`set_h0123.txt`](set_h0123.txt); cycles per operation against d4r2's baseline, [`cmp_rc2_cycles.md`](cmp_rc2_cycles.md), [`cmp_rc2_instret.md`](cmp_rc2_instret.md)):
 
@@ -59,7 +59,19 @@ The FENCE.I gap didn't show in this workload.
 | **page fault** (2 MiB huge pages cleared) | **+13.9%** | +8.8% | 0.5% |
 
 - Against u100 directly, every other row is within 1.2%: CoreMark A +1.0%, B +0.2%, Dhrystone +0.1%, and syscall, fork+exec, the 64 B and 4 KiB copies, tmpfs, gzip and sha256sum.
-- **Two store-heavy rows got slower against u100,** both beyond the 0.3–0.5% spread: memset 1 MiB +9.3% and the page-fault test +4.7%. They are for soc-2 and core-2: step 7 changes the two threads' queues, and both rows are long runs of stores.
+- **Two store-heavy rows looked slower against u100,** both beyond the 0.3–0.5% spread: memset 1 MiB +9.3% and the page-fault test +4.7%.
+  - **Later (10-23): they aren't.** Every soak round kept its three DR-141 sets ([`soak_store_rows.txt`](soak_store_rows.txt), [`../runs/soak_rows.sh`](../runs/soak_rows.sh)).
+  - With the same pinning, rc2's medians match u100's within 1% (cycles per operation, and the number of sets):
+
+    | | rc2 | u100, OpenSBI 1.9 | u100, tg1 |
+    |---|---|---|---|
+    | memset 1 MiB, the set on CPUs 2–3 beside the stress | 579,089 (16) | 578,632 (15) | 579,596 (7) |
+    | memset 1 MiB, the set on CPUs 0–1 | 579,896 (16) | 580,562 (15) | 579,853 (7) |
+    | page fault, the set on CPUs 2–3 | 4,897 | 4,933 | 4,970 |
+    | page fault, the set on CPUs 0–1 | 4,930 | 4,956 | 4,985 |
+
+  - In the unpinned step rc2 was faster (memset 582k against 617k and 626k).
+  - memset 1 MiB's speed moves from process to process, between about 534k and 573k on an idle u100 ([`../u100/README.md`](../u100/README.md)). A single set, like rc2's DR-141 set at the top of this section, can land anywhere in that range.
 - **Per second at the same clock,** rc2 matches d4r2 and u100: `./t` 2.88 s, sysbench cpu 47.06 and 94.50 events/s, memory 84.03 and 145.68 MiB/s.
 
 **memgap** (main 4fe536ec's build with `-c`, three runs each; in ns):
@@ -93,9 +105,39 @@ With the older build (one run, [`memgap_rc2_pre-c.txt`](memgap_rc2_pre-c.txt)), 
   - The per-thread figure (about 156 MiB/s, against d4r2's 182 with one binary) is a limit inside each core's write path.
   - It isn't the PS DDR controller: one core's two threads share that limit (1.12×).
 
+## The soak: SD1's interrupt lost after 15 hotplug rounds (20:07 UTC), and u100 back
+
+The four-hart soak ([`soak4.log`](soak4.log)) ran on rc2 from 17:30 UTC on its second four-hart boot.
+- **It passed 15 rounds:** 47 stress passes, 47 DR-141 sets, 15 `hart_check`s and 15 rounds of hart stop and start. Its 7 notes were CoreMark's timing rule.
+- **Then, 27 s into round 16's step C** (the stress and the DR-141 set, both unpinned), the SD card's interrupt stopped arriving. This was 4.6 min after round 15's hart stop and start.
+
+**What the board showed** ([`uart_COM5_boots2.txt`](uart_COM5_boots2.txt), [`sd1_event_dmesg.txt`](sd1_event_dmesg.txt), [`sd1_event_irq.txt`](sd1_event_irq.txt), [`sd1_event_interrupts.txt`](sd1_event_interrupts.txt)):
+- **The first line:** `mmc0: Timeout waiting for hardware interrupt` at 9532.03 s (20:07:01 UTC), then the same every 10 s: 41 times by the reset, with one `Timeout waiting for hardware cmd interrupt`.
+- **The first register dump:**
+  - `Int stat: 0x00000002` (Transfer Complete pending) with `Int enab` and `Sig enab` both `0x03ff008b`, so SD1 was raising its interrupt.
+  - Later dumps add the error bits as the driver retries (`Int stat: 0x01018002`).
+- **The interrupt never reached Linux:**
+  - `mmc0` (PLIC source 21, IRQ 14) stayed at 50,361 on CPU0 over 12 s while the driver timed out.
+  - Its affinity was 0-3 with effective CPU0, all four CPUs were online, and the timer interrupts kept counting on every CPU.
+- **Blocked tasks:** `jbd2/mmcblk0p3`, `systemd-journal`, kworkers, `tg-lbench` and `bash` were reported blocked for more than 120 s (10 such reports). The I/O to the root never came back.
+- **What it looks like:** DR-176's lost SD1 interrupt (d4r1, a PLIC claim read twice by a replayed MMIO read), fixed in d4r2. u100 and dr187b never showed it, in 99 soak rounds (dr187b 56, u100 43) and 136 rounds of hart stop and start (dr187b 59, u100 77) between them. rc2 adds step 7, core-2's marg3 and CoRR snoop marking, and soc-2's checker requests from registers.
+- **For soc-2 and core-2,** together with the kernel log and the console.
+
+**The way back** (the coordinator's instruction: if rc2 destabilizes, back to u100):
+1. **Saved first:** the soak log, the kernel log and `/proc/interrupts`, read over SSH while the shell still answered from the page cache.
+2. **The reset:** sysrq's immediate reboot at 20:15 UTC, because a clean reboot would hang syncing the card. The unconfirmed RISC-V boot then fell back to ARM mode (`tanager-mode: ARM mode`), as DR-172 designs.
+3. **u100's files back on p1:** `FH_BACKUP=tanager-u100 bash ~/tanager/runs/fh_p1.sh back`, logged in the change log.
+4. **u100 booted** with four harts at 20:17 UTC. The initramfs replayed the root's journal (`tanager-root: recovering journal`), with no ext4 or I/O error after, and `hart_check.sh` gave 0 fails ([`u100_back_hartcheck.txt`](u100_back_hartcheck.txt)).
+
 ## The board now
 
-rc2 with the four-hart tree, running the four-hart soak (`~/soak4-rc2`, from 17:30 UTC) with a 12-hour watch. The fallbacks:
-- **u100,** in ARM mode: `FH_BACKUP=tanager-u100 bash ~/tanager/runs/fh_p1.sh back`;
-- **dr187b:** `FH_BACKUP=tanager-dr187b-80 …`;
+u100 with the four-hart tree and tg1.
+- **It ran the rc3 swap's measurements** ([`../u100/README.md`](../u100/README.md)): the store rows pinned, soc-2's sibling check, memcal in ARM mode, and soc-2's write-stream probe against d4r2.
+- **It soaks while rc3 builds:**
+  - `soak4-u100b` ran from 21:03 to 23:29 UTC, clean, and stopped for the probe;
+  - `soak4-u100c` runs from 23:52 UTC.
+
+rc2's package stays on the A53 (`~/tanager/rc2u100-riscv-pkg/`) for a rerun:
+- **rc2 again,** in ARM mode: `FH_BACKUP=tanager-u100 bash ~/tanager/runs/fh_p1.sh install ~/tanager/rc2u100-riscv-pkg/rc2u100-riscv`;
+- **dr187b:** `FH_BACKUP=tanager-dr187b-80 bash ~/tanager/runs/fh_p1.sh back`;
 - **the two-core 100 MHz image:** `bash ~/tanager/runs/fh_p1.sh back`.

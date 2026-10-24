@@ -2879,6 +2879,195 @@ Together they come to ≈5.3K a chip, at no IPC cost. The next ones are the queu
 - The band where partial matching breaks is set by the store queue's span: 8–160 bytes here, behind the load, modulo 2^N.
 - The search's width only moves that band, and the replay's cost depends on whether the code has independent loads to hide it behind.
 
+### 7.11 M9's planning numbers: an indirect-target table, store sets and misaligned accesses (model, 2026-10-23)
+
+*fpu-2's questions for M9's plan (`docs/spec/m9-plan.md`). The model is the release's smt2 core as the model has it: `rtl_m2` revision 10 with main's M6 set. It runs one thread alone on its merged window (the suite, 30 cycles) and the 42 pairs with step 7 as decided, with 5f (smt2_report §13.21).*
+- *Script: `scripts/m9_plan.py`; kernels: `bench/build_m9.sh`.*
+- *The new switches are off by default. With them off, 18 runs (single-thread and pairs) were cycle-identical to the build before.*
+- *The model runs bare-metal programs on the correct path only, so it cannot run the Linux boot. The boot's parts are marked "to measure in M9", with a method for each.*
+
+*New in the model:*
+- **`itt_entries` (and `itt_hist`): an indirect-target table.**
+  - **When it is used:** for a JALR other than a return that the micro-BTB missed, or gave the wrong target the last time (one bit per PC). The table's target is then redirected at F2, 2 cycles, in place of a mispredict recovered at commit.
+  - **Index and training:** the PC xor a 16-bit hash of the last four indirect targets (path history), or of 16 bits of conditional-branch history (`itt_hist` 1). An 8-bit tag. Trained with every such jump's target.
+- **`mdp` 2: perfect store sets, an oracle.** A load waits only for an older store whose address is unresolved at the load's AG and that it will overlap. `mdp` 1 is the model's load-wait table: a bit per hashed load PC, set by an ordering flush and cleared every 64K cycles. A flagged load waits until every older store's address is known.
+- **`m9_counts`: misaligned loads and stores at commit.** Checked with `m9_misalign`, which makes 3,584 of each: the model counts exactly those.
+- **Two interpreters** (`bench/m9/interp.c`): a 16-opcode stack machine running a loop of about 34 bytecodes, with an alternating branch and a call.
+  - `m9_interp_switch` dispatches with a switch: one indirect jump takes every opcode.
+  - `m9_interp_threaded` uses computed goto, as CPython builds with GCC: a jump ends each handler.
+
+**1. The indirect-target table** (one thread alone, 30 cycles; IPC change against today's, with target mispredicts per 1,000 instructions in parentheses; programs with at least 0.05 indirect jumps per 1K):
+
+| Program | Indirect jumps / 1K | Today: target mispredicts / 1K, IPC | Micro-BTB at 128 | + 256-entry table, path history | + 256-entry table, block history | Micro-BTB at 128 and the table (path) |
+|---|---|---|---|---|---|---|
+| `m9_interp_switch` | 49.0 | 47.7, 0.724 | 0 (47.7) | **+98.0%** (8.6) | +4.2% (44.6) | +98.0% (8.6) |
+| `m9_interp_threaded` | 63.0 | 36.7, 0.931 | 0 (36.7) | **+46.9%** (12.2) | +0.04% (36.6) | +46.9% (12.2) |
+| embench_wikisort | 38.6 | 2.04, 1.630 | −0.15% (2.05) | +4.44% (0.02) | +4.12% (0.10) | +4.29% (0.02) |
+| embench_cubic | 0.53 | 0.45, 1.195 | +0.90% (0.25) | +1.36% (0.00) | +1.36% (0.00) | +1.56% (0.00) |
+| coremark_A | 0.96 | 0.46, 1.573 | +0.12% (0.44) | +0.82% (0.01) | +0.74% (0.06) | +0.88% (0.01) |
+| embench_picojpeg | 0.30 | 0.27, 1.641 | +0.26% (0.19) | +0.52% (0.00) | +0.52% (0.00) | +0.69% (0.00) |
+| **Suite score** (the 33 programs) | | 0.966 | −0.11% | **+0.20%** | +0.19% | +0.07% |
+
+- **A micro-BTB cannot predict an interpreter's dispatch:**
+  - It holds one target per jump. Today 97% of the switch's dispatches mispredict, and 58% of the threaded code's.
+  - At 128 entries nothing changes: capacity is not the problem.
+- **The path-history table predicts most of them:**
+  - it cuts the dispatch mispredicts by 82% (switch) and 67% (threaded);
+  - each one avoided saves 17 cycles (switch) or 14 (threaded);
+  - block history barely helps: the next opcode follows the bytecode stream, not the conditional branches before the jump.
+- **The interpreters' gains are an upper end.** This loop repeats every 34 bytecodes, so the last four targets nearly fix the next one. A real interpreter's stream is less regular. The number to carry is the mispredicts per dispatch today: about 1 for a switch, 0.6 for threaded code, each 14–17 cycles.
+- **The micro-BTB at 128 loses 0.11% of the suite to Dhrystone's store–load race** (§6.9, §6.11):
+  - a faster front end raises Dhrystone's ordering flushes from 1.13 to 1.55 per 1K: −2.08%;
+  - elsewhere it gains: nsichneu +5.66% (big code), cubic +0.90%, sglib +0.33%;
+  - for the boot, §6.11 estimated +0.6% from the RTL profile's shadow tables.
+- **The 42 pairs** (WS at 30 / 120 / 250 cycles; step 7 with 5f; no pair hangs):
+
+| Configuration | WS | Against today's | Target mispredicts / 1K |
+|---|---|---|---|
+| Today: the micro-BTB, 64 entries | 1.260 / 1.268 / 1.260 | | 0.06 / 0.06 / 0.06 |
+| The micro-BTB at 128 | 1.259 / 1.268 / 1.261 | −0.09% / +0.04% / +0.04% | 0.06 / 0.06 / 0.06 |
+| + the 256-entry table, path history | 1.260 / 1.268 / 1.260 | +0.00% / +0.02% / +0.02% | 0.00 / 0.00 / 0.00 |
+
+  The pair set's programs have almost no indirect jumps, so neither moves them.
+- **The cost, a desk estimate to synthesize:**
+  - storage: 256 entries of about 47 bits (a 38-bit target, an 8-bit tag, a valid bit), about 12 Kbit a core;
+  - as LUTRAM that is about 300 LUTs, plus about 100 for the hash, the tag compare, the per-PC bits and the F2 redirect's new source;
+  - so about 400 LUTs a core, 800 a chip; or one BRAM36 and about 100 LUTs a core.
+- **The boot is to measure in M9** (measured the same day: §7.12, +2.4–2.9% of busy cycles). The boot profile counts mispredicts (6.5 per 1K instructions, about 5% of the first 20M cycles, 9 cycles each) but not their kind.
+  - **Method:** in the profile's bind, mark each mispredict flush whose instruction is a JALR other than a return. Keep a shadow 256-entry path table updated at commit, as §6.11's shadow micro-BTBs were.
+  - **The gain:** the flushes the shadow table would turn into F2 redirects, at about 7 cycles each.
+  - **Until then, a bound:** about +0.4% of the boot for each tenth of its mispredicts that are indirect targets the table fixes.
+  - **Debian's maintainer scripts:** apt's and dpkg's Perl and shell are interpreters, so measure one (`perl -e` with a loop, or a maintainer script) on the board or under the RTL profile too.
+
+**2. Store sets: the bound on the suite** (one thread alone; the ordering flushes as built, the cycles each costs as the oracle's saving per flush, and the IPC each predictor adds):
+
+| Program | Ordering flushes / 1K | Cycles per flush | IPC as built | 16-entry load-wait table | Perfect store sets (bound) |
+|---|---|---|---|---|---|
+| dhrystone | 1.13 | 27 | 1.655 | +4.70% | +5.32% |
+| embench_sglib-combined | 1.57 | 18 | 1.207 | +2.89% (120 cycles: +2.70%) | +3.45% |
+| coremark_A | 0.04 | 26 | 1.573 | +0.16% | +0.18% |
+| **Suite score** (the 33 programs) | 0.13 over all | | 0.966 | **+0.58%** | **+0.66%** |
+
+- **The bound is +0.66% of the suite, at 30 cycles and at 120.**
+  - Three programs hold all of it: Dhrystone, sglib-combined and CoreMark A. These are §6.9's races, a store reloaded a few instructions later.
+  - The other 30 programs and the 16 working-set kernels have under 0.005 ordering flushes per 1K and gain under 0.05%.
+- **The 16-entry wait table** (§6.10's size) recovers +0.58% of the +0.66% (88%).
+  - It is about 50–150 LUTs a core (a desk estimate, to check against the LSU): 16 bits, set by an ordering flush; a flagged load waits for every older store's address.
+  - It buys Dhrystone +4.7%, not Linux.
+- **The boot's bound stays §6.10's:** 0.07 ordering replays per 1K instructions, 0.08% of the boot's cycles (RTL).
+
+**3. Misaligned accesses:**
+- **The suite has none:** 0 misaligned loads or stores in the 49 programs (33 plus the 16 working-set kernels), 91.6M instructions. Hardware misaligned access buys nothing there.
+- **Why:** GCC splits a misaligned access it can see into bytes, as it did to `m9_misalign`'s first version. Compiled code traps only where the misalignment is hidden from the compiler: casts of byte pointers, packed structures, network headers.
+- **The boot and the board are to measure in M9.**
+  - Linux takes these traps itself here: tb_boot.log shows "SBI misaligned access exception delegation ok".
+  - So `perf stat -e alignment-faults -a` on the board should count them. Check that first with a program that makes a known number, as `m9_misalign` does.
+  - Or count traps with cause 4 or 6 in boot-lockstep's trap record.
+  - Gain: the count times the trap's 200–400 cycles.
+
+*M9, in sum (model):*
+- **The indirect-target table** buys +0.2% of the suite and nothing on the pairs. On an interpreter's dispatch it removes 67–82% of the mispredicts. Its case rests on the boot's and Debian's interpreters' indirect mispredicts, which are M9's first measurement.
+- **A 16-entry load-wait table** buys +0.58% of the suite (Dhrystone +4.7%) for about 50–150 LUTs a core. It is not a Linux gain: the boot's bound is 0.08%.
+- **Misaligned access in hardware** buys nothing on the suite. The board's count decides it.
+
+**Decisions:** none here. fpu-2's plan takes these to the coordinator (DR-154).
+
+**Learned:**
+- A one-target-per-PC predictor mispredicts nearly every switch dispatch. Path history (the last few indirect targets) is the index that predicts them; conditional-branch history is not.
+- GCC splits a misaligned access it can see into bytes, so a misaligned test needs asm or hidden alignment.
+- A benchmark kernel over constant data can be folded away: `m9_interp`'s first build ran 19 instructions in its region. Check a new kernel's region size before reading its rates.
+
+### 7.12 M9's indirect-target predictor on the RTL beside the model, and the two-hart boot (DR-190, 2026-10-23)
+
+*DR-190 takes the 256-entry path-hashed table if it gives at least 0.5% on the boot or the suite, else the 128-entry micro-BTB. The coordinator's ruling (01e2c013, at 12:00, before the boot) took the table under DR-154. This section puts the RTL's numbers beside the model's and adds the boot.*
+
+*How it was measured (`scripts/m9_rtl.py`; `scripts/rtlprof/prof_itt.sv`, a simulation-only bind):*
+- **The RTL:** the smt2 core as on main c537b113, built twice: with its 64-entry micro-BTB, and with UBTB_ENTRIES 128 (a copy of `tg_cfg_smt2.sv` on home-wsl, not on the branch).
+  - tg_vsim runs one hart on the suite's RTL-platform ELFs (`bench/build_rtl.sh` with `M9=1`) at 30 cycles.
+  - tb_boot runs the board's shape (two cores, thread 0 of each) at board timing, to TANAGER-BOOT-OK.
+- **(b), the micro-BTB at 128, is measured:** region IPC, and the boot's cycles.
+- **(a), the table, is estimated from the RTL's own stream.**
+  - The bind prints every committed JALR other than a return: its target, whether it was mispredicted, whether the micro-BTB hit, and its stall to its 1st, 8th and 32nd younger retirement. In tg_vsim the stream is cut to the region at the commit trace's marker stores.
+  - `m9_rtl.py` replays the stream through a shadow table that works as tgsim's `itt_entries` does (§7.11).
+  - A fixed mispredict saves its stall to the 32nd younger retirement, less a predicted jump's mean and the F2 redirect's 2 cycles. A wrong override costs a mispredict's mean.
+- **Why the 32nd retirement:**
+  - The refill to the next instruction is 12–15 cycles everywhere.
+  - The refilled window then ramps: 32 retirements take 14–28 cycles longer after a mispredict than after a predicted jump.
+  - Costed to the next instruction only, the switch interpreter came out at +38%; to the 32nd, +87.2% against the model's +87.5%.
+
+**1. The suite and the interpreters** (one hart, 30 cycles; the PC-indexed column is §3's alternative):
+
+| Program | IPC today: RTL / model | (b): RTL measured / model | (a): RTL estimate / model | A 256-entry table by PC: RTL estimate | Indirect jumps / 1K | Their mispredicts / 1K: today → with (a) |
+|---|---|---|---|---|---|---|
+| `m9_interp_switch` | 0.699 / 0.724 | 0 / 0 | **+87.2%** / +87.5% | 0 | 49.0 | 47.6 → 11.0 |
+| `m9_interp_threaded` | 0.865 / 0.933 | 0 / 0 | **+31.4%** / +45.8% | 0 | 63.0 | 37.1 → 13.6 |
+| embench_wikisort | 1.659 / 1.689 | +0.50% / +0.25% | +0.52% / +0.50% | +0.54% | 38.6 | 0.16 → 0.02 |
+| embench_cubic | 1.026 / 1.181 | +0.53% / +0.84% | +1.28% / +1.68% | +1.29% | 0.53 | 0.49 → 0.00 |
+| coremark_A | 1.517 / 1.542 | +0.13% / +0.07% | +0.65% / +0.71% | +0.65% | 0.94 | 0.35 → 0.01 |
+| embench_nsichneu | 1.375 / 1.373 | **+7.89%** / +6.61% | 0 / 0 | 0 | 0 | 0 |
+| dhrystone | 1.588 / 1.591 | **−1.36%** / −1.51% | 0 / 0 | 0 | 0 | 0 |
+| embench_huffbench | 1.246 / 1.274 | −0.41% / −0.16% | +0.03% / +0.01% | +0.04% | 0.01 | 0.01 → 0.00 |
+| **Geometric mean, the 18 suite programs** | | **+0.37% / +0.35%** | **+0.14% / +0.16%** | +0.14% | | |
+
+- **(b) as measured agrees with the model:** +0.37% against +0.35% over the 18 programs. That includes nsichneu's capacity gain and Dhrystone's store–load race (§6.9), which the RTL shows as the model does.
+- **(a)'s estimate agrees with the model where indirect jumps matter:** the switch interpreter, wikisort and CoreMark A within 0.3 points. For the threaded interpreter the RTL estimate is lower (+31% against +46%).
+- **On the suite (a) stays under DR-190's bar:** +0.14% on the RTL (+0.16% model), and +0.20% on the model's 33 programs (§7.11).
+- **The 33-program score weights differently:** there the micro-BTB at 128 is −0.11%, because Dhrystone counts a ninth of the score.
+
+**2. The two-hart boot** (board timing, to TANAGER-BOOT-OK; busy = cycles without a WFI at the committing hart's ROB head):
+
+| Run | Core | Cycles to TANAGER-BOOT-OK | Busy cycles | Instructions | Indirect jumps / 1K | Their mispredicts / 1K | All mispredicts / 1K | (a) on busy cycles: to the 32nd (to the 1st) | (a) on all cycles | A 256-entry table by PC, on busy cycles |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Micro-BTB 64 (today) | 0 | 163,751,223 | 104.6M | 77.1M | 7.14 | 4.08 | 7.99 | **+2.91%** (+1.86%) | +1.84% | +4.62% |
+| Micro-BTB 64 (today) | 1 | | 102.0M | 73.6M | 4.80 | 3.38 | 7.01 | **+2.42%** (+1.23%) | +1.49% | +3.82% |
+| Micro-BTB 128 (b) | 0 | 163,173,193 | 116.4M | 91.4M | 5.77 | 3.07 | 6.39 | +2.45% (+1.36%) | +1.74% | +3.87% |
+| Micro-BTB 128 (b) | 1 | | 89.3M | 60.1M | 6.42 | 3.47 | 7.92 | +1.63% (+1.19%) | +0.89% | +2.92% |
+
+- **Indirect jumps are half the boot's mispredicts:** 4.08 of 7.99 per 1K instructions on core 0, 3.38 of 7.01 on core 1.
+  - In the first 50M cycles, 83% of core 0's mispredicted jumps were at kernel PCs that only ever went to one target.
+  - Those are far calls and fixed pointer calls that the 64-entry micro-BTB loses.
+- **(a) gives +2.4% to +2.9% of busy cycles** (+1.2% to +1.9% costed to the next instruction only).
+  - On the boot's total cycles that is +1.5% to +1.8%, if every saved cycle came off the end.
+  - That is 3 to 6 times DR-190's 0.5%.
+  - The early boot gains most: +4.5% on core 0 in the first 20M cycles (§6.11's window).
+- **(b) measured:** +0.35% on the boot's cycles to TANAGER-BOOT-OK, and +0.97% on busy cycles per instruction (the cores pooled).
+  - It cuts core 0's mispredicts by 20% (7.99 → 6.39 per 1K).
+  - The two runs split the boot's work between the harts differently (core 0 retired 77M instructions in one, 91M in the other). So the busy-cycle comparison is the softer number, the boot's cycles the firmer.
+  - §6.11's +0.6% for the micro-BTB at 128 counted F2 overrides only. The indirect jumps it holds were not in that estimate.
+- **With the micro-BTB at 128, (a) still adds +1.6% to +2.5%.**
+
+**3. The table's shape** (estimates on core 0's busy cycles in the boot, or on region cycles; the indirect jumps' mispredicts left in parentheses):
+
+| Workload | Path 256 (the plan) | Path 512 | Path 1,024 | PC 256 | Path 128 + PC 128 | Path 256 + PC 256 |
+|---|---|---|---|---|---|---|
+| The boot, core 0 | +2.91% (123,950) | +3.54% (101,149) | +4.19% (83,058) | +4.62% (78,989) | **+4.11%** (84,167) | +5.03% (61,237) |
+| `m9_interp_switch` | +87.2% (60,082) | +116.6% (32,058) | +116.6% (32,058) | 0 (260,064) | **+81.3%** (68,088) | +87.2% (60,082) |
+| `m9_interp_threaded` | +31.4% (58,047) | +33.2% (50,048) | +33.2% (50,042) | 0 (158,048) | **+31.4%** (58,040) | +31.4% (58,040) |
+| embench_wikisort | +0.52% | +0.52% | +0.52% | +0.54% | +0.54% | +0.54% |
+| coremark_A | +0.65% | +0.65% | +0.65% | +0.65% | +0.66% | +0.66% |
+
+- **The two workloads want different indexes:**
+  - The boot needs room for one-target jumps, which a PC index holds once each. The path index spreads each over its contexts.
+  - The interpreters need the path: by PC alone a dispatch jump's target is as unknown as it is to the micro-BTB.
+- **Halving the plan's table into 128 entries by path and 128 by PC** (a path hit first, else the PC entry) costs the same storage:
+  - boot: +4.1%, against +2.9%;
+  - switch interpreter: +81%, against +87%;
+  - threaded interpreter and the suite: unchanged.
+- **Doubling it** (256 + 256) reaches +5.0% on the boot and keeps every interpreter gain.
+
+*M9's indirect-target predictor, in sum:*
+- **The table clears DR-190's bar on the boot,** by 3 to 6 times: +2.4–2.9% of busy cycles. It does not clear it on the suite (+0.14–0.20%). The interpreters gain +31–87%.
+- **The 128-entry micro-BTB,** measured: +0.35% on the boot's cycles, +0.37% on the 18-program suite (the model +0.35%), nothing on the interpreters.
+- **Recommendation for the build** (later in M9): the plan's 256 entries, split into 128 by path and 128 by PC. It costs a second index and tag compare beside the plan's table, and gains +1.2 points on the boot for −6 on the switch interpreter.
+
+**Decisions:** none here. DR-190's ruling (01e2c013) took the path table, and the boot bears it out. The split goes to whoever builds the table.
+
+**Learned:**
+- A mispredict costs its refill (about 13 cycles) and about as much again while the refilled window ramps. A costing stopped at the next instruction halves the gain.
+- The boot's indirect mispredicts are mostly one-target jumps the 64-entry micro-BTB loses, which a PC index holds. The interpreters' dispatches need path history.
+- An estimate of a predictor from a profile must count every outcome it changes. §6.11's micro-BTB estimate counted F2 overrides but not the indirect jumps it holds.
+- A profile that counts a whole run misleads on short regions. Dhrystone's and CoreMark B's closing printf held all their indirect jumps.
+
 ---
 
 ## 8. Ledger entries and proposed plan text

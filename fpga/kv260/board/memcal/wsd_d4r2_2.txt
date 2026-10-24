@@ -1,0 +1,11 @@
+# COM5, from 23:34:44.366 UTC on 2026-10-23: soc-2's wsd.bin (sha256 ae231676…) on d4r2's bitstream, run 2 (tanager-host's own output: run_wsd.txt)
+WSD-BEGIN 16 MiB
+WSD k=0 x100 cycles/line 3203
+WSD k=4 x100 cycles/line 3366
+WSD k=8 x100 cycles/line 3458
+WSD k=12 x100 cycles/line 4000
+WSD k=16 x100 cycles/line 4662
+WSD k=24 x100 cycles/line 6120
+WSD k=32 x100 cycles/line 7846
+WSD k=48 x100 cycles/line 12750
+WSD-END

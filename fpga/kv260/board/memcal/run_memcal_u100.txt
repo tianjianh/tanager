@@ -1,0 +1,15 @@
+app files: f8037f921c0d7691 6193da61462b56e7 
+loaded tanager-u100 at 22:05:52; fpga0 operating
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+run 1 at 22:05:56 UTC
+run 1: exit 124;  [tanager-host] timeout 
+run 2 at 22:06:16 UTC
+run 2: exit 124;  [tanager-host] timeout 
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 22:06:39
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+              k26-starter-kits    XRT_FLAT        k26-starter-kits  id_ok    XRT_FLAT             (0+0+0)           0->0,
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+done at 22:06:40

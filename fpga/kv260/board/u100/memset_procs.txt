@@ -1,0 +1,14 @@
+MODE-BEGIN thp=always
+always 1: AnonHugePages 0 kB, cycles/op 569541 584510 582079 565275 565276
+always 2: AnonHugePages 0 kB, cycles/op 560270 568706 556387 555530 551353
+always 3: AnonHugePages 0 kB, cycles/op 563114 578495 559929 558323 555625
+always 4: AnonHugePages 0 kB, cycles/op 575827 591443 567938 569013 565450
+always 5: AnonHugePages 0 kB, cycles/op 570109 578691 563397 564681 565450
+always 6: AnonHugePages 0 kB, cycles/op 567678 576073 562973 563318 562060
+always 7: AnonHugePages 0 kB, cycles/op 567958 580633 563506 565131 565095
+always 8: AnonHugePages 0 kB, cycles/op 570374 577561 563358 562781 563407
+never 1: AnonHugePages 0 kB, cycles/op 565041 573422 561931 561888 560179
+never 2: AnonHugePages 0 kB, cycles/op 572569 583361 571250 571623 569362
+never 3: AnonHugePages 0 kB, cycles/op 571389 588545 568456 564555 565469
+never 4: AnonHugePages 0 kB, cycles/op 566080 579106 564110 562955 564837
+MODE-END thp=[always] madvise never perf_user_access=1
