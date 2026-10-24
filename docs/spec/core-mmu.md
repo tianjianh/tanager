@@ -72,7 +72,7 @@ A success fills the requester's TLB with the leaf and its level.
 
 ### Known differences from Spike (none reached by the tests)
 - A PTE in a device region: the RTL raises an access fault; Spike would read the device.
-- Spike also flushes its TLB on privilege changes and on writes to mstatus (MPRV, SUM, MXR, MPP) and PMP CSRs. Our hits re-check the current mode and bits, so only PTE changes made without SFENCE.VMA can differ, which the ISA leaves unspecified.
+- Spike also flushes its TLB on privilege changes and on writes to mstatus (MPRV, SUM, MXR, MPP). Our hits re-check the current mode and bits, so only PTE changes made without SFENCE.VMA can differ, which the ISA leaves unspecified. A PMP write flushes both (pmp-at-fill.md).
 - Speculative walks read PTEs from the D$ without searching the store queue: a PTE store that has not drained can be missed by a fetch walk or a prefetch. Without SFENCE.VMA both outcomes are legal; deciding walks wait for the drain.
 
 ## Parameters
