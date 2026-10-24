@@ -520,22 +520,30 @@ fetch number and for Sdext on main. The DR will fix Sv39 for v1: Sv48 later mean
   - `flush_pc` is one register for both threads (tg_rob), and with hart 1 the sibling's next flush overwrites it.
   - So each thread has its own full-value register, `bpc_q[t]` (64 bits), loaded from `flush_pc` when a bad redirect
     goes to the thread's fetch. It holds until that thread's next redirect.
-- **The bad bit:** fetch takes a redirect as `pc40` plus `bad` (flush_pc[63:39] differs from bit 38's extension).
-  - A bad redirect makes the thread's next block a fault block at once, with no fetch.
-  - Decode's redirect and sequential fetch need no full register: a JAL's or branch's target (pc + imm, at most 2^20
-    away) and pc + 2/4 are exact in 40 bits.
+- **Bad inside pc40 (fpu-2's form):** the interface is `pc40` alone, with no extra bit on fetch's paths.
+  - The ROB finds a bad redirect: flush_pc[63:39] differs from bit 38's extension. Fetch then loads
+    `pc40 = {~flush_pc[38], flush_pc[38:0]}`, so bits 39 and 38 differ.
+  - A sequential or direct-jump overflow carries the same mark: decode's redirect and pc + 2/4 are exact in 40 bits,
+    since a JAL's or branch's target is at most 2^20 away.
+  - So F1 has one check for every cause: bits 39 and 38 differ. A bad pc makes the thread's next block a fault block at
+    once, with no fetch.
 - **The checks, by the mode after the redirect** (F1; a flush follows every mode change):
   - **M, or S/U with Bare:** an access fault when bad, or when pc40[38:PA_W] is nonzero (a pc above the PA).
   - **S/U with Sv39:** a page fault when bad (non-canonical); otherwise the ITLB, as today.
-- **Faults at a pc outside 40 bits** take their pc and tval from the thread's `bpc_q`. It holds until the fault
-  block's trap commits: the block is the thread's only instruction then, and the sibling's flushes don't touch it.
-  That covers:
+- **Which value a bad pc's fault takes:** the ROB keeps one bit a thread, set by a bad redirect from `flush_pc` and
+  cleared by the thread's next redirect.
+  - Set: the value is in `bpc_q[t]`.
+  - Clear: the bad pc40 is exact, an overflow, and is sign-extended from bit 39.
+  - Nothing can come between: after a bad redirect the fault block is the thread's only instruction until its trap
+    commits, and the sibling's flushes touch neither the bit nor `bpc_q[t]`.
+
+  So faults at a pc outside 40 bits take their pc and tval from `bpc_q[t]`. That covers:
   - mepc or sepc, and mtval or stval;
   - the TR_TRAP record's pc and tval;
   - dpc, when debug mode's entry replaces the fault: a step whose next pc is bad enters with that pc in full, and the
     fault comes at the resume (Sdext defers it).
 
-  A fault at a 40-bit pc (sequential, a JAL or a branch) takes the value from its sign-extended pc40.
+  A fault at an overflow (sequential, a JAL or a branch) takes the value from its pc40, sign-extended from bit 39.
 - **The 40-bit rule:** next-pc arithmetic runs on 40 bits and is sign-extended from bit 39 wherever it leaves as 64
   bits. That covers pc + 2/4 for fetch and the links, JAL and branch targets, and a straddler's second-half tval
   (hd_pc_inc).
@@ -545,6 +553,11 @@ fetch number and for Sdext on main. The DR will fix Sv39 for v1: Sv48 later mean
   - auipc and the links are 64-bit sums of the sign-extended pc, in the ALU.
 - **The commit trace and lockstep:** records sign-extend pc40, or take the thread's `bpc_q` for a fault block at a
   full-width value, so Spike sees the 64-bit values it computes.
+- **Fetch's own storage** (fpu-2's review): fetch's queue and the FTQ's block base and target go to 40 bits. The update
+  path (upd_pc, upd_target) already uses [38:1]. The boot pc and the debug window's entries are PAs below 2^PA_W, which
+  M mode's F1 test passes with no special case.
+- **The indirect-target table** keeps [38:1] storage, since its predictions are canonical. Its write is gated off on a
+  bad redirect (it doesn't train on one). Its path history takes flush_pc[17:2] as now.
 - **Not touched:** satp and mode switches (pc40 is exact under Bare and Sv39, and fetch re-checks after each
   serialising flush). Nor the LSU, the HPM events, the load-wait table (pc[4:1] ^ pc[16:13]), TAGE ([38:4]), the
   micro-BTB or the RAS.
@@ -565,7 +578,7 @@ fetch number and for Sdext on main. The DR will fix Sv39 for v1: Sv48 later mean
 
   fpu-2 measures fetch.
 - **The split:** the core side is core-2's (decode, rename's payload, issue, the branch unit, the ROB, the redirect and
-  trap path). Fetch is fpu-2's. Their interface is pc40 plus bad.
+  trap path). Fetch is fpu-2's. Their interface is pc40 alone, bad when bits 39 and 38 differ.
 
 ## 9. CSRs and traps (`tg_csr`)
 
