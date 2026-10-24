@@ -2227,6 +2227,43 @@ Results: [`fpga/spikes/results/ooc_dr191/`](../../fpga/spikes/results/ooc_dr191/
 
 Results: `fpga/spikes/results/product_wt_rec_u095/` and `_u105/`, with `images_sha256_md5.txt`. The images and checkpoints are in `~/tanager-build/track-spikes-72f833/vivado/product_wt_rec_u095/` and `_u105/`, both on `KEEP.txt`.
 
+#### M9's area package doesn't place: 92 CLBs short (2026-10-24)
+
+**Asked** (the coordinator, for M9's area decision): the full chip with the release features switched on together.
+- **The features:** `TG_HPM=1`, `TG_LWT=1` and `TG_ITT=2`. `TG_DEBUG` is off, since it's for development builds only.
+- **The source:** main 950b485d with fpu-2's table head ebf9f226 merged in. Against main, the table's RTL is identical to the placed T6 check's (bf29152f).
+- **The flow:** the product flow at 0.95 and 1.05 ns.
+- **The snapshot:** `snap/product_wt` e1eee3b02804, pinned `claude/spikes-2-board-m9a`. Forward references and lint with all three switches came back clean. Synthesis got `TG_HPM=1`, `TG_ITT=2` and `TG_LWT=1`.
+
+| | **`m9a`** (both placements: one synthesis) | `rec_u105` (all three off) |
+|---|---|---|
+| LUTs after synthesis | **121,762 (104.0%)** | 119,547 (102.1%) |
+| LUTs after `opt_design` | **117,539 (100.4%)** | 115,574 (98.7%) |
+| FFs after synthesis | 59,543 | 58,414 |
+| `place_design` (`AltSpreadLogic_high`) | **fails** after 6–8 min: 10,778 and 10,781 CLBs needed, 10,686 left | placed: 14,638 of the 14,640 CLBs in use, routed 112,862 LUTs (96.4%) |
+
+- **The package is about 2,000 LUTs over the pair of record:** +2,215 after synthesis and +1,965 after `opt_design`. That matches the three features' own costs:
+  - the counters, about 870 LUTs a chip ([area_switches.md](../spec/area_switches.md));
+  - the table, about 860 (+431 a core out of context, bf29152f);
+  - the load-wait table, 100–300 (50–150 a core, [area_recovery.md](area_recovery.md)).
+- **Both placements fail in the packer** (Place 30-487), 92 and 95 CLBs short. `rec_u105` already used 14,638 of the device's 14,640 CLBs, so nothing was left for 2,000 more LUTs.
+- **By unit, after synthesis, both cores together** (flatten rebuilt smears units, so this split is approximate):
+  - fetch +725 LUTs (the table's `u_itt` 177 a core);
+  - the CSR files +654 (the counters, about 85 LUTs each);
+  - the LSUs +503;
+  - the ROBs +441;
+  - the walkers +251.
+  - The uncore is unchanged (+8).
+- **What would likely fit:**
+  - Dropping one of the two larger features (the counters or the table, about 860–870 LUTs each) would bring the package within about 25 CLBs of the device, closer to the edge than the pair of record. It would likely place, and might not route.
+  - One feature alone, or two features with about 1K LUTs recovered elsewhere, would sit where the pair of record does.
+- **No timing:** neither placement reached routing.
+
+Results: [`fpga/spikes/results/m9a_area/`](../../fpga/spikes/results/m9a_area/):
+- the synthesis and `opt_design` utilization, the hierarchy, and `hier_diff_vs_rec_u105.txt`;
+- `place_errors.txt`;
+- the pair of record's paths with `paths_m9a.tcl`, the baseline for a fit that places.
+
 #### The write-pacing measurement image on main closes at +1.068 ns (2026-10-24)
 
 **Asked** (the coordinator): soc-2's measurement image for the board's write-pacing sweep ([soc.md](../spec/soc.md) §8.5, `tests/bench/mem` `wsdp.bin`).
