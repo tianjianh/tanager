@@ -669,6 +669,9 @@ module tg_lsu
   tid_t           sn_t;                          // ... its thread, from its payload (its SQ entry's: asserted)
   logic        s2_v_q, s2_go, s2_den;            // S2: a store's PMP check, the cycle after it decides (STA)
   logic [SIW-1:0] s2_idx_q;
+  logic        s3g_q, s3_amo_q, s3_den;          // #13: the store S2 checked last cycle, its answer now (S3)
+  logic [SIW-1:0] s3_idx_q;
+  tid_t           s3_t_q;
   // Three lookups: the LD port, the STA port, and the ROB head's check. The head's check has a
   // port of its own (timing: on a shared port the head VA and the store's address reached each
   // other's checks, paths that are never live together), and still counts only when STA is
@@ -1328,8 +1331,10 @@ module tg_lsu
   assign am_sc    = am_op == AMO_SC;
   assign am_go    = am_v_q[t_dr_q] && am_st_q == AM_IDLE && sq_v_q[dh] && sq_av_q[dh] && sq_dv_q[dh] &&
                     sq_head_q[t_dr_q] == am_sq_q[t_dr_q] && rob_head[t_dr_q] == am_rob_q[t_dr_q] &&
-                    !(s2_v_q && s2_idx_q == dh) && !kill_t[t_dr_q] && !(HART1_ON && NT > 1 && fpc_t[t_dro]) &&
-                    !(CKR && mh_gnt);   // (#13: the head's MMIO check's answer takes exception port 2 next cycle)
+                    !(s2_v_q && s2_idx_q == dh) && !(CKR && s3g_q && s3_idx_q == dh) && !kill_t[t_dr_q] &&
+                    !(HART1_ON && NT > 1 && fpc_t[t_dro]) &&
+                    !(CKR && mh_gnt);   // (#13: the head's MMIO check's answer takes exception port 2 next cycle; an
+                                        // atomic's own S2 answer comes in S3, its mark at S3's end)
   // Its PMP check (S2) denied it: it faults as it starts, without an access. It starts only after
   // that check (timing: the checker's verdict, which the walker's address also reaches, stays off
   // the atomic's start)
@@ -1624,7 +1629,8 @@ module tg_lsu
   // The ROB retires nothing from the store on while it is in S2 (sth_v[0], registered: the
   // verdict stays off the commit path) and, if denied, in S3 until the exception shows
   // (sth_v[1]). An atomic, which retires only after it runs, is marked instead (sq_pden_q): it
-  // faults as it starts, as for a denied line.
+  // faults as it starts, as for a denied line. With #13 S3 takes S2's answer registered (ck_ok_q): the report and
+  // the hold come in S3 as before, the mark a cycle later, which the atomic's start waits for (s3g_q).
   // The checker is shared with the walker, which takes it as before, in a cycle without a store
   // at the decision (chk_gnt; so walks keep their timing). The S2 check then waits a cycle; the
   // walker never checks two cycles running, and no store comes to S2 meanwhile. A bare-mode
@@ -1773,7 +1779,14 @@ module tg_lsu
     end
     s3_den_q <= !rst && s2_den && !s2_amo_q;
     s3_rob_q <= s2_rob_q;
+    // #13: S3 takes S2's answer registered (ck_ok_q), so the verdict reaches neither S3's report nor an atomic's
+    // mark (sq_pden_q) straight from the checker; the report comes in S3 as before, the mark a cycle later
+    s3g_q    <= !rst && CKR && s2_go && !kill_t[s2_t_q];
+    s3_amo_q <= s2_amo_q;
+    s3_t_q   <= s2_t_q;
+    s3_idx_q <= s2_idx_q;
   end
+  assign s3_den = CKR ? s3g_q && !s3_amo_q && !ck_ok_q : s3_den_q;
   // ---- Store ownership prefetch (STORE_PF, DR-171) ----
   // A cacheable store whose address decides without a fault asks the D$ for its line with T the next
   // cycle; s2_pa_q, which every decided store loads, holds its PA then. Its PMP verdict may still be
@@ -1784,11 +1797,11 @@ module tg_lsu
     pf_v_q <= !rst && STORE_PF && DC_MSHRS > 1 && sa_ok && !sa_amo && sa_pma == PMA_MEM;
   assign pf_req = pf_v_q && !flush;               // (a hint: any flush drops it)
   assign pf_pa  = s2_pa_q;
-  assign spx_valid  = s3_den_q;
+  assign spx_valid  = s3_den;
   assign spx_rob    = s3_rob_q;
   assign sth_v[0]   = s2_v_q && !s2_amo_q;
   assign sth_rob[0] = s2_rob_q;
-  assign sth_v[1]   = s3_den_q;
+  assign sth_v[1]   = s3_den;
   assign sth_rob[1] = s3_rob_q;
 
   // Ordering check: the oldest younger load that has its value (or is in M1/M2) and overlaps
@@ -2673,7 +2686,8 @@ module tg_lsu
         sq_mask_q[sa_idx] <= sa_mask;
         sq_mmio_q[sa_idx] <= sa_mmio;
       end
-      if (s2_den && s2_amo_q) sq_pden_q[s2_idx_q] <= 1'b1;
+      if (CKR ? s3g_q && s3_amo_q && !ck_ok_q && !kill_t[s3_t_q] : s2_den && s2_amo_q)   // (#13: from S3)
+        sq_pden_q[CKR ? s3_idx_q : s2_idx_q] <= 1'b1;
 
       if (lm_req && !m2_pt_q) lq_mc_q[m2_lq_q] <= 1'b1;   // (M9's counters: a load's miss counts once)
       // ---- Dispatch: new LQ / SQ entries ----
