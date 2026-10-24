@@ -40,7 +40,7 @@ A success fills the requester's TLB with the leaf and its level.
 - **Load / store address:** new loads and STA look the DTLB up at AG (LQ replays reuse the PA in the LQ). The LQ and SQ keep the VA (trace, tval, walks) and the PA (D$, forwarding, ordering checks, drain). A miss marks the ROB entry `replay` + `tlb`, puts the load in `L_TLB` (or the store's SQ entry in `tlb`), does not access memory, and offers the VA to the prefetch buffer.
 - **Commit, head with `replay` + `tlb`:**
   1. If the DTLB now translates the head's VA (it looks it up with the third port), flush and refetch at its PC (`hd_retry`).
-  2. Otherwise, once the walker is free and the committed stores have drained (so the PTE reads see them), the deciding walk starts.
+  2. Otherwise, once the walker is free and the committed stores have drained (so the PTE reads see them), the deciding walk starts. With #12 (`LSU_HDWALK_REG`, the default; core-pipeline §13) the request takes the head's lookup as registered: the walk starts a cycle after the lookup that missed, and never in the cycle after a DTLB fill of the hart, whose lookup could not see the fill.
   3. A fill → the head finds it and refetches. A fault → the head traps with its cause and tval = VA (`hd_fault`), precisely.
 
   Speculative walks (fetch, prefetch) never raise exceptions in the data path; a fetch walk's fault reaches the trap only through a fault block that commits.
