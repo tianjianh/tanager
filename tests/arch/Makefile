@@ -28,6 +28,13 @@ WORK := $(TANAGER_BUILD)/$(WT)/arch
 TESTS := $(WORK)/$(ACTCFG)/tests
 CONFIG := $(ROOT)/tests/arch/config/$(ACTCFG)/test_config.yaml
 export BUNDLE_PATH := $(TANAGER_OPT)/act-gems
+# UDB's binaries (Z3, espresso, eqntott, must: sw/versions.sh's UDB_* pins, verification.md §6.1) in a shared tools
+# folder that cleanups keep, given only to act, which runs udb (XDG_CACHE_HOME), so other tools' caches stay put. udb
+# fetches a missing binary by itself; the check below stops first, as any download needs the user's yes
+UDB_CACHE ?= $(TANAGER_BUILD)/tools/udb-deps
+udb_pin = $(shell sed -n 's/^$(1)=\([^ #]*\).*/\1/p' $(ROOT)/sw/versions.sh)
+UDB_BINS := z3/$(call udb_pin,UDB_Z3_VER)/x64/libz3.so espresso/$(call udb_pin,UDB_ESPRESSO_VER)/x64/espresso \
+            eqntott/$(call udb_pin,UDB_EQNTOTT_VER)/x64/eqntott must/$(call udb_pin,UDB_MUST_VER)/x64/must
 
 # Command-line variables of this make must not reach the sim build (see tests/random/Makefile).
 MAKEOVERRIDES :=
@@ -79,10 +86,11 @@ CFG_FILES := $(wildcard $(ROOT)/tests/arch/config/$(ACTCFG)/*) $(ROOT)/tests/arc
              $(ROOT)/tests/arch/config/tanager_rvmodel.h
 elfs: $(WORK)/$(ACTCFG)/.elfs
 $(WORK)/$(ACTCFG)/.elfs: $(ARCH_MK) $(CFG_FILES)
+	@for f in $(UDB_BINS); do test -f $(UDB_CACHE)/udb/$$f || { echo "ACT4: no $(UDB_CACHE)/udb/$$f: fetch sw/versions.sh's UDB_* pins (with the user's yes) by the udb gem's ext/udb_download/extconf.rb with XDG_CACHE_HOME=$(UDB_CACHE), verification.md §6.1"; exit 1; }; done
 	@rm -rf $(WORK)/$(ACTCFG)/elfs
 	$(gen_tests)
-	cd $(ARCH_TEST) && $(VENV)/bin/act $(CONFIG) --workdir $(WORK) --test-dir $(TESTS) --jobs $(JOBS) \
-	  --fast --clean-intermediates
+	cd $(ARCH_TEST) && XDG_CACHE_HOME=$(UDB_CACHE) $(VENV)/bin/act $(CONFIG) --workdir $(WORK) --test-dir $(TESTS) \
+	  --jobs $(JOBS) --fast --clean-intermediates
 	@rm -rf $(TESTS)
 	@touch $@
 
