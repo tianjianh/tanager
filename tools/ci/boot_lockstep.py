@@ -58,12 +58,13 @@ SHAPES = {"st": ("st", 1, 1, 1, 1), "board": ("smt2", 2, 2, 1, 4), "smp4": ("smt
 GATE_PATHS = tuple(f"rtl/core/{d}/" for d in ("frontend", "decode", "rename", "lsu", "mmu", "csr")) + \
              ("rtl/core/tg_core.sv", "rtl/core/tg_core_pkg.sv")
 # How the boot is built and checked runs the gate too, as a core change does: the profile switches, the device trees,
-# tb_boot and its unit's rules, the tap, and tanager-lockstep's sources (sim/src's headers included). On 10-24
+# tb_boot and its unit's rules, the tap, tanager-lockstep's sources (sim/src's headers included), this script and the
+# build helpers it takes from cycle_identical.py, and sim/.gitignore (what of sim/ goes into the build). On 10-24
 # sim/profile.mk's empty HPM and the boot unit's new HPM=$(HPM) to sw/dts each passed alone and broke every tb_boot
 # together; and a checker change met its first Linux boot only at the next core change's gate.
-GATE_HARNESS = ("sim/profile.mk", "sim/Makefile", "sim/tb/tg_soc_tap", "sim/src/lockstep.cpp",
+GATE_HARNESS = ("sim/profile.mk", "sim/Makefile", "sim/.gitignore", "sim/tb/tg_soc_tap", "sim/src/lockstep.cpp",
                 "sim/src/tanager_lockstep.cpp", "sim/src/elfload.cpp", "tests/unit/boot/", "tests/unit/common/",
-                "sw/dts/")
+                "sw/dts/", "tools/ci/boot_lockstep.py", "tools/ci/cycle_identical.py")
 
 
 def gate_harness(path):
@@ -476,8 +477,8 @@ def main():
         rtl, label = resolve(a)
         changed = [c[len("rtl/core/"):] for c in ci.git("diff", "--name-only", fork, rtl, "--", "rtl/core").splitlines()
                    if c.startswith(GATE_PATHS)]
-        changed += [c for c in ci.git("diff", "--name-only", fork, rtl, "--", "sim", "tests/unit", "sw/dts").splitlines()
-                    if gate_harness(c)]
+        changed += [c for c in ci.git("diff", "--name-only", fork, rtl, "--", "sim", "tests/unit", "sw/dts",
+                                      "tools/ci").splitlines() if gate_harness(c)]
         if not changed:
             log(f"gate: {label} changes nothing in the core's fetch, decode, rename, LSU, MMU or CSR, nor in how the "
                 f"boot is built and checked, against {fork[:10]} (its merge base with {base}): skipped")
