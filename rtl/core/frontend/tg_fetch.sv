@@ -59,6 +59,14 @@ module tg_fetch
   input  logic                                c_hv,
   input  logic [FTQW-1:0]                     c_hftq,
   input  tid_t                                c_tid,     // ... their thread (M7)
+  // The indirect-target table (ITT_ON) from commit, the same thread's: each retiring slot, its address, a JALR that
+  // is not a return, and the slot whose mispredict ends the group; a trap or interrupt taken and its epc
+  input  logic [COMMIT_WIDTH-1:0]             c_ret,
+  input  logic [COMMIT_WIDTH-1:0][38:1]       c_pc,
+  input  logic [COMMIT_WIDTH-1:0]             c_ijmp,
+  input  logic [COMMIT_WIDTH-1:0]             c_jmisp,
+  input  logic                                c_trv,
+  input  logic [38:1]                         c_trepc,
   // The return-address stack's speculative side (RAS_FE): its top, pointer and count; each delivered
   // block's exit's operation; the repair at decode's redirect (the pointer, count and top before the
   // redirecting block, from its FTQ entry)
@@ -544,7 +552,7 @@ module tg_fetch
   // TAGE_ON: the override refetches at the exit's target (kt_q): the block's address, the exit's
   // parcel (kp_q) and its offset (kimm_q), added in the action's cycle
   logic              kt_q;
-  logic              kr_q;                // RAS_FE: ... at the stack's top, krt_q
+  logic              kr_q;                // RAS_FE: ... at the stack's top, krt_q (ITT_ON: or the table's target)
   logic              ks_q;                // TAGE_ON: ... the exit is a straddler (PC: the block - 2)
   logic [38:1]       krt_q;              // (A, spikes.md §7.1: the stack's top, which fx_tgt is under kr_q)
   logic [SLOT_W-1:0] kp_q;
@@ -661,6 +669,12 @@ module tg_fetch
   logic               uok;                // the micro-BTB's prediction is a real exit
   logic [63:0]        fx_tgt;             // the exit's target in the queue (a JALR's)
   logic               ovr_ras;            // RAS_FE: ... the exit is a return to the stack's top
+  logic               ovr_itt;            // ITT_ON: ... the exit is a JALR to the indirect-target table's target
+  logic               f2_ijx;             // ITT_ON: F2's exit is a JALR that is not a return (the path history's)
+  // ITT_ON: the indirect-target table's entry for F2's block (g_itt): a hit, its slot and its target
+  logic               itt_hit;
+  logic [SLOT_W-1:0]  itt_slot;
+  logic [38:1]        itt_tgt;
   logic               ovr_s;              // TAGE_ON: ... the exit is a straddler (its PC: the block - 2)
   logic [20:0]        ovr_imm;            // ... the exit's offset
   logic               f2_rpush, f2_rpop;  // RAS_FE: the exit's stack operation, and a push's link
@@ -757,6 +771,8 @@ module tg_fetch
     assign gh_sx   = 1'b0;
     assign fx_tgt  = f2_tgt_q;
     assign ovr_ras = 1'b0;
+    assign ovr_itt = 1'b0;
+    assign f2_ijx  = 1'b0;
     assign ovr_s   = 1'b0;
     assign ovr_imm = '0;
     logic unused_sp;
@@ -788,6 +804,14 @@ module tg_fetch
     // to the stack's top; a JALR otherwise only where the micro-BTB predicts it
     logic [63:0]   rtgt;
     assign rtgt = {{25{ras_top[38]}}, ras_top, 1'b0};
+    // The indirect-target table's entry (ITT_ON) at a JALR that is not a return (no pop), by its last parcel's slot:
+    // a candidate too, to the entry's target, at the micro-BTB's slot as well (its target replaces the micro-BTB's).
+    // The hit comes from the RAM's output beside TAGE's provider bits and is its own term of tkn (timing)
+    logic [NP-1:0] ith;
+    logic          ith_s;                  // ... a straddler's, at slot 0
+    logic [63:0]   itgt;
+    assign ith_s = ITT_ON && itt_hit && itt_slot == '0;
+    assign itgt  = {{25{itt_tgt[38]}}, itt_tgt, 1'b0};
     // A 32-bit instruction that straddles in from the previous block (its first half in sp_q) is the
     // block's first instruction, its last parcel at slot 0: decoded here from its halves, it is a
     // candidate like the others (a branch with TAGE's slot 0), the exit fe_s
@@ -812,7 +836,7 @@ module tg_fetch
       // prediction there is no real exit and uok is false; only the stack takes a straddling JALR.
       // It is never trained on one either: a hit at slot 0 here is another block's entry, through
       // the partial tag, and F1 followed its target: decode checks it, fx_tsrc below)
-      sx_tk   = (sx_br && tdir[0]) || sx_jal || (sx_jalr && RAS_FE && sx_pop && ras_v);
+      sx_tk   = (sx_br && tdir[0]) || sx_jal || (sx_jalr && RAS_FE && sx_pop && ras_v) || (sx_jalr && !sx_pop && ith_s);
     end
     assign fe_s = sx_tk;
     for (genvar p = 0; p < NP; p++) begin : g_cand
@@ -824,8 +848,10 @@ module tg_fetch
       // candidate does not wait for uok, the whole block's check
       logic hs;
       assign hs = f2_hit_q && (wide[p] ? f2_slot_q == SLOT_W'(p + 1) : f2_slot_q == SLOT_W'(p));
+      assign ith[p]  = ITT_ON && itt_hit && itt_slot == lsl[p];
       assign tkn[p]  = (pd_start[p] && !outp[p] && (pd_jal[p] || (pd_jalr[p] && (rp[p] || hs)))) ||
-                       (cbr[p] && (wide[p] ? tdir[(p + 1) % NP] : tdir[p]));
+                       (cbr[p] && (wide[p] ? tdir[(p + 1) % NP] : tdir[p])) ||
+                       (pd_start[p] && !outp[p] && pd_jalr[p] && !pd_pop[p] && ith[p]);
     end
     // ns[p]: nothing decided before p: no candidate there (tb) and no third conditional branch (at
     // least three before p, the straddler counted); the cut at the third (c3h: two before it), else
@@ -909,11 +935,12 @@ module tg_fetch
       for (int p = 0; p < NP; p++) blk_marks[p] = {pd_br[p], pd_jal[p], pd_jalr[p]};
     end
     // The exit's slot, kind and target (without an exit: the walk's default, the first parcel's)
-    logic xjalr, xras, xcall, xpop, xcbr, sm;
+    logic xjalr, xras, xcall, xpop, xcbr, xitt, sm;
     logic [3:0] xoff;                              // the exit's link, in halfwords from the block
     always_comb begin
       xjalr   = 1'b0;
       xras    = 1'b0;
+      xitt    = 1'b0;
       xcall   = 1'b0;
       xpop    = 1'b0;
       xcbr    = 1'b0;
@@ -924,6 +951,7 @@ module tg_fetch
         if (feh[p]) begin
           xjalr   = xjalr || pd_jalr[p];
           xras    = xras  || rp[p];
+          xitt    = xitt  || (pd_jalr[p] && !pd_pop[p] && ith[p]);
           xcall   = xcall || pd_call[p];
           xpop    = xpop  || pd_pop[p];
           xcbr    = xcbr  || cbr[p];
@@ -937,6 +965,7 @@ module tg_fetch
         xcall   = sx_call;
         xpop    = sx_pop;
         xcbr    = sx_br;
+        xitt    = sx_jalr && !sx_pop && ith_s;
         sm      = f2_slot_q == '0;
         fx_slot = '0;
         xoff    = 4'd1;
@@ -958,9 +987,12 @@ module tg_fetch
     assign fx_nj   = !xjalr;
     assign fx_nhs  = !(f2_hit_q && sm);
     // f2_ka, F2's action without the delivery: its terms absorb f2_ovr's gates (timing)
-    logic fe_ras, xovr;
+    logic fe_ras, fe_itt, xovr;
     assign fe_ras  = tk && xras;
-    assign xovr    = (fe_s || fe_v) ? !(f2_hit_q && sm && (!xras || f2_tgt_q == rtgt)) : f2_hit_q;
+    assign fe_itt  = tk && xitt;
+    // (at the micro-BTB's slot the table's target refetches when it is not the micro-BTB's, as the stack's top)
+    assign xovr    = (fe_s || fe_v) ? !(f2_hit_q && sm && (!xras || f2_tgt_q == rtgt) && (!xitt || f2_tgt_q == itgt))
+                                    : f2_hit_q;
     assign f2_ovr  = !isf && !pcut && !ccut && xovr;
     assign f2_ka   = pcut || ccut || isf || xovr;
     assign ovr_tk  = tk;
@@ -976,7 +1008,9 @@ module tg_fetch
       if (fe_s) ovr_imm = br_imm(sx, sx_jal);
     end
     assign ovr_ras = fe_ras;
-    assign fx_tgt  = fe_ras ? rtgt : f2_tgt_q;
+    assign ovr_itt = fe_itt;
+    assign f2_ijx  = tk && xjalr && !xpop;
+    assign fx_tgt  = fe_ras ? rtgt : fe_itt ? itgt : f2_tgt_q;
     // The stack's operation at the block's exit (made as the block is delivered, below): a call's
     // push of its link, a return's pop (the commit side does the same, ras_op)
     assign f2_rpush = RAS_FE && tk && xcall;
@@ -1052,7 +1086,8 @@ module tg_fetch
           r_cbr[p] = pd_start[p] && pd_br[p] && !o;
           r_rp[p]  = RAS_FE && pd_pop[p] && ras_v;
           ujx      = pd_start[p] && !o && (pd_jal[p] || (pd_jalr[p] && (r_rp[p] || (uok && f2_slot_q == lsl[p]))));
-          r_tkn[p] = ujx || (r_cbr[p] && tdir[lsl[p]]);
+          r_tkn[p] = ujx || (r_cbr[p] && tdir[lsl[p]]) ||
+                     (pd_start[p] && !o && pd_jalr[p] && !pd_pop[p] && ITT_ON && itt_hit && itt_slot == lsl[p]);
           if (!seen && r_cbr[p] && nb == 2) begin
             seen = 1'b1; r_c3_v = 1'b1; r_c3_p = SLOT_W'(p);
           end else if (!seen && r_tkn[p]) begin
@@ -1095,13 +1130,16 @@ module tg_fetch
         end
       end
       assign r_fx_slot = fe_s ? '0 : lsl[r_fe_p];
-      logic        r_fx_tsrc, r_fe_ras, r_ovr, r_rpush, r_rpop;
+      logic        r_fx_tsrc, r_fe_ras, r_fe_itt, r_ovr, r_rpush, r_rpop;
       logic [20:0] r_imm;
       logic [38:1] r_rlink;
       logic [63:0] r_tgt;
       assign r_fe_ras  = r_tk && (fe_s ? RAS_FE && sx_pop && ras_v : r_rp[r_fe_p]);
+      assign r_fe_itt  = r_tk && ITT_ON && itt_hit && (fe_s ? sx_jalr && !sx_pop && itt_slot == '0
+                                                           : pd_jalr[r_fe_p] && !pd_pop[r_fe_p] && itt_slot == lsl[r_fe_p]);
       assign r_ovr     = !r_isf && !r_pcut && !r_ccut &&
-                         (r_tk ? !(f2_hit_q && f2_slot_q == r_fx_slot && (!r_fe_ras || f2_tgt_q == rtgt)) : f2_hit_q);
+                         (r_tk ? !(f2_hit_q && f2_slot_q == r_fx_slot && (!r_fe_ras || f2_tgt_q == rtgt) &&
+                                   (!r_fe_itt || f2_tgt_q == itgt)) : f2_hit_q);
       // the exit's own target only where F2 refetches there
       assign r_fx_tsrc = r_tk && (fe_s ? !sx_jalr : !pd_jalr[r_fe_p]) && r_ovr;
       always_comb begin
@@ -1109,7 +1147,7 @@ module tg_fetch
         x = {parcel[(int'(r_fe_p) + 1) % NP], parcel[r_fe_p]};
         r_imm = fe_s ? br_imm(sx, sx_jal) : br_imm(x, pd_jal[r_fe_p]);
       end
-      assign r_tgt   = r_fe_ras ? rtgt : f2_tgt_q;
+      assign r_tgt   = r_fe_ras ? rtgt : r_fe_itt ? itgt : f2_tgt_q;
       assign r_rpush = RAS_FE && r_tk && (fe_s ? sx_call : pd_call[r_fe_p]);
       assign r_rpop  = RAS_FE && r_tk && (fe_s ? sx_pop : pd_pop[r_fe_p]);
       assign r_rlink = fe_s ? {f2_pc_q[38:4], 3'b000} + 38'd1
@@ -1548,6 +1586,175 @@ module tg_fetch
         end
       end
     end
+    // ---- The indirect-target table (ITT_ON; core-pipeline.md §3.2) ----
+    // Per stream: the speculative path history (ph_s_q; a delivered block's JALR exit goes in a cycle later, ph_e_s the
+    // history with it, as gh_e_s) and commit's (cph_s_q). A flush copies commit's into it; decode's redirect restores
+    // the history the redirecting block's lookup used, which the FTQ keeps (u_fil) and training writes with, so lookup
+    // and training agree (a block fetched right behind a JALR's block is looked up without that JALR).
+    if (ITT_ON) begin : g_itt
+      localparam int PW = ITT_PHW;
+      localparam int JW = idx_w(COMMIT_WIDTH);
+      // the history after a JALR: shifted left by 4 (h, the bits that stay), its target's bits 17:2 in (the model's)
+      function automatic logic [PW-1:0] padd(input logic [PW-5:0] h, input logic [15:0] t);
+        return {h, 4'b0} ^ t;
+      endfunction
+      logic [NS-1:0][PW-1:0] ph_s_q, ph_e_s, cph_s_q, cph_n;
+      logic                  ipw_q;               // a JALR exit delivered last cycle: it pends ...
+      logic                  ips_q;               // ... in this stream,
+      logic [15:0]           ipt_q;               // ... to this target (its bits 17:2)
+      logic [PW-1:0]         ilk_q;               // the history F2's block's lookup used
+      // the table's write (registered): the jump's block and slot (its last parcel's), its block's lookup history,
+      // its privilege, its target
+      logic                  iw_q, iwu_q;
+      logic [38:4]           iwb_q;
+      logic [SLOT_W-1:0]     iws_q;
+      logic [PW-1:0]         iwh_q;
+      logic [38:1]           iwt_q;
+      always_comb
+        for (int t = 0; t < NS; t++)
+          ph_e_s[t] = (ipw_q && ips_q == 1'(t)) ? padd(ph_s_q[t][PW-5:0], ipt_q) : ph_s_q[t];
+      tg_itt #(.MODE(ITT_MODE), .NP(NP), .HW(PW)) u_itt (
+        .clk, .re(f2_ld), .blk(tblk), .ph(ph_e_s[ft_q]), .pu(priv == PRIV_U),
+        .hit(itt_hit), .slot(itt_slot), .tgt(itt_tgt),
+        .we(iw_q), .w_blk(iwb_q), .w_ph(iwh_q), .w_pu(iwu_q), .w_slot(iws_q), .w_tgt(iwt_q));
+      always_ff @(posedge clk) begin
+        ipw_q <= !rst && ft_we && f2_ijx;
+        ips_q <= f2_s_q;
+        ipt_q <= fx_tgt[17:2];
+        if (f2_ld) ilk_q <= ph_e_s[ft_q];
+      end
+      // the FTQ's lookup histories: decode's redirect reads its block's, commit the group's first such jump's
+      logic [JW-1:0]               jc;
+      logic [1:0][SB+FTQW-1:0]     fl_ra;
+      logic [1:0][PW-1:0]          fl_rd;
+      always_comb begin
+        jc = '0;
+        for (int j = COMMIT_WIDTH - 1; j >= 0; j--) if (c_ijmp[j]) jc = JW'(j);
+      end
+      assign fl_ra[0] = fr_ra[0];
+      assign fl_ra[1] = fqa(cs, c_ftq[jc]);
+      tg_ram_lut #(.DEPTH(FTQ_ENTRIES << SB), .WIDTH(PW), .NR(2)) u_fil (
+        .clk, .we(ft_we), .waddr(fqa(f2_s_q, ft_tail)), .wdata(ilk_q), .raddr(fl_ra), .rdata(fl_rd));
+      // Commit: a retiring JALR that is not a return trains the table once its target is known: its thread's next
+      // retiring instruction's address (in its group or a later one), its own mispredict's flush address, or a trap's
+      // or interrupt's epc; any other flush of its thread drops it (core-2's review). Commit's history moves with the
+      // same target. One pending jump a stream (pj_*_q). One write a cycle: the older first; and only the group's
+      // first such jump reads its block's history (jc), so a second one moves the history and does not train
+      logic [NS-1:0]         pj_v_q, pj_m_q, pj_t_q, pj_u_q;    // pending; it mispredicted; it trains; it ran in U
+      logic [NS-1:0][PW-1:0] pj_h_q;                            // its block's lookup history
+      logic [NS-1:0][38:1]   pj_l_q;                            // its last parcel's address
+      logic [NS-1:0]         pjn_v, pjn_m, pjn_t, pjn_u;
+      logic [NS-1:0][PW-1:0] pjn_h;
+      logic [NS-1:0][38:1]   pjn_l;
+      logic                  wr, wu;
+      logic [38:1]           wl, wt;
+      logic [PW-1:0]         wh;
+      logic [COMMIT_WIDTH:0]       rr;                         // the retiring slots and their addresses, one more
+      logic [COMMIT_WIDTH:0][38:1] rp;                         // slot (none) past the group
+      assign rr = {1'b0, c_ret};
+      assign rp = {38'b0, c_pc};
+      always_comb begin
+        logic        cu;
+        logic [38:1] x, l;
+        cu = priv_h[c_tid] == PRIV_U;
+        x  = '0;
+        l  = '0;
+        wr = 1'b0; wu = 1'b0; wl = '0; wt = '0; wh = '0;
+        cph_n = cph_s_q;
+        pjn_v = pj_v_q; pjn_m = pj_m_q; pjn_t = pj_t_q; pjn_u = pj_u_q; pjn_h = pj_h_q; pjn_l = pj_l_q;
+        for (int t = 0; t < NS; t++)
+          if (fl_s[t]) begin                       // (nothing of the stream retires in its flush's cycle)
+            if (pj_v_q[t] && pj_m_q[t]) begin
+              cph_n[t] = padd(cph_n[t][PW-5:0], flush_pc[17:2]);
+              if (pj_t_q[t] && !wr) begin wr = 1'b1; wl = pj_l_q[t]; wt = flush_pc[38:1]; wh = pj_h_q[t]; wu = pj_u_q[t]; end
+            end
+            pjn_v[t] = 1'b0;
+          end else if (cs == 1'(t)) begin
+            // the pending jump's target: the group's first retiring address, else a trap's or interrupt's epc
+            if (pj_v_q[t] && (rr[0] || c_trv)) begin
+              x = rr[0] ? rp[0] : c_trepc;
+              cph_n[t] = padd(cph_n[t][PW-5:0], x[17:2]);
+              if (pj_t_q[t] && !wr) begin wr = 1'b1; wl = pj_l_q[t]; wt = x; wh = pj_h_q[t]; wu = pj_u_q[t]; end
+              pjn_v[t] = 1'b0;
+            end
+            for (int j = 0; j < COMMIT_WIDTH; j++)
+              if (c_ijmp[j]) begin
+                // its last parcel's address: a straddler's is in the next block, at slot 0
+                l = {c_pc[j][38:4] + 35'(c_slot[j] == '0 && c_pc[j][SLOT_W:1] == SLOT_W'(NP - 1)), c_slot[j]};
+                if (rr[j + 1]) begin               // its target retires in the group
+                  cph_n[t] = padd(cph_n[t][PW-5:0], rp[j + 1][17:2]);
+                  if (jc == JW'(j) && !wr) begin wr = 1'b1; wl = l; wt = rp[j + 1]; wh = fl_rd[1]; wu = cu; end
+                end else begin                     // the group's last retiring instruction: it pends
+                  pjn_v[t] = 1'b1;
+                  pjn_m[t] = c_jmisp[j];
+                  pjn_t[t] = jc == JW'(j);
+                  pjn_u[t] = cu;
+                  pjn_h[t] = fl_rd[1];
+                  pjn_l[t] = l;
+                end
+              end
+          end
+      end
+      always_ff @(posedge clk) begin
+        if (rst) begin
+          ph_s_q  <= '0;
+          cph_s_q <= '0;
+          pj_v_q  <= '0;
+        end else begin
+          cph_s_q <= cph_n;
+          pj_v_q  <= pjn_v;
+          for (int t = 0; t < NS; t++)
+            if (fl_s[t])      ph_s_q[t] <= cph_n[t];      // a flush: commit's, with its own jump's target
+            else if (dr_s[t]) ph_s_q[t] <= fl_rd[0];      // decode's redirect: its block's lookup history
+            else              ph_s_q[t] <= ph_e_s[t];
+        end
+        pj_m_q <= pjn_m;
+        pj_t_q <= pjn_t;
+        pj_u_q <= pjn_u;
+        pj_h_q <= pjn_h;
+        pj_l_q <= pjn_l;
+        iw_q   <= !rst && wr;
+        iwb_q  <= wl[38:4];
+        iws_q  <= wl[SLOT_W:1];
+        iwh_q  <= wh;
+        iwu_q  <= wu;
+        iwt_q  <= wt;
+      end
+`ifndef SYNTHESIS
+      // A mispredicted jump ends its group, and its flush comes next: nothing of its thread retires before it
+      logic it_rs_q;
+      initial it_rs_q = 1'b0;
+      always @(posedge clk) if (rst) it_rs_q <= 1'b1;
+      always_ff @(posedge clk)
+        if (it_rs_q && !rst)
+          for (int t = 0; t < NS; t++)
+            if (pj_v_q[t] && pj_m_q[t] && !fl_s[t])
+              assert (!(cs == 1'(t) && |c_ret))
+                else $error("tg_fetch: an instruction retired between a mispredicted JALR and its flush");
+      // +itt_stats: lookups, delivered exits the table predicted and those that refetched, the table's writes, the
+      // retiring jumps it trains on and their mispredicts
+      longint n_lk, n_ex, n_rf, n_wr, n_ij, n_im;
+      initial begin n_lk = 0; n_ex = 0; n_rf = 0; n_wr = 0; n_ij = 0; n_im = 0; end
+      always @(posedge clk)
+        if (it_rs_q && !rst) begin
+          n_lk <= n_lk + longint'(f2_ld);
+          n_ex <= n_ex + longint'(ft_we && ovr_itt);
+          n_rf <= n_rf + longint'(ft_we && ovr_itt && f2_ovr);
+          n_wr <= n_wr + longint'(iw_q);
+          n_ij <= n_ij + longint'($countones(c_ijmp));
+          n_im <= n_im + longint'($countones(c_ijmp & c_jmisp));
+        end
+      final if ($test$plusargs("itt_stats"))
+        $fwrite(32'h8000_0002, "TG-ITT %m: %0d lookups, %0d exits predicted (%0d refetched), %0d writes, %0d jumps retired, %0d mispredicted\n",
+                n_lk, n_ex, n_rf, n_wr, n_ij, n_im);
+`endif
+    end else begin : g_noitt
+      assign itt_hit  = 1'b0;
+      assign itt_slot = '0;
+      assign itt_tgt  = '0;
+      logic unused_itt;
+      assign unused_itt = ^{c_ret, c_pc, c_ijmp, c_jmisp, c_trv, c_trepc, f2_ijx};
+    end
     assign kt_tgt = {miss_pc_q[63:4], 4'b0} + (ks_q ? 64'hFFFF_FFFF_FFFF_FFFE : 64'({kp_q, 1'b0})) +
                     {{43{kimm_q[20]}}, kimm_q};
 `ifndef SYNTHESIS
@@ -1598,6 +1805,9 @@ module tg_fetch
 `endif
   end else begin : g_notage
     assign ft_full = 1'b0;
+    assign itt_hit  = 1'b0;
+    assign itt_slot = '0;
+    assign itt_tgt  = '0;
     assign ft_tail = '0;
     assign tdir    = '0;
     assign kt_tgt  = '0;
@@ -1612,7 +1822,7 @@ module tg_fetch
     logic unused_tage;
     assign unused_tage = ^{dred_ftq, dred_slot, dred_rop, dred_rlink, c_cbr, c_taken, c_pred, c_ftq, c_slot, c_hv, c_hftq, gh_n, gh_b,
                            gh_cm, gh_pk, gh_mb, gh_lm, gh_xm, gh_wd, gh_c3, gh_sb, gh_sx, kp_q, kimm_q, ras_v, ras_top, ras_tos, ras_cnt, f2_rpush, f2_rpop,
-                           f2_rlink, krt_q, ks_q};
+                           f2_rlink, krt_q, ks_q, c_ret, c_pc, c_ijmp, c_jmisp, c_trv, c_trepc, f2_ijx};
   end
 
   // ---- Refill engine (one Get at a time) ----
@@ -2101,8 +2311,8 @@ module tg_fetch
                          uhit: TAGE_ON ? uok && !f2_isfault : f2_taken, uslot: f2_slot_q, ftq: ft_tail,
                          fault: f2_isfault, fpf: f2_bfault && f2_fpf_q, fhi: !f2_bfault && pmp_hi};
         f3_s_q      <= f2_s_q;
-        f3_ras_q    <= ovr_ras;
-        f3_rtop_q   <= ras_top;
+        f3_ras_q    <= ovr_ras || ovr_itt;               // (the queue's target: the stack's or the table's)
+        f3_rtop_q   <= ovr_itt ? itt_tgt : ras_top;
         f3_tk_q     <= fx_tk;
         f3_nj_q     <= fx_nj;
         f3_nhs_q    <= fx_nhs;
@@ -2168,8 +2378,8 @@ module tg_fetch
       kt_q     <= ovr_tk;
       kp_q     <= ovr_p;
       kimm_q   <= ovr_imm;
-      kr_q     <= ovr_ras;
-      krt_q    <= ras_top;
+      kr_q     <= ovr_ras || ovr_itt;
+      krt_q    <= ovr_itt ? itt_tgt : ras_top;
       ks_q     <= ovr_s;
       fp_q     <= fp;
       if (f2v) begin
