@@ -1,0 +1,455 @@
+from *u_fetch/f3_start_q_reg*: 8 registers; to *u_fetch/fpc_q_reg*: 63 registers
+== the 3 worst paths, one per endpoint (slack, levels, logic / wire ns, start -> end)
+  1.080  23  2.95  5.78  u_fetch/f3_start_q_reg[2]/C -> u_fetch/fpc_q_reg[10]/CE
+  1.142  23  2.95  5.72  u_fetch/f3_start_q_reg[2]/C -> u_fetch/fpc_q_reg[40]/CE
+  1.159  23  2.95  5.70  u_fetch/f3_start_q_reg[2]/C -> u_fetch/fpc_q_reg[15]/CE
+
+== the same 3 paths in full (report_timing -input_pins)
+Slack (MET) :             1.080ns  (required time - arrival time)
+  Source:                 u_fetch/f3_start_q_reg[2]/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_fetch/fpc_q_reg[10]/CE
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            10.000ns  (clk rise@10.000ns - clk rise@0.000ns)
+  Data Path Delay:        8.724ns  (logic 2.949ns (33.804%)  route 5.775ns (66.196%))
+  Logic Levels:           23  (LUT2=6 LUT3=4 LUT4=1 LUT5=6 LUT6=6)
+  Clock Path Skew:        -0.083ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    1.560ns = ( 11.560 - 10.000 ) 
+    Source Clock Delay      (SCD):    1.735ns
+    Clock Pessimism Removal (CPR):    0.092ns
+  Clock Uncertainty:      0.035ns  ((TSJ^2 + TIJ^2)^1/2 + DJ) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Total Input Jitter      (TIJ):    0.000ns
+    Discrete Jitter          (DJ):    0.000ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    PBlock               Netlist Resource(s)
+  -------------------------------------------------------------------    ----------------------------------------
+                         (clock clk rise edge)        0.000     0.000 r                       
+                                                      0.000     0.000 r                       clk (IN)
+                         net (fo=36735, unset)        1.735     1.735                         u_fetch/clk
+    SLICE_X22Y99         FDRE                                         r  spike                u_fetch/f3_start_q_reg[2]/C
+  -------------------------------------------------------------------    ----------------------------------------
+    SLICE_X22Y99         FDRE (Prop_DFF_SLICEL_C_Q)
+                                                      0.114     1.849 f  spike                u_fetch/f3_start_q_reg[2]/Q
+                         net (fo=20, routed)          0.625     2.473                         u_fetch/u_cmp/g_bank[0].u_ram_i_287_0[2]
+    SLICE_X24Y103                                                     f  spike                u_fetch/u_cmp/done_q[3]_i_15/I1
+    SLICE_X24Y103        LUT3 (Prop_E6LUT_SLICEM_I1_O)
+                                                      0.223     2.696 r  spike                u_fetch/u_cmp/done_q[3]_i_15/O
+                         net (fo=7, routed)           0.252     2.948                         u_fetch/u_cmp/done_q[3]_i_15_n_0
+    SLICE_X24Y108                                                     r  spike                u_fetch/u_cmp/done_q[3]_i_10/I2
+    SLICE_X24Y108        LUT3 (Prop_B6LUT_SLICEM_I2_O)
+                                                      0.057     3.005 f  spike                u_fetch/u_cmp/done_q[3]_i_10/O
+                         net (fo=3, routed)           0.110     3.116                         u_fetch/u_cmp/done_q[3]_i_10_n_0
+    SLICE_X24Y108                                                     f  spike                u_fetch/u_cmp/done_q[3]_i_13/I3
+    SLICE_X24Y108        LUT5 (Prop_D6LUT_SLICEM_I3_O)
+                                                      0.056     3.172 r  spike                u_fetch/u_cmp/done_q[3]_i_13/O
+                         net (fo=2, routed)           0.070     3.242                         u_fetch/u_cmp/done_q[3]_i_13_n_0
+    SLICE_X24Y108                                                     r  spike                u_fetch/u_cmp/done_q[3]_i_6/I4
+    SLICE_X24Y108        LUT5 (Prop_C6LUT_SLICEM_I4_O)
+                                                      0.220     3.462 r  spike                u_fetch/u_cmp/done_q[3]_i_6/O
+                         net (fo=5, routed)           0.157     3.619                         u_fetch/u_cmp/done_q[3]_i_6_n_0
+    SLICE_X24Y108                                                     r  spike                u_fetch/u_cmp/done_q[3]_i_5/I0
+    SLICE_X24Y108        LUT6 (Prop_H6LUT_SLICEM_I0_O)
+                                                      0.060     3.679 r  spike                u_fetch/u_cmp/done_q[3]_i_5/O
+                         net (fo=5, routed)           0.132     3.811                         u_fetch/u_cmp/done_q[3]_i_5_n_0
+    SLICE_X23Y108                                                     r  spike                u_fetch/u_cmp/g_bank[0].u_ram_i_216/I1
+    SLICE_X23Y108        LUT6 (Prop_B6LUT_SLICEL_I1_O)
+                                                      0.224     4.035 r  spike                u_fetch/u_cmp/g_bank[0].u_ram_i_216/O
+                         net (fo=1, routed)           0.097     4.132                         u_fetch/u_cmp/g_bank[0].u_ram_i_216_n_0
+    SLICE_X23Y107                                                     r  spike                u_fetch/u_cmp/g_bank[0].u_ram_i_161/I3
+    SLICE_X23Y107        LUT5 (Prop_F6LUT_SLICEL_I3_O)
+                                                      0.056     4.188 f  spike                u_fetch/u_cmp/g_bank[0].u_ram_i_161/O
+                         net (fo=23, routed)          0.115     4.304                         u_fetch/u_cmp/p_56_in
+    SLICE_X23Y106                                                     f  spike                u_fetch/u_cmp/hv_q[1]_i_4/I0
+    SLICE_X23Y106        LUT6 (Prop_H6LUT_SLICEL_I0_O)
+                                                      0.137     4.441 r  spike                u_fetch/u_cmp/hv_q[1]_i_4/O
+                         net (fo=8, routed)           0.171     4.612                         u_fetch/u_cmp/hv_q[1]_i_4_n_0
+    SLICE_X23Y102                                                     r  spike                u_fetch/u_cmp/f3_meta_q[fault]_i_3/I1
+    SLICE_X23Y102        LUT2 (Prop_F6LUT_SLICEL_I1_O)
+                                                      0.081     4.693 r  spike                u_fetch/u_cmp/f3_meta_q[fault]_i_3/O
+                         net (fo=7, routed)           0.188     4.881                         u_fetch/g_tage.u_tage/f3_valid_q_reg_0
+    SLICE_X23Y98                                                      r  spike                u_fetch/g_tage.u_tage/g_way[0].u_data_i_14/I1
+    SLICE_X23Y98         LUT6 (Prop_H6LUT_SLICEL_I1_O)
+                                                      0.188     5.069 f  spike                u_fetch/g_tage.u_tage/g_way[0].u_data_i_14/O
+                         net (fo=2, routed)           0.112     5.181                         u_fetch/g_tage.u_tage/g_way[0].u_data_i_14_n_0
+    SLICE_X23Y97                                                      f  spike                u_fetch/g_tage.u_tage/g_way[0].u_data_i_13/I4
+    SLICE_X23Y97         LUT5 (Prop_C6LUT_SLICEL_I4_O)
+                                                      0.187     5.368 r  spike                u_fetch/g_tage.u_tage/g_way[0].u_data_i_13/O
+                         net (fo=3, routed)           0.178     5.545                         u_fetch/g_tage.u_tage/f2_valid_q_reg_0
+    SLICE_X23Y91                                                      r  spike                u_fetch/g_tage.u_tage/g_way[0].u_data_i_10/I1
+    SLICE_X23Y91         LUT2 (Prop_A6LUT_SLICEL_I1_O)
+                                                      0.058     5.603 f  spike                u_fetch/g_tage.u_tage/g_way[0].u_data_i_10/O
+                         net (fo=113, routed)         1.032     6.635                         u_fetch/u_itlb/f2_hw_q_reg[0]
+    SLICE_X16Y84                                                      f  spike                u_fetch/u_itlb/f2_valid_q_i_3/I2
+    SLICE_X16Y84         LUT3 (Prop_F6LUT_SLICEL_I2_O)
+                                                      0.081     6.716 f  spike                u_fetch/u_itlb/f2_valid_q_i_3/O
+                         net (fo=5, routed)           0.225     6.941                         u_fetch/u_itlb/f2_valid_q
+    SLICE_X11Y84                                                      f  spike                u_fetch/u_itlb/ft_q_i_7/I0
+    SLICE_X11Y84         LUT6 (Prop_H6LUT_SLICEL_I0_O)
+                                                      0.083     7.024 r  spike                u_fetch/u_itlb/ft_q_i_7/O
+                         net (fo=1, routed)           0.049     7.073                         u_fetch/u_cmp/ft_q_reg_rep_1
+    SLICE_X11Y84                                                      r  spike                u_fetch/u_cmp/ft_q_i_2/I1
+    SLICE_X11Y84         LUT2 (Prop_E6LUT_SLICEL_I1_O)
+                                                      0.138     7.211 r  spike                u_fetch/u_cmp/ft_q_i_2/O
+                         net (fo=36, routed)          0.211     7.422                         u_fetch/u_itlb/sv_s_q[1]_i_2
+    SLICE_X11Y81                                                      r  spike                u_fetch/u_itlb/ft_q_i_8/I0
+    SLICE_X11Y81         LUT5 (Prop_E6LUT_SLICEL_I0_O)
+                                                      0.223     7.645 r  spike                u_fetch/u_itlb/ft_q_i_8/O
+                         net (fo=13, routed)          0.119     7.764                         u_fetch/u_itlb/block_q_reg[0]_0
+    SLICE_X11Y80                                                      r  spike                u_fetch/u_itlb/ft_q_i_3/I0
+    SLICE_X11Y80         LUT2 (Prop_A6LUT_SLICEL_I0_O)
+                                                      0.137     7.901 r  spike                u_fetch/u_itlb/ft_q_i_3/O
+                         net (fo=8, routed)           0.066     7.968                         u_fetch/u_cmp/ft_q_reg_rep_0
+    SLICE_X11Y80                                                      r  spike                u_fetch/u_cmp/spc_s_q[0][63]_i_5/I1
+    SLICE_X11Y80         LUT3 (Prop_B6LUT_SLICEL_I1_O)
+                                                      0.138     8.106 f  spike                u_fetch/u_cmp/spc_s_q[0][63]_i_5/O
+                         net (fo=2, routed)           0.105     8.211                         u_fetch/u_cmp/spc_s_q[0][63]_i_8_0
+    SLICE_X11Y81                                                      f  spike                u_fetch/u_cmp/spc_s_q[0][63]_i_2/I0
+    SLICE_X11Y81         LUT6 (Prop_D6LUT_SLICEL_I0_O)
+                                                      0.152     8.363 r  spike                u_fetch/u_cmp/spc_s_q[0][63]_i_2/O
+                         net (fo=64, routed)          0.369     8.732                         u_de/sv_s_q_reg[0]_1
+    SLICE_X10Y81                                                      r  spike                u_de/ft_q_i_4/I1
+    SLICE_X10Y81         LUT2 (Prop_E6LUT_SLICEM_I1_O)
+                                                      0.057     8.789 f  spike                u_de/ft_q_i_4/O
+                         net (fo=69, routed)          0.256     9.044                         u_rob/fpc_q_reg[63]_2
+    SLICE_X10Y78                                                      f  spike                u_rob/sv_s_q[1]_i_4/I0
+    SLICE_X10Y78         LUT5 (Prop_B6LUT_SLICEM_I0_O)
+                                                      0.137     9.181 f  spike                u_rob/sv_s_q[1]_i_4/O
+                         net (fo=4, routed)           0.173     9.354                         u_de/spc_s_q_reg[1][39]
+    SLICE_X9Y77                                                       f  spike                u_de/ft_q_i_5/I1
+    SLICE_X9Y77          LUT2 (Prop_A6LUT_SLICEL_I1_O)
+                                                      0.082     9.436 r  spike                u_de/ft_q_i_5/O
+                         net (fo=67, routed)          0.224     9.660                         u_de/dred_tid_reg[0]_0
+    SLICE_X7Y76                                                       r  spike                u_de/fpc_q[41]_i_1/I0
+    SLICE_X7Y76          LUT4 (Prop_H6LUT_SLICEM_I0_O)
+                                                      0.060     9.720 r  spike                u_de/fpc_q[41]_i_1/O
+                         net (fo=63, routed)          0.738    10.458                         u_fetch/fpc_q_reg[41]_0
+    SLICE_X11Y82         FDRE                                         r  spike                u_fetch/fpc_q_reg[10]/CE
+  -------------------------------------------------------------------    ----------------------------------------
+
+                         (clock clk rise edge)       10.000    10.000 r                       
+                                                      0.000    10.000 r                       clk (IN)
+                         net (fo=36735, unset)        1.560    11.560                         u_fetch/clk
+    SLICE_X11Y82         FDRE                                         r  spike                u_fetch/fpc_q_reg[10]/C
+                         clock pessimism              0.092    11.652                           
+                         clock uncertainty           -0.035    11.617                           
+    SLICE_X11Y82         FDRE (Setup_DFF2_SLICEL_C_CE)
+                                                     -0.078    11.539    spike                  u_fetch/fpc_q_reg[10]
+  -------------------------------------------------------------------
+                         required time                         11.539                           
+                         arrival time                         -10.458                           
+  -------------------------------------------------------------------
+                         slack                                  1.080                           
+
+Slack (MET) :             1.142ns  (required time - arrival time)
+  Source:                 u_fetch/f3_start_q_reg[2]/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_fetch/fpc_q_reg[40]/CE
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            10.000ns  (clk rise@10.000ns - clk rise@0.000ns)
+  Data Path Delay:        8.669ns  (logic 2.949ns (34.017%)  route 5.720ns (65.983%))
+  Logic Levels:           23  (LUT2=6 LUT3=4 LUT4=1 LUT5=6 LUT6=6)
+  Clock Path Skew:        -0.074ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    1.569ns = ( 11.569 - 10.000 ) 
+    Source Clock Delay      (SCD):    1.735ns
+    Clock Pessimism Removal (CPR):    0.092ns
+  Clock Uncertainty:      0.035ns  ((TSJ^2 + TIJ^2)^1/2 + DJ) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Total Input Jitter      (TIJ):    0.000ns
+    Discrete Jitter          (DJ):    0.000ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    PBlock               Netlist Resource(s)
+  -------------------------------------------------------------------    ----------------------------------------
+                         (clock clk rise edge)        0.000     0.000 r                       
+                                                      0.000     0.000 r                       clk (IN)
+                         net (fo=36735, unset)        1.735     1.735                         u_fetch/clk
+    SLICE_X22Y99         FDRE                                         r  spike                u_fetch/f3_start_q_reg[2]/C
+  -------------------------------------------------------------------    ----------------------------------------
+    SLICE_X22Y99         FDRE (Prop_DFF_SLICEL_C_Q)
+                                                      0.114     1.849 f  spike                u_fetch/f3_start_q_reg[2]/Q
+                         net (fo=20, routed)          0.625     2.473                         u_fetch/u_cmp/g_bank[0].u_ram_i_287_0[2]
+    SLICE_X24Y103                                                     f  spike                u_fetch/u_cmp/done_q[3]_i_15/I1
+    SLICE_X24Y103        LUT3 (Prop_E6LUT_SLICEM_I1_O)
+                                                      0.223     2.696 r  spike                u_fetch/u_cmp/done_q[3]_i_15/O
+                         net (fo=7, routed)           0.252     2.948                         u_fetch/u_cmp/done_q[3]_i_15_n_0
+    SLICE_X24Y108                                                     r  spike                u_fetch/u_cmp/done_q[3]_i_10/I2
+    SLICE_X24Y108        LUT3 (Prop_B6LUT_SLICEM_I2_O)
+                                                      0.057     3.005 f  spike                u_fetch/u_cmp/done_q[3]_i_10/O
+                         net (fo=3, routed)           0.110     3.116                         u_fetch/u_cmp/done_q[3]_i_10_n_0
+    SLICE_X24Y108                                                     f  spike                u_fetch/u_cmp/done_q[3]_i_13/I3
+    SLICE_X24Y108        LUT5 (Prop_D6LUT_SLICEM_I3_O)
+                                                      0.056     3.172 r  spike                u_fetch/u_cmp/done_q[3]_i_13/O
+                         net (fo=2, routed)           0.070     3.242                         u_fetch/u_cmp/done_q[3]_i_13_n_0
+    SLICE_X24Y108                                                     r  spike                u_fetch/u_cmp/done_q[3]_i_6/I4
+    SLICE_X24Y108        LUT5 (Prop_C6LUT_SLICEM_I4_O)
+                                                      0.220     3.462 r  spike                u_fetch/u_cmp/done_q[3]_i_6/O
+                         net (fo=5, routed)           0.157     3.619                         u_fetch/u_cmp/done_q[3]_i_6_n_0
+    SLICE_X24Y108                                                     r  spike                u_fetch/u_cmp/done_q[3]_i_5/I0
+    SLICE_X24Y108        LUT6 (Prop_H6LUT_SLICEM_I0_O)
+                                                      0.060     3.679 r  spike                u_fetch/u_cmp/done_q[3]_i_5/O
+                         net (fo=5, routed)           0.132     3.811                         u_fetch/u_cmp/done_q[3]_i_5_n_0
+    SLICE_X23Y108                                                     r  spike                u_fetch/u_cmp/g_bank[0].u_ram_i_216/I1
+    SLICE_X23Y108        LUT6 (Prop_B6LUT_SLICEL_I1_O)
+                                                      0.224     4.035 r  spike                u_fetch/u_cmp/g_bank[0].u_ram_i_216/O
+                         net (fo=1, routed)           0.097     4.132                         u_fetch/u_cmp/g_bank[0].u_ram_i_216_n_0
+    SLICE_X23Y107                                                     r  spike                u_fetch/u_cmp/g_bank[0].u_ram_i_161/I3
+    SLICE_X23Y107        LUT5 (Prop_F6LUT_SLICEL_I3_O)
+                                                      0.056     4.188 f  spike                u_fetch/u_cmp/g_bank[0].u_ram_i_161/O
+                         net (fo=23, routed)          0.115     4.304                         u_fetch/u_cmp/p_56_in
+    SLICE_X23Y106                                                     f  spike                u_fetch/u_cmp/hv_q[1]_i_4/I0
+    SLICE_X23Y106        LUT6 (Prop_H6LUT_SLICEL_I0_O)
+                                                      0.137     4.441 r  spike                u_fetch/u_cmp/hv_q[1]_i_4/O
+                         net (fo=8, routed)           0.171     4.612                         u_fetch/u_cmp/hv_q[1]_i_4_n_0
+    SLICE_X23Y102                                                     r  spike                u_fetch/u_cmp/f3_meta_q[fault]_i_3/I1
+    SLICE_X23Y102        LUT2 (Prop_F6LUT_SLICEL_I1_O)
+                                                      0.081     4.693 r  spike                u_fetch/u_cmp/f3_meta_q[fault]_i_3/O
+                         net (fo=7, routed)           0.188     4.881                         u_fetch/g_tage.u_tage/f3_valid_q_reg_0
+    SLICE_X23Y98                                                      r  spike                u_fetch/g_tage.u_tage/g_way[0].u_data_i_14/I1
+    SLICE_X23Y98         LUT6 (Prop_H6LUT_SLICEL_I1_O)
+                                                      0.188     5.069 f  spike                u_fetch/g_tage.u_tage/g_way[0].u_data_i_14/O
+                         net (fo=2, routed)           0.112     5.181                         u_fetch/g_tage.u_tage/g_way[0].u_data_i_14_n_0
+    SLICE_X23Y97                                                      f  spike                u_fetch/g_tage.u_tage/g_way[0].u_data_i_13/I4
+    SLICE_X23Y97         LUT5 (Prop_C6LUT_SLICEL_I4_O)
+                                                      0.187     5.368 r  spike                u_fetch/g_tage.u_tage/g_way[0].u_data_i_13/O
+                         net (fo=3, routed)           0.178     5.545                         u_fetch/g_tage.u_tage/f2_valid_q_reg_0
+    SLICE_X23Y91                                                      r  spike                u_fetch/g_tage.u_tage/g_way[0].u_data_i_10/I1
+    SLICE_X23Y91         LUT2 (Prop_A6LUT_SLICEL_I1_O)
+                                                      0.058     5.603 f  spike                u_fetch/g_tage.u_tage/g_way[0].u_data_i_10/O
+                         net (fo=113, routed)         1.032     6.635                         u_fetch/u_itlb/f2_hw_q_reg[0]
+    SLICE_X16Y84                                                      f  spike                u_fetch/u_itlb/f2_valid_q_i_3/I2
+    SLICE_X16Y84         LUT3 (Prop_F6LUT_SLICEL_I2_O)
+                                                      0.081     6.716 f  spike                u_fetch/u_itlb/f2_valid_q_i_3/O
+                         net (fo=5, routed)           0.225     6.941                         u_fetch/u_itlb/f2_valid_q
+    SLICE_X11Y84                                                      f  spike                u_fetch/u_itlb/ft_q_i_7/I0
+    SLICE_X11Y84         LUT6 (Prop_H6LUT_SLICEL_I0_O)
+                                                      0.083     7.024 r  spike                u_fetch/u_itlb/ft_q_i_7/O
+                         net (fo=1, routed)           0.049     7.073                         u_fetch/u_cmp/ft_q_reg_rep_1
+    SLICE_X11Y84                                                      r  spike                u_fetch/u_cmp/ft_q_i_2/I1
+    SLICE_X11Y84         LUT2 (Prop_E6LUT_SLICEL_I1_O)
+                                                      0.138     7.211 r  spike                u_fetch/u_cmp/ft_q_i_2/O
+                         net (fo=36, routed)          0.211     7.422                         u_fetch/u_itlb/sv_s_q[1]_i_2
+    SLICE_X11Y81                                                      r  spike                u_fetch/u_itlb/ft_q_i_8/I0
+    SLICE_X11Y81         LUT5 (Prop_E6LUT_SLICEL_I0_O)
+                                                      0.223     7.645 r  spike                u_fetch/u_itlb/ft_q_i_8/O
+                         net (fo=13, routed)          0.119     7.764                         u_fetch/u_itlb/block_q_reg[0]_0
+    SLICE_X11Y80                                                      r  spike                u_fetch/u_itlb/ft_q_i_3/I0
+    SLICE_X11Y80         LUT2 (Prop_A6LUT_SLICEL_I0_O)
+                                                      0.137     7.901 r  spike                u_fetch/u_itlb/ft_q_i_3/O
+                         net (fo=8, routed)           0.066     7.968                         u_fetch/u_cmp/ft_q_reg_rep_0
+    SLICE_X11Y80                                                      r  spike                u_fetch/u_cmp/spc_s_q[0][63]_i_5/I1
+    SLICE_X11Y80         LUT3 (Prop_B6LUT_SLICEL_I1_O)
+                                                      0.138     8.106 f  spike                u_fetch/u_cmp/spc_s_q[0][63]_i_5/O
+                         net (fo=2, routed)           0.105     8.211                         u_fetch/u_cmp/spc_s_q[0][63]_i_8_0
+    SLICE_X11Y81                                                      f  spike                u_fetch/u_cmp/spc_s_q[0][63]_i_2/I0
+    SLICE_X11Y81         LUT6 (Prop_D6LUT_SLICEL_I0_O)
+                                                      0.152     8.363 r  spike                u_fetch/u_cmp/spc_s_q[0][63]_i_2/O
+                         net (fo=64, routed)          0.369     8.732                         u_de/sv_s_q_reg[0]_1
+    SLICE_X10Y81                                                      r  spike                u_de/ft_q_i_4/I1
+    SLICE_X10Y81         LUT2 (Prop_E6LUT_SLICEM_I1_O)
+                                                      0.057     8.789 f  spike                u_de/ft_q_i_4/O
+                         net (fo=69, routed)          0.256     9.044                         u_rob/fpc_q_reg[63]_2
+    SLICE_X10Y78                                                      f  spike                u_rob/sv_s_q[1]_i_4/I0
+    SLICE_X10Y78         LUT5 (Prop_B6LUT_SLICEM_I0_O)
+                                                      0.137     9.181 f  spike                u_rob/sv_s_q[1]_i_4/O
+                         net (fo=4, routed)           0.173     9.354                         u_de/spc_s_q_reg[1][39]
+    SLICE_X9Y77                                                       f  spike                u_de/ft_q_i_5/I1
+    SLICE_X9Y77          LUT2 (Prop_A6LUT_SLICEL_I1_O)
+                                                      0.082     9.436 r  spike                u_de/ft_q_i_5/O
+                         net (fo=67, routed)          0.224     9.660                         u_de/dred_tid_reg[0]_0
+    SLICE_X7Y76                                                       r  spike                u_de/fpc_q[41]_i_1/I0
+    SLICE_X7Y76          LUT4 (Prop_H6LUT_SLICEM_I0_O)
+                                                      0.060     9.720 r  spike                u_de/fpc_q[41]_i_1/O
+                         net (fo=63, routed)          0.684    10.404                         u_fetch/fpc_q_reg[41]_0
+    SLICE_X12Y79         FDRE                                         r  spike                u_fetch/fpc_q_reg[40]/CE
+  -------------------------------------------------------------------    ----------------------------------------
+
+                         (clock clk rise edge)       10.000    10.000 r                       
+                                                      0.000    10.000 r                       clk (IN)
+                         net (fo=36735, unset)        1.569    11.569                         u_fetch/clk
+    SLICE_X12Y79         FDRE                                         r  spike                u_fetch/fpc_q_reg[40]/C
+                         clock pessimism              0.092    11.661                           
+                         clock uncertainty           -0.035    11.626                           
+    SLICE_X12Y79         FDRE (Setup_CFF_SLICEM_C_CE)
+                                                     -0.080    11.546    spike                  u_fetch/fpc_q_reg[40]
+  -------------------------------------------------------------------
+                         required time                         11.546                           
+                         arrival time                         -10.404                           
+  -------------------------------------------------------------------
+                         slack                                  1.142                           
+
+Slack (MET) :             1.159ns  (required time - arrival time)
+  Source:                 u_fetch/f3_start_q_reg[2]/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_fetch/fpc_q_reg[15]/CE
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            10.000ns  (clk rise@10.000ns - clk rise@0.000ns)
+  Data Path Delay:        8.652ns  (logic 2.949ns (34.086%)  route 5.703ns (65.914%))
+  Logic Levels:           23  (LUT2=6 LUT3=4 LUT4=1 LUT5=6 LUT6=6)
+  Clock Path Skew:        -0.075ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    1.568ns = ( 11.568 - 10.000 ) 
+    Source Clock Delay      (SCD):    1.735ns
+    Clock Pessimism Removal (CPR):    0.092ns
+  Clock Uncertainty:      0.035ns  ((TSJ^2 + TIJ^2)^1/2 + DJ) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Total Input Jitter      (TIJ):    0.000ns
+    Discrete Jitter          (DJ):    0.000ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    PBlock               Netlist Resource(s)
+  -------------------------------------------------------------------    ----------------------------------------
+                         (clock clk rise edge)        0.000     0.000 r                       
+                                                      0.000     0.000 r                       clk (IN)
+                         net (fo=36735, unset)        1.735     1.735                         u_fetch/clk
+    SLICE_X22Y99         FDRE                                         r  spike                u_fetch/f3_start_q_reg[2]/C
+  -------------------------------------------------------------------    ----------------------------------------
+    SLICE_X22Y99         FDRE (Prop_DFF_SLICEL_C_Q)
+                                                      0.114     1.849 f  spike                u_fetch/f3_start_q_reg[2]/Q
+                         net (fo=20, routed)          0.625     2.473                         u_fetch/u_cmp/g_bank[0].u_ram_i_287_0[2]
+    SLICE_X24Y103                                                     f  spike                u_fetch/u_cmp/done_q[3]_i_15/I1
+    SLICE_X24Y103        LUT3 (Prop_E6LUT_SLICEM_I1_O)
+                                                      0.223     2.696 r  spike                u_fetch/u_cmp/done_q[3]_i_15/O
+                         net (fo=7, routed)           0.252     2.948                         u_fetch/u_cmp/done_q[3]_i_15_n_0
+    SLICE_X24Y108                                                     r  spike                u_fetch/u_cmp/done_q[3]_i_10/I2
+    SLICE_X24Y108        LUT3 (Prop_B6LUT_SLICEM_I2_O)
+                                                      0.057     3.005 f  spike                u_fetch/u_cmp/done_q[3]_i_10/O
+                         net (fo=3, routed)           0.110     3.116                         u_fetch/u_cmp/done_q[3]_i_10_n_0
+    SLICE_X24Y108                                                     f  spike                u_fetch/u_cmp/done_q[3]_i_13/I3
+    SLICE_X24Y108        LUT5 (Prop_D6LUT_SLICEM_I3_O)
+                                                      0.056     3.172 r  spike                u_fetch/u_cmp/done_q[3]_i_13/O
+                         net (fo=2, routed)           0.070     3.242                         u_fetch/u_cmp/done_q[3]_i_13_n_0
+    SLICE_X24Y108                                                     r  spike                u_fetch/u_cmp/done_q[3]_i_6/I4
+    SLICE_X24Y108        LUT5 (Prop_C6LUT_SLICEM_I4_O)
+                                                      0.220     3.462 r  spike                u_fetch/u_cmp/done_q[3]_i_6/O
+                         net (fo=5, routed)           0.157     3.619                         u_fetch/u_cmp/done_q[3]_i_6_n_0
+    SLICE_X24Y108                                                     r  spike                u_fetch/u_cmp/done_q[3]_i_5/I0
+    SLICE_X24Y108        LUT6 (Prop_H6LUT_SLICEM_I0_O)
+                                                      0.060     3.679 r  spike                u_fetch/u_cmp/done_q[3]_i_5/O
+                         net (fo=5, routed)           0.132     3.811                         u_fetch/u_cmp/done_q[3]_i_5_n_0
+    SLICE_X23Y108                                                     r  spike                u_fetch/u_cmp/g_bank[0].u_ram_i_216/I1
+    SLICE_X23Y108        LUT6 (Prop_B6LUT_SLICEL_I1_O)
+                                                      0.224     4.035 r  spike                u_fetch/u_cmp/g_bank[0].u_ram_i_216/O
+                         net (fo=1, routed)           0.097     4.132                         u_fetch/u_cmp/g_bank[0].u_ram_i_216_n_0
+    SLICE_X23Y107                                                     r  spike                u_fetch/u_cmp/g_bank[0].u_ram_i_161/I3
+    SLICE_X23Y107        LUT5 (Prop_F6LUT_SLICEL_I3_O)
+                                                      0.056     4.188 f  spike                u_fetch/u_cmp/g_bank[0].u_ram_i_161/O
+                         net (fo=23, routed)          0.115     4.304                         u_fetch/u_cmp/p_56_in
+    SLICE_X23Y106                                                     f  spike                u_fetch/u_cmp/hv_q[1]_i_4/I0
+    SLICE_X23Y106        LUT6 (Prop_H6LUT_SLICEL_I0_O)
+                                                      0.137     4.441 r  spike                u_fetch/u_cmp/hv_q[1]_i_4/O
+                         net (fo=8, routed)           0.171     4.612                         u_fetch/u_cmp/hv_q[1]_i_4_n_0
+    SLICE_X23Y102                                                     r  spike                u_fetch/u_cmp/f3_meta_q[fault]_i_3/I1
+    SLICE_X23Y102        LUT2 (Prop_F6LUT_SLICEL_I1_O)
+                                                      0.081     4.693 r  spike                u_fetch/u_cmp/f3_meta_q[fault]_i_3/O
+                         net (fo=7, routed)           0.188     4.881                         u_fetch/g_tage.u_tage/f3_valid_q_reg_0
+    SLICE_X23Y98                                                      r  spike                u_fetch/g_tage.u_tage/g_way[0].u_data_i_14/I1
+    SLICE_X23Y98         LUT6 (Prop_H6LUT_SLICEL_I1_O)
+                                                      0.188     5.069 f  spike                u_fetch/g_tage.u_tage/g_way[0].u_data_i_14/O
+                         net (fo=2, routed)           0.112     5.181                         u_fetch/g_tage.u_tage/g_way[0].u_data_i_14_n_0
+    SLICE_X23Y97                                                      f  spike                u_fetch/g_tage.u_tage/g_way[0].u_data_i_13/I4
+    SLICE_X23Y97         LUT5 (Prop_C6LUT_SLICEL_I4_O)
+                                                      0.187     5.368 r  spike                u_fetch/g_tage.u_tage/g_way[0].u_data_i_13/O
+                         net (fo=3, routed)           0.178     5.545                         u_fetch/g_tage.u_tage/f2_valid_q_reg_0
+    SLICE_X23Y91                                                      r  spike                u_fetch/g_tage.u_tage/g_way[0].u_data_i_10/I1
+    SLICE_X23Y91         LUT2 (Prop_A6LUT_SLICEL_I1_O)
+                                                      0.058     5.603 f  spike                u_fetch/g_tage.u_tage/g_way[0].u_data_i_10/O
+                         net (fo=113, routed)         1.032     6.635                         u_fetch/u_itlb/f2_hw_q_reg[0]
+    SLICE_X16Y84                                                      f  spike                u_fetch/u_itlb/f2_valid_q_i_3/I2
+    SLICE_X16Y84         LUT3 (Prop_F6LUT_SLICEL_I2_O)
+                                                      0.081     6.716 f  spike                u_fetch/u_itlb/f2_valid_q_i_3/O
+                         net (fo=5, routed)           0.225     6.941                         u_fetch/u_itlb/f2_valid_q
+    SLICE_X11Y84                                                      f  spike                u_fetch/u_itlb/ft_q_i_7/I0
+    SLICE_X11Y84         LUT6 (Prop_H6LUT_SLICEL_I0_O)
+                                                      0.083     7.024 r  spike                u_fetch/u_itlb/ft_q_i_7/O
+                         net (fo=1, routed)           0.049     7.073                         u_fetch/u_cmp/ft_q_reg_rep_1
+    SLICE_X11Y84                                                      r  spike                u_fetch/u_cmp/ft_q_i_2/I1
+    SLICE_X11Y84         LUT2 (Prop_E6LUT_SLICEL_I1_O)
+                                                      0.138     7.211 r  spike                u_fetch/u_cmp/ft_q_i_2/O
+                         net (fo=36, routed)          0.211     7.422                         u_fetch/u_itlb/sv_s_q[1]_i_2
+    SLICE_X11Y81                                                      r  spike                u_fetch/u_itlb/ft_q_i_8/I0
+    SLICE_X11Y81         LUT5 (Prop_E6LUT_SLICEL_I0_O)
+                                                      0.223     7.645 r  spike                u_fetch/u_itlb/ft_q_i_8/O
+                         net (fo=13, routed)          0.119     7.764                         u_fetch/u_itlb/block_q_reg[0]_0
+    SLICE_X11Y80                                                      r  spike                u_fetch/u_itlb/ft_q_i_3/I0
+    SLICE_X11Y80         LUT2 (Prop_A6LUT_SLICEL_I0_O)
+                                                      0.137     7.901 r  spike                u_fetch/u_itlb/ft_q_i_3/O
+                         net (fo=8, routed)           0.066     7.968                         u_fetch/u_cmp/ft_q_reg_rep_0
+    SLICE_X11Y80                                                      r  spike                u_fetch/u_cmp/spc_s_q[0][63]_i_5/I1
+    SLICE_X11Y80         LUT3 (Prop_B6LUT_SLICEL_I1_O)
+                                                      0.138     8.106 f  spike                u_fetch/u_cmp/spc_s_q[0][63]_i_5/O
+                         net (fo=2, routed)           0.105     8.211                         u_fetch/u_cmp/spc_s_q[0][63]_i_8_0
+    SLICE_X11Y81                                                      f  spike                u_fetch/u_cmp/spc_s_q[0][63]_i_2/I0
+    SLICE_X11Y81         LUT6 (Prop_D6LUT_SLICEL_I0_O)
+                                                      0.152     8.363 r  spike                u_fetch/u_cmp/spc_s_q[0][63]_i_2/O
+                         net (fo=64, routed)          0.369     8.732                         u_de/sv_s_q_reg[0]_1
+    SLICE_X10Y81                                                      r  spike                u_de/ft_q_i_4/I1
+    SLICE_X10Y81         LUT2 (Prop_E6LUT_SLICEM_I1_O)
+                                                      0.057     8.789 f  spike                u_de/ft_q_i_4/O
+                         net (fo=69, routed)          0.256     9.044                         u_rob/fpc_q_reg[63]_2
+    SLICE_X10Y78                                                      f  spike                u_rob/sv_s_q[1]_i_4/I0
+    SLICE_X10Y78         LUT5 (Prop_B6LUT_SLICEM_I0_O)
+                                                      0.137     9.181 f  spike                u_rob/sv_s_q[1]_i_4/O
+                         net (fo=4, routed)           0.173     9.354                         u_de/spc_s_q_reg[1][39]
+    SLICE_X9Y77                                                       f  spike                u_de/ft_q_i_5/I1
+    SLICE_X9Y77          LUT2 (Prop_A6LUT_SLICEL_I1_O)
+                                                      0.082     9.436 r  spike                u_de/ft_q_i_5/O
+                         net (fo=67, routed)          0.224     9.660                         u_de/dred_tid_reg[0]_0
+    SLICE_X7Y76                                                       r  spike                u_de/fpc_q[41]_i_1/I0
+    SLICE_X7Y76          LUT4 (Prop_H6LUT_SLICEM_I0_O)
+                                                      0.060     9.720 r  spike                u_de/fpc_q[41]_i_1/O
+                         net (fo=63, routed)          0.667    10.386                         u_fetch/fpc_q_reg[41]_0
+    SLICE_X11Y72         FDRE                                         r  spike                u_fetch/fpc_q_reg[15]/CE
+  -------------------------------------------------------------------    ----------------------------------------
+
+                         (clock clk rise edge)       10.000    10.000 r                       
+                                                      0.000    10.000 r                       clk (IN)
+                         net (fo=36735, unset)        1.568    11.568                         u_fetch/clk
+    SLICE_X11Y72         FDRE                                         r  spike                u_fetch/fpc_q_reg[15]/C
+                         clock pessimism              0.092    11.660                           
+                         clock uncertainty           -0.035    11.625                           
+    SLICE_X11Y72         FDRE (Setup_DFF_SLICEL_C_CE)
+                                                     -0.079    11.546    spike                  u_fetch/fpc_q_reg[15]
+  -------------------------------------------------------------------
+                         required time                         11.546                           
+                         arrival time                         -10.386                           
+  -------------------------------------------------------------------
+                         slack                                  1.159                           
+
+
+
+
+
+
+== the worst path into each endpoint register group, among the worst 500 from *u_fetch/f3_start_q_reg*
+  1.080  23  2.95  5.78  u_fetch/f3_start_q_reg[2]/C -> u_fetch/fpc_q_reg[10]/CE  (126 endpoints)
+  1.364  23  2.97  5.59  u_fetch/f3_start_q_reg[2]/C -> u_fetch/spc_s_q_reg[1][10]/D  (126 endpoints)
+  1.378  23  2.97  5.59  u_fetch/f3_start_q_reg[2]/C -> u_fetch/ft_q_reg/D  (1 endpoints)
+  1.522  23  3.12  5.30  u_fetch/f3_start_q_reg[2]/C -> u_fetch/f1_valid_q_reg/D  (1 endpoints)
+  1.674  23  2.98  5.29  u_fetch/f3_start_q_reg[2]/C -> u_fetch/ft_q_reg_rep/D  (1 endpoints)
+  1.871  22  2.96  5.10  u_fetch/f3_start_q_reg[2]/C -> u_fetch/sv_s_q_reg[1]/D  (2 endpoints)
+  2.334  10  1.52  6.06  u_fetch/f3_start_q_reg[1]/C -> u_fetch/u_cmp/g_bank[2].u_ram/g_m32.g_prim[9].u_ram/RAMA/I  (13 endpoints)
+  2.667   9  1.66  5.46  u_fetch/f3_start_q_reg[2]/C -> u_fetch/u_cmp/g_bank[1].u_ram/g_m32.g_prim[5].u_ram/RAMA_D1/I  (21 endpoints)
+  2.795  10  1.56  5.54  u_fetch/f3_start_q_reg[1]/C -> u_fetch/u_cmp/g_bank[2].u_ram/g_m32.g_prim[4].u_ram/RAME/I  (16 endpoints)
+  2.814   9  1.62  5.34  u_fetch/f3_start_q_reg[2]/C -> u_fetch/u_cmp/g_bank[1].u_ram/g_m32.g_prim[5].u_ram/RAMB/I  (15 endpoints)
+  2.831   9  1.63  5.32  u_fetch/f3_start_q_reg[2]/C -> u_fetch/u_cmp/g_bank[1].u_ram/g_m32.g_prim[5].u_ram/RAMG/I  (17 endpoints)
+  2.926  13  1.89  4.82  u_fetch/f3_start_q_reg[2]/C -> u_fetch/f2_hw_q_reg[0]/CE  (3 endpoints)
+  2.970   9  1.66  5.15  u_fetch/f3_start_q_reg[2]/C -> u_fetch/u_cmp/g_bank[1].u_ram/g_m32.g_prim[5].u_ram/RAMC/I  (18 endpoints)
+  2.982   9  1.55  5.24  u_fetch/f3_start_q_reg[2]/C -> u_fetch/u_cmp/g_bank[1].u_ram/g_m32.g_prim[5].u_ram/RAMC_D1/I  (15 endpoints)
+  3.009   9  1.61  5.16  u_fetch/f3_start_q_reg[2]/C -> u_fetch/u_cmp/g_bank[1].u_ram/g_m32.g_prim[5].u_ram/RAMD_D1/I  (15 endpoints)
+  3.019  10  1.55  5.34  u_fetch/f3_start_q_reg[1]/C -> u_fetch/u_cmp/g_bank[2].u_ram/g_m32.g_prim[9].u_ram/RAMF_D1/I  (14 endpoints)
+  3.042  10  1.42  5.44  u_fetch/f3_start_q_reg[1]/C -> u_fetch/u_cmp/g_bank[2].u_ram/g_m32.g_prim[5].u_ram/RAMD/I  (18 endpoints)
+  3.045   9  1.28  5.48  u_fetch/f3_start_q_reg[1]/C -> u_fetch/u_cmp/g_bank[3].u_ram/g_m32.g_prim[1].u_ram/RAMB_D1/WE  (12 endpoints)
+  3.045   9  1.28  5.48  u_fetch/f3_start_q_reg[1]/C -> u_fetch/u_cmp/g_bank[3].u_ram/g_m32.g_prim[1].u_ram/RAME_D1/WE  (13 endpoints)
+  3.045   9  1.28  5.48  u_fetch/f3_start_q_reg[1]/C -> u_fetch/u_cmp/g_bank[3].u_ram/g_m32.g_prim[1].u_ram/RAMF/WE  (16 endpoints)
+  3.045   9  1.28  5.48  u_fetch/f3_start_q_reg[1]/C -> u_fetch/u_cmp/g_bank[3].u_ram/g_m32.g_prim[1].u_ram/RAMG_D1/WE  (14 endpoints)
+  3.045   9  1.28  5.48  u_fetch/f3_start_q_reg[1]/C -> u_fetch/u_cmp/g_bank[3].u_ram/g_m32.g_prim[1].u_ram/RAMH/WE  (10 endpoints)
+  3.045   9  1.28  5.48  u_fetch/f3_start_q_reg[1]/C -> u_fetch/u_cmp/g_bank[3].u_ram/g_m32.g_prim[1].u_ram/RAMH_D1/WE  (10 endpoints)
+  3.154  12  1.66  4.63  u_fetch/f3_start_q_reg[2]/C -> u_fetch/g_way[0].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_1/ENARDEN  (2 endpoints)
+  3.296  13  1.89  4.45  u_fetch/f3_start_q_reg[2]/C -> u_fetch/f2_slot_q_reg[0]/CE  (1 endpoints)
