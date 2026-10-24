@@ -80,7 +80,7 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0,
   tg_host_bridge #(.CLK_HZ (100_000_000), .CFG_CODE (8'd1), .N_CORES_SOC (2), .CORE_RST_INIT (1'b1),
                    .UNCORE_RST_INIT (1'b1), .TRACE (TRACE), .VIRTIO (VIRTIO), .HDMA (HDMA), .LAT_INJ (LAT_INJ),
                    .HOST_CONSOLE (!REL), .HDMA_STATS (!REL), .HDMA_CPL (!REL || TRACE), .TRAFGEN (!REL),
-                   .CDC_TRIM (REL)) dut (
+                   .CDC_TRIM (REL), .L2_PACE_REG (1'b1)) dut (
     .clk_host, .rst_host,
     .s_awaddr (l_awaddr), .s_awvalid (l_awvalid), .s_awready (l_awready),
     .s_wdata (l_wdata), .s_wstrb (l_wstrb), .s_wvalid (l_wvalid), .s_wready (l_wready),

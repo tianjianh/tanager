@@ -835,7 +835,8 @@ module tg_uncore
     .CORE_RST_INIT (CORE_RST_INIT), .UNCORE_RST_INIT (UNCORE_RST_INIT),
     .DRAM_BASE_INIT (DRAM_BASE_INIT), .DRAM_SIZE_INIT (DRAM_SIZE_INIT), .TRACE (TRACE), .DEBUG (DEBUG_CNT),
     .VIRTIO (VIRTIO_WINDOW), .HDMA (HOST_DMA), .LAT_INJ (LAT_INJ), .HOST_CONSOLE (!RELEASE), .HDMA_STATS (HDMA_STATS),
-    .HDMA_CPL (HDMA_CPL), .TRAFGEN (TRAFGEN), .CDC_TRIM (RELEASE), .L2_PACE_INIT (L2_PACE_INIT)
+    .HDMA_CPL (HDMA_CPL), .TRAFGEN (TRAFGEN), .CDC_TRIM (RELEASE), .L2_PACE_REG (L2_WB_PACE),
+    .L2_PACE_INIT (L2_PACE_INIT)
   ) u_host (
     .clk_host, .rst_host,
     .s_awaddr (s_axil_awaddr), .s_awvalid (s_axil_awvalid), .s_awready (s_axil_awready),

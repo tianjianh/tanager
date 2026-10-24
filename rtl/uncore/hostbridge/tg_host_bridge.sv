@@ -31,6 +31,7 @@ module tg_host_bridge
   parameter bit          HDMA_CPL        = 1'b1,         // the DMA port's completion queue (HDMA_CTRL, _STATUS, _CPL*; CAPS[11])
   parameter bit          TRAFGEN         = 1'b1,         // the cores may be traffic generators (their TG_* fields cross)
   parameter bit          CDC_TRIM        = 1'b0,         // the crossings carry only the fields of what is built
+  parameter bit          L2_PACE_REG     = 1'b0,         // L2_PACE is built (tg_uncore L2_WB_PACE); else it reads 0
   parameter logic [15:0] L2_PACE_INIT    = {12'd64, 4'd1} // L2_PACE at reset (tg_uncore_pkg L2_PACE_INIT_DEF)
 ) (
   // ---- host domain ----
@@ -555,7 +556,7 @@ module tg_host_bridge
                   end
           9'h007: bell_pulse_c <= 1'b1;                               // 0x038 DOORBELL
           9'h008: if (req_i.be[0] && req_i.wdata[0]) mbox_pend_q <= 1'b0;   // 0x040 W1C
-          9'h009: begin                                               // 0x048 L2_PACE
+          9'h009: if (L2_PACE_REG) begin                              // 0x048 L2_PACE
                     if (req_i.be[0]) l2_pace_q[7:0]  <= req_i.wdata[7:0];
                     if (req_i.be[1]) l2_pace_q[15:8] <= req_i.wdata[15:8];
                   end
@@ -575,7 +576,7 @@ module tg_host_bridge
       9'h005:  crd = tohost_q;
       9'h006:  crd = cfg_c.fromhost;
       9'h008:  crd = {63'd0, mbox_pend_q};
-      9'h009:  crd = {48'd0, l2_pace_q};
+      9'h009:  crd = L2_PACE_REG ? {48'd0, l2_pace_q} : '0;
       default: crd = '0;
     endcase
   end
