@@ -1,8 +1,8 @@
 # Tanager riscv.scr (D4's RISC-V mode, docs/spec/soc-d4-modes.md): sourced by the boot script's tanager-mode hook,
 # which has already written trial 1. It loads the Tanager bitstream and the RISC-V's firmware, sets the PS up,
 # releases the RISC-V and parks this A53. Any failure before the release returns (exit), and Ubuntu boots.
-# p1:/tanager/: tanager.bit.bin (a TG_PS_WINDOW=1 TG_PMOD_UART=1 build), fw_jump.bin (OpenSBI), payload.bin (U-Boot in
-# S-mode, sw/build_uboot.sh d4; step 5: the test image), tanager.dtb (sw/dts UART1=1 SD1=1 BOARD_RESET=1).
+# p1:/tanager/: tanager.bit.bin (TG_PS_WINDOW=1 TG_PMOD_UART=1), fw_jump.bin (OpenSBI), payload.bin (U-Boot in S-mode,
+# sw/build_uboot.sh d4), tanager.dtb (board-trees.sh's riscv-rel, with no MAC: step 6 puts the board's in, DR-192).
 # Registers: CRL_APB PL0_REF_CTRL 0xff5e00c0, FPD_SLCR AFI_FS 0xfd615000, GPIO bank 5 (EMIO, bit 31 = pl_resetn0)
 # DIRM 0xff0a0344 OEN 0xff0a0348 MASK_DATA_MSW 0xff0a002c, IOU_SLCR SD_ITAPDLY 0xff180314 SD_OTAPDLYSEL 0xff180318;
 # the host bridge at 0xa0000000 (docs/spec/host.md): ID 0x000, CTRL 0x010, STATUS 0x014, DRAM_BASE 0x020, DRAM_SIZE
@@ -85,6 +85,22 @@ load ${tg_part} 0x30000000 tanager/payload.bin || exit
 cp.b 0x30000000 0x840200000 ${filesize}
 load ${tg_part} 0x30000000 tanager/tanager.dtb || exit
 cp.b 0x30000000 0x842200000 ${filesize}
+# The board's own MAC into the RISC-V's tree (DR-192, a standard tree fix-up), so one package serves every KV260: the
+# trees carry none, and this U-Boot read the board's from the SOM's EEPROM as ethaddr. Without ethaddr the tree goes
+# as built, and Linux picks an address. The working tree goes back after, for Ubuntu's boot if step 7 fails. Not yet
+# run on the board: hook_qtest.sh's dry run checks it on QEMU.
+setenv tg_fdt0 ${fdtaddr}
+fdt addr 0x842200000 || exit
+fdt resize 64
+if test -n "${ethaddr}"; then
+  echo "tanager: MAC ${ethaddr} from the SOM EEPROM into the RISC-V tree"
+  setexpr tg_mac gsub : " " "${ethaddr}"
+  fdt set /soc/ps-dma-bus/ethernet@ff0e0000 local-mac-address "[${tg_mac}]"
+  fdt print /soc/ps-dma-bus/ethernet@ff0e0000 local-mac-address
+else
+  echo "tanager: no ethaddr, so no MAC in the RISC-V tree"
+fi
+if test -n "${tg_fdt0}"; then fdt addr ${tg_fdt0}; else setenv fdtaddr; fi
 dcache flush
 
 # 7. the uncore, the L2 initialisation, the cores: the point of no return
