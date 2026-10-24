@@ -222,14 +222,14 @@ module kv260_top
   logic [N_CORES-1:0][TRACE_WB_PORTS-1:0]                  trace_wb_v;
   logic [7:0] status;
 
-  // ---- The debug module's JTAG side (tg_map_pkg DEBUG_ON, docs/spec/soc.md §9.2): two BSCANE2s (UG974) on the
+  // ---- The debug module's JTAG side (tg_map_pkg DEBUG_WINDOW, docs/spec/soc.md §9.2): two BSCANE2s (UG974) on the
   // device TAP, USER3 for dtmcs and USER4 for dmi. Every BSCANE2 gives the same TCK, TDI and TAP state, so the
   // DTM takes them from USER3's, TCK through a BUFG (xdc/timing_debug.xdc's jtag_tck). Without the switch there
   // is no BSCANE2, and USER3/USER4 stay free.
   logic       jtag_tck;
   jtag_t      jtag;
   logic [1:0] jtag_tdo;
-  if (tg_map_pkg::DEBUG_ON) begin : g_jtag
+  if (tg_map_pkg::DEBUG_WINDOW) begin : g_jtag
     logic tck_raw;
     BSCANE2 #(.JTAG_CHAIN (3)) u_bscan_dtmcs (
       .CAPTURE (jtag.capture), .DRCK (), .RESET (jtag.treset), .RUNTEST (), .SEL (jtag.sel[0]),

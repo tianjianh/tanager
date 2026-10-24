@@ -3,7 +3,7 @@
 // on its own, as the per-unit LUT budget run does (fpga/budget, unit "uncore").
 //   cores -> tg_xbar -> L2 banks -> latency injector -> DRAM window -> AXI slice -> m_axi_*
 //                    -> boot ROM, device bus (ACLINT, PLIC, UART, host control, the virtio window)
-//                    -> the debug window (DEBUG_ON, behind the boot ROM's port): tg_dm, reached over JTAG
+//                    -> the debug window (DEBUG_WINDOW, behind the boot ROM's port): tg_dm, reached over JTAG
 //                       through tg_dtm (docs/spec/soc.md §9)
 //   host bridge: AXI4-Lite from the host (clk_host), resets, configuration, console, mailbox;
 //   commit-trace streaming into DDR (its own AXI master);
@@ -271,7 +271,7 @@ module tg_uncore
   output logic [4:0]               core_dbg_sel_o,
   input  logic [N_CORES-1:0][31:0] core_dbg_i,
 
-  // the debug module (tg_map_pkg DEBUG_ON, docs/spec/soc.md §9): its JTAG side, the device TAP through two
+  // the debug module (tg_map_pkg DEBUG_WINDOW, docs/spec/soc.md §9): its JTAG side, the device TAP through two
   // BSCANE2s (kv260_top) or a testbench's TAP model; a halt request to each hart and the harts held off.
   // Without it TDO and the halt requests are 0 and the inputs unused
   input  logic                     jtag_tck_i,
@@ -626,13 +626,13 @@ module tg_uncore
 `endif
 
   // ---------------------------------------------------------------------------------------------
-  // Boot ROM, the debug module (DEBUG_ON: its window behind the ROM's crossbar port), the device bus
+  // Boot ROM, the debug module (DEBUG_WINDOW: its window behind the ROM's crossbar port), the device bus
   // ---------------------------------------------------------------------------------------------
   tl_a_t brom_a; logic brom_av, brom_ar;
   tl_d_t brom_d; logic brom_dv, brom_dr;
   logic  ndmreset;                              // the DM's reset of the cores and the uncore
   assign brom_a = rom_a;
-  if (DEBUG_ON) begin : g_dbg
+  if (DEBUG_WINDOW) begin : g_dbg
     logic dm_av, dm_ar, dm_dv;
     tl_d_t dm_d;
     logic        dmi_req, dmi_rsp;

@@ -469,10 +469,18 @@ module tb_dbg
     status(s);
     check(s[13] && s[19], "harts unavailable and havereset in reset");
     dmi_wr(DMCONTROL, ctl(0));
-    hart_rst = 1'b0;
     check(!ndmreset, "ndmreset released");
     status(s);
+    check(s[24], "ndmresetpending while the cores' reset is still held");
+    hart_rst = 1'b0;
+    status(s);
     check(s[11] && s[19] && !s[24], "running after the reset, havereset still set");
+    dmi_wr(DMCONTROL, ctl(0, 0, 0, 1));
+    // a reset the host holds is no ndmreset
+    hart_rst = 1'b1;
+    status(s);
+    check(s[13] && !s[24], "the host's reset: unavailable, no ndmresetpending");
+    hart_rst = 1'b0;
     dmi_wr(DMCONTROL, ctl(0, 0, 0, 1));
 
     // dmactive 0: the DM's registers to their reset values, the halt requests dropped

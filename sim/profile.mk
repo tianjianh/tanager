@@ -117,7 +117,7 @@ LWT ?=
 ifneq ($(filter-out 0 1,$(LWT)),)
   $(error LWT must be 0, 1 or unset (got "$(LWT)"))
 endif
-# The debug module (docs/spec/soc.md §9, DR-190 item 4), 0 or 1 (+define+TG_DEBUG, tg_map_pkg::DEBUG_ON; soc-2's switch,
+# The debug module (docs/spec/soc.md §9, DR-190 item 4), 0 or 1 (+define+TG_DEBUG, tg_map_pkg::DEBUG_WINDOW; soc-2's switch,
 # which the cores' debug mode reads too): the DM and the DTM in the uncore, DEBUG_BASE a crossbar target. Development
 # builds only; off by default, where the build is the one before it cycle for cycle.
 DEBUG ?=

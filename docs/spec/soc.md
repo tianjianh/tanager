@@ -990,7 +990,7 @@ The status words are decoded by address, so the DM needs no hart id in the data,
 - **On the board, later:** OpenOCD on the laptop (when the user approves installing it): `jtag newtap` for the device's PL TAP with the IR length and USER3/USER4 codes from UG570 and UG1085, confirmed with `scan_chain`; `riscv set_ir` as above; then halt, `reg`, `mdw`, `step` and `resume` on a running board.
 
 ### 9.7 Cost
-DR-190 expects 1.5–2.5K LUTs a chip for the DM, the DTM and Sdext together; the uncore's part is measured below when synthesised. A release build pays nothing.
+Out of context (`fpga/budget/tcl/unit_synth.tcl`, smt2, after `opt_design`, 2026-10-24): `tg_dm` for four harts 479 LUTs and 231 flip-flops, `tg_dtm` 71 LUTs and 232 flip-flops (its two shift registers and the crossing's held fields), no RAM or DSP; the ROM port's split adds a few LUTs in `tg_uncore`. DR-190 expects 1.5–2.5K LUTs a chip for the DM, the DTM and Sdext together, so most of it is left for the cores' debug mode, measured with it. A release build pays nothing.
 
 ## Verification
 

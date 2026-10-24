@@ -42,7 +42,7 @@ module tg_dm
   // the harts
   output logic [NH-1:0] haltreq_o,              // dbg_haltreq: a level per hart, taken at commit
   input  logic [NH-1:0] unavail_i,              // held off (hart_unavail)
-  input  logic          hart_rst_i,             // the cores' reset: unavailable, havereset, ndmresetpending
+  input  logic          hart_rst_i,             // the cores' reset: unavailable, havereset; an ndmreset's end
   output logic          ndmreset_o              // holds the cores and the uncore in reset
 );
   localparam int HSW = (NH > 1) ? $clog2(NH) : 1;   // hartsel's width (HARTSELLEN)
@@ -84,6 +84,7 @@ module tg_dm
   logic [NHP-1:0]    haltreq_q, resumeack_q, resume_q, havereset_q, halted_q;
   logic [4:0]        c_reg_q;                    // the running command: GPR, write, 64 bits, transfer, postexec
   logic              c_wr_q, c_d64_q, c_xfer_q, c_post_q;
+  logic              ndmrp_q;                    // an ndmreset not over: from ndmreset until the cores leave reset
   logic              rsp_q;
   logic [31:0]       rdata_q;
 
@@ -227,7 +228,7 @@ module tg_dm
     un = sel_ex && sel_un;
     ha = sel_ha;
     ru = sel_ex && !sel_un && !halted_q[sel];
-    dmstatus = {7'd0, ndmreset_q || hart_rst_i, 1'b0, 1'b1, 2'd0, hv, hv, ra, ra, ne, ne, un, un, ru, ru, ha, ha,
+    dmstatus = {7'd0, ndmreset_q || ndmrp_q, 1'b0, 1'b1, 2'd0, hv, hv, ra, ra, ne, ne, un, un, ru, ru, ha, ha,
                 1'b1, 1'b0, 1'b0, 1'b0, 4'd3};
     rd = '0;
     case (dmi_addr_i)
@@ -261,6 +262,7 @@ module tg_dm
   always_ff @(posedge clk) begin
     if (dm_rst) begin
       ndmreset_q <= 1'b0;
+      ndmrp_q    <= 1'b0;
       hartsel_q  <= '0;
       haltreq_q  <= '0;
       resumeack_q <= '0;
@@ -275,6 +277,7 @@ module tg_dm
       prog1_q    <= '0;
     end else begin
       if (dmi_wr && dmi_addr_i == 7'h10) ndmreset_q <= cw[1];
+      ndmrp_q <= ndmreset_q || (ndmrp_q && hart_rst_i);   // a reset the host holds is no ndmreset
       if (ctl_wr) hartsel_q <= new_sel;
       // haltreq, resumereq and ackhavereset apply to the new hartsel (one hart: hasel 0)
       for (int h = 0; h < NHP; h++) begin

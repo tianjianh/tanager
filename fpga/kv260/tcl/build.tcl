@@ -97,7 +97,7 @@ if {[lsearch -regexp $defines {^TG_URF(=|$)}] >= 0} {
   puts "ERROR: TG_URF goes in its own variable, not in TG_DEFINES (fpga/kv260/README.md)"; exit 1
 }
 if {$urf} { lappend def_args -verilog_define TG_URF=1 }
-# TG_DEBUG=1: the debug module (docs/spec/soc.md §9, DR-190 item 4; tg_map_pkg DEBUG_ON): the DM and the DTM on
+# TG_DEBUG=1: the debug module (docs/spec/soc.md §9, DR-190 item 4; tg_map_pkg DEBUG_WINDOW): the DM and the DTM on
 # two BSCANE2s (USER3, USER4), and the cores' debug mode. A development build's option, as the define every file
 # sees, with xdc/timing_debug.xdc's JTAG clock. A release build has none of it. TG_DEFINES must not set TG_DEBUG.
 set dbg [expr {[info exists ::env(TG_DEBUG)] ? $::env(TG_DEBUG) : 0}]

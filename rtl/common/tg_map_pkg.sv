@@ -31,14 +31,14 @@ package tg_map_pkg;
   localparam bit     PS_WINDOW   = 1'b0;
 `endif
   localparam paddr_t PSWIN_BASE = paddr_t'(64'hFE00_0000);  localparam paddr_t PSWIN_SIZE = paddr_t'(64'h200_0000);
-  // The debug module (docs/spec/soc.md §9, DR-190 item 4): development builds only, as its value
-  // (TG_DEFINES="TG_DEBUG=1", sim/profile.mk DEBUG=1). It builds the DM, the DTM and the cores' debug mode, and
-  // makes DEBUG_BASE a crossbar target (tg_dm's window behind the boot ROM's port). Without it the range is a
-  // device region that nothing answers, as before.
+  // The debug module (docs/spec/soc.md §9, DR-190 item 4): development builds only, as its value (build.tcl
+  // TG_DEBUG=1, sim/profile.mk DEBUG=1). It builds the DM and the DTM, and makes DEBUG_BASE a crossbar target (tg_dm's
+  // window behind the boot ROM's port); the cores' debug mode reads the same define (tg_core_pkg::DEBUG_ON). Without
+  // it the range is a device region that nothing answers, as before.
 `ifdef TG_DEBUG
-  localparam bit     DEBUG_ON    = 1'(`TG_DEBUG);
+  localparam bit     DEBUG_WINDOW = 1'(`TG_DEBUG);
 `else
-  localparam bit     DEBUG_ON    = 1'b0;
+  localparam bit     DEBUG_WINDOW = 1'b0;
 `endif
 
   localparam logic [63:0] TIMEBASE_HZ = 64'd10_000_000;  // ACLINT mtime rate (plan §7.1)
