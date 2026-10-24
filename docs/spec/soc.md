@@ -854,24 +854,40 @@ Main df08b40, with the M6 set on by default (the 32-entry RAS, two-table TAGE-li
   - Package `m6-smt2-c2-100`, for after D4, with DR-141's set against d2's boots.
 - **No same-tree comparison for ExploreArea yet:** these are the first board builds of this tree, and both use it.
 
-### 8.5 DDR write streaming on the four-hart chip (u100, 10-23)
+### 8.5 DDR write streaming and the L2's write-back batching (10-23)
 
-- **On the board** (MR35, `fpga/kv260/board/u100/README.md`): at d4r2's 100 MHz, memgap's wr16m streams DDR writes at 156.3 MiB/s against 182.4 (−14%), while rd16m reads at 159.0 against 140.1 (+13.5%).
-  - The DR-141 set's page-fault test is 8.8% slower. Its time is the kernel clearing 2 MiB huge pages, which is write streaming too.
-  - dr187b (80 MHz, without PMP at fill) was already slower on both: wr16m 136.8 MiB/s, the page-fault test +4.1%.
-- **Not the RTL, in simulation:** `tests/unit/soc/sw/wst.c` runs as tb_boot's firmware (hart 0 writes 4 MiB, 8× the board's L2, then times a write pass and a read pass). The setup is two `smt2` cores, the board's L2 (1024 sets), the release memory path and a fixed DDR latency, on main 25d07c55 with PMP at fill on. Cycles per 64-byte line, write / read:
+- **On the board:**
+  - u100 (MR35): memgap's wr16m streams DDR writes at 156.3 MiB/s against d4r2's 182.4 (−14%), while rd16m reads 13.5% faster. The DR-141 set's page-fault test, the kernel clearing 2 MiB huge pages, is 8.8% slower.
+  - rc2's two slower store rows (board MR37: memset 1 MiB +9.3%, page fault +4.7%) were one unpinned run each. Pinned, rc2 matches u100 within 1% over 16 and 22 sets (MR38), and in tb_boot the four trees from u100's RTL to rc3's run the same store loops to the cycle.
+  - memcal, bare metal (MR38): u100's memset-16M runs 159.1 MiB/s against d4r2's 188.3 (18.4% more cycles; d4r1's 161.5). Every other row is faster on u100: reads −22%, the chase −19%, the copies −5%.
+  - Two cores write 2.07× one core's rate and one core's two threads 1.12× (MR37), so each core's stream is bound by the latency of its own ownership reads, not by the controller's bandwidth. An idle sibling online costs CPU 0's wr16m 5.3% (MR38; core-2's).
+- **Not the RTL** (tb_boot with memcal.bin, two `smt2` cores, the board's L2, a DDR of 14–30 cycles with readies at 90%; cycles per byte, the chase per load). The model matches the board on both images except in one row:
 
-  | DDR model | Slices off (main) | Slices on (DR-186 undone, a scratch copy) |
-  |---|---|---|
-  | 22 cycles, ready 100% | 31.96 / 32.54 | 33.96 / 34.55 |
-  | 22 cycles, AR, AW and W ready 50% | 29.63 / 33.11 | 30.44 / 35.10 |
+  | memcal | u100's RTL | d4r2's (ef44e5b7) | model, u100 vs d4r2 | board, u100 vs d4r2 |
+  |---|---|---|---|---|
+  | memset-16M | 0.467 | 0.486 | −4% | **+18.4%** |
+  | memcpy-8M | 0.706 | 0.750 | −6% | −5.3% |
+  | memset-1M | 0.469 | 0.492 | −5% | −4.8% (u100's first run) |
+  | memcpy-1M | 0.709 | 0.757 | −6% | −5.2% |
+  | read-8M | 0.211 | 0.257 | −18% | −22% |
+  | chase-4M | 54.9 | 64.8 | −15% | −19% |
 
-  - **DR-186's slices off are as fast or faster** for writes, and faster for reads, as the board's reads are.
-  - **Hart 1 changes nothing.** At 60 cycles every case gives 37.33 / 51.54: hart 1 off, hart 1 on, and the stream on hart 1 (thread 1, as Linux's cpu0 is on the board) instead of hart 0. A lone thread's stream is not limited by the window split.
-  - **Compare one binary across builds.** The absolute cycles depend on where the loop lands: the scratch probe's own start code gave 29.50 for the first row's writes.
-- **So the write loss is the board's memory system's.** The likely cause is the PS DDR controller's read/write turnarounds. Each streamed line is an RFO read and later a write-back, and the slices' removal changed when the L2 issues them, which a fixed-latency model can't show.
-- **The definitive test** is a 100 MHz build with `TG_MEM_SLICE=1` measured on the board. It has not been run (the coordinator, 10-23: the benchmarks that matter improved).
-- **The board's next image adds two checks:** memgap's single-thread rows on each CPU (`taskset -c 0-3`), and two threads writing separate 16 MiB buffers.
+  - None of the PL side's mechanisms: the L2 never holds a read beat the memory offers (0 cycles at a fixed latency, 31 in a million beats with jitter), so the injectors' and memory slices' buffering (gone since DR-177 and DR-186) had nothing to absorb; at a 60-cycle DDR u100's path still leads (37.65 against 40.72 cycles a line); a 16 MiB stream through Sv39's 4 KiB pages (4,096 walks a pass) runs 30.80 cycles a line with PMP at fill on or off, against d4r2's 31.05.
+- **The controller's pattern** (board MR39; soc-2's wsd.bin: 16 MiB of line writes with k idle cycles after each line; cycles per line):
+
+  | k | 0 | 4 | 8 | 12 | 16 |
+  |---|---|---|---|---|---|
+  | u100 | 38.3 | 29.9 | 32.7 | 39.5 | 46.4 |
+  | d4r2 | 32.0 | 33.7 | 34.6 | 40.0 | 46.6 |
+  | the model, u100 | 30.1 | 30.8 | 32.7 | 39.4 | 46.4 |
+
+  - Four idle cycles a line make u100's stream 28% faster, and 7% faster than d4r2's best. The model fits from k = 4 on and misses only k = 0.
+  - **Why:** the stream's AXI trace in tb_boot shows each bank's ownership reads and write-backs strictly alternating, a write-back 5 cycles after each read and 1 MiB away, so the PS DDR controller turns its bus round on every request. u100's shorter path (9–12 cycles less a round trip) put the two ports in a phase this controller handles badly; k = 4 moved them out of it. Relying on phase would be fragile.
+- **The fix: the L2's write-back batching** (`tg_l2_bank` `WB_PACE`, [l2.md](l2.md) §Victims; a KV260 tuning, [area_switches.md](area_switches.md) §Platform tunings). Each bank holds its ready write-backs until a batch is ready, one has waited long enough or no buffer is left, then sends them back to back, so the controller turns once a batch.
+  - `TG_L2_WB_PACE=1` builds it (8 write-back buffers a bank); the host-control block's `L2_PACE` ([host.md](host.md)) sets the batch and the wait at run time, `TG_L2_PACE_INIT` at reset. Off, the default, it is cycle-identical (the Linux boot's first 20M cycles, `st`, `smt2` and `smt2` with hart 1).
+  - In the model it costs nothing (30.1 cycles a line unbatched, 29.9 with batches of 4–8) and halves the read/write turns at batches of 2 a port. A batch of B needs about (B − 1) × 64 cycles of wait at a stream's pace.
+  - The cost: about 80 LUTs and 66 FFs a chip, no RAM.
+  - **On the board:** pending. spikes-2's measurement image (6c41bb53 with rc3_u095r's flow, the batching off at reset) and `tests/bench/mem` `wsdp.bin`, which sweeps the batch and the wait; the setting that wins becomes the KV260 product build's `TG_L2_PACE_INIT`.
 
 ## Verification
 
