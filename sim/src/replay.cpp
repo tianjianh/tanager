@@ -76,7 +76,8 @@ struct opts_t {
           "                         nondet-bad skip irq-cause ld-addr noload ext-unannounced ext-stale (with --ext)\n"
           "                         sb-reorder (two stores of one hart reach memory in the wrong order) and\n"
           "                         sb-late (a store waits past every window) with --sb; atomic-late (an\n"
-          "                         atomic's record past the checker's bound) with --atomic-early\n",
+          "                         atomic's record past the checker's bound) with --atomic-early;\n"
+          "                         debug-entry (TG_DEBUG's marker before a record: the checker must stop, not fail)\n",
           TG_DEFAULT_PMP, (unsigned long long)ATOMIC_EARLY);
   exit(EXIT_HARNESS);
 }
@@ -145,7 +146,7 @@ const char* expected_phrase(const std::string& k) {
       {"nondet-bad", "nondet on an instruction"}, {"irq-cause", "interrupt cause:|not enabled in Spike"},
       {"ext-unannounced", "value:"}, {"ext-stale", "value:"}, {"ld-addr", "load address:"},
       {"noload", "load address:"}, {"sb-reorder", "value:|store:"}, {"sb-late", "value:|store:"},
-      {"atomic-late", "value:|store:"},
+      {"atomic-late", "value:|store:"}, {"debug-entry", "STOPPED"},
   };
   for (auto& [kind, phrase] : t)
     if (k == kind) return phrase;
@@ -806,6 +807,21 @@ int main(int argc, char** argv) {
           code = int(v >> 1);
         }
       }
+      if (o.inject == "debug-entry" && !injected && int64_t(nrec) >= o.inject_at && r.kind != TR_IRQ) {
+        // TG_DEBUG's entry marker before this record's instruction, as a halt request would put it: a TR_IRQ
+        // record, cause bits 63 and 62 and dcsr.cause 3, at its pc in its mode. Spike goes on, the checker stops.
+        tr_rec_t m;
+        m.cycle = r.cycle;
+        m.slot = r.slot;
+        m.kind = TR_IRQ;
+        m.hart = r.hart;
+        m.priv = r.priv;
+        m.pc = r.pc;
+        m.cause = (3ull << 62) | 3;
+        recs.push_back(m);
+        if (o.atomic_early) order.push(m);
+        injected = true;
+      }
       if (!o.inject.empty() && !injected && int64_t(nrec) >= o.inject_at) {
         if (o.inject == "skip" && r.kind == TR_RETIRE) { injected = true; skip_next = true; }
         else if (o.inject != "wb-value" && o.inject != "wb-missing" && o.inject != "wb-extra" && inject_rec(r)) injected = true;
@@ -897,7 +913,9 @@ int main(int argc, char** argv) {
       phrase = why.find(std::string(want).substr(b, e == std::string::npos ? e : e - b)) != std::string::npos;
       if (e == std::string::npos) break;
     }
-    bool ok = status == EXIT_MISMATCH && phrase;
+    // debug-entry: the checker must stop at the marker and report nothing (verification.md §3.7)
+    bool ok = o.inject == "debug-entry" ? status != EXIT_MISMATCH && ls.stopped() : status == EXIT_MISMATCH && phrase;
+    if (ls.stopped()) fprintf(stderr, "tg_replay: lockstep stopped: %s\n", ls.stopped_why().c_str());
     if (!ok) {
       if (status == EXIT_MISMATCH) ls.report(stderr);
       fprintf(stderr, "tg_replay: inject=%s at record %lld: NOT DETECTED as expected (status %s: %s)\n",

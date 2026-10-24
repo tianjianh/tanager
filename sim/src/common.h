@@ -17,6 +17,7 @@ enum exit_status : int {
   EXIT_PROTOCOL = 3,
   EXIT_TIMEOUT = 4,
   EXIT_HARNESS = 5,
+  EXIT_STOPPED = 6,  // the program passed; lockstep checked up to a hart's entry into debug mode (TG_DEBUG), not after
 };
 
 inline const char* exit_status_name(int s) {
@@ -26,6 +27,7 @@ inline const char* exit_status_name(int s) {
     case EXIT_MISMATCH: return "MISMATCH";
     case EXIT_PROTOCOL: return "PROTOCOL";
     case EXIT_TIMEOUT: return "TIMEOUT";
+    case EXIT_STOPPED: return "STOPPED";
     default: return "ERROR";
   }
 }
