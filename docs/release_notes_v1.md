@@ -44,7 +44,7 @@ As the board's device tree lists it (`sw/dts/tanager.dtsi`, lines 62–94; the r
   - Linux: `riscv: base ISA extensions acdfim`;
   - Debian's `/proc/cpuinfo` (d4r2, the same tree family): `rv64imafdc_zicntr_zicond_zicsr_zifencei_zca_zcd_zba_zbb_zbs_sstc` ([hartcheck_d4r2_100.txt](../fpga/kv260/board/d4r2/hartcheck_d4r2_100.txt)).
 - **Why the strings are TBD-v1:**
-  - M9 §10 checks `zicntr`, `zihpm`, `za64rs`, `svinval`, `zkt` and `zihintpause` against the RTL, and lists what holds. `zicntr`, `zihpm` (zero counters are allowed) and `za64rs` look free; `svinval` waits for a measurement; `zkt` needs an audit.
+  - M9 §10 checks `zicntr`, `zihpm`, `za64rs`, `svinval`, `zkt` and `zihintpause` against the RTL, and lists what holds. `zicntr`, `zihpm` (zero counters are allowed) and `za64rs` look free; `svinval` waits for a measurement; `zkt` needs an audit. The worksheet: [m9-isa-check.md](spec/m9-isa-check.md).
   - `sscofpmf` joins, with a `riscv,pmu` node, if v1 builds `TG_HPM` ([m9-plan.md](spec/m9-plan.md) §1, §10).
 - **Not met:** v1 does not meet RVA22S64 or RVA23S64 (DR-190).
 
