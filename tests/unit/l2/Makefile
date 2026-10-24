@@ -29,11 +29,11 @@ short:
 
 # long: every model is built first (NA 1, 2, 4 x LAT 2, 4), then all 36 runs go PAR at a time,
 # each logged to $(LOGDIR)/l2_<run>.log
-L2_LONG := $(foreach na,1 2 4,$(foreach s,1 2 3 4 5 6 7 8 9 10,na$(na)-s$(s)) na$(na)-err na$(na)-lat4 na$(na)-acq4)
+L2_LONG := $(foreach na,1 2 4,$(foreach s,1 2 3 4 5 6 7 8 9 10,na$(na)-s$(s)) na$(na)-err na$(na)-lat4 na$(na)-acq4 na$(na)-pace)
 .PHONY: long $(L2_LONG)
 long:
 	@for na in 1 2 4; do for lat in 2 4; do $(MAKE) --no-print-directory build NA=$$na LAT=$$lat || exit 1; done; \
-	  $(MAKE) --no-print-directory build NA=$$na ACQ=4 || exit 1; done
+	  $(MAKE) --no-print-directory build NA=$$na ACQ=4 || exit 1; $(MAKE) --no-print-directory build NA=$$na ACQ=4 PACE=1 || exit 1; done
 	@mkdir -p $(LOGDIR)
 	@$(MAKE) --no-print-directory -j$(PAR) $(L2_LONG)
 $(L2_LONG): na%:
@@ -41,6 +41,7 @@ $(L2_LONG): na%:
 	  s*)   args="SEED=$${2#s} OPS=100000"; what="seed $${2#s}";; \
 	  err)  args="SEED=99 OPS=50000 EXTRA_ARGS=+errlines"; what="AXI errors";; \
 	  lat4) args="SEED=77 OPS=100000 LAT=4"; what="data latency 4";; \
-	  acq4) args="SEED=55 OPS=100000 ACQ=4"; what="four Acquires per agent";; esac; \
+	  acq4) args="SEED=55 OPS=100000 ACQ=4"; what="four Acquires per agent";; \
+	  pace) args="SEED=66 OPS=100000 ACQ=4 PACE=1 EXTRA_ARGS=+wb_rand"; what="write-back batching, random settings";; esac; \
 	if $(MAKE) --no-print-directory run NA=$$1 $$args > $(LOGDIR)/l2_$@.log 2>&1 && grep -q "TEST PASSED" $(LOGDIR)/l2_$@.log; \
 	then echo "l2 NA=$$1 $$what: PASS"; else echo "FAIL l2 NA=$$1 $$what ($(LOGDIR)/l2_$@.log)"; exit 1; fi
