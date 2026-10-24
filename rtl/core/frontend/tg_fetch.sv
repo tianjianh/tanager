@@ -551,9 +551,12 @@ module tg_fetch
   // TAGE_ON: the override refetches at the exit's target (kt_q): the block's address, the exit's
   // parcel (kp_q) and its offset (kimm_q), added in the action's cycle
   logic              kt_q;
-  logic              kr_q;                // RAS_FE: ... at the stack's top, krt_q (ITT_ON: or the table's target)
+  logic              kr_q;                // RAS_FE: ... at the stack's top, krt_q (ITT_ON: or the table's target, kit_q)
+  logic              ki_q;                // ITT_ON: ... kr_q's target is the table's (kit_q), not the stack's top
   logic              ks_q;                // TAGE_ON: ... the exit is a straddler (PC: the block - 2)
   logic [38:1]       krt_q;              // (A, spikes.md §7.1: the stack's top, which fx_tgt is under kr_q)
+  logic [38:1]       kit_q;              // ITT_ON: the table's target, kept beside it and selected after the register
+                                         // (as A: spikes-2's 10-24 run had the select's 21 levels from the I$ data)
   logic [SLOT_W-1:0] kp_q;
   logic [20:0]       kimm_q;
   logic [63:0]       kt_tgt;
@@ -803,9 +806,11 @@ module tg_fetch
     // to the stack's top; a JALR otherwise only where the micro-BTB predicts it
     logic [63:0]   rtgt;
     assign rtgt = {{25{ras_top[38]}}, ras_top, 1'b0};
-    // The indirect-target table's entry (ITT_ON) at a JALR that is not a return (no pop), by its last parcel's slot:
-    // a candidate too, to the entry's target, at the micro-BTB's slot as well (its target replaces the micro-BTB's).
-    // The hit comes from the RAM's output beside TAGE's provider bits and is its own term of tkn (timing)
+    // The indirect-target table's entry (ITT_ON), by its last parcel's slot: a JALR there is a candidate, as at the
+    // micro-BTB's slot, and goes to the entry's target unless it is a return the stack predicts (its target replaces
+    // the micro-BTB's). Like the micro-BTB's hit, the table's does not wait for pre-decode's pop bit (timing: with it,
+    // spikes-2's 10-24 run had 21 levels from the I$ data to kr_q); the table trains only on JALRs that do not pop,
+    // so a hit at a return's slot is an alias, and the exit's kind (xitt) still excludes returns
     logic [NP-1:0] ith;
     logic          ith_s;                  // ... a straddler's, at slot 0
     logic [63:0]   itgt;
@@ -835,7 +840,7 @@ module tg_fetch
       // prediction there is no real exit and uok is false; only the stack takes a straddling JALR.
       // It is never trained on one either: a hit at slot 0 here is another block's entry, through
       // the partial tag, and F1 followed its target: decode checks it, fx_tsrc below)
-      sx_tk   = (sx_br && tdir[0]) || sx_jal || (sx_jalr && RAS_FE && sx_pop && ras_v) || (sx_jalr && !sx_pop && ith_s);
+      sx_tk   = (sx_br && tdir[0]) || sx_jal || (sx_jalr && ((RAS_FE && sx_pop && ras_v) || ith_s));
     end
     assign fe_s = sx_tk;
     for (genvar p = 0; p < NP; p++) begin : g_cand
@@ -848,9 +853,8 @@ module tg_fetch
       logic hs;
       assign hs = f2_hit_q && (wide[p] ? f2_slot_q == SLOT_W'(p + 1) : f2_slot_q == SLOT_W'(p));
       assign ith[p]  = ITT_ON && itt_hit && itt_slot == lsl[p];
-      assign tkn[p]  = (pd_start[p] && !outp[p] && (pd_jal[p] || (pd_jalr[p] && (rp[p] || hs)))) ||
-                       (cbr[p] && (wide[p] ? tdir[(p + 1) % NP] : tdir[p])) ||
-                       (pd_start[p] && !outp[p] && pd_jalr[p] && !pd_pop[p] && ith[p]);
+      assign tkn[p]  = (pd_start[p] && !outp[p] && (pd_jal[p] || (pd_jalr[p] && (rp[p] || hs || ith[p])))) ||
+                       (cbr[p] && (wide[p] ? tdir[(p + 1) % NP] : tdir[p]));
     end
     // ns[p]: nothing decided before p: no candidate there (tb) and no third conditional branch (at
     // least three before p, the straddler counted); the cut at the third (c3h: two before it), else
@@ -1084,9 +1088,9 @@ module tg_fetch
           o        = wide[p] && p == NP - 1;
           r_cbr[p] = pd_start[p] && pd_br[p] && !o;
           r_rp[p]  = RAS_FE && pd_pop[p] && ras_v;
-          ujx      = pd_start[p] && !o && (pd_jal[p] || (pd_jalr[p] && (r_rp[p] || (uok && f2_slot_q == lsl[p]))));
-          r_tkn[p] = ujx || (r_cbr[p] && tdir[lsl[p]]) ||
-                     (pd_start[p] && !o && pd_jalr[p] && !pd_pop[p] && ITT_ON && itt_hit && itt_slot == lsl[p]);
+          ujx      = pd_start[p] && !o && (pd_jal[p] || (pd_jalr[p] && (r_rp[p] || (uok && f2_slot_q == lsl[p]) ||
+                                                                         (ITT_ON && itt_hit && itt_slot == lsl[p]))));
+          r_tkn[p] = ujx || (r_cbr[p] && tdir[lsl[p]]);
           if (!seen && r_cbr[p] && nb == 2) begin
             seen = 1'b1; r_c3_v = 1'b1; r_c3_p = SLOT_W'(p);
           end else if (!seen && r_tkn[p]) begin
@@ -1206,10 +1210,13 @@ module tg_fetch
   // target, whether the exit returns to the stack's top, the top, and tsrc's three terms
   logic                 f3_ras_q, f3_tk_q, f3_nj_q, f3_nhs_q;
   logic [38:1]          f3_rtop_q;
+  logic                 f3_itt_q;                  // ITT_ON: under f3_ras_q the table's target (f3_itgt_q), else the top
+  logic [38:1]          f3_itgt_q;
   meta_t                f3_mq;                     // the block's metadata as the queue takes it
   always_comb begin
     f3_mq        = f3_meta_q;
-    f3_mq.target = f3_ras_q ? {{25{f3_rtop_q[38]}}, f3_rtop_q, 1'b0} : f3_meta_q.target;
+    f3_mq.target = !f3_ras_q ? f3_meta_q.target
+                 : f3_itt_q  ? {{25{f3_itgt_q[38]}}, f3_itgt_q, 1'b0} : {{25{f3_rtop_q[38]}}, f3_rtop_q, 1'b0};
     f3_mq.tsrc   = f3_tk_q && f3_nj_q && f3_nhs_q;
   end
 `ifndef SYNTHESIS
@@ -2166,7 +2173,8 @@ module tg_fetch
     for (int t = 0; t < NS; t++)
       sline[t] = (am_go && k_s_q == 1'(t)) ? miss_pa_q[PA_W-1:6] : rpa_s_q[t][PA_W-1:6];
   assign kref_pc = k_cut_q ? {miss_pc_q[63:4], fp_q, 1'b0}
-                 : k_ovr_q ? (kr_q ? {{25{krt_q[38]}}, krt_q, 1'b0} : kt_q ? kt_tgt : {miss_pc_q[63:4] + 60'd1, 4'b0})
+                 : k_ovr_q ? (kr_q ? (ki_q ? {{25{kit_q[38]}}, kit_q, 1'b0} : {{25{krt_q[38]}}, krt_q, 1'b0})
+                              : kt_q ? kt_tgt : {miss_pc_q[63:4] + 60'd1, 4'b0})
                  : miss_pc_q;
   always_comb
     for (int t = 0; t < NS; t++) begin
@@ -2304,7 +2312,9 @@ module tg_fetch
                          fault: f2_isfault, fpf: f2_bfault && f2_fpf_q, fhi: !f2_bfault && pmp_hi};
         f3_s_q      <= f2_s_q;
         f3_ras_q    <= ovr_ras || ovr_itt;               // (the queue's target: the stack's or the table's)
-        f3_rtop_q   <= ovr_itt ? itt_tgt : ras_top;
+        f3_itt_q    <= ITT_ON && !ovr_ras;               // (the stack's top first, as fx_tgt)
+        f3_rtop_q   <= ras_top;
+        f3_itgt_q   <= itt_tgt;
         f3_tk_q     <= fx_tk;
         f3_nj_q     <= fx_nj;
         f3_nhs_q    <= fx_nhs;
@@ -2371,7 +2381,9 @@ module tg_fetch
       kp_q     <= ovr_p;
       kimm_q   <= ovr_imm;
       kr_q     <= ovr_ras || ovr_itt;
-      krt_q    <= ovr_itt ? itt_tgt : ras_top;
+      ki_q     <= ITT_ON && !ovr_ras;
+      krt_q    <= ras_top;
+      kit_q    <= itt_tgt;
       ks_q     <= ovr_s;
       fp_q     <= fp;
       if (f2v) begin

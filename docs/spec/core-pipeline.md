@@ -120,7 +120,8 @@ M2 is the plan's "conservative out-of-order" core. It must pass riscv-tests (`rv
     - **Commit's** (`cph`): moved by each retiring such JALR, with its actual target (below). A flush copies it into the speculative one, as for TAGE.
     - **Decode's redirect** restores the speculative history from the redirecting block's FTQ entry: the history its lookup used. Where that lookup lagged, the history lacks that one target until four more JALRs have moved it, a transient.
   - **Decision (F2):**
-    - A JALR that is not a return (no pop) whose entry matches (valid, tag, its slot) is an exit candidate in TAGE's decision, to the entry's target. In mode 2 the path half's entry comes first, else the block half's.
+    - A JALR whose entry matches (valid, tag, privilege, its slot) is an exit candidate in TAGE's decision, as at the micro-BTB's slot. The hit does not wait for pre-decode's pop bit (timing, below). In mode 2 the path half's entry comes first, else the block half's.
+    - Its target is the entry's, unless it is a return the stack predicts: the stack's top comes first. The table trains only on JALRs that do not pop, so a hit at a return's slot is an alias. A return taken on such a hit with the stack empty refetches at no useful target, and execute corrects it (rare).
     - Its target replaces the micro-BTB's at the micro-BTB's slot too. F2 refetches when the two differ, as for a return the stack predicts.
     - The queue carries the target, and execute checks it.
     - *Model:* tgsim consults its table only where the micro-BTB missed or was wrong the last time, a bit per address. Here the table answers for every such JALR it holds. A simulation count of the targets it overrode wrongly says what that costs.
@@ -133,9 +134,9 @@ M2 is the plan's "conservative out-of-order" core. It must pass riscv-tests (`rv
     - The entry is overwritten, with no confidence counter, as the model's.
   - **The ROB's part:** a payload bit for a JALR that does not pop, and the retiring slots' addresses to fetch, beside the trap record it already gives.
   - **Timing:**
-    - The hit check (the tag and slot compares on the RAM's output) runs beside TAGE's provider select and enters the exit search as one more candidate term.
+    - The hit (the tag and slot compares on the RAM's output) enters each slot's JALR term beside the micro-BTB's hit, before pre-decode's pop bit. So the exit search is no deeper than without the table. With the pop bit in the term, spikes-2's out-of-context run (10-24) had 21 levels from the I$ data to `kr_q`, against 15 off.
     - The target compare for the refetch feeds F2's registered action, as the stack's does.
-    - The refetch target goes through the stack's register (`krt_q`), so F1's next-PC multiplexer keeps its inputs.
+    - The table's target has its own registers beside the stack's top: `kit_q` for the refetch and `f3_itgt_q` for the queue. A one-bit select is taken after them, as the stack's top is (spikes.md §7.1's A and B), so `krt_q` and `f3_rtop_q` keep their depth: 6–7 levels, against 21 with the select before them. F1's next-PC multiplexer gains one registered input.
   - **Cost (an estimate, to measure):** one RAMB36 a core (mode 2: two) and about 0.2–0.3K LUTs a core.
     - The table's read, compares and override are about 0.1K (smt2-study's estimate in m9-plan.md §6).
     - The rest: the two path histories per stream, their repair, the FTQ field, and commit's training and target.
