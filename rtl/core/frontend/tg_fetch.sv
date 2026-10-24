@@ -809,8 +809,9 @@ module tg_fetch
     // The indirect-target table's entry (ITT_ON), by its last parcel's slot: a JALR there is a candidate, as at the
     // micro-BTB's slot, and goes to the entry's target unless it is a return the stack predicts (its target replaces
     // the micro-BTB's). Like the micro-BTB's hit, the table's does not wait for pre-decode's pop bit (timing: with it,
-    // spikes-2's 10-24 run had 21 levels from the I$ data to kr_q); the table trains only on JALRs that do not pop,
-    // so a hit at a return's slot is an alias, and the exit's kind (xitt) still excludes returns
+    // spikes-2's 10-24 run had 21 levels from the I$ data to kr_q), and neither does the exit's kind (xitt): the
+    // stack's top comes first where it predicts (fx_tgt, ki_q, f3_itt_q). The table trains only on JALRs that do not
+    // pop, so a hit at a return's slot is an alias; with the stack empty that return goes to the entry's target
     logic [NP-1:0] ith;
     logic          ith_s;                  // ... a straddler's, at slot 0
     logic [63:0]   itgt;
@@ -850,10 +851,11 @@ module tg_fetch
       assign rp[p]   = RAS_FE && pd_pop[p] && ras_v;
       // A JALR at the micro-BTB's exit slot is a real exit by itself (pred_ok holds there), so the
       // candidate does not wait for uok, the whole block's check
-      logic hs;
+      logic hs, jh;
       assign hs = f2_hit_q && (wide[p] ? f2_slot_q == SLOT_W'(p + 1) : f2_slot_q == SLOT_W'(p));
       assign ith[p]  = ITT_ON && itt_hit && itt_slot == lsl[p];
-      assign tkn[p]  = (pd_start[p] && !outp[p] && (pd_jal[p] || (pd_jalr[p] && (rp[p] || hs || ith[p])))) ||
+      assign jh      = hs || ith[p];              // a target predicted here: the micro-BTB's or the table's
+      assign tkn[p]  = (pd_start[p] && !outp[p] && (pd_jal[p] || (pd_jalr[p] && (rp[p] || jh)))) ||
                        (cbr[p] && (wide[p] ? tdir[(p + 1) % NP] : tdir[p]));
     end
     // ns[p]: nothing decided before p: no candidate there (tb) and no third conditional branch (at
@@ -954,7 +956,7 @@ module tg_fetch
         if (feh[p]) begin
           xjalr   = xjalr || pd_jalr[p];
           xras    = xras  || rp[p];
-          xitt    = xitt  || (pd_jalr[p] && !pd_pop[p] && ith[p]);
+          xitt    = xitt  || (pd_jalr[p] && ith[p]);
           xcall   = xcall || pd_call[p];
           xpop    = xpop  || pd_pop[p];
           xcbr    = xcbr  || cbr[p];
@@ -968,7 +970,7 @@ module tg_fetch
         xcall   = sx_call;
         xpop    = sx_pop;
         xcbr    = sx_br;
-        xitt    = sx_jalr && !sx_pop && ith_s;
+        xitt    = sx_jalr && ith_s;
         sm      = f2_slot_q == '0;
         fx_slot = '0;
         xoff    = 4'd1;
@@ -1138,8 +1140,8 @@ module tg_fetch
       logic [38:1] r_rlink;
       logic [63:0] r_tgt;
       assign r_fe_ras  = r_tk && (fe_s ? RAS_FE && sx_pop && ras_v : r_rp[r_fe_p]);
-      assign r_fe_itt  = r_tk && ITT_ON && itt_hit && (fe_s ? sx_jalr && !sx_pop && itt_slot == '0
-                                                           : pd_jalr[r_fe_p] && !pd_pop[r_fe_p] && itt_slot == lsl[r_fe_p]);
+      assign r_fe_itt  = r_tk && ITT_ON && itt_hit && (fe_s ? sx_jalr && itt_slot == '0
+                                                           : pd_jalr[r_fe_p] && itt_slot == lsl[r_fe_p]);
       assign r_ovr     = !r_isf && !r_pcut && !r_ccut &&
                          (r_tk ? !(f2_hit_q && f2_slot_q == r_fx_slot && (!r_fe_ras || f2_tgt_q == rtgt) &&
                                    (!r_fe_itt || f2_tgt_q == itgt)) : f2_hit_q);
@@ -1608,7 +1610,8 @@ module tg_fetch
       logic [NS-1:0][PW-1:0] ph_s_q, ph_e_s, cph_s_q, cph_n;
       logic                  ipw_q;               // a JALR exit delivered last cycle: it pends ...
       logic                  ips_q;               // ... in this stream,
-      logic [15:0]           ipt_q;               // ... to this target (its bits 17:2)
+      logic                  ipi_q;               // ... to the table's target, else the micro-BTB's: their bits 17:2,
+      logic [15:0]           ipt_q, ipx_q;        // registered apart and selected after (timing: as kit_q)
       logic [PW-1:0]         ilk_q;               // the history F2's block's lookup used
       logic [IRW-1:0]         iri;                 // ... and the coordinates it read (tg_itt's, registered with it)
       // the table's write (registered): the coordinates the jump's block read, its slot, its privilege, its target
@@ -1618,7 +1621,7 @@ module tg_fetch
       logic [38:1]           iwt_q;
       always_comb
         for (int t = 0; t < NS; t++)
-          ph_e_s[t] = (ipw_q && ips_q == 1'(t)) ? padd(ph_s_q[t][PW-5:0], ipt_q) : ph_s_q[t];
+          ph_e_s[t] = (ipw_q && ips_q == 1'(t)) ? padd(ph_s_q[t][PW-5:0], ipi_q ? ipx_q : ipt_q) : ph_s_q[t];
       tg_itt #(.MODE(ITT_MODE), .NP(NP), .HW(PW)) u_itt (
         .clk, .re(f2_ld), .blk(tblk), .ph(ph_e_s[ft_q]), .pu(priv == PRIV_U),
         .hit(itt_hit), .slot(itt_slot), .tgt(itt_tgt), .ri(iri),
@@ -1626,7 +1629,9 @@ module tg_fetch
       always_ff @(posedge clk) begin
         ipw_q <= !rst && ft_we && f2_ijx;
         ips_q <= f2_s_q;
-        ipt_q <= fx_tgt[17:2];
+        ipi_q <= ovr_itt;                         // (a JALR exit that is not a return: never the stack's top)
+        ipt_q <= f2_tgt_q[17:2];
+        ipx_q <= itt_tgt[17:2];
         if (f2_ld) ilk_q <= ph_e_s[ft_q];
       end
       // The FTQ keeps each block's lookup: its history (u_fil; decode's redirect restores it) and the coordinates it
