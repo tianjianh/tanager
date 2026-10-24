@@ -73,7 +73,7 @@ Levers considered and never taken: DR-185's reserves (unary ops on ALU1 only, ha
 
 ## Platform tunings (KV260-specific)
 
-The user, 10-23: the write pacing suits the ZynqMP PS DDR controller's scheduling, so it sits behind a switch and is documented here, so that a build for another DDR controller turns it off cleanly.
+The user, 10-23: the write pacing suits the ZynqMP PS DDR controller's scheduling, so it sits behind a switch and is documented here, so that a build for another DDR controller turns it off cleanly. Its register's firmware rows are in [firmware_switches.md](firmware_switches.md).
 
 | Tuning | Why | Switch and register (default) | Costs | Off | Tuning it again |
 |---|---|---|---|---|---|
