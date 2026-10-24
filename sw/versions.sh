@@ -42,8 +42,9 @@ DEBIAN_SNAPSHOT_SECURITY=https://snapshot.debian.org/archive/debian-security/202
 # The udb gem's binaries for ACT4 (docs/spec/verification.md §6.1): the gem downloads them at install into
 # $XDG_CACHE_HOME/udb/<name>/<version>/x64 (default ~/.cache/udb), from riscv/riscv-unified-db's releases, and checks
 # each against its release checksum. The disk cleanup of 10-21 deleted that cache; the user approved fetching them again
-# (10-23, 22:50), kept in soc-2's build tree ($TANAGER_BUILD/track-soc-160053/udb-deps; XDG_CACHE_HOME points udb there)
-# by rerunning the gem's ext/udb_download/extconf.rb. The versions are the gem's pins (udb 0.1.17, lib/udb/*_VERSION).
+# (10-23, 22:50), by rerunning the gem's ext/udb_download/extconf.rb, into the shared tools folder that cleanups keep,
+# $TANAGER_BUILD/tools/udb-deps, which tests/arch/Makefile gives udb (UDB_CACHE). The versions are the gem's pins (udb
+# 0.1.17, lib/udb/*_VERSION); tests/arch/Makefile reads them here to check the folder.
 UDB_DEPS_URL=https://github.com/riscv/riscv-unified-db/releases/download
 UDB_Z3_VER=z3-5.1.0                   # libz3-x64.so (libz3.so in the cache)
 UDB_ESPRESSO_VER=espresso-18f59c7     # espresso-x64

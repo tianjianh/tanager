@@ -928,7 +928,7 @@ Main df08b40, with the M6 set on by default (the 32-entry RAS, two-table TAGE-li
 **ACT4's PMP tests on DR-183's checks** (10-23, main b30594fe; `make -C tests/arch`, verification.md §6.1):
 - With the 8-entry configuration (`core-m3-rv64imafdc-p8`), 895 of 895 pass in `st` with PMP checks at fill (the default), in `smt2` with hart 1, and in `st` with `PMP_FILL=0`.
 - Its 82 PMP tests (PMPSm 40, PMPZca 13, PMPS 11, PMPU 11, SvPMP 4, and PMPF, PMPZaamo and PMPZalrsc one each) run through the TLBs' cached per-page results, the shared checker and the walker's checks, against Sail's expected results and under lockstep.
-- UDB's binaries (Z3, espresso, eqntott, must) came back with the user's approval of 10-23 after the disk cleanup of 10-21 had deleted them. They are pinned in `sw/versions.sh` and `sw/sha256sums`, and kept in soc-2's build tree: the run sets `XDG_CACHE_HOME=$TANAGER_BUILD/track-soc-160053/udb-deps`.
+- UDB's binaries (Z3, espresso, eqntott, must) came back with the user's approval of 10-23 after the disk cleanup of 10-21 had deleted them. They are pinned in `sw/versions.sh` and `sw/sha256sums`, and kept in the shared tools folder `$TANAGER_BUILD/tools/udb-deps`, which `tests/arch/Makefile` gives udb (`UDB_CACHE`; verification.md §6.1).
 
 The board runs the same images (plan §11).
 
