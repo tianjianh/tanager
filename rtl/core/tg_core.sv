@@ -203,6 +203,21 @@ module tg_core
   logic [idx_w(DECODE_WIDTH + 1)-1:0] iq_take, iq_take_t, iq_take_n;
   logic                               iq_tnz_t, iq_tnz_n;    // decode's takes are nonzero (the queue's read thread)
   logic                    de_take;                   // (declared ahead of fetch, which reads it)
+  // Debug mode (DEBUG_ON; core-priv.md "Debug mode"): the ROB's entry and dret, tg_csr's per-hart state (declared ahead
+  // of fetch and the LSU, which take dm_r_q: a name used before its declaration is an undriven net in Vivado)
+  logic             xret_d, dbg_enter, dret_c;
+  logic [2:0]       dbg_cause;
+  logic [63:0]      dbg_epc;
+  logic [NUM_THREADS-1:0] dm_h, dstep_h, debk_h;
+  // The halt requests come by hart line, as the interrupts do (thread t takes line t ^ RUN_TID: SOLO_TID's thread is
+  // hart 0)
+  logic [NUM_THREADS-1:0] dbg_req_t;
+  for (genvar t = 0; t < NUM_THREADS; t++) begin : g_dreq
+    assign dbg_req_t[t] = debug_req_i[tid_t'(t) ^ RUN_TID];
+  end
+  logic [NUM_THREADS-1:0] dm_r_q;          // each hart's debug mode, registered as priv for fetch and the LSU (a flush
+  always_ff @(posedge clk)                 // follows each change)
+    dm_r_q <= (rst || !DEBUG_ON) ? '0 : dm_h;
   // Fetch's own copy of the privilege and of whether it translates, a cycle behind tg_csr's: they
   // change only as a trap, an xRET or a serialising CSR write commits, and the flush that follows
   // is the next cycle, so fetch resumes after the copy has caught up (timing, DR-145: the CSR's
@@ -680,20 +695,6 @@ module tg_core
   logic [5:0]       tr_code, irq_code;
   logic [63:0]      tr_epc, tr_tval, trap_target, irq_target, xepc;
   logic             xret_v, xret_s;
-  // Debug mode (DEBUG_ON; core-priv.md "Debug mode"): the ROB's entry and dret, tg_csr's per-hart state
-  logic             xret_d, dbg_enter, dret_c;
-  logic [2:0]       dbg_cause;
-  logic [63:0]      dbg_epc;
-  logic [NUM_THREADS-1:0] dm_h, dstep_h, debk_h;
-  // The halt requests come by hart line, as the interrupts do (thread t takes line t ^ RUN_TID: SOLO_TID's thread is
-  // hart 0)
-  logic [NUM_THREADS-1:0] dbg_req_t;
-  for (genvar t = 0; t < NUM_THREADS; t++) begin : g_dreq
-    assign dbg_req_t[t] = debug_req_i[tid_t'(t) ^ RUN_TID];
-  end
-  logic [NUM_THREADS-1:0] dm_r_q;          // each hart's debug mode, registered as priv for fetch and the LSU (a flush
-  always_ff @(posedge clk)                 // follows each change)
-    dm_r_q <= (rst || !DEBUG_ON) ? '0 : dm_h;
   assign rsv_clr = tr_valid || mret || sret;
   assign priv_cm = MT ? priv_h[rob_hd_tid] : priv;
   // M9's counters (HPM_N > 0; tg_csr's mhpmevent 3 ..): each hart's events (tg_core_pkg's HPM_EV), registered: 3

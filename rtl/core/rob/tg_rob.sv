@@ -591,6 +591,15 @@ module tg_rob
   logic          stop;
   logic          pushed;            // a return-address-stack push retires in the group (one per cycle)
   logic [CW-1:0] mf;                // the slot whose mispredict ends the group
+  // Debug mode (DEBUG_ON; core-priv.md "Debug mode"): the debug window's entry points; per thread a step armed by
+  // dret with dcsr.step (stp_q) and its one instruction or trap done (std_q), then entry with cause 4
+  localparam logic [63:0] DBG_HALT = 64'(tg_map_pkg::DEBUG_BASE) + 64'h800,
+                          DBG_EXC  = 64'(tg_map_pkg::DEBUG_BASE) + 64'h808;
+  logic [NT-1:0] stp_q, std_q;
+  logic          do_dbg, do_dret, dm_c, stp_c;
+  logic [2:0]    dbg_c;
+  assign dm_c  = DEBUG_ON && dm_h[t_cm];
+  assign stp_c = DEBUG_ON && stp_q[t_cm];
   // Commit holds (cmh_*): a store whose PMP check comes after it completed retires only once a
   // denial would show, and a load whose ordering replay mark is a cycle late does not retire before
   // it; the group stops at the held entry. hold_le[j]: slot j or an older one is held.
@@ -680,15 +689,6 @@ module tg_rob
       wkr_o[t] = HART1_ON && slp_q[t] && (wkh_q[t] || (wfi_arm_h[t] && int'(wfi_cnt_q[t]) == SLP_MAX) || xw_q[t]) &&
                  !(h1off_i && tid_t'(t) == ~RUN_TID);
   assign slp_o = slp_q;
-  // Debug mode (DEBUG_ON; core-priv.md "Debug mode"): the debug window's entry points; per thread a step armed by
-  // dret with dcsr.step (stp_q) and its one instruction or trap done (std_q), then entry with cause 4
-  localparam logic [63:0] DBG_HALT = 64'(tg_map_pkg::DEBUG_BASE) + 64'h800,
-                          DBG_EXC  = 64'(tg_map_pkg::DEBUG_BASE) + 64'h808;
-  logic [NT-1:0] stp_q, std_q;
-  logic          do_dbg, do_dret, dm_c, stp_c;
-  logic [2:0]    dbg_c;
-  assign dm_c  = DEBUG_ON && dm_h[t_cm];
-  assign stp_c = DEBUG_ON && stp_q[t_cm];
   // One adder on the head's PC: a serial instruction's next PC (+2 or +4), or a fetch fault's
   // tval (+2 when only the second half of a 32-bit instruction faults). The second is a decode
   // exception, which traps, so one instruction never needs both.

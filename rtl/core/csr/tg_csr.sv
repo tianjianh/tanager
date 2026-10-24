@@ -188,6 +188,11 @@ module tg_csr
   assign r  = h_q[RUN_TID];                    // the head's (interrupts); commit's are h_q[wt]
   assign re = h_q[et];
   assign rh = h_q[ht];
+  // Debug mode's state (DEBUG_ON; the block "Debug mode" below), declared here ahead of its first readers
+  logic [NT-1:0]      dm_q, debm_q, debs_q, debu_q, dstep_q;
+  logic [NT-1:0][1:0] dprv_q;
+  logic [NT-1:0][2:0] dcause_q;
+  logic [63:0]        dcsr_rd;
   // R1: the cycle and instret counters are DSP48E2 pairs (tg_dsp_ctr: count, load from a CSR
   // write, reset), with no fabric register, adder or multiplexer; one pair per hart
   logic [NT-1:0][63:0] mcycle_q, minstret_q;
@@ -815,10 +820,6 @@ module tg_csr
   // dcsr: debugver 4; ebreakm/s/u, step and prv written by the debugger (prv 2 writes as U, as MPP); cause and prv
   // set at entry; stepie 0, stopcount 1, stoptime 0, mprven 0 and the rest 0 hardwired. dpc, dscratch0 and dscratch1
   // are cold rows (crow). The CSRs exist in debug mode only.
-  logic [NT-1:0]      dm_q, debm_q, debs_q, debu_q, dstep_q;
-  logic [NT-1:0][1:0] dprv_q;
-  logic [NT-1:0][2:0] dcause_q;
-  logic [63:0]        dcsr_rd;
   if (DEBUG_ON) begin : g_dbg
     always_ff @(posedge clk)
       for (int t = 0; t < NT; t++)
