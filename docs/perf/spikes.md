@@ -2187,6 +2187,46 @@ The chains below are rc3_u100's, by net name, in `fpga/spikes/results/product_wt
 
 Results: [`fpga/spikes/results/ooc_dr191/`](../../fpga/spikes/results/ooc_dr191/) holds each run's summary, paths and per-family reports, and `compare.txt` (`fpga/spikes/scripts/ooc_compare.py`).
 
+#### The pair of record with DR-191's fixes: both placements close (2026-10-24)
+
+**Asked** (the coordinator, 10-24): "When all of the follow-up and fixes 2 and 3 are on main, start the full-chip pair of record on that main: product flow, 0.95 and 1.05 ns." It decides whether closure is still a lottery.
+- **The source:** main f3311cdd, whose RTL is ca06e559's. That holds all five DR-191 fixes and fix 1's follow-up.
+- **The start:** `wait_main_rec.sh` started the pair when the last of them landed, from snapshot `snap/product_wt` 576c5a22a617, pinned by `claude/spikes-2-board-rec`. Lint in the product's view and fwdref are clean.
+- **The flow:** the product form, `AltSpreadLogic_high`, and main's `TG_ROUTE_DIRECTIVE=AlternateCLBRouting`.
+
+| | `rec_u095` (0.95 ns) | **`rec_u105` (1.05 ns)** | for comparison: `rc3_u095r` (the M8 image) |
+|---|---|---|---|
+| LUTs after synthesis / `opt_design` / routed | 119,547 / 115,574 / 112,972 (96.5%) | 119,547 / 115,574 / 112,862 (96.4%) | 119,477 / 115,333 / 112,806 |
+| FFs, control sets | 58,217, 2,841 | 58,210, 2,855 | 58,024, 2,887 |
+| WNS after placement (estimated, uncertainty on) | +0.248 | +0.296 | +0.088 |
+| Routing | level 6, **the router's trade**, 2.0 h | level 5, no trade, 0.7 h | level 5, no trade, 1.6 h |
+| **WNS / TNS / WHS (ns)** | **+0.337 / 0 / +0.008** | **+1.066 / 0 / +0.010** | +0.748 / 0 / +0.006 |
+| the core clock's WNS; `clk2x` within / into / back | +0.337; +1.130 / +1.043 / +0.736 | +1.157; +1.504 / +1.066 / +1.133 | +0.748 |
+| Core-clock endpoints within 1 ns | 2,949 in 221 families | **none** | 668 in 73 families |
+
+- **Both placements close 100 MHz, so closure is no longer a lottery.** rc3's netlist, with the same flow, missed in three placements out of four.
+- **The congested placement still passes.** It took the router's trade at congestion level 6, which cost rc3 1.8–2.0 ns, and still ends at +0.337.
+- **The clean placement has a full nanosecond spare:** +1.066 ns overall, +1.157 on the core clock, and no core-clock endpoint within 1 ns.
+- **u095's worst families after its trade,** all met:
+  - the DTLB's EARLY match register `g_early.mi_q` (fix 3's new register) from the CAM's `uf_q` and the walker's `va_q`: +0.337, 16–17 levels;
+  - the RAS's push and pop, and `ka_q`, from the I$ data: +0.345, 21 levels;
+  - the I$ valid RAM and `rv_q` from `miss_s_q`: +0.36;
+  - the D$ valid RAM: +0.384;
+  - `lq_st_q` from `sq_fp_q` and `fpc_q` from `f3_carry_q`: +0.388;
+  - the ROB's `hw_q` from the CSR's `priv`: +0.399;
+  - `rt_b_q` from the issue queues' `dep_q` and `m2_dword_q` from `mi_q`: +0.407.
+- **None of DR-191's families sets the margin any more.** The next tier is the I$ data into F2's decision, the DTLB's CAM and the D$ RAMs.
+- **The floorplan is OK:** L2 bank 1 102%/79% and 102%/78%.
+
+**The images,** both written at once by `run_bit_runs.sh` (write_bit_from_dcp.tcl); `timing_bit.rpt` says "All user specified timing constraints are met" for both.
+
+| | `tanager.bit.bin` sha256 | `tanager.bit` sha256 |
+|---|---|---|
+| **`rec_u105`, the next board image's candidate** | 2cad46c89b31e7f774954665457d55933ad49cb5cc38fcf7ab0ac505c2327a3a | bb91e30767589979cad539c2fa684d1f7af4503124852c9d05f3f16302f8656a |
+| `rec_u095` | 91517e550f093d5dc2f1b9a72adf898946a70c28d7ce756f6fe52b9e07337142 | bbbd4cfbbaf428c5fb231668ec0ac1202b53c932050c61339c878bce14ddc648 |
+
+Results: `fpga/spikes/results/product_wt_rec_u095/` and `_u105/`, with `images_sha256_md5.txt`. The images and checkpoints are in `~/tanager-build/track-spikes-72f833/vivado/product_wt_rec_u095/` and `_u105/`, both on `KEEP.txt`.
+
 #### The preview pair with DR-191's fixes 3–5 (2026-10-24)
 
 **Asked** (the coordinator, 10-24): "a full-chip preview pair, product flow at 0.95 and 1.05 ns", on main d7c2d835 (fix 4 is 16b6d5d1) with fix 3 (core-2's tlbreg b3ab9dfe) and fix 5 (fpu-2's tageflat f6865c1e) merged. It is a preview: the pair of record waits for all five fixes on main.
