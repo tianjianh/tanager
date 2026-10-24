@@ -3,8 +3,8 @@
 # restart (the question: back near the 15-17 levels the table off has, with krt_q and f3_rtop_q at about 7).
 source [file join [file dirname [info script]] paths_itt2.tcl]
 lappend tg_paths \
-  {ipi_q          *u_fetch/ipi_q_reg*} \
-  {ipw_q          *u_fetch/ipw_q_reg*} \
+  {ipi_q          *ipi_q_reg*} \
+  {ipw_q          *ipw_q_reg*} \
   {ka_q_ic        *u_fetch/ka_q_reg*          *u_fetch/g_way*u_data*} \
   {k_ovr_q_ic     *u_fetch/k_ovr_q_reg*       *u_fetch/g_way*u_data*} \
   {kr_q_ic        *u_fetch/kr_q_reg*          *u_fetch/g_way*u_data*} \
@@ -13,7 +13,7 @@ lappend tg_paths \
   {f3_ras_q_ic    *u_fetch/f3_ras_q_reg*      *u_fetch/g_way*u_data*} \
   {f3_rtop_q_ic   *u_fetch/f3_rtop_q_reg*     *u_fetch/g_way*u_data*} \
   {f3_itt_q_ic    *u_fetch/f3_itt_q_reg*      *u_fetch/g_way*u_data*} \
-  {ipi_q_ic       *u_fetch/ipi_q_reg*         *u_fetch/g_way*u_data*} \
-  {ipw_q_ic       *u_fetch/ipw_q_reg*         *u_fetch/g_way*u_data*} \
+  {ipi_q_ic       *ipi_q_reg*                 *u_fetch/g_way*u_data*} \
+  {ipw_q_ic       *ipw_q_reg*                 *u_fetch/g_way*u_data*} \
   {ras_push_ic    *u_ras/g_late.p_push_q_reg* *u_fetch/g_way*u_data*} \
   {ras_pop_ic     *u_ras/g_late.p_pop_q_reg*  *u_fetch/g_way*u_data*}
