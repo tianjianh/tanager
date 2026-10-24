@@ -16,7 +16,8 @@
 # WIN=, a copy of the configuration's file; lever 2's LUT form, IQ_CC=0; FP banks of 96, FP_BANK96=1; DR-183's three
 # PMP checkers, PMP_FILL=0; both views; M9's load-wait table on, LWT=1, in both views;
 # docs/spec/area_switches.md), and with hart 1 the other forms of DR-185 (PAY_WREG=0, IQ_CC=0 and 3) and the FP banks
-# of 96 alone (both views). They run JOBS at a time
+# of 96 alone (both views); M9's performance counters on (HPM=1, DR-190) for every configuration and with hart 1, in
+# both views. They run JOBS at a time
 # (Verilator's lint is one thread and about 0.6 GB).
 # An elaboration whose define no RTL file mentions is the default's, so it is skipped.
 # With them, the forward-reference check (tools/ci/fwdref.sh: Verilator's JSON dump of the synthesis
@@ -71,6 +72,8 @@ if mentioned TG_PMP_FILL; then profiles+=("PMP_FILL=0" "PMP_FILL=0 SYNTH=1"); el
 if mentioned TG_LWT; then profiles+=("LWT=1" "LWT=1 SYNTH=1"); else echo "lint-all: no RTL mentions TG_LWT; skipping LWT=1"; fi
 # DR-185's rename payload written straight into its LUTRAM (PAY_WREG=0; the package registers the write)
 if mentioned TG_PAY_WREG; then profiles+=("PAY_WREG=0"); else echo "lint-all: no RTL mentions TG_PAY_WREG; skipping PAY_WREG=0"; fi
+# M9's performance counters (DR-190; off by default), on, in both views
+if mentioned TG_HPM; then profiles+=("HPM=1" "HPM=1 SYNTH=1"); else echo "lint-all: no RTL mentions TG_HPM; skipping HPM=1"; fi
 profiles+=("SYNTH=1")
 # DR-177's release builds, without the two latency injectors (tanager_soc LAT_INJ, a parameter), in both views
 if grep -qsw LAT_INJ "$ROOT/rtl/soc/tanager_soc.sv"; then profiles+=("LAT_INJ=0" "LAT_INJ=0 SYNTH=1")
@@ -80,6 +83,9 @@ else echo "lint-all: tanager_soc has no LAT_INJ; skipping LAT_INJ=0"; fi
 if grep -qsw RELEASE "$ROOT/rtl/soc/tanager_soc.sv"; then
   profiles+=("RELEASE=1 LAT_INJ=0 COMMIT_TRACE=0" "RELEASE=1 LAT_INJ=0 COMMIT_TRACE=0 SYNTH=1")
 else echo "lint-all: tanager_soc has no RELEASE; skipping RELEASE=1"; fi
+# The L2's write-back batching (tanager_soc L2_WB_PACE, a parameter; 8 write-back buffers and L2_PACE), in both views
+if grep -qsw L2_WB_PACE "$ROOT/rtl/soc/tanager_soc.sv"; then profiles+=("L2_WB_PACE=1" "L2_WB_PACE=1 SYNTH=1")
+else echo "lint-all: tanager_soc has no L2_WB_PACE; skipping L2_WB_PACE=1"; fi
 # M7's test mode (SOLO_TID=1, DR-175) exists only in the SMT2 configurations (TID_W = 1)
 solo=""; if mentioned TG_SOLO_TID; then solo=1; else echo "lint-all: no RTL mentions TG_SOLO_TID; skipping SOLO_TID=1"; fi
 # ... and its split mode (SPLIT=1), alone and with SOLO_TID=1
@@ -107,6 +113,8 @@ if [ -n "$hart1" ]; then
   if mentioned TG_IQ_CC; then area+=("HART1=1 IQ_CC=0" "HART1=1 IQ_CC=3 SYNTH=1"); fi
   # DR-175's FP banks of 96 without DR-179's crossing, in both views
   if mentioned TG_FP_BANK96; then area+=("HART1=1 FP_BANK96=1" "HART1=1 FP_BANK96=1 SYNTH=1"); fi
+  # M9's performance counters with hart 1 (each hart has its own), in both views
+  if mentioned TG_HPM; then area+=("HART1=1 HPM=1" "HART1=1 HPM=1 SYNTH=1"); fi
 fi
 tasks=()
 for c in $CFGS; do

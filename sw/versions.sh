@@ -38,3 +38,15 @@ UBOOT_TAR=u-boot-${UBOOT_VER}.tar.bz2
 # normal mirrors.
 DEBIAN_SNAPSHOT=https://snapshot.debian.org/archive/debian/20261015T000000Z
 DEBIAN_SNAPSHOT_SECURITY=https://snapshot.debian.org/archive/debian-security/20261015T000000Z
+
+# The udb gem's binaries for ACT4 (docs/spec/verification.md §6.1): the gem downloads them at install into
+# $XDG_CACHE_HOME/udb/<name>/<version>/x64 (default ~/.cache/udb), from riscv/riscv-unified-db's releases, and checks
+# each against its release checksum. The disk cleanup of 10-21 deleted that cache; the user approved fetching them again
+# (10-23, 22:50), by rerunning the gem's ext/udb_download/extconf.rb, into the shared tools folder that cleanups keep,
+# $TANAGER_BUILD/tools/udb-deps, which tests/arch/Makefile gives udb (UDB_CACHE). The versions are the gem's pins (udb
+# 0.1.17, lib/udb/*_VERSION); tests/arch/Makefile reads them here to check the folder.
+UDB_DEPS_URL=https://github.com/riscv/riscv-unified-db/releases/download
+UDB_Z3_VER=z3-5.1.0                   # libz3-x64.so (libz3.so in the cache)
+UDB_ESPRESSO_VER=espresso-18f59c7     # espresso-x64
+UDB_EQNTOTT_VER=eqntott-392759e       # eqntott-x64
+UDB_MUST_VER=must-17fa9f9             # must-x64

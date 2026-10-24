@@ -1,0 +1,12 @@
+riscv.scr script vs riscv.cmd: same; u100 riscv.scr script vs riscv.cmd: same
+== fh_p1 install /home/ubuntu/tanager/rc3u095r-riscv-pkg/rc3u095r-riscv 2026-10-20 22:32:52 UTC, A53 up 157.10 s
+62349a65652ae167 62349a65652ae167 fw_jump.bin (package, p1)
+459992b884a8a3e0 459992b884a8a3e0 payload.bin (package, p1)
+8aa45e615548e570 8aa45e615548e570 riscv.cmd (package, p1)
+2635d6bf07fee774 2635d6bf07fee774 riscv.scr (package, p1)
+15cd197cd1338300 15cd197cd1338300 tanager-h01.dtb (package, p1)
+2a47608a94ce0f20 2a47608a94ce0f20 tanager.bit.bin (package, p1)
+18afd230a9f577f1 18afd230a9f577f1 tanager.dtb (package, p1)
+kept from before:
+  fw_jump.bin.b0094d23
+  tanager.dtb.pre-pmpfix

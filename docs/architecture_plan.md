@@ -1260,8 +1260,10 @@ Durations are wall-clock estimates for an **agent-built** project (D8): Claude a
     - fresh placements at −1.104, −0.959 and −0.237 ns;
     - a post-route optimisation pass;
     - incremental runs from rc2's placement (86% reuse), where the placer found no room.
-- **Open:** the 72-hour stress on the release image, on the board after its install. | SMP Debian 13 on 2 cores × 2 harts, booted standalone in RISC-V mode; the litmus suite clean on four harts at 0, 120 and 250 injected cycles (simulation and development builds); 72-hour stress clean on the board; the release build at 100 MHz (DR-152). No fixed LUT ceiling: the measured fill and timing closure decide. The old exit (≥ 150 MHz, goal 200; LUTs ≤ ~80%) predates DR-152 and SMT2 on this part. | About an agent week after M7's step 8, plus the 72-hour stress run |
-| **M9 Hardening** | **Scope approved 2026-10-23 (DR-190, [m9-plan.md](spec/m9-plan.md)):** the hardening that costs no LUTs (the trigger CSRs in the spec's no-trigger form, the device tree's ISA string checked against the RTL) and the v1 documentation; Sscofpmf/perf with 4 counters a hart behind `TG_HPM` (up to 1.4K LUTs a chip); an indirect-target predictor sized by smt2-study's model; the debug module with OpenOCD in development builds only. virtio-net is done (stage C; the product uses GEM3). After v1: Svpbmt, Zicbom, Zicbop prefetches, misaligned hardware, store sets, Sdtrig; Zicboz after a page-zeroing measurement. No-IPC area cuts pay for the release additions first. | **v1 release: the SMT2 dual-core** | About 1 week; parts run in parallel with M8 |
+- **rc3 on the board (10-23/24, MR40):** every step passed before the long run. Four harts, with the login at 154.2 s; hart_check 0 fails; 33 rounds of hart stop and start with 0 failed fences; the stress 10 of 10; the DR-141 set and memgap matched u100.
+- **The 72-hour stress started at 02:43 UTC on 10-24.** The user stopped it at 05:26 UTC for travel: 16 rounds, 48 stress passes, 0 FAIL (MR41). It restarts on the user's word, on rc3 or on v1's image.
+- **Open:** that 72-hour stress. | SMP Debian 13 on 2 cores × 2 harts, booted standalone in RISC-V mode; the litmus suite clean on four harts at 0, 120 and 250 injected cycles (simulation and development builds); 72-hour stress clean on the board; the release build at 100 MHz (DR-152). No fixed LUT ceiling: the measured fill and timing closure decide. The old exit (≥ 150 MHz, goal 200; LUTs ≤ ~80%) predates DR-152 and SMT2 on this part. | About an agent week after M7's step 8, plus the 72-hour stress run |
+| **M9 Hardening** | **Scope approved 2026-10-23 (DR-190, [m9-plan.md](spec/m9-plan.md)):** the hardening that costs no LUTs (the trigger CSRs in the spec's no-trigger form, the device tree's ISA string checked against the RTL) and the v1 documentation; Sscofpmf/perf with 4 counters a hart behind `TG_HPM` (up to 1.4K LUTs a chip); an indirect-target predictor sized by smt2-study's model; the debug module with OpenOCD in development builds only. virtio-net is done (stage C; the product uses GEM3). After v1: Svpbmt, Zicbom, Zicbop prefetches, misaligned hardware, store sets, Sdtrig; Zicboz after a page-zeroing measurement. No-IPC area cuts pay for the release additions first. **Sized and added (10-23):** the predictor is the 256-entry path table, estimated at +2.4–2.9% of the two-hart boot's busy cycles. The user added a 16-entry load-wait table: +0.58% on the suite, about 0.2K LUTs a chip, behind a switch. **On main:** the trigger CSRs (b512ef98). Sscofpmf behind `TG_HPM`, off by default, +870 LUTs a chip when on, complete on 10-24: the RTL (889c3b11), lockstep and ACT4 with the counters (d7c2d835; 895 of 895 with them on) and the device tree's `riscv,pmu` node (d6b3ae49; OpenSBI and Linux's SBI PMU driver find the four counters in simulation). The ISA string is decided (DR-194). The Zkt audit, a boot under lockstep with the counters on, and `perf` on the board remain. **First:** structural fixes for the timing families that recur at 96% fill (DR-191). | **v1 release: the SMT2 dual-core** | About 1 week; parts run in parallel with M8 |
 | **M10 v2: 3-wide on the SMT2 core** | `smt2_w3` (§4.15) with its own freeze by the acceptance rule; the `st_w3` bring-up stage first; v2 area-recovery levers (§8.5) | CoreMark/MHz ≥ 6.0 on rv64gc; v2 suite targets; dual-core within the measured utilisation limit on the XCK26 (85–90%, §8.5), ≥ 150 MHz | After v1; about 1–2 months |
 
 **Board stages (user, 2026-10-14; DR-126).**
@@ -1401,6 +1403,19 @@ tools/           scripts, CI
 | Coherence bugs appear after 10⁹–10¹¹ cycles | Protocol model first; FPGA lockstep; litmus at three latencies; 72-hour stress (§9) |
 | Vivado can drop a RAM read port silently (SmolRV64) | Scripted primitive checks (§8.3) |
 | ZynqMP JTAG tunnelling traps | A53 bit-banged debug TAP (§7.4) |
+
+**The sources named above,** as the literature review gives them (`research_notes/`, `reports/`; [provenance.md](provenance.md) §3.2):
+- **RSD:** Mashimo et al., "An Open Source FPGA-Optimized Out-of-Order RISC-V Soft Processor", ICFPT 2019, pp. 63–71 (https://www.rsg.ci.i.u-tokyo.ac.jp/members/shioya/pdfs/Mashimo-FPT%2719.pdf).
+- **Wong:** Henry Wong, FCCM 2016 (https://www.eecg.utoronto.ca/~jayar/pubs/wong/wongfccm16.pdf) and TRETS 2016 (https://www.eecg.utoronto.ca/~jayar/pubs/wong/wongtrets16.pdf); his PhD thesis, University of Toronto, 2017 (https://www.eecg.utoronto.ca/~jayar/pubs/theses/HWong/HenryWong.pdf).
+- **Seznec 2002:** Seznec, Toullec and Rochecouste, MICRO 2002. The review names it but could not retrieve it.
+- **SmolRV64:** an independent design of 2026, described in its project's README (https://github.com/tommythorn/smolrv64); not a paper.
+- **SonicBOOM:** Zhao et al., CARRV 2020 (https://carrv.github.io/2020/papers/CARRV2020_paper_15_Zhao.pdf). It is also the source of Rocket's blocking evictions.
+- **Celio:** Celio et al., arXiv 1607.02318 (2016).
+- **OPA:** ORConf 2015 (https://github.com/terpstra/opa), as the RSD paper measures it.
+- **Store sets:** Chrysos and Emer, ISCA 1998 (https://acg.cis.upenn.edu/milom/cis501-Fall10/papers/store-sets.pdf).
+- **CVA6S+:** the papers the review names as Tedeschi (arXiv 2505.03762) and Fu (arXiv 2505.24363, CF 2025).
+- **Coherence-bug latency:** NaxRiscv's 37C3 slides (2023), on SpinalDoc.
+- **The A73:** the Chips and Cheese articles in Appendix B.
 
 ---
 

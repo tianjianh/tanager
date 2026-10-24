@@ -11,6 +11,9 @@
 //   TG_POWER_NODE                               label of the syscon that takes the power-off/reboot writes
 //   TG_POWER_OFFSET                             byte offset of the power register in that syscon
 //   TG_PMU (0|1)                                1 adds the riscv,pmu node (the bench image, DR-141)
+//   TG_HPM (0|1)                                1 for a core built with TG_HPM (M9's counters, DR-190): Sscofpmf
+//                                               in the ISA strings, and the riscv,pmu node maps the events to
+//                                               mhpmcounter3-6; never for a core without them
 //   TG_UART1 (0|1)                              1 adds the PS's UART1 through the PS window as the stdout
 //                                               path (stage D's D3, DR-163; TG_PS_WINDOW=1 bitstreams)
 //   TG_UART1_STDOUT (0|1)                       with TG_UART1, 0 keeps the stdout path on the PL UART (D4's
@@ -57,10 +60,20 @@
 #ifndef TG_ETH
 #define TG_ETH 0
 #endif
+#ifndef TG_HPM
+#define TG_HPM 0
+#endif
 
-#if TG_FPU
+// (Sscofpmf only with TG_HPM: OpenSBI and Linux take the counters' overflow interrupt and mode filters from it)
+#if TG_FPU && TG_HPM
+#define TG_ISA_STR "rv64imafdc_zicsr_zifencei_zba_zbb_zbs_zicond_sscofpmf_sstc"
+#define TG_ISA_EXT "i", "m", "a", "f", "d", "c", "zicsr", "zifencei", "zba", "zbb", "zbs", "zicond", "sscofpmf", "sstc"
+#elif TG_FPU
 #define TG_ISA_STR "rv64imafdc_zicsr_zifencei_zba_zbb_zbs_zicond_sstc"
 #define TG_ISA_EXT "i", "m", "a", "f", "d", "c", "zicsr", "zifencei", "zba", "zbb", "zbs", "zicond", "sstc"
+#elif TG_HPM
+#define TG_ISA_STR "rv64imac_zicsr_zifencei_zba_zbb_zbs_zicond_sscofpmf_sstc"
+#define TG_ISA_EXT "i", "m", "a", "c", "zicsr", "zifencei", "zba", "zbb", "zbs", "zicond", "sscofpmf", "sstc"
 #else
 #define TG_ISA_STR "rv64imac_zicsr_zifencei_zba_zbb_zbs_zicond_sstc"
 #define TG_ISA_EXT "i", "m", "a", "c", "zicsr", "zifencei", "zba", "zbb", "zbs", "zicond", "sstc"
@@ -296,9 +309,9 @@
 		// window, which passes that word while the host's BOARD_CTRL[1] is set (riscv.scr sets it). Its
 		// SOFT_RESET bit resets the PS and the PL, and the A53's U-Boot chooses the mode again.
 		// The syscon spans RESET_CTRL's whole 4 KiB page (the window still passes that word alone): OpenSBI
-		// gives a reset syscon a PMP region of the syscon's size, and a region smaller than a page clears the
-		// core's "every 4K page is PMP-homogeneous" flag (tg_csr pmp_al), so no 4K page caches its PMP result
-		// and every store and fetch redirect takes the slow check: RISC-V mode's memory gap (10-21)
+		// gives a reset syscon a PMP region of the syscon's size. Until DR-182 a region smaller than a page
+		// cleared the core's "every 4K page is PMP-homogeneous" flag (tg_csr pmp_al), so no 4K page cached its
+		// PMP result and every store and fetch redirect took the slow check: RISC-V mode's memory gap (10-21)
 		crl_reset: syscon@ff5e0000 {
 			compatible = "syscon";
 			reg = <0x0 0xff5e0000 0x0 0x1000>;
@@ -370,14 +383,35 @@
 	};
 #endif
 
-#if TG_PMU
+#if TG_PMU || TG_HPM
 	// OpenSBI's PMU event map (its riscv,pmu binding; OpenSBI removes the property before Linux sees
-	// it). The core has only mcycle and minstret (no mhpmcounters): CPU_CYCLES on counter 0 and
+	// it). Without TG_HPM the core has only mcycle and minstret (no mhpmcounters): CPU_CYCLES on counter 0 and
 	// INSTRUCTIONS on counter 2. Without the map, SBI v3's event-info probe reports neither, so
 	// Linux's PMU driver can never start them and a user-mode rdcycle reads a stopped counter.
 	pmu {
 		compatible = "riscv,pmu";
+#if TG_HPM
+		// With TG_HPM (M9's counters, DR-190; fpu-2's events): mhpmcounter3-6 (bitmap 0x78) count mhpmevent's
+		// event: 1 cycles, 2 instructions retired, 3 branch mispredicts (at execute, wrong-path ones too),
+		// 4 ordering replays, 5 L1D load misses, 6 data TLB walks, 7 fetch TLB walks, 8 I$ misses, 9 CoRR
+		// replays. The SBI events with a hardware one: CPU_CYCLES and INSTRUCTIONS on their fixed counters (0,
+		// 2) and on 3-6 too, where an overflow interrupt lets perf record sample them; BRANCH_MISSES (0x6) and
+		// the L1D, L1I, DTLB and ITLB read misses (0x10001, 0x10009, 0x10019, 0x10021); raw events 1-9
+		riscv,event-to-mhpmevent = <0x00001 0x0 0x1>, <0x00002 0x0 0x2>, <0x00006 0x0 0x3>,
+		                           <0x10001 0x0 0x5>, <0x10009 0x0 0x8>, <0x10019 0x0 0x6>,
+		                           <0x10021 0x0 0x7>;
+		riscv,event-to-mhpmcounters = <0x00001 0x00001 0x00000079>, <0x00002 0x00002 0x0000007c>,
+		                              <0x00006 0x00006 0x00000078>, <0x10001 0x10001 0x00000078>,
+		                              <0x10009 0x10009 0x00000078>, <0x10019 0x10019 0x00000078>,
+		                              <0x10021 0x10021 0x00000078>;
+		riscv,raw-event-to-mhpmcounters = <0x0 0x1 0xffffffff 0xffffffff 0x78>, <0x0 0x2 0xffffffff 0xffffffff 0x78>,
+		                                  <0x0 0x3 0xffffffff 0xffffffff 0x78>, <0x0 0x4 0xffffffff 0xffffffff 0x78>,
+		                                  <0x0 0x5 0xffffffff 0xffffffff 0x78>, <0x0 0x6 0xffffffff 0xffffffff 0x78>,
+		                                  <0x0 0x7 0xffffffff 0xffffffff 0x78>, <0x0 0x8 0xffffffff 0xffffffff 0x78>,
+		                                  <0x0 0x9 0xffffffff 0xffffffff 0x78>;
+#else
 		riscv,event-to-mhpmcounters = <0x00001 0x00001 0x00000001>, <0x00002 0x00002 0x00000004>;
+#endif
 	};
 #endif
 

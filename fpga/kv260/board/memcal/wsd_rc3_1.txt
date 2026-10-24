@@ -1,0 +1,11 @@
+# COM5, from 01:43:13.772 UTC on 2026-10-24: soc-2's wsd.bin (sha256 ae231676…) on rc3's bitstream (2a47608a…), run 1 (rc3_bare.sh)
+WSD-BEGIN 16 MiB
+WSD k=0 x100 cycles/line 3833
+WSD k=4 x100 cycles/line 2991
+WSD k=8 x100 cycles/line 3272
+WSD k=12 x100 cycles/line 3949
+WSD k=16 x100 cycles/line 4636
+WSD k=24 x100 cycles/line 6120
+WSD k=32 x100 cycles/line 7846
+WSD k=48 x100 cycles/line 12750
+WSD-END

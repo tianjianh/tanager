@@ -13,7 +13,8 @@ module tg_l2
   parameter int DATA_LAT  = 2,
   parameter logic [3:0] RSLICE_DSP = '0,  // per bank: its R slice in DSP48E2s (tg_l2_bank)
   parameter bit         MWAY_OH    = 1'b1,// the MSHRs' way flip-flops one-hot (tg_l2_bank, DR-142)
-  parameter bit         DIR_S3     = 1'b1 // the directory RAM written at S3 (tg_l2_bank, DR-142)
+  parameter bit         DIR_S3     = 1'b1,// the directory RAM written at S3 (tg_l2_bank, DR-142)
+  parameter bit         WB_PACE    = 1'b0 // write-back batching (tg_l2_bank; docs/spec/l2.md)
 ) (
   input  logic                  clk,
   input  logic                  rst,
@@ -47,6 +48,8 @@ module tg_l2
   input  axi_b_t  [N_BANKS-1:0] bresp_i,
   input  logic    [N_BANKS-1:0] bresp_valid_i,
   output logic    [N_BANKS-1:0] bresp_ready_o,
+  input  logic    [3:0]         wb_batch_i,      // write-back batching's settings, both banks (tg_l2_bank, WB_PACE)
+  input  logic    [11:0]        wb_hold_i,
   output logic                  init_done_o,
   output logic    [N_BANKS-1:0] ev_hit_o,
   output logic    [N_BANKS-1:0] ev_miss_o,
@@ -62,7 +65,7 @@ module tg_l2
     tg_l2_bank #(
       .BANK (b), .N_AGENTS (N_AGENTS), .SETS (SETS), .N_MSHR (N_MSHR), .N_WB (N_WB),
       .N_PUTBUF (N_PUTBUF), .DATA_PRIM (DATA_PRIM), .DATA_LAT (DATA_LAT), .RSLICE_DSP (RSLICE_DSP[b]),
-      .MWAY_OH (MWAY_OH), .DIR_S3 (DIR_S3)
+      .MWAY_OH (MWAY_OH), .DIR_S3 (DIR_S3), .WB_PACE (WB_PACE)
     ) u_bank (
       .clk, .rst,
       .a_i (a_i[b]), .a_valid_i (a_valid_i[b]), .a_ready_o (a_ready_o[b]),
@@ -75,6 +78,7 @@ module tg_l2
       .aw_o (aw_o[b]), .aw_valid_o (aw_valid_o[b]), .aw_ready_i (aw_ready_i[b]),
       .w_o (w_o[b]), .w_valid_o (w_valid_o[b]), .w_ready_i (w_ready_i[b]),
       .bresp_i (bresp_i[b]), .bresp_valid_i (bresp_valid_i[b]), .bresp_ready_o (bresp_ready_o[b]),
+      .wb_batch_i, .wb_hold_i,
       .init_done_o (done[b]),
       .ev_hit_o (ev_hit_o[b]), .ev_miss_o (ev_miss_o[b]), .ev_wb_o (ev_wb_o[b]),
       .ev_probe_o (ev_probe_o[b]), .ev_err_o (ev_err_o[b]),

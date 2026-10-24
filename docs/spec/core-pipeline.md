@@ -457,8 +457,7 @@ With hart 1 a thread that waits in WFI while its sibling runs lends its half of 
 | `mcycle`, `minstret` | read/write; a write to `minstret` replaces that instruction's increment |
 | `cycle`, `time`, `instret` | read-only aliases; `time` = the core's snapshot of the ACLINT's `mtime` (`mtime_q`, a cycle behind `mtime_i`; monotonic; DR-146); cycle and time reads are `nondet` |
 | `mhpmcounter3–31`, `mhpmevent3–31` | read 0, writes ignored (counter reads `nondet`) |
-| `tselect`, `tdata1–3`, `tinfo` | read 0, writes ignored |
-| `mcontext` | 13 bits read/write |
+| `tselect`, `tdata1–3`, `tinfo`, `mcontext` (and `scontext` with S) | do not exist: illegal (no Sdtrig, M9 §10). A write of 0 to `tselect` that traps means no triggers (Debug spec §5.1), so OpenSBI finds no `sdtrig` and registers no SBI `dbtr`. Reading 0 had made it count one trigger. The checker removes them from Spike, which keeps them with no triggers |
 | `mtgsmt` (0x7C0, custom) | with hart 1 only (§8.5): bit 0 HART1_OFF, hart 1 kept asleep; one per core; else illegal |
 | `pmpcfg0, 2, …, 14`, `pmpaddr0–63` | entries 0–7 implemented (`PMP_ENTRIES`, DR-167; 0–15 with `TG_PMP_ENTRIES=16`; Spike's WARL rules: lock, R=0/W=1 dropped, 54-bit addresses); the others read 0 and ignore writes (Spike with `--pmpregions` at the same count). Reset: entry 0 = NAPOT RWX over the whole space, as Spike. Checked by `tg_pmp` (core-mmu.md) |
 
@@ -576,7 +575,7 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 
 - #3's cost differs from its first measurement, which was made on fn3. Since fn4 the head's check has its own DTLB lookup.
 
-*Build switches* (`tg_core_pkg`): generate branches, chosen at elaboration, so each setting builds only its own logic. `TG_TIMING_CUTS=0|1` forces a profile. Each switch also has its own define over its profile value (`TG_ROB_STORE_REPORT_LATE`, `TG_LSU_AG_SPLIT`, `TG_DC_AMO_READ_REG`, `TG_DE_STAGE`, `TG_ROB_HEAD_TLB_LATE`, `TG_LSU_MMIO_PMP_REG`, `TG_DC_PORTB_WREG`, each `=0|1`).
+*Build switches* (`tg_core_pkg`): generate branches, chosen at elaboration, so each setting builds only its own logic. `TG_TIMING_CUTS=0|1` forces a profile. Each switch also has its own define over its profile value (`TG_ROB_STORE_REPORT_LATE`, `TG_LSU_AG_SPLIT`, `TG_DC_AMO_READ_REG`, `TG_DE_STAGE`, `TG_ROB_HEAD_TLB_LATE`, `TG_LSU_MMIO_PMP_REG`, `TG_DC_PORTB_WREG`, `TG_LSU_HDWALK_REG`, `TG_LSU_CHK_REG`, each `=0|1`).
 
 | # | Switch | What | Timing |
 |---|---|---|---|
@@ -587,10 +586,12 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 | #9 | `ROB_HEAD_TLB_LATE` | the ROB head's DTLB check looks up the head's VA as registered a cycle earlier, from the head's second cycle (DR-144, B3). Off: a second lookup takes the committing store's VA beside the LQ head's, and the head's selection picks last (B2, cycle-exact; the DTLB has four ports) | the head's selection and its VA reads leave the walker's start |
 | #10 | `LSU_MMIO_PMP_REG` | an MMIO load's PMP verdict is registered before its state takes it: the LQ head's MMIO issue waits while its load checks (bare and M mode, or a page that a region boundary splits); the fault reports in the check's cycle (DR-148; core-lsu.md) | the load PMP checker leaves the LQ state's enables, through the MMIO issue |
 | #11 | `DC_PORTB_WREG` | the D$'s port-B block-RAM writes come from a register a cycle later; port B's reads wait a cycle while one lands, and a load that read the row in the write's second cycle retries (DR-148; core-lsu.md) | the store port's decision leaves port B's address, byte enables and data into the 32 data block RAMs |
+| #12 | `LSU_HDWALK_REG` | with #9, the deciding walk's request takes the head's DTLB lookup as registered (a valid miss in the thread's last cycle), so a deciding walk starts a cycle later; a DTLB fill of the thread at that lookup's edge or after holds the request a cycle, so a prefetch's fill of the head's page starts no second walk. Without #9 it does nothing (DR-191; spikes §8.18, fix 4; core-mmu.md) | the DTLB's match and leaf read leave the walker's start: its request select, then `chk_pa_q`, `va_q` and `base_q` (19 levels into `chk_pa_q` on the chip) |
+| #13 | `LSU_CHK_REG` | with `PMP_FILL`: the shared PMP checker's answer is registered, and each user takes it the cycle after its grant: a checked load in a one-entry hold, a bare store in S2, the head's MMIO load and the walker. Bare S/U loads use a region cache of verdicts (`LPC_N`, 4 by default). Without `PMP_FILL` it does nothing (DR-191; spikes §8.18, fix 1; core-lsu.md) | the checker's compare leaves the LQ state's enables, the load result and the store pipe's valid (`lq_st_q`, `r_data_q`, `lx_valid_q`) |
 
 *Profiles* (only these are supported; DR-140 as the user decided it after DR-141's board runs):
-- **default** (the shipping profile): #4, #5, #9, #10 and #11 on, #2 and #8 off (#10 and #11 added under DR-148, the 115 MHz target).
-- **fallback** (`TG_TIMING_CUTS=0`): all seven off. It is cycle-identical to the core without the switches (fn5's da48d96) in all four configurations, 800 of 800 programs each; with #9 off it was checked again against fn7's fallback (fcd9298), also 800 of 800 in all four.
+- **default** (the shipping profile): #4, #5, #9, #10, #11, #12 and #13 on, #2 and #8 off (#10 and #11 added under DR-148, the 115 MHz target; #12 and #13 under DR-191).
+- **fallback** (`TG_TIMING_CUTS=0`): all nine off. It is cycle-identical to the core without the switches (fn5's da48d96) in all four configurations, 800 of 800 programs each; with #9 off it was checked again against fn7's fallback (fcd9298), also 800 of 800 in all four.
 - **#2 on** (`TG_ROB_STORE_REPORT_LATE=1`) and **#8 on** (`TG_DE_STAGE=1`) are lint-only, on top of the default. Each is verified again only if the user turns it on. #8 cost bench +2.5% / +2.3% when measured; #2's cost is below.
 
 *Costs* (isa / stress / bench / random): the fallback against fn4's head, and the default against the fallback (6857589 against 3735313).
@@ -631,7 +632,11 @@ Spike lockstep on every test (verification.md): riscv-tests, the directed interr
 
 ## 15. Provenance
 - Out-of-order structure (rename with a free list and committed map, ROB, commit-time recovery): Smith and Pleszkun (1988), Hennessy and Patterson, *Computer Architecture*, 6th ed., ch. 3.
-- Writer-sharded register banks: Seznec et al., MICRO 2002. Dependency-vector wakeup and age-matrix select: Wong's FPGA scheduler papers (cited in the plan, Appendix A). Long-latency tags and early retirement: plan §4.5 (A73 behaviour reported by Chips and Cheese).
+- **Writer-sharded register banks:** Seznec, Toullec and Rochecouste, MICRO 2002, as the literature review names it.
+- **Dependency-vector wakeup and age-matrix select:** Wong's FPGA scheduler papers. Henry Wong, FCCM 2016 (https://www.eecg.utoronto.ca/~jayar/pubs/wong/wongfccm16.pdf) and TRETS 2016 (https://www.eecg.utoronto.ca/~jayar/pubs/wong/wongtrets16.pdf); his PhD thesis, University of Toronto, 2017 (https://www.eecg.utoronto.ca/~jayar/pubs/theses/HWong/HenryWong.pdf). Also the original matrix scheduler, Goshima et al., MICRO 2001, through Wong's summary.
+- **Long-latency tags and early retirement:** plan §4.5 (A73 behaviour reported by Chips and Cheese).
+- **XOR-banked rename tables (§5.2):** LaForest et al., FPGA 2012 (https://people.csail.mit.edu/ml/pubs/fpga12_xor.pdf).
+- **TAGE-lite:** the TAGE family. The literature review cites Seznec's limited-budget TAGE-SC-L entry to CBP-2016 (https://jilp.org/cbp2016/paper/AndreSeznecLimited.pdf). The original TAGE paper is not in the review, and `reports/m6-tage-design.md`, named in §3, is not in the repository.
 - Micro-BTB, pre-decode and compaction: spike S5 (our RTL); block-based fetch: Reinman et al., ISCA 1999.
 - RISC-V semantics: the unprivileged ISA (20240411) and privileged spec (1.13); CSR WARL behaviour as Spike implements it (Spike used as a reference model, as allowed by plan §2.3).
 - No other core's RTL was read.

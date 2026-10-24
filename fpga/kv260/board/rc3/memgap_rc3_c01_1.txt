@@ -1,0 +1,33 @@
+MEMGAP-INFO kernel=6.12.113+deb13-riscv64 machine=riscv64 cpus=4 clocksource=riscv_clocksource idle=10.0 s, each test 1.00 s
+MEMGAP-INFO two-thread tests on CPUs 0 and 1 (thread siblings 0-1 and 0-1)
+MEMGAP-IDLE-CPU cpu0 user=1.0% nice=0.0% system=0.7% idle=97.8% iowait=0.0% irq=0.0% softirq=0.1% steal=0.0%
+MEMGAP-IDLE-CPU cpu1 user=0.1% nice=0.0% system=0.2% idle=99.5% iowait=0.0% irq=0.0% softirq=0.0% steal=0.0%
+MEMGAP-IDLE-CPU cpu2 user=1.1% nice=0.0% system=0.7% idle=97.9% iowait=0.0% irq=0.0% softirq=0.0% steal=0.0%
+MEMGAP-IDLE-CPU cpu3 user=0.0% nice=0.0% system=0.1% idle=99.6% iowait=0.0% irq=0.0% softirq=0.0% steal=0.0%
+MEMGAP-IDLE-RATE interrupts=74.9/s context-switches=64.3/s over 10.0 s
+MEMGAP-IDLE-IRQ 10 55.2/s RISC-V INTC   5 Edge      riscv-timer
+MEMGAP-IDLE-IRQ 13 0.1/s SiFive PLIC  22 Edge      eth0, eth0
+MEMGAP-IDLE-IRQ IPI1 19.4/s Function call interrupts
+MEMGAP clock 986.4 ns/call
+MEMGAP rdtime 214.9 ns/read
+MEMGAP wr1k 347.3 MiB/s
+MEMGAP wr1m 179.2 MiB/s
+MEMGAP wr16m 156.0 MiB/s
+MEMGAP rd16m 171.1 MiB/s
+MEMGAP chase16k 31.0 ns/load
+MEMGAP chase256k 413.9 ns/load
+MEMGAP chase64m 594.5 ns/load
+MEMGAP pingpong 1210.4 ns/round-trip
+MEMGAP ev1 5417.3 ns/event
+MEMGAP ev2local 8433.6 ns/event (per thread; 237147 events/s in all)
+MEMGAP ev2shared 8426.6 ns/event (per thread; 237342 events/s in all)
+MEMGAP-CPU cpu0 user=21.3% nice=0.0% system=0.1% idle=78.6% iowait=0.0% irq=0.0% softirq=0.0% steal=0.0%
+MEMGAP-CPU cpu1 user=21.2% nice=0.0% system=0.1% idle=78.7% iowait=0.0% irq=0.0% softirq=0.0% steal=0.0%
+MEMGAP-CPU cpu2 user=72.5% nice=0.0% system=6.3% idle=21.1% iowait=0.0% irq=0.0% softirq=0.0% steal=0.0%
+MEMGAP-CPU cpu3 user=0.0% nice=0.0% system=0.0% idle=99.8% iowait=0.0% irq=0.0% softirq=0.0% steal=0.0%
+MEMGAP-RATE interrupts=341.7/s context-switches=34.2/s over 20.1 s
+MEMGAP-IRQ 10 320.3/s RISC-V INTC   5 Edge      riscv-timer
+MEMGAP-IRQ 13 0.1/s SiFive PLIC  22 Edge      eth0, eth0
+MEMGAP-IRQ 14 0.1/s SiFive PLIC  21 Edge      mmc0
+MEMGAP-IRQ IPI0 3.1/s Rescheduling interrupts
+MEMGAP-IRQ IPI1 18.0/s Function call interrupts

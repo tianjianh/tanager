@@ -104,6 +104,8 @@ module tg_csr
   output logic [1:0]             fc_waddr,     // 1 fflags, 2 frm, 3 fcsr
   output logic [7:0]             fc_wdata,
   input  logic [NUM_THREADS-1:0] fs_dirty,
+  // M9's counters (HPM_N > 0, tg_core_pkg): each hart's event pulses, registered in tg_core
+  input  logic [NUM_THREADS-1:0][HPM_EV-1:0] hpm_ev,
   output logic                   h1off_o       // with hart 1 (step 6): mtgsmt.HART1_OFF, hart 1 kept asleep (tg_rob)
 );
   localparam int NT   = NUM_THREADS;
@@ -115,6 +117,8 @@ module tg_csr
     $error("tg_csr: PMP_ENTRIES is 8 or 16");
   end
   localparam bit SU = EXT_SU;
+  localparam bit HPM = HPM_N > 0;                // M9's counters (Sscofpmf), below
+  localparam logic [13:0] LCOF = HPM ? 14'h2000 : 14'h0000;   // mip/mie/mideleg's LCOFI bit, when built
   // The committing thread (slot 0's) and the flushed one; without SMT thread 0, a constant whatever the
   // payloads' tid bit holds
   tid_t wt, ft;
@@ -144,17 +148,15 @@ module tg_csr
     logic [1:0]  mpp, fs;
     logic        misa_m, misa_b, misa_c, misa_a, misa_f, misa_d;
     logic [63:0] stimecmp;
-    logic [11:0] mie;
+    logic [13:0] mie;                          // bit 13: LCOFIE (HPM)
     logic        ssip, stip_sw, seip_sw;
     logic [19:0] medeleg;                      // bit 19: hardware error (Spike, with Zicntr)
-    logic [11:0] mideleg;
+    logic [13:0] mideleg;
     logic [31:0] mcounteren, scounteren, mcountinhibit;
     logic        menv_fiom, menv_stce, senv_fiom;
     logic        satp_mode;
     logic [15:0] satp_asid;
     logic [43:0] satp_ppn;
-    logic [12:0] mcontext;
-    logic [31:0] scontext;
     logic [NPMP-1:0][7:0] pmpcfg;
   } csr_hart_t;
   function automatic csr_hart_t hart_reset();
@@ -230,7 +232,9 @@ module tg_csr
   // snapshot too: monotonic, a cycle behind the ACLINT (a nondeterministic read in lockstep).
   logic [63:0]         mtime_q;
   logic [NT-1:0]       stip_q;
-  logic [NT-1:0][11:0] mip, ipend, ien;
+  logic [NT-1:0][13:0] mip, ipend, ien;
+  logic [NT-1:0]       lcofip;                     // M9's LCOFIP, per hart (g_hpm; 0 without HPM)
+  logic [63:0]         hpm_rd;                     // M9's counter CSRs as the executing thread reads them (g_hpm)
   always_ff @(posedge clk) begin
     mtime_q <= mtime;
     for (int t = 0; t < NT; t++)
@@ -245,6 +249,7 @@ module tg_csr
       mip[t][3]  = irq_msi[hl];
       mip[t][7]  = irq_mti[hl];
       mip[t][11] = irq_mei[hl];
+      mip[t][13] = HPM && lcofip[t];
       if (SU) begin
         mip[t][1] = h_q[t].ssip || irq_ssi[hl];
         mip[t][5] = stip_q[t];
@@ -255,15 +260,15 @@ module tg_csr
       ipend[t] = mip[t] & h_q[t].mie;
       m_en     = h_q[t].priv != PRIV_M || h_q[t].mie_bit;
       s_en     = h_q[t].priv == PRIV_U || (h_q[t].priv == PRIV_S && h_q[t].sie_bit);
-      ien[t]   = ipend[t] & ~h_q[t].mideleg & {12{m_en}};
-      if (ien[t] == '0) ien[t] = ipend[t] & h_q[t].mideleg & {12{s_en}};
+      ien[t]   = ipend[t] & ~h_q[t].mideleg & {14{m_en}};
+      if (ien[t] == '0) ien[t] = ipend[t] & h_q[t].mideleg & {14{s_en}};
     end
   end
-  logic [11:0] ien_r;
+  logic [13:0] ien_r;
   assign ien_r    = ien[ht];
   assign irq_take = |ien_r;
   assign irq_code = ien_r[11] ? 6'd11 : ien_r[3] ? 6'd3 : ien_r[7] ? 6'd7 :
-                    ien_r[9]  ? 6'd9  : ien_r[1] ? 6'd1 : 6'd5;
+                    ien_r[9]  ? 6'd9  : ien_r[1] ? 6'd1 : (!HPM || ien_r[5]) ? 6'd5 : 6'd13;   // LCOFI last
   assign wfi_wake = |ipend[ht];
   for (genvar t = 0; t < NT; t++) begin : g_wake
     assign wfi_wake_h[t] = |ipend[t];
@@ -403,7 +408,7 @@ module tg_csr
   logic deleg, deleg_e, deleg_i;
   always_comb begin
     deleg_e = SU && h_q[wt].priv != PRIV_M && tr_code < 6'd20 && h_q[wt].medeleg[tr_code[4:0]];
-    deleg_i = SU && rh.priv != PRIV_M && irq_code < 6'd12 && rh.mideleg[irq_code[3:0]];
+    deleg_i = SU && rh.priv != PRIV_M && irq_code < 6'd14 && rh.mideleg[irq_code[3:0]];
     deleg   = tr_irq ? deleg_i : deleg_e;
   end
   assign cw_ra[1]    = (MT && xret_v) ? caddr(ht, {!xret_s, CX_EPC}) : caddr(wt, {!deleg_e, CX_TVEC});
@@ -472,12 +477,13 @@ module tg_csr
     unique casez (a)
       12'h300: rval = mstatus_rd;
       12'h301: rval = misa_rd;
-      12'h304: rval = {52'b0, re.mie};
+      12'h304: rval = {50'b0, re.mie};
       12'h305, 12'h340, 12'h341, 12'h342, 12'h343: rval = cold_rd;
       12'h320: rval = {32'b0, re.mcountinhibit};
-      12'h344: rval = {52'b0, mip[et]};
-      12'h7A0, 12'h7A1, 12'h7A2, 12'h7A3, 12'h7A4: rval = '0;
-      12'h7A8: rval = {51'b0, re.mcontext};
+      12'h344: rval = {50'b0, mip[et]};
+      // No Sdtrig (M9 section 10): tselect, tdata1-3, tinfo and the context CSRs (mcontext, scontext) do not exist,
+      // so an access traps as illegal (the default below). A write of tselect that traps means no triggers (Debug spec
+      // 5.1), so OpenSBI finds no sdtrig and registers no SBI dbtr; reading 0 had made it count one trigger
       12'h7C0: begin rval = {63'b0, h1off_q}; exists = HART1_ON; end      // mtgsmt (step 6), with hart 1
       // ---- F and D ----
       12'h001: begin rval = {59'b0, fc_fflags}; exists = EXT_FD; if (re.fs == 2'd0) deny = 1'b1; end
@@ -495,11 +501,11 @@ module tg_csr
       12'hF14: rval = hartid(et);
       // ---- S and U (M3) ----
       12'h100: begin rval = sstatus_rd; exists = SU; end
-      12'h104: begin rval = {52'b0, re.mie & re.mideleg}; exists = SU; end
+      12'h104: begin rval = {50'b0, re.mie & re.mideleg}; exists = SU; end
       12'h105, 12'h140, 12'h141, 12'h142, 12'h143: begin rval = cold_rd; exists = SU; end
       12'h106: begin rval = {32'b0, re.scounteren}; exists = SU; end
       12'h10A: begin rval = {63'b0, re.senv_fiom}; exists = SU; end
-      12'h144: begin rval = {52'b0, mip[et] & re.mideleg}; exists = SU; end
+      12'h144: begin rval = {50'b0, mip[et] & re.mideleg}; exists = SU; end
       12'h14D: begin                                                 // stimecmp (Sstc)
         rval = re.stimecmp; exists = SU;
         if (re.priv != PRIV_M && !(re.menv_stce && re.mcounteren[1])) deny = 1'b1;
@@ -508,9 +514,8 @@ module tg_csr
         rval = {re.satp_mode, 3'b0, re.satp_asid, re.satp_ppn}; exists = SU;
         if (re.priv == PRIV_S && re.tvm) deny = 1'b1;
       end
-      12'h5A8: begin rval = {32'b0, re.scontext}; exists = SU; end
       12'h302: begin rval = {44'b0, re.medeleg}; exists = SU; end
-      12'h303: begin rval = {52'b0, re.mideleg}; exists = SU; end
+      12'h303: begin rval = {50'b0, re.mideleg}; exists = SU; end
       12'h306: begin rval = {32'b0, re.mcounteren}; exists = SU; end
       12'h30A: begin rval = {re.menv_stce, 62'b0, re.menv_fiom}; exists = SU; end
       default: begin
@@ -522,10 +527,12 @@ module tg_csr
         end else if (a >= 12'h3B0 && a <= 12'h3EF) begin             // pmpaddr0-63
           rval = (a - 12'h3B0 < 12'(NPMP)) ? {10'b0, pa_rd[0]} : '0;
         end else if ((a >= 12'hB03 && a <= 12'hB1F) || (a >= 12'h323 && a <= 12'h33F)) begin
-          rval = '0;                                                 // mhpmcounter*, mhpmevent*
+          rval = hpm_rd;                                             // mhpmcounter*, mhpmevent* (M9: HPM_N of them)
         end else if (a >= 12'hC03 && a <= 12'hC1F) begin             // hpmcounter* (Zihpm)
-          rval = '0;
+          rval = hpm_rd;
           exists = SU;
+        end else if (HPM && SU && a == 12'hDA0) begin                // scountovf (Sscofpmf)
+          rval = hpm_rd;
         end else begin
           exists = 1'b0;
         end
@@ -652,16 +659,18 @@ module tg_csr
   assign ins_wr = cm_csr && pv && pa == 12'hB02;
   // A write takes effect in the counter a cycle late (tg_dsp_ctr): in that cycle the write's
   // flush is on, so nothing reads the counter, and the pending write holds (a flush keeps EX from
-  // writing it). The retiring instructions are all slot 0's thread's. With hart 1 the next cycle's
-  // committing thread may be the other one, so each hart's counters load its own pending write.
+  // writing it). The retiring instructions are all slot 0's thread's. In the next cycle nothing
+  // commits, so slot 0's thread (wt, pd) need not be the writer's (with hart 1 the other one; with
+  // SOLO_TID=1 thread 0, whose pending write is zero, so a write loaded 0): each hart's counters load
+  // its own pending write
   for (genvar t = 0; t < NT; t++) begin : g_ctr
     logic ld_c, ld_i;
     assign ld_c = cyc_wr && wt == tid_t'(t);
     assign ld_i = ins_wr && wt == tid_t'(t);
     tg_dsp_ctr #(.IW(1)) u_mcycle (
-      .clk, .rst, .ld(ld_c), .d(MT ? pw_d_q[t] : pd), .inc(!h_q[t].mcountinhibit[0]), .q(mcycle_q[t]));
+      .clk, .rst, .ld(ld_c), .d(pw_d_q[t]), .inc(!h_q[t].mcountinhibit[0]), .q(mcycle_q[t]));
     tg_dsp_ctr #(.IW(CNW)) u_minstret (
-      .clk, .rst, .ld(ld_i),  .d(MT ? pw_d_q[t] : pd),
+      .clk, .rst, .ld(ld_i),  .d(pw_d_q[t]),
       .inc((h_q[t].mcountinhibit[2] || wt != tid_t'(t)) ? '0 : CNW'(cm_n)), .q(minstret_q[t]));
   end
 `ifndef SYNTHESIS
@@ -684,6 +693,92 @@ module tg_csr
           else $error("tg_csr: the other thread's CSR state changed while one thread runs");
   end
 `endif
+
+  // ---- M9's counters (HPM_N > 0; docs/spec/m9-plan.md §1, the prototype) ----
+  // Per hart, HPM_N programmable counters (tg_dsp_ctr pairs, as mcycle) count mhpmevent's event: 1 cycles, 2 instructions
+  // retired, 3 .. 2 + HPM_EV tg_core's hpm_ev, 0 or any other nothing. Sscofpmf: the mode inhibits (MINH, SINH, UINH;
+  // the hart's mode) and mcountinhibit stop a counter; a counter's top bit falling sets its OF, and OF rising sets the
+  // hart's LCOFIP (mip/sip bit 13, cleared by software); scountovf shows the OF bits (to S only where mcounteren allows).
+  // A counter write loads it a cycle late, as mcycle's (tg_dsp_ctr): the replaced value's count in the cycle between, and
+  // any wrap of it, are dropped; the written value's own wrap (one written as -1 wraps at its next count) is an overflow.
+  if (HPM) begin : g_hpm
+    localparam int EW = 8;                        // mhpmevent's event field
+    logic [NT-1:0][HPM_N-1:0][EW-1:0] ev_q;
+    logic [NT-1:0][HPM_N-1:0]         of_q, minh_q, sinh_q, uinh_q, msb_q, ld1_q;
+    logic [NT-1:0]                    lcof_q;
+    logic [NT-1:0][HPM_N-1:0][63:0]   cnt_q;
+    for (genvar t = 0; t < NT; t++) begin : g_t
+      for (genvar i = 0; i < HPM_N; i++) begin : g_i
+        logic           ld, stop;
+        logic [CNW-1:0] ev;
+        logic [63:0]    ldv;
+        assign ld  = cm_csr && pv && wt == tid_t'(t) && pa == 12'hB03 + 12'(i);
+        // The hart's own pending write: in the load's second cycle nothing commits, so wt (and pd) may name the other
+        // thread (SOLO_TID=1: thread 0, whose pw_d_q stays zero)
+        assign ldv = pw_d_q[t];
+        always_comb begin
+          ev = '0;
+          if (ev_q[t][i] == EW'(1))      ev = CNW'(1);                                   // cycles
+          else if (ev_q[t][i] == EW'(2)) ev = (wt == tid_t'(t)) ? CNW'(cm_n) : '0;       // instructions retired
+          else
+            for (int e = 0; e < HPM_EV; e++)
+              if (ev_q[t][i] == EW'(3 + e)) ev = CNW'(hpm_ev[t][e]);
+          stop = h_q[t].mcountinhibit[3 + i] || (h_q[t].priv == PRIV_M && minh_q[t][i]) ||
+                 (h_q[t].priv == PRIV_S && sinh_q[t][i]) || (h_q[t].priv == PRIV_U && uinh_q[t][i]);
+        end
+        tg_dsp_ctr #(.IW(CNW)) u_ctr (
+          .clk, .rst, .ld, .d(ldv), .inc(stop ? '0 : ev), .q(cnt_q[t][i]));
+        // The top bit the counter goes on from: in the load's second cycle the written value's (held there)
+        always_ff @(posedge clk) begin
+          msb_q[t][i] <= ld1_q[t][i] ? ldv[63] : cnt_q[t][i][63];
+          ld1_q[t][i] <= ld;
+        end
+      end
+    end
+    always_ff @(posedge clk)
+      for (int t = 0; t < NT; t++)
+        if (rst) begin
+          ev_q[t] <= '0; of_q[t] <= '0; minh_q[t] <= '0; sinh_q[t] <= '0; uinh_q[t] <= '0; lcof_q[t] <= 1'b0;
+        end else begin
+          for (int i = 0; i < HPM_N; i++)
+            if (msb_q[t][i] && !cnt_q[t][i][63] && !ld1_q[t][i]) begin   // a wrap, not of a replaced value
+              of_q[t][i] <= 1'b1;
+              if (!of_q[t][i]) lcof_q[t] <= 1'b1;
+            end
+          // CSR writes (the committing thread's), after the overflows: software's value wins
+          if (cm_csr && pv && wt == tid_t'(t)) begin
+            for (int i = 0; i < HPM_N; i++)
+              if (pa == 12'h323 + 12'(i)) begin
+                ev_q[t][i]   <= pd[EW-1:0];
+                of_q[t][i]   <= pd[63];
+                minh_q[t][i] <= pd[62];
+                sinh_q[t][i] <= pd[61];
+                uinh_q[t][i] <= pd[60];
+              end
+            if (pa == 12'h344) lcof_q[t] <= pd[13];                              // mip.LCOFIP (M)
+            if (pa == 12'h144 && h_q[t].mideleg[13]) lcof_q[t] <= pd[13];       // sip.LCOFIP (S, delegated)
+          end
+        end
+    assign lcofip = lcof_q;
+    // Reads: the executing thread's counter (mhpmcounter, hpmcounter), event (mhpmevent) or overflow bits (scountovf)
+    always_comb begin
+      int i;
+      hpm_rd = '0;
+      i = int'(a[4:0]) - 3;
+      if (i >= 0 && i < HPM_N) begin
+        if (a[11:8] == 4'hB || a[11:8] == 4'hC) hpm_rd = cnt_q[et][i];
+        else if (a[11:8] == 4'h3)
+          hpm_rd = {of_q[et][i], minh_q[et][i], sinh_q[et][i], uinh_q[et][i], 2'b00, (58 - EW)'(0), ev_q[et][i]};
+      end
+      if (a == 12'hDA0)
+        for (int k = 0; k < HPM_N; k++) hpm_rd[3 + k] = of_q[et][k] && (re.priv == PRIV_M || re.mcounteren[3 + k]);
+    end
+  end else begin : g_no_hpm
+    assign lcofip = '0;
+    assign hpm_rd = '0;
+    logic unused_hpm;
+    assign unused_hpm = ^hpm_ev;
+  end
 
   // ---- mtgsmt (0x7C0, custom M-mode read/write; M7's step 6, threading.md): one per core, with hart 1 ----
   // Bit 0, HART1_OFF: hart 1 does not wake once it sleeps in WFI (tg_rob), so hart 0 keeps the whole window (SMT off).
@@ -739,9 +834,9 @@ module tg_csr
               if (!(h_q[t].misa_c && !pd[2] && cm_pc[1])) x.misa_c = EXT_C && pd[2];
             end
             12'h302: x.medeleg = pd[19:0] & {4'b1000, 4'b1011, 2'b00, 6'b11_1111, 3'b111, !h_q[t].misa_c};
-            12'h303: x.mideleg = pd[11:0] & 12'h222;
-            12'h304: x.mie = pd[11:0] & (SU ? 12'haaa : 12'h888);
-            12'h104: x.mie = (h_q[t].mie & ~h_q[t].mideleg) | (pd[11:0] & h_q[t].mideleg & 12'h222);
+            12'h303: x.mideleg = pd[13:0] & (14'h0222 | LCOF);
+            12'h304: x.mie = pd[13:0] & (SU ? (14'h0aaa | LCOF) : 14'h0888);
+            12'h104: x.mie = (h_q[t].mie & ~h_q[t].mideleg) | (pd[13:0] & h_q[t].mideleg & (14'h0222 | LCOF));
             12'h344: begin
               if (SU) begin
                 x.ssip = pd[1];
@@ -767,8 +862,6 @@ module tg_csr
                 x.satp_ppn  = pd[43:0];
               end
             end
-            12'h7A8: x.mcontext = pd[12:0];
-            12'h5A8: x.scontext = pd[31:0];
             12'h3A0: for (int i = 0; i < 8; i++) x.pmpcfg[i] = pmpcfg_w(h_q[t].pmpcfg[i], pd[8*i +: 8]);
             12'h3A2: for (int i = 8; i < NPMP; i++)        // (entries 8-15: none with 8 entries)
                        x.pmpcfg[i] = pmpcfg_w(h_q[t].pmpcfg[i], pd[8*(i-8) +: 8]);

@@ -102,6 +102,14 @@ PMP_FILL ?=
 ifneq ($(filter-out 0 1,$(PMP_FILL)),)
   $(error PMP_FILL must be 0, 1 or unset (got "$(PMP_FILL)"))
 endif
+# M9's performance counters (DR-190, docs/spec/m9-plan.md §1), 0 or 1 (+define+TG_HPM, tg_core_pkg::HPM_N; fpu-2's
+# switch in the core track's files): 1 builds 4 programmable counters a hart with Sscofpmf (mhpmcounter3-6, mhpmevent3-6
+# with OF and the mode inhibits, scountovf, LCOFI). Off by default (the package), where they read as zero; 1 makes
+# lockstep run Spike with _sscofpmf and take the counters' reads from the core (verification.md §3.4).
+HPM ?=
+ifneq ($(filter-out 0 1,$(HPM)),)
+  $(error HPM must be 0, 1 or unset (got "$(HPM)"))
+endif
 # M9's 16-entry load-wait table (DR-190's addendum), 0 or 1 (+define+TG_LWT, tg_core_pkg::LWT_ON; the core track's
 # switch): off by default for now; 1 makes a load whose PC's bit is set wait for its older stores' addresses. Not the
 # same cycles.
@@ -109,7 +117,7 @@ LWT ?=
 ifneq ($(filter-out 0 1,$(LWT)),)
   $(error LWT must be 0, 1 or unset (got "$(LWT)"))
 endif
-TC_SUFFIX := $(if $(TIMING_CUTS),-tc$(TIMING_CUTS))$(if $(DC_MSHRS),-m$(DC_MSHRS))$(if $(QUEUE_DECODE),-qd$(QUEUE_DECODE))$(if $(SPEC_WAKE),-sw$(SPEC_WAKE))$(if $(SPEC_WAKE_FILT),-swf$(SPEC_WAKE_FILT))$(if $(STA_BASE),-sb$(STA_BASE))$(if $(STEER_LA),-sl$(STEER_LA))$(if $(PMP_ENTRIES),-p$(PMP_ENTRIES))$(if $(STORE_PF),-spf$(STORE_PF))$(if $(URF),-urf$(URF))$(if $(STORE_PF_MAX),-spm$(STORE_PF_MAX))$(if $(SOLO_TID),-solo$(SOLO_TID))$(if $(SPLIT),-sp$(SPLIT))$(if $(HART1),-h$(HART1))$(if $(PMP_FILL),-pf$(PMP_FILL))$(if $(LWT),-lwt$(LWT))
+TC_SUFFIX := $(if $(TIMING_CUTS),-tc$(TIMING_CUTS))$(if $(DC_MSHRS),-m$(DC_MSHRS))$(if $(QUEUE_DECODE),-qd$(QUEUE_DECODE))$(if $(SPEC_WAKE),-sw$(SPEC_WAKE))$(if $(SPEC_WAKE_FILT),-swf$(SPEC_WAKE_FILT))$(if $(STA_BASE),-sb$(STA_BASE))$(if $(STEER_LA),-sl$(STEER_LA))$(if $(PMP_ENTRIES),-p$(PMP_ENTRIES))$(if $(STORE_PF),-spf$(STORE_PF))$(if $(URF),-urf$(URF))$(if $(STORE_PF_MAX),-spm$(STORE_PF_MAX))$(if $(SOLO_TID),-solo$(SOLO_TID))$(if $(SPLIT),-sp$(SPLIT))$(if $(HART1),-h$(HART1))$(if $(PMP_FILL),-pf$(PMP_FILL))$(if $(HPM),-hpm$(HPM))$(if $(LWT),-lwt$(LWT))
 TC_DEF    := $(strip $(if $(TIMING_CUTS),+define+TG_TIMING_CUTS=$(TIMING_CUTS)) $(if $(DC_MSHRS),+define+TG_DC_MSHRS=$(DC_MSHRS)) \
                      $(if $(QUEUE_DECODE),+define+TG_QUEUE_DECODE=$(QUEUE_DECODE)) $(if $(SPEC_WAKE),+define+TG_SPEC_WAKE=$(SPEC_WAKE)) \
                      $(if $(SPEC_WAKE_FILT),+define+TG_SPEC_WAKE_FILT=$(SPEC_WAKE_FILT)) $(if $(STA_BASE),+define+TG_STA_BASE=$(STA_BASE)) \
@@ -117,14 +125,14 @@ TC_DEF    := $(strip $(if $(TIMING_CUTS),+define+TG_TIMING_CUTS=$(TIMING_CUTS)) 
                      $(if $(STORE_PF),+define+TG_STORE_PF=$(STORE_PF)) $(if $(URF),+define+TG_URF=$(URF)) \
                      $(if $(STORE_PF_MAX),+define+TG_STORE_PF_MAX=$(STORE_PF_MAX)) $(if $(SOLO_TID),+define+TG_SOLO_TID=$(SOLO_TID)) \
                      $(if $(SPLIT),+define+TG_SPLIT=$(SPLIT)) $(if $(HART1),+define+TG_HART1=$(HART1)) \
-                     $(if $(PMP_FILL),+define+TG_PMP_FILL=$(PMP_FILL)) $(if $(LWT),+define+TG_LWT=$(LWT)))
+                     $(if $(PMP_FILL),+define+TG_PMP_FILL=$(PMP_FILL)) $(if $(HPM $(if $(LWT),+define+TG_HPM=$(HPM))),+define+TG_LWT=$(LWT)))
 TC_ARG    := $(strip $(if $(TIMING_CUTS),TIMING_CUTS=$(TIMING_CUTS)) $(if $(DC_MSHRS),DC_MSHRS=$(DC_MSHRS)) \
                      $(if $(QUEUE_DECODE),QUEUE_DECODE=$(QUEUE_DECODE)) $(if $(SPEC_WAKE),SPEC_WAKE=$(SPEC_WAKE)) \
                      $(if $(SPEC_WAKE_FILT),SPEC_WAKE_FILT=$(SPEC_WAKE_FILT)) $(if $(STA_BASE),STA_BASE=$(STA_BASE)) \
                      $(if $(STEER_LA),STEER_LA=$(STEER_LA)) $(if $(PMP_ENTRIES),PMP_ENTRIES=$(PMP_ENTRIES)) \
                      $(if $(STORE_PF),STORE_PF=$(STORE_PF)) $(if $(URF),URF=$(URF)) \
                      $(if $(STORE_PF_MAX),STORE_PF_MAX=$(STORE_PF_MAX)) $(if $(SOLO_TID),SOLO_TID=$(SOLO_TID)) $(if $(SPLIT),SPLIT=$(SPLIT)) \
-                     $(if $(HART1),HART1=$(HART1)) $(if $(PMP_FILL),PMP_FILL=$(PMP_FILL)) $(if $(LWT),LWT=$(LWT)))
+                     $(if $(HART1),HART1=$(HART1)) $(if $(PMP_FILL),PMP_FILL=$(PMP_FILL)) $(if $(HPM $(if $(LWT),HPM=$(HPM))),LWT=$(LWT)))
 # The PMP entries of the core this tree builds, for Spike's regions in lockstep (DR-167): PMP_ENTRIES when
 # set, else the package's default, from its one `localparam int PMP_ENTRIES = N;` line, else 16 (the core
 # before the switch). tg_vsim takes the count from the model itself and stops if this reading differs, so
