@@ -194,12 +194,41 @@ The coordinator's and soc-2's checks for rc3, run on u100 first so rc3 has somet
   - both copies use 5% fewer.
 - **memset-1M moved by 15% between u100's two runs.** d4r1's and d4r2's four runs agree to 0.001%. This row fits in the L2, and it is the only one that moved.
 
+**soc-2's write-stream probe: at full speed u100 is at its slowest** (10-23, 23:33 UTC):
+- **What it is:** soc-2's `wsd.bin` (sha256 `ae231676…`; its source `wsd.c` is beside it in soc-2's tree on home-wsl).
+  - Hart 0 writes 16 MiB in 64-byte lines of eight `sd`, with k turns of an idle counted loop after each line. It prints the cycles per line for each k.
+  - The other harts wait in WFI.
+- **How it ran:** as memcal did (`memcal_release.sh` with `wsd.bin`), twice on u100's bitstream and twice on d4r2's.
+  - d4r2's is the dfx-mgr app `tanager-d4r2`, the same `33e29f3d…` as p1's kept image, so nothing new was installed.
+  - Records: `../memcal/wsd_*.txt` and `run_wsd.txt`.
+- The table gives cycles per line; each image's two runs agree within 0.2%.
+
+| k | 0 | 4 | 8 | 12 | 16 | 24 | 32 | 48 |
+|---|---|---|---|---|---|---|---|---|
+| u100 | **38.3** | **29.9** | 32.7 | 39.5 | 46.4 | 61.2 | 78.5 | 127.5 |
+| d4r2 | **32.0** | 33.7 | 34.6 | 40.0 | 46.6 | 61.2 | 78.5 | 127.5 |
+| soc-2's model for u100 | 30.1 | 30.8 | 32.7 | 39.4 | 46.4 | | | |
+
+- **On u100, a slower issue makes the stream faster.**
+  - Four idle turns per line take it from 38.3 to 29.9 cycles per line, that is from 159 to 204 MiB/s at 100 MHz.
+  - So back-to-back lines cost u100 28% more than lines four turns apart. By the probe's own reading (`wsd.c`), the memory side reacts to the request pattern.
+- **d4r2 has no such penalty:** its k = 0 is its best (32.0 cycles, 190 MiB/s), and a gap only adds time.
+- **So u100's 16 MiB gap is the full-speed case alone:**
+  - at full speed, 38.3 against 32.0 cycles (+19.5%; memcal's memset-16M gave +18.4%);
+  - with a four-turn gap, u100 beats d4r2's best by 7%.
+- **soc-2's model** matches u100 from k = 4 to 16, within 3%. It misses k = 0: 30.1 predicted, 38.3 measured.
+- **From k = 24 the two images agree to the cycle,** so the idle loop sets the pace there.
+
 ## Since then
 
 The board moved on to rc2 on 10-23 at 16:20 UTC ([`../rc2/README.md`](../rc2/README.md)).
 - rc2's soak lost SD1's interrupt, and u100 came back on p1 at 20:17 UTC.
 - u100 ran the rc3 swap's measurements above.
-- It soaks from 21:03 UTC (`soak4-u100b`) while rc3 builds.
+- **The soak from 21:03 UTC** ([`soak4_u100b.log`](soak4_u100b.log)) was stopped at a step boundary at 23:29 UTC, for soc-2's probe.
+  - It had passed 14 rounds and round 15's first two steps: 44 stress passes, 44 DR-141 sets, 14 `hart_check`s and 14 rounds of hart stop and start.
+  - 0 fails. Its 5 notes were CoreMark's timing rule, with the CRCs right.
+  - No trouble line in the kernel log.
+- **The soak restarted on u100 at 23:52 UTC** (`soak4-u100c`), after the probe, while rc3 builds.
 
 The kept images:
 - **u100 is kept on p1** in `tanager-u100/`, with tg1's `fw_jump.bin` and `fw_jump.bin.b0094d23`. To bring it back, in ARM mode: `FH_BACKUP=tanager-u100 bash ~/tanager/runs/fh_p1.sh back`.

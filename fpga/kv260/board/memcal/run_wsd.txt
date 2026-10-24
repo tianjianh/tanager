@@ -1,0 +1,34 @@
+== u100 (memcal_release.sh u100 /boot/firmware/tanager-u100/tanager.bit.bin 2 ~/tanager/wsd/wsd.bin ae231676; the A53's clock reads 10-20)
+app files: f8037f921c0d7691 6193da61462b56e7 
+loaded tanager-u100 at 22:14:56; fpga0 operating
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+run 1 at 22:14:57 UTC
+run 1: exit 124;  [tanager-host] timeout 
+run 2 at 22:15:18 UTC
+run 2: exit 124;  [tanager-host] timeout 
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+done at 22:15:41
+
+== d4r2 (memcal_release.sh d4r2 ~/tanager/d4r2-smt2-c2-100/tanager.bit.bin 2 ~/tanager/wsd/wsd.bin ae231676; the SSH session dropped after its runs, and the A53's console showed k26-starter-kits reloaded at 23:35:05 UTC)
+app files: 33e29f3d4d9f95b5 6193da61462b56e7 
+
+== d4r2 run 1, tanager-host's output (d4r2's console reaches the host too)
+$ tanager-host boot --fw /home/ubuntu/tanager/wsd/wsd.bin --kernel /home/ubuntu/tanager/d4r2-app/Image --dtb /home/ubuntu/tanager/d4r2-app/tanager-kv260-virtio.dtb --timeout 20
+loaded: fw 960 B, kernel 21449216 B, dtb 3075 B into 0x840000000 (RISC-V 0x80000000)
+WSD-BEGIN 16 MiB
+WSD k=0 x100 cycles/line 3205
+WSD k=4 x100 cycles/line 3366
+WSD k=8 x100 cycles/line 3458
+WSD k=12 x100 cycles/line 4000
+WSD k=16 x100 cycles/line 4662
+WSD k=24 x100 cycles/line 6120
+WSD k=32 x100 cycles/line 7846
+WSD k=48 x100 cycles/line 12750
+WSD-END
+TANAGER-BOOT-OK
+
+[tanager-host] timeout
