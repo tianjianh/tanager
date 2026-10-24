@@ -72,8 +72,9 @@ grep -q "the RISC-V did not start" "$T/riscv.out" || { echo "FAIL riscv: no fall
 
 # riscv.cmd (steps 5 and 6) dry: its board addresses moved into RAM, the board-only commands (fpga, zynqmp,
 # dcache, icache, go) stubbed or turned into the writes they make, the host bridge's ID and STATUS put in RAM first.
-# Every line parses, and the flow is right: all the way to the park; out at once without our design; the uncore
-# held again and out without the L2's initialisation.
+# Every line parses, and the flow is right: all the way to the park, with ethaddr in the release tree's GEM3 node
+# (DR-192), or no MAC without one (QEMU without a NIC, so ethaddr is only what a case sets); out at once without our
+# design; the uncore held again and out without the L2's initialisation.
 D=$T/dry
 rm -rf "$D"; mkdir -p "$D/p1/tanager"
 sed -e 's/0xfffc0000/0x9c000000/g; s/0xfffc0004/0x9c000004/g' \
@@ -92,17 +93,21 @@ if grep -v '^#' "$D/riscv.cmd" | grep -q '0xff\|0xfd\|0xa000\|0x84\|0x3000\|^zyn
   echo "FAIL dry: a board address or command was left in"; fail=1
 fi
 "$mkimage" -A riscv -O linux -T script -C none -d "$D/riscv.cmd" "$D/p1/tanager/riscv.scr" > /dev/null
-for f in tanager.bit.bin fw_jump.bin payload.bin tanager.dtb; do head -c 4096 /dev/urandom > "$D/p1/tanager/$f"; done
-dry_case() {   # <name> <ID> <STATUS> <expect regex>
+for f in tanager.bit.bin fw_jump.bin payload.bin; do head -c 4096 /dev/urandom > "$D/p1/tanager/$f"; done
+# The tree is the release's, with no MAC (DR-192): riscv.cmd's fix-up puts ethaddr into its GEM3 node.
+make -s -B -C "$here/../dts" O="$D/dts" CORES=2 THREADS=2 RUN_THREADS=2 MEM=0x40000000 UART1=1 UART1_STDOUT=0 SD1=1 \
+  BOARD_RESET=1 ETH=1 RELEASE=1 > /dev/null && cp "$D/dts/tanager-kv260.dtb" "$D/p1/tanager/tanager.dtb" ||
+  { echo "FAIL dry: no release tree from sw/dts"; fail=1; }
+dry_case() {   # <name> <ID> <STATUS> <expect regex> [commands before the hook, e.g. setenv ethaddr]
   local n=$1 img=$D/$1.img
-  { echo "mw.l 0x9a000000 $2"; echo "mw.l 0x9a000014 $3"; cat "$T/hook.cmd"; } > "$D/hook_$n.cmd"
+  { echo "mw.l 0x9a000000 $2"; echo "mw.l 0x9a000014 $3"; [ -n "${5:-}" ] && echo "$5"; cat "$T/hook.cmd"; } > "$D/hook_$n.cmd"
   "$mkimage" -A riscv -O linux -T script -C none -d "$D/hook_$n.cmd" "$D/p1/hook.scr" > /dev/null
   rm -f "$D/p1.ext4"; mke2fs -q -t ext4 -d "$D/p1" "$D/p1.ext4" 30M
   dd if=/dev/zero of="$img" bs=1M count=64 2>/dev/null
   echo "2048,61440,83" | sfdisk -q "$img" > /dev/null
   dd if="$D/p1.ext4" of="$img" bs=512 seek=2048 conv=notrunc 2>/dev/null
   printf 'TANAGERMr0\n' | dd of="$img" bs=512 seek=2047 count=1 conv=sync,notrunc 2>/dev/null
-  timeout 120 qemu-system-riscv64 -M virt -m 1G -nographic -bios default -kernel "$O/u-boot.bin" \
+  timeout 120 qemu-system-riscv64 -M virt -m 1G -nographic -bios default -kernel "$O/u-boot.bin" -nic none \
     -device sdhci-pci -device sd-card,drive=sd -drive id=sd,file="$img",format=raw,if=none > "$D/$n.out" 2>&1
   if grep -q "HOOK-TEST-END" "$D/$n.out" && grep -Eq "$4" "$D/$n.out" && ! grep -q "syntax error" "$D/$n.out"; then
     echo "PASS dry $n"
@@ -111,7 +116,10 @@ dry_case() {   # <name> <ID> <STATUS> <expect regex>
   fi
   sed -n '/Executing script at a1000000/,/HOOK-TEST-END/p' "$D/$n.out" | grep -a "tanager\|STUB" | tr -d '\r' | sed 's/^/    /'
 }
-dry_case park 0x54474e52 0x4 "STUB go 0x9c000000"
+dry_case park 0x54474e52 0x4 "STUB go 0x9c000000" "setenv ethaddr 02:54:47:4e:52:01"
+grep -q "local-mac-address = \[02 54 47 4e 52 01\]" "$D/park.out" || { echo "FAIL dry park: the MAC isn't in the tree"; fail=1; }
+dry_case nomac 0x54474e52 0x4 "no ethaddr, so no MAC in the RISC-V tree"
+grep -q "STUB go 0x9c000000" "$D/nomac.out" || { echo "FAIL dry nomac: no park"; fail=1; }
 dry_case noid 0x12345678 0x4 "the RISC-V did not start"
 dry_case nol2 0x54474e52 0x0 "the L2 did not initialise"
 grep -q "the host bridge answers" "$D/noid.out" && { echo "FAIL dry noid: went past the ID check"; fail=1; }

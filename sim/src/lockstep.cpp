@@ -178,6 +178,7 @@ class lockstep_impl_t {
  public:
   lockstep_impl_t(const lockstep_cfg_t& cfg, const mem_t& image, const elf_t* elf)
       : cfg_(cfg), env_(new spike_env_t(platform_of(cfg), image)), elf_(elf) {
+    adopt_hpm_events() = cfg.isa.find("sscofpmf") != std::string::npos;
     for (size_t i = 0; i < env_->procs.size(); i++) {
       hart_state_t h;
       h.p = env_->procs[i];
@@ -844,11 +845,24 @@ class lockstep_impl_t {
   // the write's own: seed 463583 of the coordinator's stress check (10-23), a swap's 0x00 under an sd's 0x00 left
   // the sd's old byte from before the swap, and a later read past the sd expected it.
   void hw_reapply(const std::vector<uint64_t>& qs, uint64_t pa, unsigned n) {
-    for (uint64_t q : qs) {
+    for (size_t x = 0; x < qs.size(); x++) {
+      const uint64_t q = qs[x];
       hart_write_t& e = hw_[q - hw_base_];
       uint8_t* m = mem_at(e.pa);
-      for (unsigned b = 0; b < e.len; b++)
-        if (m[b] != e.nw[b] || (e.pa + b >= pa && e.pa + b < pa + n)) e.old[b] = m[b], m[b] = e.nw[b];
+      for (unsigned b = 0; b < e.len; b++) {
+        const uint64_t a = e.pa + b;
+        const bool in = a >= pa && a < pa + n;
+        // beyond the access, memory may hold a younger store of its hart that goes back after it: that one lands
+        // after it, so it keeps the byte it replaced (seed 523692 of the 10-23 checks: an sd put back took the next
+        // sd's bytes as its old ones, and a later read of the bytes from before both was not found)
+        bool younger = false;
+        for (size_t z = x + 1; z < qs.size() && !in && !younger; z++) {
+          const hart_write_t& f = hw_[qs[z] - hw_base_];
+          younger = f.hart == e.hart && !f.atomic && a >= f.pa && a < f.pa + f.len;
+        }
+        if (in || (m[b] != e.nw[b] && !younger)) e.old[b] = m[b];
+        m[b] = e.nw[b];
+      }
       hw_moved_.push_back(q);
       if (!late_.empty()) late_drop(e);  // it reached memory here, whatever later writes it might have followed
     }
@@ -926,12 +940,19 @@ class lockstep_impl_t {
     if (!hw_accept(hi, pa, n, got, before, true, r.cycle, hw_next(), h.nrec, seq, late) ||
         !amo_result(r.insn, r.rd_value, rs2, res))
       return false;
-    // Bytes a late lander explains as well: what it read past stays put, and becomes a late lander at its write
-    const uint64_t from = hw_late_too(pa, n, got, seq) ? HW_NONE : hw_from(seq, n);
+    // Bytes a late lander explains as well need nothing put back, byte by byte: what they read past stays put, and
+    // becomes a late lander at its write (seed 1831284 of the soak, 10-23: one byte's read past, which a late lander
+    // also explained, put an older store back on top that a later read contradicted)
+    uint64_t need[8];
+    for (unsigned i = 0; i < n; i++) {
+      uint64_t id = 0;
+      need[i] = seq[i] != HW_NONE && late_find(pa + i, got[i], HW_NONE, id) ? HW_NONE : seq[i];
+    }
+    const uint64_t from = hw_from(need, n);
     uint8_t sim[8];
     std::vector<uint64_t> qs;
     hw_amo_sim(pa, n, reinterpret_cast<const uint8_t*>(&res), sim);
-    if (!hw_reapply_plan(hi, pa, n, from, seq, r.cycle, false, sim, qs)) return false;
+    if (!hw_reapply_plan(hi, pa, n, from, need, r.cycle, false, sim, qs)) return false;
     memcpy(mem_at(pa), before, n);  // Spike's memory as the AMO found it, for the late landers it read
     late_settle(hi, pa, n, late, got);
     memcpy(mem_at(pa), &res, n);
@@ -982,14 +1003,14 @@ class lockstep_impl_t {
     const std::vector<late_t> cands = lit == late_.end() ? std::vector<late_t>() : lit->second;
     // One explanation: reading past the np newest (np_lo..np_hi), each byte may be: as before the oldest of them
     // that reaches it, or a late lander's a write it read past may have replaced instead (alt); where none
-    // reaches, Spike's or (with lat) a late lander's. Every combination (a few hundred at most) is tried.
+    // reaches, Spike's or (with lat) late landers' bytes. Every combination (a few hundred at most) is tried.
     struct found_t {
       size_t np = 0;
       uint8_t word[8] = {};
       uint64_t late[8] = {}, res = 0;
       std::vector<uint64_t> qs;
     };
-    auto find = [&](bool lat, size_t np_lo, size_t np_hi, found_t& f) {
+    auto find = [&](bool lat, bool whole, size_t np_lo, size_t np_hi, found_t& f) {
       for (size_t np = np_lo; np <= np_hi && np <= past.size(); np++) {
         struct opt_t {
           uint8_t v;
@@ -1009,32 +1030,48 @@ class lockstep_impl_t {
             cover |= uint8_t(1u << i);
           }
         }
-        for (auto c = cands.rbegin(); lat && c != cands.rend(); ++c)
+        // With lat, late landers whole (a store is one access) or, with !whole, byte by byte: a late lander may have
+        // landed and a newer write on some of its bytes after it, so a read may show it on only some of them. Whole
+        // ones are tried first (seed 1830755 of the soak, 10-23: byte by byte, one byte of an old sd and seven of a
+        // newer one came first, a mix no order of the two gives, where the old sd whole explained the result).
+        std::vector<std::pair<const late_t*, uint8_t>> lc;  // whole: newest first, with its bytes of the access
+        for (auto c = cands.rbegin(); lat && c != cands.rend(); ++c) {
+          uint8_t lm = 0;
           for (unsigned i = 0; i < n; i++) {
             const unsigned b = unsigned(w.pa - dw) + i;
-            if ((c->mask >> b & 1) && !(cover >> i & 1)) opts[i].push_back({c->nw[b], c->id});
+            if ((c->mask >> b & 1) && !(cover >> i & 1)) {
+              lm |= uint8_t(1u << i);
+              if (!whole) opts[i].push_back({c->nw[b], c->id});
+            }
           }
+          if (whole && lm && lc.size() < 6) lc.emplace_back(&*c, lm);
+        }
         size_t combos = 1;
         for (unsigned i = 0; i < n; i++) combos *= opts[i].size();
         if (combos > 4096) combos = 4096;
-        for (size_t x = np ? 0 : 1; x < combos; x++) {  // x = 0 with np = 0: Spike's own value
-          size_t y = x;
-          for (unsigned i = 0; i < n; i++) {
-            const opt_t& o = opts[i][y % opts[i].size()];
-            y /= opts[i].size();
-            f.word[i] = o.v;
-            f.late[i] = o.late;
+        for (size_t sub = 0; sub < (size_t(1) << lc.size()); sub++)
+          for (size_t x = np || sub ? 0 : 1; x < combos; x++) {  // x = 0 with np = 0 and no late lander: Spike's value
+            size_t y = x;
+            for (unsigned i = 0; i < n; i++) {
+              const opt_t& o = opts[i][y % opts[i].size()];
+              y /= opts[i].size();
+              f.word[i] = o.v;
+              f.late[i] = o.late;
+            }
+            for (size_t k = lc.size(); k-- > 0;)  // the oldest first, newer ones on top
+              if (sub >> k & 1)
+                for (unsigned i = 0; i < n; i++)
+                  if (lc[k].second >> i & 1) f.word[i] = lc[k].first->nw[unsigned(w.pa - dw) + i], f.late[i] = lc[k].first->id;
+            uint64_t read = 0;
+            memcpy(&read, f.word, n);
+            if (!amo_result(r.insn, read, rs2, f.res) || (f.res & m) != (r.mem_wdata & m)) continue;
+            uint8_t sim[8];
+            f.qs.clear();
+            hw_amo_sim(w.pa, n, reinterpret_cast<const uint8_t*>(&f.res), sim);
+            if (np && !hw_reapply_plan(hi, w.pa, n, hw_base_ + past[np - 1], nullptr, r.cycle, false, sim, f.qs)) continue;
+            f.np = np;
+            return true;
           }
-          uint64_t read = 0;
-          memcpy(&read, f.word, n);
-          if (!amo_result(r.insn, read, rs2, f.res) || (f.res & m) != (r.mem_wdata & m)) continue;
-          uint8_t sim[8];
-          f.qs.clear();
-          hw_amo_sim(w.pa, n, reinterpret_cast<const uint8_t*>(&f.res), sim);
-          if (np && !hw_reapply_plan(hi, w.pa, n, hw_base_ + past[np - 1], nullptr, r.cycle, false, sim, f.qs)) continue;
-          f.np = np;
-          return true;
-        }
       }
       return false;
     };
@@ -1044,9 +1081,10 @@ class lockstep_impl_t {
     // what it read).
     found_t f, g;
     bool settle = true;
-    if (find(false, 1, past.size(), f)) {
-      if (!cands.empty() && find(true, 0, 0, g)) settle = false, f.qs.clear(), std::fill(f.late, f.late + 8, HW_NONE);
-    } else if (!find(true, 0, past.size(), f)) {
+    if (find(false, false, 1, past.size(), f)) {
+      if (!cands.empty() && (find(true, true, 0, 0, g) || find(true, false, 0, 0, g)))
+        settle = false, f.qs.clear(), std::fill(f.late, f.late + 8, HW_NONE);
+    } else if (!find(true, true, 0, past.size(), f) && !find(true, false, 0, past.size(), f)) {
       return false;
     }
     memcpy(mem_at(w.pa), w.old, n);  // as the AMO found it, under the late landers
@@ -1236,9 +1274,11 @@ class lockstep_impl_t {
   // that read past stores is followed by them instead (hw_reapply): they are the last writers of their bytes, and
   // the older stores under them stay candidates as above (core-2's case, 10-23: an sd whose bytes equal what was
   // there before it may have landed after the AMO whose read showed them, as its hart's younger sw did). A plain
-  // store that may land after w brings its hart's older plain stores to those bytes, back to another hart's write
-  // there: they may land after w too, before it (seed 503877 of the 10-23 checks: an AMO read past three sd's of the
-  // other hart, a late lander explained it as well, and a later read showed the second sd, the third still to land).
+  // store that may land after w, a late lander or one this record put back on top, brings its hart's older plain
+  // stores to those bytes, back to another hart's write there: they may land after w too, before it (seed 503877 of
+  // the 10-23 checks: an AMO read past three sd's of the other hart, a late lander explained it as well, and a later
+  // read showed the second sd, the third still to land; seed 1810279 of the soak, 10-23: an AMO read past two sh's of
+  // the other hart, the second went back on top, and the next AMO read the first, which equals the bytes before it).
   void late_write(hart_write_t& w) {
     const uint64_t dw = w.pa & ~7ull, nh = harts_[w.hart].nrec;
     const uint8_t wm = dw_mask(w.pa, w.len);
@@ -1267,6 +1307,29 @@ class lockstep_impl_t {
       for (unsigned b = 0; b < 8; b++)
         if (c.mask >> b & 1) same->nw[b] = c.nw[b];
     };
+    // Plain store e's (write k) older plain stores of its hart to the bytes `mask`, back to another hart's write there
+    auto older = [&](size_t k, const hart_write_t& e, uint8_t mask) {
+      for (size_t j = k; j-- > 0 && !e.atomic;) {
+        const hart_write_t& o = hw_[j];
+        if (nh - o.base[w.hart] >= cfg_.hart_window && !o.moved) break;
+        if (!o.len || (o.pa & ~7ull) != dw) continue;
+        const uint8_t om = dw_mask(o.pa, o.len) & mask;
+        if (!om) continue;
+        if (o.hart != e.hart || o.atomic) break;
+        late_t oc;
+        oc.id = o.id;
+        oc.hart = o.hart;
+        memcpy(oc.base, o.base, sizeof oc.base);
+        for (unsigned b = 0; b < 8; b++) {
+          if (!(om >> b & 1)) continue;
+          const unsigned oi = b - unsigned(o.pa & 7), wi = b - unsigned(w.pa & 7);
+          if (w.read_known && w.read[wi] == o.nw[oi] && late_only(j, b + dw, o.nw[oi], w.hart)) continue;  // w read it
+          oc.mask |= uint8_t(1u << b);
+          oc.nw[b] = o.nw[oi];
+        }
+        if (oc.mask) add(oc);
+      }
+    };
     uint8_t left = wm;  // bytes whose last writer is still to be found
     for (size_t k = hw_.size(); k-- > 0 && left;) {
       const hart_write_t& e = hw_[k];
@@ -1277,8 +1340,10 @@ class lockstep_impl_t {
       if (!mine) continue;
       left &= uint8_t(~mine);
       // back on top behind w (hw_reapply), so not a late lander: the last writer of its bytes
-      if (!hw_moved_.empty() && std::find(hw_moved_.begin(), hw_moved_.end(), uint64_t(k) + hw_base_) != hw_moved_.end())
+      if (!hw_moved_.empty() && std::find(hw_moved_.begin(), hw_moved_.end(), uint64_t(k) + hw_base_) != hw_moved_.end()) {
+        if (e.hart != w.hart && open) older(k, e, mine);
         continue;
+      }
       if (e.hart == w.hart || !open) continue;
       if (e.atomic) {
         if (!w.atomic || e.cycle + ATOMIC_EARLY <= w.cycle) continue;
@@ -1302,26 +1367,7 @@ class lockstep_impl_t {
       }
       if (!c.mask) continue;
       add(c);
-      for (size_t j = k; j-- > 0 && !e.atomic;) {
-        const hart_write_t& o = hw_[j];
-        if (nh - o.base[w.hart] >= cfg_.hart_window && !o.moved) break;
-        if (!o.len || (o.pa & ~7ull) != dw) continue;
-        const uint8_t om = dw_mask(o.pa, o.len) & c.mask;
-        if (!om) continue;
-        if (o.hart != e.hart || o.atomic) break;
-        late_t oc;
-        oc.id = o.id;
-        oc.hart = o.hart;
-        memcpy(oc.base, o.base, sizeof oc.base);
-        for (unsigned b = 0; b < 8; b++) {
-          if (!(om >> b & 1)) continue;
-          const unsigned oi = b - unsigned(o.pa & 7), wi = b - unsigned(w.pa & 7);
-          if (w.read_known && w.read[wi] == o.nw[oi] && late_only(j, b + dw, o.nw[oi], w.hart)) continue;  // w read it
-          oc.mask |= uint8_t(1u << b);
-          oc.nw[b] = o.nw[oi];
-        }
-        if (oc.mask) add(oc);
-      }
+      older(k, e, c.mask);
     }
     if (auto it = late_.find(dw); it != late_.end())  // by id: late_find looks newest first
       std::sort(it->second.begin(), it->second.end(), [](const late_t& a, const late_t& b) { return a.id < b.id; });
@@ -1376,12 +1422,19 @@ class lockstep_impl_t {
     ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
     const uint64_t dw = pa & ~7ull;
     uint8_t* m = mem_at(dw);
+    std::vector<std::pair<unsigned, uint64_t>> landed;  // (hart, id) of the late landers this read settled
     for (uint64_t id : ids) {
       auto it = late_.find(dw);
       if (it == late_.end()) return;
       auto& v = it->second;
       auto c = std::find_if(v.begin(), v.end(), [&](const late_t& x) { return x.id == id; });
       if (c == v.end()) continue;
+      // A younger late lander of a hart whose older one this read showed has not landed: one hart's stores land in
+      // order, so where it matched, its bytes equal the older one's (seed 1950150 of the soak, 10-23: the middle of
+      // three sd's showed on two bytes and the last matched the other two, which settled it there and dropped it on
+      // the first two, though it landed later)
+      if (std::any_of(landed.begin(), landed.end(), [&](const auto& l) { return l.first == c->hart && l.second < id; }))
+        continue;
       uint8_t before[8], mask = 0, drop = 0;
       memcpy(before, m, 8);
       for (unsigned i = 0; i < n; i++) {
@@ -1389,6 +1442,7 @@ class lockstep_impl_t {
         if (c->mask >> b & 1) (got[i] == c->nw[b] ? mask : drop) |= uint8_t(1u << b);
       }
       const unsigned hart = c->hart;
+      if (mask) landed.emplace_back(hart, id);
       for (unsigned b = 0; b < 8; b++)
         if (mask >> b & 1) m[b] = c->nw[b];
       c->mask &= uint8_t(~(mask | drop));

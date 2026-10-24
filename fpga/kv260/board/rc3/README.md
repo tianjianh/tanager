@@ -77,7 +77,25 @@ The four-hart soak ([`../runs/soak4.sh`](../runs/soak4.sh)) runs in `~/soak4-rc3
   - The list adds SD1's `mmc0: Timeout waiting` for rc3, from soc-2's watch list.
   - CoreMark's 10 s timing rule stays a note.
 - **The laptop's watch** reads the soak's log every 10 minutes for 74 hours, and COM5 for trouble or a reset, SIGILL, SIGSEGV and SD1 timeouts included.
-- **The loggers:** COM5 and COM7 are logged for 80 hours.
+- **The loggers:** COM5 and COM7 were logged with UTC stamps for the whole run.
+
+**Stopped at the user's request after 2 h 43 min** ([`soak4_rc3.log`](soak4_rc3.log)): the user travels, and the laptop goes too.
+- **The tally,** from 02:43 to 05:26 UTC on 10-24:
+  - 16 rounds, 48 stress passes, 48 DR-141 sets, 16 `hart_check`s and 16 rounds of hart stop and start;
+  - 64 kernel checks passed, **0 FAIL**;
+  - its one note was CoreMark's timing rule, with the CRCs right.
+- **No trouble anywhere:** none in the kernel log at the stop, and none on COM5 for the whole run (no SD1 timeout, SIGILL, SIGSEGV, oops or reset).
+- **The stop:** a step boundary (`SOAK4-END after round 16`), then the watcher and the loggers stopped cleanly.
+- **M8's 72-hour gate stays open.** The 72-hour run restarts on rc3 when the user is back and says so.
+
+## The board now
+
+Idle in ARM mode, left so while the laptop is away:
+- **The mode record says `arm`.** Ubuntu is up with k26-starter-kits loaded and fancontrol running the fan.
+- **Nothing runs:** no `tanager-host`, `tg.sh` or test, so nothing can read the PL while the laptop is gone.
+- **The A53's network** keeps its link-local address since 05:29 UTC (the change log; [`../a53net/link_local.txt`](../a53net/link_local.txt)).
+- **p1:/tanager/ holds rc3.** To boot it, in ARM mode: `bash ~/tanager/runs/fh_p1.sh riscv`, then a reboot.
+- **u100 is kept** in `tanager-u100/`, and dr187b and the two-core d4r2 image behind it.
 
 **Bare metal, in ARM mode** (records in [`../memcal/`](../memcal/): `memcal_rc3_*.txt`, `wsd_rc3_*.txt`, `run_rc3.txt`):
 - **memcal is u100's, as soc-2 expected.** memset-16M took 40,270,386 and 40,257,053 cycles, against u100's 40,231,520 (+0.08%): 159.0 MiB/s, against d4r2's 188.3. Every other row is within 0.2% of u100's.

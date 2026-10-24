@@ -92,6 +92,8 @@ module tg_lsu
   output robid_t                       replay_rob,    // cycle after the store's search
   output logic                         snp_valid,     // CoRR (architecture_plan §4.9): a thread's oldest load the snoop
   output robid_t                       snp_rob,       // marking found holding a value another hart may have overwritten
+  output logic [NUM_THREADS-1:0][2:0]  hpm_lsu,       // M9's counters (TG_HPM): each thread's L1D load misses (0), data
+                                                       // walks (1) and fetch's walks (2), pulses (tg_core registers them)
   output logic                         spx_valid,     // a store's PMP denial, found after it decided (S3)
   output robid_t                       spx_rob,
   output logic [1:0]                   sth_v,         // commit stops before these stores: S2, S3
@@ -316,6 +318,7 @@ module tg_lsu
   sqh_t                              sqh;          // the SQ head's address fields
   logic   [LQ_ENTRIES-1:0][PA_W-1:0] lq_pa_q;
   logic   [LQ_ENTRIES-1:0]           lq_pav_q;     // physical address known
+  logic   [LQ_ENTRIES-1:0]           lq_mc_q;      // M9's counters (TG_HPM): the load's L1D miss is counted (its first)
   sqid_t  [LQ_ENTRIES-1:0]           lq_blk_q;     // blocking store
   logic   [LQ_ENTRIES-1:0]           lq_part_q;    // ... partial overlap (wait until it leaves)
   // DR-183 (PMP_FILL): the load's PMP check is still to come, the shared checker having been taken in its check
@@ -2092,6 +2095,13 @@ module tg_lsu
   logic             pw_done, pw_ok;
   logic [3:0]       pw_cause;
   assign pw_req[0]  = hd_need && hd_walk && !sta_ag_valid && !hd_wtok && !hdf_q[t_hd] && sq_drn[t_hd];
+`ifndef SYNTHESIS
+  // (#12, core-2's check) A deciding walk never asks while the DTLB already translates the head: the registered miss
+  // and the fill guard keep the request off once a fill has made the head's page hit
+  always_ff @(posedge clk)
+    if (md_rs && !rst && ROB_HEAD_TLB_LATE && LSU_HDWALK_REG)
+      assert (!(pw_req[0] && hd_tok)) else $error("tg_lsu: a deciding walk asks while the DTLB translates the head (#12)");
+`endif
   assign pw_va[0]   = hd_va;
   assign pw_at[0]   = hd_at;
   assign pw_mode[0] = priv_d[t_hd];
@@ -2109,6 +2119,16 @@ module tg_lsu
   assign pw_tid[0]  = t_hd;
   assign pw_tid[1]  = t_iw;
   assign pw_tid[2]  = dpf_tid_q;
+  // M9's counters (TG_HPM), each thread's events as they happen: a load's first miss at M2 (its replays while the line
+  // comes do not count again; the walker's PTE reads aside), and a walk the walker takes for the head or the data
+  // prefetch (a data access's), or for fetch. tg_ptw acks one request a cycle (by priority), so each is one pulse
+  always_comb
+    for (int t = 0; t < NT; t++) begin
+      hpm_lsu[t][0] = lm_req && !m2_pt_q && !lq_mc_q[m2_lq_q] && t_m2 == tid_t'(t);
+      hpm_lsu[t][1] = (pw_req[0] && pw_ack[0] && pw_tid[0] == tid_t'(t)) ||
+                      (pw_req[2] && pw_ack[2] && pw_tid[2] == tid_t'(t));
+      hpm_lsu[t][2] = pw_req[1] && pw_ack[1] && pw_tid[1] == tid_t'(t);
+    end
   tg_ptw u_ptw (
     .clk, .rst, .flush, .flush_tid(t_fl), .satp_ppn, .sum, .mxr, .pmp_d, .pmp_pal,
     .chk_pa(pc_pa), .chk_lvl(pc_lvl), .chk_dbl(pc_dbl), .chk_tid(pc_t), .chk_req(pw_chk), .chk_gnt(!sn_v),
@@ -2633,6 +2653,7 @@ module tg_lsu
       end
       if (s2_den && s2_amo_q) sq_pden_q[s2_idx_q] <= 1'b1;
 
+      if (lm_req && !m2_pt_q) lq_mc_q[m2_lq_q] <= 1'b1;   // (M9's counters: a load's miss counts once)
       // ---- Dispatch: new LQ / SQ entries ----
       if (ds_fire) begin
         for (int k = 0; k < DISPATCH_WIDTH; k++) begin
@@ -2644,6 +2665,7 @@ module tg_lsu
             lq_st_q[i]   <= L_WAIT;
             lq_pav_q[i]  <= 1'b0;
             lq_pck_q[i]  <= 1'b0;
+            lq_mc_q[i]   <= 1'b0;
           end
           if (ds_valid[k] && ds_uop[k].d.cls == C_ST) begin
             logic [SIW-1:0] i;

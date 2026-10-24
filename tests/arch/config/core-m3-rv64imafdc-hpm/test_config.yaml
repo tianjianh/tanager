@@ -1,0 +1,11 @@
+# ACT4 configuration (M9's performance counters on, TG_HPM: sim/profile.mk's HPM=1) for tg_core at M3 with F/D (plan §11: F/D integration is part of M3): the plan §4.1
+# day-one ISA, RV64IMAFDC, Zba, Zbb, Zbs, Zicond, Zihintpause, Zicntr, Zihpm, Zkt, Za64rs; M, S and U;
+# Sv39, Sstc, Svinval, Svade; 16 PMP entries (docs/spec/verification.md §6.1).
+name: core-m3-rv64imafdc-hpm
+compiler_exe: riscv-none-elf-gcc
+objdump_exe: riscv-none-elf-objdump
+ref_model_exe: sail_riscv_sim
+udb_config: core-m3-rv64imafdc-hpm.yaml
+linker_script: ../link.ld
+dut_include_dir: .
+# spike: --isa=rv64imafdc_zicsr_zifencei_zicntr_zihpm_zba_zbb_zbs_zicond_zihintpause_sstc_svinval_zkt_za64rs_sscofpmf --priv=MSU --pmp=16

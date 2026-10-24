@@ -57,16 +57,22 @@ REGIONS = [
 ALL_OFF = ["A", "F", "D", "S", "H", "B", "V"]  # extensions with a "supported" flag in "extensions"
 
 
-def tanager(c, *, user, sup, pmp, zexts, letters="M", mutable="", hpm=False, usable=None):
+def tanager(c, *, user, sup, pmp, zexts, letters="M", mutable="", hpm=False, usable=None, counters=0):
     """Common Tanager settings. `zexts`: the Z* and S* extensions that are supported; `letters`: the
     single-letter extensions among A, B, M, F, D (C follows Zca); `mutable`: the misa bits software may
     clear, as in Spike (its write mask is M, A, B, C, F, D, Q, H, V within the ISA); `usable`: the PMP
-    entries that work, the rest of the `pmp` implemented ones reading zero (default: all)."""
+    entries that work, the rest of the `pmp` implemented ones reading zero (default: all); `counters`: M9's programmable
+    counters from mhpmcounter3 (TG_HPM, sim/profile.mk's HPM=1: 4, with Sscofpmf in `zexts`), or none (they read zero)."""
     b = c["base"]
     # mcountinhibit: CY and IR (and the HPM counters when they exist); bit 1 is read-only zero
     b["mcountinhibit"] = {"supported": True, "writable_bits": {"len": 32, "value": "0xFFFF_FFFD" if hpm else "0x0000_0005"}}
     b["writable_fiom"] = sup
-    b["writable_hpm_counters"] = {"len": 32, "value": "0x0"}  # Spike's mhpmcounters read zero
+    # M9's counters (mhpmcounter3.., their mhpmevent's event field 8 bits beside Sscofpmf's OF and mode inhibits); without
+    # them Spike's mhpmcounters read zero
+    hc = ((1 << counters) - 1) << 3
+    b["writable_hpm_counters"] = {"len": 32, "value": f"0x{hc >> 16:04X}_{hc & 0xFFFF:04X}" if counters else "0x0"}
+    if counters:
+        b["hpmevent_width_bits"] = 8
     cen = "0xFFFF_FFFF" if hpm else "0x0000_0007"
     b["scounteren_writable_bits"] = {"len": 32, "value": cen if sup else "0x0"}
     b["mcounteren_writable_bits"] = {"len": 32, "value": cen if user else "0x0"}
@@ -81,7 +87,7 @@ def tanager(c, *, user, sup, pmp, zexts, letters="M", mutable="", hpm=False, usa
         # Zicntr), plus misaligned fetch (0) only without C; mideleg SSIP, STIP, SEIP.
         b["medeleg"]["delegatable_bits"] = {"len": 64, "value": "0x0000_0000_0008_B3FE" if "Zca" in zexts
                                             else "0x0000_0000_0008_B3FF"}
-        b["mideleg"]["delegatable_bits"] = {"len": "xlen", "value": "0x222"}
+        b["mideleg"]["delegatable_bits"] = {"len": "xlen", "value": "0x2222" if counters else "0x222"}  # LCOFI with them
     m = c["memory"]
     m["physaddr_bits"] = 34
     m["pmp"] = {"grain": 0, "count": pmp, "usable_count": pmp if usable is None else usable, "tor_supported": pmp > 0,
@@ -158,8 +164,21 @@ def core_m3_fd_p8(c):
     return core_m3_fd(c, usable=8)
 
 
+def core_m3_fd_hpm(c, usable=None):
+    """The same with M9's performance counters on (TG_HPM, sim/profile.mk's HPM=1; DR-190): mhpmcounter3 to 6 writable
+    and counting their mhpmevent's event (8 bits), Sscofpmf's OF and mode inhibits, scountovf and LCOFI (delegatable)."""
+    return tanager(c, user=True, sup=True, pmp=16, zexts=M3_Z + ("Zcd", "Sscofpmf"), letters="MABFD", mutable="MABCFD",
+                   hpm=True, usable=usable, counters=4)
+
+
+def core_m3_fd_p8_hpm(c):
+    """The counters with DR-167's 8 PMP entries (HPM=1 on the default core)."""
+    return core_m3_fd_hpm(c, usable=8)
+
+
 CONFIGS = {"tcore-rv64im": tcore, "core-m2-rv64im": core_m2, "core-m3-rv64imac": core_m3,
-           "core-m3-rv64imafdc": core_m3_fd, "core-m3-rv64imafdc-p8": core_m3_fd_p8}
+           "core-m3-rv64imafdc": core_m3_fd, "core-m3-rv64imafdc-p8": core_m3_fd_p8,
+           "core-m3-rv64imafdc-hpm": core_m3_fd_hpm, "core-m3-rv64imafdc-p8-hpm": core_m3_fd_p8_hpm}
 
 
 def main():

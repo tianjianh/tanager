@@ -43,14 +43,20 @@ MEM_SLICE  ?=
 ifneq ($(filter-out 0 1,$(XBAR_SLICE) $(MEM_SLICE)),)
   $(error XBAR_SLICE and MEM_SLICE must be 0, 1 or unset (got "$(XBAR_SLICE)" and "$(MEM_SLICE)"))
 endif
+# L2_WB_PACE=1: the L2's write-back batching (tanager_soc L2_WB_PACE, docs/spec/l2.md; lint only here, and
+# tests/unit/soc short and tests/unit/l2 short run it)
+L2_WB_PACE ?=
+ifneq ($(filter-out 0 1,$(L2_WB_PACE)),)
+  $(error L2_WB_PACE must be 0, 1 or unset (got "$(L2_WB_PACE)"))
+endif
 SYNTH_FLAGS := $(if $(SYNTH),+define+SYNTHESIS -Wno-UNUSED tools/ci/synth_lint/synth.vlt \
                  tools/ci/synth_lint/xilinx_stubs.sv $(SYNTH_MODELS))
 
 .PHONY: lint lint-all regress regress-profiles cycle-identical perf boot-lockstep boot-lockstep-gate
 lint:
 	@test -f $(RTL_CFG) || { echo "unknown CFG=$(CFG) (one of: $(CFGS))"; exit 2; }
-	$(VERILATOR) $(LINT_FLAGS) $(TC_DEF) $(LINT_ONLY_DEF) $(if $(LAT_INJ),-GLAT_INJ=$(LAT_INJ)) $(if $(RELEASE),-GRELEASE=$(RELEASE) $(if $(filter 1,$(RELEASE)),-GHOST_DMA=1)) $(if $(XBAR_SLICE),-GXBAR_SLICE=$(XBAR_SLICE)) $(if $(MEM_SLICE),-GMEM_SLICE=$(MEM_SLICE)) $(RTL_CFG) -F $(RTL_F) $(SYNTH_FLAGS)
-	@echo "lint OK: $(CFG)$(if $(LAT_INJ), LAT_INJ=$(LAT_INJ))$(if $(RELEASE), RELEASE=$(RELEASE))$(if $(TIMING_CUTS), TIMING_CUTS=$(TIMING_CUTS))$(if $(DC_MSHRS), DC_MSHRS=$(DC_MSHRS))$(if $(QUEUE_DECODE), QUEUE_DECODE=$(QUEUE_DECODE))$(if $(SPEC_WAKE), SPEC_WAKE=$(SPEC_WAKE))$(if $(SPEC_WAKE_FILT), SPEC_WAKE_FILT=$(SPEC_WAKE_FILT))$(if $(STA_BASE), STA_BASE=$(STA_BASE))$(if $(STEER_LA), STEER_LA=$(STEER_LA))$(if $(PMP_ENTRIES), PMP_ENTRIES=$(PMP_ENTRIES))$(if $(STORE_PF), STORE_PF=$(STORE_PF))$(if $(URF), URF=$(URF))$(if $(STORE_PF_MAX), STORE_PF_MAX=$(STORE_PF_MAX))$(if $(SOLO_TID), SOLO_TID=$(SOLO_TID))$(if $(SPLIT), SPLIT=$(SPLIT))$(if $(HART1), HART1=$(HART1))$(if $(PMP_FILL), PMP_FILL=$(PMP_FILL))$(if $(XBAR_SLICE), XBAR_SLICE=$(XBAR_SLICE))$(if $(MEM_SLICE), MEM_SLICE=$(MEM_SLICE))$(if $(strip $(LINT_ONLY_SET)), $(strip $(LINT_ONLY_SET)))$(if $(SYNTH), SYNTH=1)"
+	$(VERILATOR) $(LINT_FLAGS) $(TC_DEF) $(LINT_ONLY_DEF) $(if $(LAT_INJ),-GLAT_INJ=$(LAT_INJ)) $(if $(RELEASE),-GRELEASE=$(RELEASE) $(if $(filter 1,$(RELEASE)),-GHOST_DMA=1)) $(if $(XBAR_SLICE),-GXBAR_SLICE=$(XBAR_SLICE)) $(if $(MEM_SLICE),-GMEM_SLICE=$(MEM_SLICE)) $(if $(L2_WB_PACE),-GL2_WB_PACE=$(L2_WB_PACE)) $(RTL_CFG) -F $(RTL_F) $(SYNTH_FLAGS)
+	@echo "lint OK: $(CFG)$(if $(LAT_INJ), LAT_INJ=$(LAT_INJ))$(if $(RELEASE), RELEASE=$(RELEASE))$(if $(TIMING_CUTS), TIMING_CUTS=$(TIMING_CUTS))$(if $(DC_MSHRS), DC_MSHRS=$(DC_MSHRS))$(if $(QUEUE_DECODE), QUEUE_DECODE=$(QUEUE_DECODE))$(if $(SPEC_WAKE), SPEC_WAKE=$(SPEC_WAKE))$(if $(SPEC_WAKE_FILT), SPEC_WAKE_FILT=$(SPEC_WAKE_FILT))$(if $(STA_BASE), STA_BASE=$(STA_BASE))$(if $(STEER_LA), STEER_LA=$(STEER_LA))$(if $(PMP_ENTRIES), PMP_ENTRIES=$(PMP_ENTRIES))$(if $(STORE_PF), STORE_PF=$(STORE_PF))$(if $(URF), URF=$(URF))$(if $(STORE_PF_MAX), STORE_PF_MAX=$(STORE_PF_MAX))$(if $(SOLO_TID), SOLO_TID=$(SOLO_TID))$(if $(SPLIT), SPLIT=$(SPLIT))$(if $(HART1), HART1=$(HART1))$(if $(PMP_FILL), PMP_FILL=$(PMP_FILL))$(if $(XBAR_SLICE), XBAR_SLICE=$(XBAR_SLICE))$(if $(MEM_SLICE), MEM_SLICE=$(MEM_SLICE))$(if $(L2_WB_PACE), L2_WB_PACE=$(L2_WB_PACE))$(if $(strip $(LINT_ONLY_SET)), $(strip $(LINT_ONLY_SET)))$(if $(SYNTH), SYNTH=1)"
 
 # DR-140's elaborations, so that every switch's branches compile: the fallback (every switch off), the
 # default (#4, #5 on), and #2, #8 and the commit trace off (DR-146) each on top of the default (lint only;
@@ -68,7 +74,7 @@ lint-all:
 CORE ?= core
 REGRESS_ARGS = CFG=$(CFG) CORE=$(CORE) $(if $(LAT),LAT=$(LAT)) $(if $(SUITES),SUITES="$(SUITES)") \
   $(if $(MARCH),MARCH=$(MARCH)) $(if $(SELFTEST),SELFTEST=$(SELFTEST)) $(if $(RANDN),RANDN=$(RANDN)) \
-  $(if $(JOBS),JOBS=$(JOBS)) $(foreach v,DC_MSHRS QUEUE_DECODE SPEC_WAKE SPEC_WAKE_FILT STA_BASE STEER_LA PMP_ENTRIES STORE_PF URF STORE_PF_MAX SOLO_TID SPLIT HART1 PMP_FILL,$(if $($(v)),$(v)=$($(v))))
+  $(if $(JOBS),JOBS=$(JOBS)) $(foreach v,DC_MSHRS QUEUE_DECODE SPEC_WAKE SPEC_WAKE_FILT STA_BASE STEER_LA PMP_ENTRIES STORE_PF URF STORE_PF_MAX SOLO_TID SPLIT HART1 PMP_FILL HPM,$(if $($(v)),$(v)=$($(v))))
 regress:
 	@tools/ci/regress.sh $(REGRESS_ARGS) $(if $(TIMING_CUTS),TIMING_CUTS=$(TIMING_CUTS))
 regress-profiles:
