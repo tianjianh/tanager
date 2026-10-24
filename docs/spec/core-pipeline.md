@@ -514,9 +514,12 @@ fetch number and for Sdext on main. The DR will fix Sv39 for v1: Sv48 later mean
   - The predictors already keep 39 bits (the micro-BTB's and the RAS's [38:1]).
 - **What stays 64 bits:** the CSRs (xepc, xtvec, dpc, xtval), the branch unit's JALR target (rs1 + imm), the ROB's
   `flush_pc`, auipc's result and every link written to a register, and the commit trace's pc and tval.
-- **The full-value register:** `flush_pc` takes every redirect at full width. Its sources are the branch unit's target,
+- **The full-value registers:** `flush_pc` takes every redirect at full width. Its sources are the branch unit's target,
   mret's and sret's xepc, dret's dpc, the trap vector and the interrupt vector (with a vectored offset). The debug
   window's entries are PAs.
+  - `flush_pc` is one register for both threads (tg_rob), and with hart 1 the sibling's next flush overwrites it.
+  - So each thread has its own full-value register, `bpc_q[t]` (64 bits), loaded from `flush_pc` when a bad redirect
+    goes to the thread's fetch. It holds until that thread's next redirect.
 - **The bad bit:** fetch takes a redirect as `pc40` plus `bad` (flush_pc[63:39] differs from bit 38's extension).
   - A bad redirect makes the thread's next block a fault block at once, with no fetch.
   - Decode's redirect and sequential fetch need no full register: a JAL's or branch's target (pc + imm, at most 2^20
@@ -524,8 +527,9 @@ fetch number and for Sdext on main. The DR will fix Sv39 for v1: Sv48 later mean
 - **The checks, by the mode after the redirect** (F1; a flush follows every mode change):
   - **M, or S/U with Bare:** an access fault when bad, or when pc40[38:PA_W] is nonzero (a pc above the PA).
   - **S/U with Sv39:** a page fault when bad (non-canonical); otherwise the ITLB, as today.
-- **Faults at a pc outside 40 bits** take their pc and tval from `flush_pc`, which holds until the fault block's trap
-  commits (the block is the thread's only instruction then). That covers:
+- **Faults at a pc outside 40 bits** take their pc and tval from the thread's `bpc_q`. It holds until the fault
+  block's trap commits: the block is the thread's only instruction then, and the sibling's flushes don't touch it.
+  That covers:
   - mepc or sepc, and mtval or stval;
   - the TR_TRAP record's pc and tval;
   - dpc, when debug mode's entry replaces the fault: a step whose next pc is bad enters with that pc in full, and the
@@ -539,8 +543,8 @@ fetch number and for Sdext on main. The DR will fix Sv39 for v1: Sv48 later mean
     0xFFFF_FFC0_0000_0000.
   - pc + 2 after 0xFFFF_FFFF_FFFF_FFFE wraps to 0, as in 64 bits.
   - auipc and the links are 64-bit sums of the sign-extended pc, in the ALU.
-- **The commit trace and lockstep:** records sign-extend pc40, or take `flush_pc` for a fault block at a full-width
-  value, so Spike sees the 64-bit values it computes.
+- **The commit trace and lockstep:** records sign-extend pc40, or take the thread's `bpc_q` for a fault block at a
+  full-width value, so Spike sees the 64-bit values it computes.
 - **Not touched:** satp and mode switches (pc40 is exact under Bare and Sv39, and fetch re-checks after each
   serialising flush). Nor the LSU, the HPM events, the load-wait table (pc[4:1] ^ pc[16:13]), TAGE ([38:4]), the
   micro-BTB or the RAS.
@@ -551,10 +555,13 @@ fetch number and for Sdext on main. The DR will fix Sv39 for v1: Sv48 later mean
   - **The boundary:** an instruction at 0x0000_003F_FFFF_FFFC, and a straddler at 0x0000_003F_FFFF_FFFE (the second
     half faults, tval 0x0000_0040_0000_0000). Links and auipc are read back at the top of the range.
   - **A step into a bad pc:** dpc holds the full value, and the fault comes on resume.
+  - **Two threads:** smt2 HART1=1 with one hart jumping to a bad target while the other takes a flush. The fault's
+    pc and tval are still the first hart's full value (`bpc_q` per thread).
 - **The estimate:** about 0.6–0.8K LUTs a core:
   - decode, rename's payload, issue and the branch unit as fpu-2 estimated;
   - fetch 200–250, since its predictors are already narrow;
-  - the ROB about 60, with its two read ports.
+  - the ROB about 60, with its two read ports;
+  - less the per-thread full-value registers: 128 FFs and a 2:1 mux a core.
 
   fpu-2 measures fetch.
 - **The split:** the core side is core-2's (decode, rename's payload, issue, the branch unit, the ROB, the redirect and
