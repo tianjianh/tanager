@@ -27,6 +27,8 @@ module tanager_soc
   parameter logic [3:0]  XBAR_IN_SLICE   = XBAR_IN_SLICE_DEF,
   parameter bit          XBAR_SLICE      = XBAR_SLICE_DEF,
   parameter bit          MEM_SLICE       = MEM_SLICE_DEF,
+  parameter bit          L2_WB_PACE      = L2_WB_PACE_DEF,    // the L2's write-back batching (tg_uncore)
+  parameter logic [15:0] L2_PACE_INIT    = L2_PACE_INIT_DEF,  // its settings at reset (tg_uncore)
   parameter bit          DEBUG_CNT       = 1'b0,              // board debug counters (tg_uncore)
   parameter bit          VIRTIO_WINDOW   = 1'b0,              // the forwarded virtio window (tg_uncore)
   parameter bit          HOST_DMA        = 1'b0,              // the coherent host DMA port (tg_uncore)
@@ -245,7 +247,8 @@ module tanager_soc
     .UNCORE_DSP (UNCORE_DSP), .AR_SLICE (AR_SLICE), .B_SLICE (B_SLICE), .D_SLICE (D_SLICE), .W_SLICE (W_SLICE),
     .XBAR_IN_SLICE (XBAR_IN_SLICE), .XBAR_SLICE (XBAR_SLICE), .MEM_SLICE (MEM_SLICE), .DEBUG_CNT (DEBUG_CNT),
     .VIRTIO_WINDOW (VIRTIO_WINDOW), .HOST_DMA (HOST_DMA), .LAT_INJ (LAT_INJ), .RELEASE (RELEASE),
-    .TRAFGEN (CORE_KIND == "trafgen"), .BREAK_LOG2 (BREAK_LOG2)
+    .TRAFGEN (CORE_KIND == "trafgen"), .BREAK_LOG2 (BREAK_LOG2), .L2_WB_PACE (L2_WB_PACE),
+    .L2_PACE_INIT (L2_PACE_INIT)
   ) u_uncore (
     .clk, .rst, .clk_host, .rst_host,
     .core_dbg_sel_o (core_dbg_sel), .core_dbg_i (core_dbg),

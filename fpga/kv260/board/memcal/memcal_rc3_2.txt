@@ -1,0 +1,9 @@
+# COM5, from 01:42:43.685 UTC on 2026-10-24: memcal-big.bin on rc3's bitstream (2a47608a…), run 2 (rc3_bare.sh)
+MEMCAL-BEGIN
+MEMCAL memset-16M bytes=67108864 cycles=40257053
+MEMCAL memcpy-8M bytes=33554432 cycles=23475987
+MEMCAL memset-1M bytes=33554432 cycles=13697183
+MEMCAL memcpy-1M bytes=33554432 cycles=23490071
+MEMCAL read-8M bytes=8388608 cycles=1585237
+MEMCAL chase-4M bytes=80000 cycles=4185853
+MEMCAL-END

@@ -101,7 +101,6 @@ module tg_tcore
   logic [63:0] mtvec_q, mepc_q, mcause_q, mtval_q, mscratch_q, mcycle_q, minstret_q;
   logic [11:0] mie_q;
   logic [2:0]  mcounteren_q, mcountinhibit_q;
-  logic [12:0] mcontext_q;
 
   // Fetch buffer and data cache
   logic              fb_valid_q;
@@ -204,8 +203,7 @@ module tg_tcore
       12'h342: csr_val = mcause_q;
       12'h343: csr_val = mtval_q;
       12'h344: begin csr_val = {52'b0, mip}; csr_nd = 1'b1; end
-      12'h7A0, 12'h7A1, 12'h7A2, 12'h7A3, 12'h7A4: csr_val = '0;   // no triggers
-      12'h7A8: csr_val = {51'b0, mcontext_q};
+      // (no Sdtrig: the trigger and context CSRs trap, as the core's do)
       12'hB00: begin csr_val = mcycle_q; csr_nd = 1'b1; end
       12'hB02: csr_val = minstret_q;
       12'hC00: begin csr_val = mcycle_q; csr_nd = 1'b1; csr_ok = prv_q == PRV_M2 || mcounteren_q[0]; end
@@ -643,7 +641,6 @@ module tg_tcore
       mie_bit_q <= 1'b0; mpie_q <= 1'b0; mprv_q <= 1'b0; tw_q <= 1'b0; mpp_q <= PRV_U2;
       mtvec_q <= '0; mepc_q <= '0; mcause_q <= '0; mtval_q <= '0; mscratch_q <= '0;
       mcycle_q <= '0; minstret_q <= '0; mie_q <= '0; mcounteren_q <= '0; mcountinhibit_q <= '0;
-      mcontext_q <= '0;
       misa_m_q <= 1'b1;
       fb_valid_q <= 1'b0;
       for (int i = 0; i < NLINES; i++) begin
@@ -954,7 +951,6 @@ module tg_tcore
                 12'h341: mepc_q <= csr_wval_q & ~64'd3;
                 12'h342: mcause_q <= csr_wval_q;
                 12'h343: mtval_q <= csr_wval_q;
-                12'h7A8: mcontext_q <= csr_wval_q[12:0];
                 12'h301: misa_m_q <= csr_wval_q[12];
                 12'hB00: mcycle_q <= csr_wval_q;
                 12'hB02: minstret_q <= csr_wval_q;

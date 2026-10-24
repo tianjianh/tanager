@@ -59,3 +59,4 @@ core	st_w3	-	-	-	-	-	track
 core	smt2_w3	49740	-	-	91	42.5	track
 uncore	st	11300	-	-	140	19	enforce
 uncore	smt2	10800	-	-	140	19	enforce
+uncore_wbp	*	-	-	-	-	-	track
