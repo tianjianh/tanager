@@ -1819,7 +1819,7 @@ module tg_lsu
   // commit thread alternates, so the check's registers are per thread, each written in its thread's
   // cycles: consecutive cycles of the thread (its head cannot change between them but by its flush).
   logic [NT-1:0] hd_tok_q, hd_need_q;
-  logic          hd_walk;
+  logic          hd_walk, hd_wtok;                // the walk request's lookup terms: it may walk; this cycle's lookup hit
   if (ROB_HEAD_TLB_LATE) begin : g_hd_late
     // B3: the lookup takes the head's VA as registered a cycle earlier, so it starts from
     // flip-flops; the check, and the walk request that waits for it, count from the second cycle
@@ -1849,7 +1849,26 @@ module tg_lsu
     assign dt_vpn[2] = hd_vpn2_q;
     assign hd_tok    = hd_need_q[t_hd] && !sta_ag_valid && dt_hit[2] &&
                        pte_ok(dt_pte[2], hd_at2_q, priv_d[t_hd], sum[t_hd], mxr[t_hd]);
-    assign hd_walk   = hd_need_q[t_hd];
+    if (LSU_HDWALK_REG) begin : g_hdw_reg
+      // #12 (DR-191; spikes §8.18, fix 4): the walk request takes the lookup as registered, a valid miss in the
+      // thread's last cycle, so the walker's start (its request select, then chk_pa_q, va_q and base_q) no longer
+      // follows the DTLB's match and leaf read (19 levels into chk_pa_q on the chip): a deciding walk starts a cycle
+      // later. The head is the same op in both cycles (both need a translation). A fill of the thread's DTLB at
+      // that lookup's edge or after holds the request a cycle (the lookup could not see it), so a prefetch's fill
+      // of the head's page starts no second walk
+      logic [NT-1:0] hd_ms_q, hd_fs_q;
+      always_ff @(posedge clk) begin
+        hd_ms_q[t_hd] <= hd_need && hd_need_q[t_hd] && !sta_ag_valid &&
+                         !(dt_hit[2] && pte_ok(dt_pte[2], hd_at2_q, priv_d[t_hd], sum[t_hd], mxr[t_hd]));
+        for (int t = 0; t < NT; t++)
+          hd_fs_q[t] <= !rst && ((dt_fill && pw_dtid == tid_t'(t)) || (t_hd != tid_t'(t) && hd_fs_q[t]));
+      end
+      assign hd_walk = hd_ms_q[t_hd] && !hd_fs_q[t_hd];
+      assign hd_wtok = 1'b0;
+    end else begin : g_hdw_now
+      assign hd_walk = hd_need_q[t_hd];
+      assign hd_wtok = hd_tok;
+    end
   end else begin : g_hd_two
     // B2: both candidates are looked up, the LQ head's VA (port 2) and the committing store's
     // (port 3), and hd_ld picks last, so the lookups do not wait for the head's selection (an LR
@@ -1863,6 +1882,7 @@ module tg_lsu
                               : dt_hit[3] && pte_ok(dt_pte[3], (sq_amo_q[hs] && am_op_q[t_hd] == AMO_LR) ? ACC_R : ACC_W,
                                                     priv_d[t_hd], sum[t_hd], mxr[t_hd]));
     assign hd_walk   = 1'b1;
+    assign hd_wtok   = hd_tok;
   end
   // The ROB sees the head's DTLB retry a cycle later (DR-140 #3; timing: the head's DTLB lookup
   // leaves the commit redirect)
@@ -1903,7 +1923,14 @@ module tg_lsu
   priv_e [2:0]      pw_mode;
   logic             pw_done, pw_ok;
   logic [3:0]       pw_cause;
-  assign pw_req[0]  = hd_need && hd_walk && !sta_ag_valid && !hd_tok && !hdf_q[t_hd] && sq_drn[t_hd];
+  assign pw_req[0]  = hd_need && hd_walk && !sta_ag_valid && !hd_wtok && !hdf_q[t_hd] && sq_drn[t_hd];
+`ifndef SYNTHESIS
+  // (#12, core-2's check) A deciding walk never asks while the DTLB already translates the head: the registered miss
+  // and the fill guard keep the request off once a fill has made the head's page hit
+  always_ff @(posedge clk)
+    if (md_rs && !rst && ROB_HEAD_TLB_LATE && LSU_HDWALK_REG)
+      assert (!(pw_req[0] && hd_tok)) else $error("tg_lsu: a deciding walk asks while the DTLB translates the head (#12)");
+`endif
   assign pw_va[0]   = hd_va;
   assign pw_at[0]   = hd_at;
   assign pw_mode[0] = priv_d[t_hd];
