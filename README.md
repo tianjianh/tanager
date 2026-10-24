@@ -4,6 +4,7 @@ Tanager is a clean-room, 2-wide-decode, out-of-order RV64GC dual-core with two h
 
 | Document | Contents |
 |---|---|
+| [docs/user_guide.md](docs/user_guide.md) | User guide (a v1 draft): Tanager on a KV260 in RISC-V mode, from preparing the SD card to booting Debian 13, the consoles, SD, Ethernet, recovery and the host tools |
 | [docs/architecture_plan.md](docs/architecture_plan.md) | Architecture and project plan (draft 0.4): targets, microarchitecture (M1 freeze), dual-core memory system, SMT/CMT hooks, KV260 integration, verification, milestones, risks, open decisions |
 | [docs/perf/dse_report.md](docs/perf/dse_report.md) | M1 performance model results: calibration, IPC vs DRAM latency, ablations, early retirement, FPU and decode-width studies, the v1 freeze |
 | [docs/perf/feature_ledger.md](docs/perf/feature_ledger.md) | Every v1 feature and size, with its evidence and decision |
