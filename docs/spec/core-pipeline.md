@@ -106,13 +106,14 @@ M2 is the plan's "conservative out-of-order" core. It must pass riscv-tests (`rv
     - 2: the split, 128 entries by path and 128 by block, smt2-study's best on the boot (§7.12: +4.1% on core 0's boot against +2.9%).
   - **Sources:** the table is the model's (tgsim's `itt_entries`: a target per path of recent indirect targets), with the changes this front end needs, marked *model* below. Path history for indirect jumps: Driesen and Hölzle, ISCA 1998. A tagged target cache: Chang, Hao and Patt, ISCA 1997. ITTAGE (Seznec, JWAC-2, 2011) is the many-table form, not built.
   - **Table** (block memory):
-    - An entry holds {valid, slot, an 8-bit tag, the target's bits 38:1}: 50 bits in a 72-bit simple-dual-port row. Port A reads at F1; port B takes the training's writes.
+    - An entry holds {valid, slot, an 8-bit tag, a privilege bit, the target's bits 38:1}: 51 bits in a 72-bit simple-dual-port row. Port A reads at F1; port B takes the training's writes.
     - Mode 1 is one RAMB36 a core. Mode 2 is two, one a half, since the halves are read with different indices in one cycle (24 of 144 are free on rc3_u095r).
     - It is keyed as TAGE is: by the 16-byte block (the stream's bit at the top, so two threads' blocks use different entries), with the slot of the JALR's last parcel. So F1 reads it before pre-decode knows which parcel jumps. *Model:* keyed by the JALR's address.
   - **Index and tag:**
     - The index: the block address folded to 8 bits, xor the path history, xor the history shifted right by 8 (the model's).
     - Mode 2's halves take 7 bits: the path half's with the history, the block half's without.
     - The tag: the block address folded to 8 bits another way.
+    - **The privilege bit** (U, against S and M) must match too. An entry U-mode code trained never steers an S-mode jump, the target injection of Spectre v2 (core-2's review). The micro-BTB has the same exposure today, not addressed here.
   - **Path history** (per stream, 16 bits, the model's): a JALR that is not a return shifts it left by 4 and xors in its target's bits 17:2, so it holds about the last four targets.
     - **Speculative** (`ph`): moved by each delivered block whose exit is such a JALR, with the target F2 sent fetch to, a cycle later (as TAGE's history bits).
     - **The lookup's lag:** F1 reads with the speculative history as the block moves into F2, as TAGE does. So a block fetched right behind a JALR's block is looked up without that JALR. Its target is that block's own address, which the index has anyway. The FTQ keeps the history each lookup used, and training writes there, so lookup and training agree.
@@ -126,7 +127,7 @@ M2 is the plan's "conservative out-of-order" core. It must pass riscv-tests (`rv
   - **FTQ:** each entry also keeps the history its block's lookup used (16 bits). Decode's repair reads it, and so does training, which recomputes the index and tag from it.
   - **Training at commit:**
     - A retiring JALR that is not a return writes {valid, its slot, the tag, its target} where its block read: the index and tag from its FTQ entry's history and its own address.
-    - It does so once its target is known: its thread's next retiring instruction's address, a mispredict's flush address, or a trap's or interrupt's `epc`.
+    - It does so once its target is known: its thread's next retiring instruction's address, its own mispredict's flush address, or a trap's or interrupt's `epc`. Any other flush of its thread before that drops it (core-2's review).
     - Commit's history moves with the same target.
     - One write a cycle: a second such jump in one commit group moves the history but does not train.
     - The entry is overwritten, with no confidence counter, as the model's.
