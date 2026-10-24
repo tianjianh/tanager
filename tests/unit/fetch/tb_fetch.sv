@@ -36,6 +36,7 @@ module tb_fetch
   // ---- DUT ----
   logic        ready, flush, icinv, dred, upd_valid, upd_way, upd_inval, pmp_busy, tlb_flush, it_fill;
   tid_t        flush_tid, dred_tid, d_flush_tid, d_dred_tid, c_tid, ras_tid, upd_tid, tlb_flush_tid, it_fill_tid, iw_tid;
+  logic [NUM_THREADS-1:0] hpm_imiss;           // (M9's counter event: not checked here)
   logic [63:0] flush_pc, dred_pc, upd_pc, upd_target, iw_va;
   logic [FTQW-1:0]   dred_ftq, c_hftq;
   logic [SLOT_W-1:0] dred_slot, upd_slot;
@@ -87,7 +88,7 @@ module tb_fetch
     .iq_valid, .iq_insn, .iq_take, .iq_take_t, .iq_take_n, .iq_tnz_t, .iq_tnz_n, .de_take, .rn_block('0), .rn_acc,
     .xl_h, .dst, .priv_h, .pmp_d_h, .pmp_busy, .tlb_flush, .tlb_flush_tid,
     .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte, .it_fill_tid,
-    .iw_req, .iw_tid, .iw_va, .iw_ack, .iw_done, .iw_ok, .iw_cause,
+    .iw_req, .iw_tid, .iw_va, .iw_ack, .iw_done, .iw_ok, .iw_cause, .hpm_imiss,
     .l1i_a_o(a), .l1i_a_valid_o(a_valid), .l1i_a_ready_i(a_ready), .l1i_d_i(d), .l1i_d_valid_i(d_valid),
     .l1i_d_ready_o(d_ready));
 
