@@ -116,6 +116,7 @@ cycle-identical:
 	  $(if $(SPLIT),--split $(SPLIT)) $(if $(BRANCH_SPLIT),--branch-split $(BRANCH_SPLIT)) \
 	  $(if $(HART1),--hart1 $(HART1)) $(if $(BRANCH_HART1),--branch-hart1 $(BRANCH_HART1)) \
 	  $(if $(PMP_FILL),--pmp-fill $(PMP_FILL)) $(if $(BRANCH_PMP_FILL),--branch-pmp-fill $(BRANCH_PMP_FILL)) \
+	  $(if $(HPM),--hpm $(HPM)) $(if $(BRANCH_HPM),--branch-hpm $(BRANCH_HPM)) \
 	  $(if $(HARNESS),--harness $(HARNESS))
 
 # The Linux boot under lockstep (docs/spec/verification.md §4.7; DR-173): tb_boot with the commit-trace tap
@@ -131,7 +132,8 @@ BOOT_LS_ARGS = $(if $(BRANCH),--branch "$(BRANCH)") $(if $(MCYC),--mcyc $(MCYC))
   $(if $(SPEC_WAKE_FILT),--spec-wake-filt $(SPEC_WAKE_FILT)) $(if $(STA_BASE),--sta-base $(STA_BASE)) $(if $(STEER_LA),--steer-la $(STEER_LA)) \
   $(if $(PMP_ENTRIES),--pmp-entries $(PMP_ENTRIES)) $(if $(STORE_PF),--store-pf $(STORE_PF)) $(if $(URF),--urf $(URF)) \
   $(if $(STORE_PF_MAX),--store-pf-max $(STORE_PF_MAX)) $(if $(SOLO_TID),--solo-tid $(SOLO_TID)) \
-  $(if $(SPLIT),--split $(SPLIT)) $(if $(HART1),--hart1 $(HART1)) $(if $(PMP_FILL),--pmp-fill $(PMP_FILL))
+  $(if $(SPLIT),--split $(SPLIT)) $(if $(HART1),--hart1 $(HART1)) $(if $(PMP_FILL),--pmp-fill $(PMP_FILL)) \
+  $(if $(HPM),--hpm $(HPM))
 boot-lockstep:
 	@python3 tools/ci/boot_lockstep.py $(BOOT_LS_ARGS) $(if $(SHAPE),--shape "$(SHAPE)") $(if $(TIMING),--timing "$(TIMING)")
 boot-lockstep-gate:

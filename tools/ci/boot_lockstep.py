@@ -20,6 +20,9 @@ each (harts 0 and 2). TIMING names the DDR models' timing, one run each, side by
 every ready at 100%), jitter (18-26 cycles), fixedN, default (tb_boot's own, 4-12). The gate runs st at 100M
 cycles with default and board timing when the change, against its merge base with BASE (main), reaches the core's
 fetch, decode, rename, LSU, MMU or CSR, or its top and package; otherwise it says so and passes.
+HPM=1 (M9's counters, DR-190) builds tanager-lockstep with Sscofpmf in Spike's ISA, as sim/Makefile's HPM=1, and the
+device tree with sw/dts HPM=1 where this tree's sw/dts takes it; the reference Image has no PMU driver, so a boot
+that should load Linux's names an Image with it (BOOT_KERNEL, the bench image's).
 Exit status: 0 every run checked clean; 1 a lockstep mismatch; 2 a run that could not be checked.
 """
 import argparse
@@ -61,7 +64,7 @@ NIGHT_CRON = "15 0 * * *"
 SWITCH_VALUES = {"TIMING_CUTS": (0, 1), "DC_MSHRS": (1, 4), "QUEUE_DECODE": (0, 1), "SPEC_WAKE": (0, 1),
                  "STA_BASE": (0, 1), "STEER_LA": (0, 1), "PMP_ENTRIES": (8, 16), "STORE_PF": (0, 1), "URF": (0, 1),
                  "STORE_PF_MAX": (2, 3), "SOLO_TID": (0, 1), "SPLIT": (0, 1),
-                 "HART1": (0, 1), "SPEC_WAKE_FILT": (0, 1, 2), "PMP_FILL": (0, 1)}
+                 "HART1": (0, 1), "SPEC_WAKE_FILT": (0, 1, 2), "PMP_FILL": (0, 1), "HPM": (0, 1)}
 
 
 def log(msg):
@@ -132,7 +135,8 @@ class Build:
             for cmd in (["make", "-s", "-C", os.path.join(self.src, "tests", "unit", "boot"), f"CFG={self.cfg}",
                          f"CORES={self.cores}", f"VTHREADS={self.vthreads}", f"JOBS={jobs}", f"SOC_BUILD={self.obj}",
                          f"TB={tbs}", "TAG=_tap", f"MEM_PARAMS={MEM_PARAMS}", *self.prof, "build"],
-                        ["make", "-s", "-C", os.path.join(self.src, "sim"), f"TANAGER_BUILD={self.obj}", "lockstep"]):
+                        ["make", "-s", "-C", os.path.join(self.src, "sim"), f"TANAGER_BUILD={self.obj}",
+                         *(p for p in self.prof if p.startswith("HPM=")), "lockstep"]):   # Spike's ISA with the counters
                 p = subprocess.run(cmd, env=env, capture_output=True, text=True,
                                    preexec_fn=host_policy.preexec(1))
                 if p.returncode:
@@ -162,11 +166,17 @@ def prune_builds(keep):
             shutil.rmtree(os.path.join(bdir, d), ignore_errors=True)
 
 
-def device_tree(harness_src, shape):
-    """The shape's device tree from this tree's sw/dts, as cycle-identical's boot makes it (128 MiB, FPU)."""
+def dts_takes_hpm(harness_src):
+    """Whether this tree's sw/dts has HPM=1 (Sscofpmf and the counters' event map, for a core with TG_HPM=1)."""
+    return re.search(r"^HPM\s*\?=", ci.git("show", f"{harness_src}:sw/dts/Makefile"), re.M) is not None
+
+
+def device_tree(harness_src, shape, hpm=False):
+    """The shape's device tree from this tree's sw/dts, as cycle-identical's boot makes it (128 MiB, FPU); with hpm,
+    sw/dts HPM=1 (the caller checks dts_takes_hpm)."""
     _, cores, threads, run_threads, _ = SHAPES[shape]
     dsrc = ci.git("rev-parse", f"{harness_src}:sw/dts")
-    ddir = os.path.join(CACHE, "dts", f"{dsrc[:12]}-c{cores}t{threads}r{run_threads}")
+    ddir = os.path.join(CACHE, "dts", f"{dsrc[:12]}-c{cores}t{threads}r{run_threads}{'-hpm1' if hpm else ''}")
     dtb = os.path.join(ddir, "tanager-kv260.dtb")
     os.makedirs(os.path.dirname(ddir), exist_ok=True)
     with open(ddir + ".lock", "a") as lk:
@@ -179,7 +189,8 @@ def device_tree(harness_src, shape):
             subprocess.run(["tar", "-x", "-C", src], stdin=a.stdout, check=True)
             a.wait()
             p = subprocess.run(["make", "-s", "-C", os.path.join(src, "sw", "dts"), f"O={ddir}", f"CORES={cores}",
-                                f"THREADS={threads}", f"RUN_THREADS={run_threads}", *ci.BOOT_DTS],
+                                f"THREADS={threads}", f"RUN_THREADS={run_threads}", *ci.BOOT_DTS,
+                                *(["HPM=1"] if hpm else [])],
                                capture_output=True, text=True, env=ci.clean_env(), preexec_fn=host_policy.preexec(1))
             if p.returncode or not os.path.exists(dtb):
                 fail(f"building the {shape} device tree: {(p.stdout + p.stderr)[-1000:]}")
@@ -341,6 +352,10 @@ def checks(a, tool, nice=False, nightly=False):
     images = {k: ci.boot_image(k, a.boot_fw if k == "fw" else a.boot_kernel) for k in ("fw", "kernel")}
     log(f"{label}: {', '.join(shapes)}; timing {', '.join(timings)}; {a.mcyc}M cycles; seed {a.seed}"
         f"{'; ' + ', '.join(f'{v}={p}' for v, p in prof.items()) if prof else ''}")
+    dts_hpm = prof.get("HPM") == 1 and dts_takes_hpm(harness)
+    if prof.get("HPM") == 1:
+        log("  device tree: sw/dts HPM=1 (Sscofpmf, the counters' event map)" if dts_hpm else
+            "  device tree: this tree's sw/dts has no HPM switch, so it leaves Sscofpmf and the counters' events out")
     for k, (path, h, what) in images.items():
         log(f"  {'firmware' if k == 'fw' else 'kernel  '}: sha256 {h} ({what}), {path}")
     builds = {s: Build(rtl, harness, s, prof, tool) for s in shapes}
@@ -351,7 +366,7 @@ def checks(a, tool, nice=False, nightly=False):
             fail(f"building {s}: {why}")
     log(f"built in {time.time() - t0:.0f} s; running {len(shapes) * len(timings)} boot(s) side by side")
     prune_builds({b.key for b in builds.values()})
-    dtbs = {s: device_tree(harness, s) for s in shapes}
+    dtbs = {s: device_tree(harness, s, dts_hpm) for s in shapes}
     stamp = time.strftime("%Y%m%d-%H%M%S")
     runs = [(s, t) for s in shapes for t in timings]
     with cf.ThreadPoolExecutor(max_workers=len(runs)) as ex:
