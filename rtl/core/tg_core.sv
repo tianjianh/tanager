@@ -284,7 +284,7 @@ module tg_core
   logic [NUM_THREADS-1:0]           slp, wkr, wk;
   // M9's counters (TG_HPM): fetch's and the LSU's events, each thread's pulses (registered into hpm_ev below)
   logic [NUM_THREADS-1:0]           hpm_imiss;
-  logic [NUM_THREADS-1:0][2:0]      hpm_lsu;
+  logic [NUM_THREADS-1:0][4:0]      hpm_lsu;
   tg_fetch u_fetch (
     .clk, .rst, .boot_pc(64'(boot_addr_i)), .ready(fe_ready),
     .flush, .flush_tid, .flush_pc, .fl_slp(flush_slp), .icinv, .dred, .dred_tid, .dred_pc, .dred_ftq, .dred_slot, .dred_rop, .dred_rlink,
@@ -685,7 +685,8 @@ module tg_core
   // M9's counters (HPM_N > 0; tg_csr's mhpmevent 3 ..): each hart's events (tg_core_pkg's HPM_EV), registered: 3
   // branch mispredicts (at execute, wrong-path ones too), 4 ordering replays, 5 L1D load misses (a load's first, at M2),
   // 6 data walks (the head's and the data prefetch's), 7 fetch's walks, 8 I$ misses (F2 parks a stream on one), 9 CoRR
-  // replays (the snoop marking's reports)
+  // replays (the snoop marking's reports), 10 the walker's busy cycles (a walk's, for its thread), 11 L1D store misses (a
+  // committed store's line without T as the drain writes it, once a store)
   logic [NUM_THREADS-1:0][HPM_EV-1:0] hpm_ev;
   if (HPM_N > 0) begin : g_hpm_ev
     always_ff @(posedge clk)
@@ -697,6 +698,8 @@ module tg_core
         hpm_ev[t][4] <= hpm_lsu[t][2];
         hpm_ev[t][5] <= hpm_imiss[t];
         hpm_ev[t][6] <= snp_valid && rob_tid(snp_rob, md) == tid_t'(t);
+        hpm_ev[t][7] <= hpm_lsu[t][3];
+        hpm_ev[t][8] <= hpm_lsu[t][4];
       end
   end else begin : g_no_hpm_ev
     assign hpm_ev = '0;

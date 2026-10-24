@@ -30,11 +30,13 @@
 //     at least six cycles apart (one walk at a time, asserted). After reset a sweep zeroes the
 //     tables (32 cycles); every entry is invalid until filled, and the key store needs no reset
 //     (clearing a never-filled entry's bits is a no-op).
-//   EARLY ports (CAM = 1): the lookup's VPN comes a cycle ahead (vpn_e; vpn is the same VPN a
-//     cycle later), so the tables are read and matched a cycle ahead and the match registered.
-//     The cycle of the lookup corrects it for the clock edge between: the valid bits now (a flush,
-//     a fill's overlap), and a fill's entry (T_CLEAR now) by the fill's VPN, compared a cycle
-//     ahead too. The lookup's answer is the same; its paths start at flip-flops (timing, DR-145).
+//   EARLY ports (CAM = 1): the lookup's VPN and thread come a cycle ahead (vpn_e, lk_tid_e; vpn and
+//     lk_tid are the same a cycle later), so the tables are read and matched a cycle ahead, masked by
+//     the valid bits and the thread's entries as they will be at the edge (a flush, a fill's overlap),
+//     with a fill's entry (T_CLEAR then) taken by the fill's VPN compared a cycle ahead too, encoded,
+//     and the match, its index and the hit registered. The lookup's answer is the same; the leaf's
+//     read address and the hit start at flip-flops (timing: DR-145; spikes §8.18's m2_foh_q and LSU
+//     state families, which ran from the lookup's thread through the encode into the leaf LUTRAM).
 module tg_tlb
   import tg_pkg::*, tg_core_pkg::*;
 #(
@@ -49,6 +51,7 @@ module tg_tlb
   input  logic [NR-1:0][26:0] vpn,          // VA[38:12]
   input  logic [NR-1:0][26:0] vpn_e,        // an EARLY port's VPN a cycle ahead
   input  tid_t [NR-1:0]       lk_tid,       // each lookup's thread (with vpn)
+  input  tid_t [NR-1:0]       lk_tid_e,     // an EARLY port's thread a cycle ahead (with vpn_e)
   output logic [NR-1:0]       hit,
   output tlb_pte_t [NR-1:0]   pte,
   input  logic                fill,
@@ -76,9 +79,10 @@ module tg_tlb
   function automatic logic [NE-1:0] tm(input tid_t t);
     for (int e = 0; e < NE; e++) tm[e] = (NT == 1) || t_q[e] == t;
   endfunction
-  tid_t [NR-1:0] lt;
+  tid_t [NR-1:0] lt, lte;
   tid_t          ft, xt;
-  always_comb for (int r = 0; r < NR; r++) lt[r] = (NT > 1) ? lk_tid[r] : tid_t'(0);
+  always_comb for (int r = 0; r < NR; r++) lt[r]  = (NT > 1) ? lk_tid[r] : tid_t'(0);
+  always_comb for (int r = 0; r < NR; r++) lte[r] = (NT > 1) ? lk_tid_e[r] : tid_t'(0);
   assign ft = (NT > 1) ? fill_tid : tid_t'(0);
   assign xt = (NT > 1) ? flush_tid : tid_t'(0);
   logic [NE-1:0] vflush;                    // the entries a flush clears: its thread's
@@ -92,7 +96,7 @@ module tg_tlb
   always @(posedge clk) if (rst) rs_tq <= 1'b1;
 `endif
   logic                  unused_vpn_e;      // read by EARLY ports only
-  assign unused_vpn_e = ^vpn_e;
+  assign unused_vpn_e = ^{vpn_e, lte};
 
   // a VPN in the page of (k, l)
   function automatic logic vmatch(input logic [26:0] a, input logic [26:0] k, input logic [1:0] l);
@@ -170,17 +174,13 @@ module tg_tlb
                     (l[e] != 2'd0 || fl != 2'd0 || (x[0][e] && x[1][e]));
     endfunction
 
-    // The valid bits less a just-filled entry, registered with them: an EARLY port ANDs its match
-    // a cycle ahead with them, and takes the filled entry from the fill's own compare (fq)
-    logic [NE-1:0] kv_q;
-    logic          fok_q;                    // a fill wrote an entry at the last edge (no flush)
-    always_ff @(posedge clk) begin
-      kv_q  <= rst ? '0 : fill_ok ? (v_q & ~vflush & ~ov & ~(NE'(1) << fv)) : (v_q & ~vflush);
-      fok_q <= !rst && fill_ok;
-    end
+    // The valid bits at the next edge, less a filled entry: an EARLY port masks its match a cycle
+    // ahead with them, and takes the filled entry from the fill's own compare
+    logic [NE-1:0] kvn;
+    assign kvn = fill_ok ? (v_q & ~vflush & ~ov & ~(NE'(1) << fv)) : (v_q & ~vflush);
     if (EARLY == '0) begin : g_nokv
-      logic unused_kv;                       // no EARLY port: synthesis drops them
-      assign unused_kv = ^{kv_q, fok_q};
+      logic unused_kv;                       // no EARLY port: synthesis drops it
+      assign unused_kv = ^kvn;
     end
     for (genvar r = 0; r < NR; r++) begin : g_m
       logic [26:0]   lv;                     // the VPN the tables are read at
@@ -195,22 +195,29 @@ module tg_tlb
         end
       end
       if (EARLY[r]) begin : g_early
-        logic [NE-1:0] mq, mk;               // the match a cycle ahead; less the entries gone since
-        logic          fq, fqc;              // the VPN in the page a fill writes at that edge
-        tid_t          fq_t;                 // ... and that fill's thread
+        // The match a cycle ahead, masked as the lookup's cycle will hold it (kvn; the thread's entries by
+        // lk_tid_e), and a fill's entry at that edge by the fill's compare (the filled entry, uf_q then, matches;
+        // then no other entry of the thread does): registered with its index and hit. The filled entry's index is
+        // uf_q's in the lookup's cycle, ORed in then, so the fill's victim choice (fv, after the overlap test on
+        // the maintenance read) stays out of the cycle ahead: the leaf's read address is a LUT from flip-flops
+        logic [NE-1:0] mk_q;
+        logic [EW-1:0] mi_q;
+        logic          fqc_q;
         always_ff @(posedge clk) begin
-          mq   <= mt;
-          fq   <= vmatch(vpn_e[r], fill_vpn, fill_lvl);
-          fq_t <= ft;
+          logic [NE-1:0] mkn;
+          logic          fqcn;
+          mkn   = mt & kvn & tm(lte[r]);
+          fqcn  = fill_ok && vmatch(vpn_e[r], fill_vpn, fill_lvl) && ft == lte[r];
+          mk_q  <= rst ? '0 : mkn;
+          fqc_q <= !rst && fqcn;
+          mi_q  <= enc(mkn);
         end
-        assign mk  = mq & kv_q & tm(lt[r]);
-        assign fqc = fok_q && fq && fq_t == lt[r];   // the filled entry (uf_q) matches; then no other does
         always_comb begin
-          m[r] = mk;
-          if (fqc) m[r][uf_q] = 1'b1;
-          mi[r] = enc(mk) | (fqc ? uf_q : '0);   // the index without the per-entry override
-          mh[r] = |mk || fqc;
+          m[r] = mk_q;
+          if (fqc_q) m[r][uf_q] = 1'b1;
         end
+        assign mi[r] = mi_q | (fqc_q ? uf_q : '0);
+        assign mh[r] = |mk_q || fqc_q;
       end else begin : g_now
         logic [NE-1:0] mn;
         assign mn    = mt & tm(lt[r]);
