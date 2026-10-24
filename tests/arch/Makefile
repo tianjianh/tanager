@@ -12,8 +12,9 @@
 CFG    ?= st
 CORE   ?= core
 JOBS   ?= 8
-# The core's configuration follows its PMP entries (DR-167; PMP_RTL, sim/profile.mk): 8 usable of 16 with -p8
-ACTCFG ?= $(if $(filter tcore,$(CORE)),tcore-rv64im,core-m3-rv64imafdc$(if $(filter 8,$(PMP_RTL)),-p8))
+# The core's configuration follows its PMP entries (DR-167; PMP_RTL, sim/profile.mk): 8 usable of 16 with -p8; and
+# M9's performance counters (HPM=1, DR-190): -hpm declares mhpmcounter3-6 with Sscofpmf, so Zihpm's tests expect them
+ACTCFG ?= $(if $(filter tcore,$(CORE)),tcore-rv64im,core-m3-rv64imafdc$(if $(filter 8,$(PMP_RTL)),-p8)$(if $(filter 1,$(HPM)),-hpm))
 
 ARCH_MK := $(lastword $(MAKEFILE_LIST))
 ROOT := $(abspath $(dir $(ARCH_MK))/../..)
@@ -40,6 +41,10 @@ CORE_PMP := $(if $(filter tcore,$(CORE)),0,$(PMP_RTL))
 ifneq ($(filter run,$(or $(MAKECMDGOALS),run)),)
   ifneq ($(filter-out $(CORE_PMP),$(ACT_PMP)),)
     $(error ACT4 configuration $(ACTCFG) is for $(ACT_PMP) PMP entries, but this $(CORE) has $(CORE_PMP) (DR-167): leave ACTCFG to its default or build the core with PMP_ENTRIES=$(ACT_PMP))
+  endif
+  # ... and its counters: a configuration with Sscofpmf for HPM=1, one without for the default
+  ifneq ($(if $(findstring _sscofpmf,$(SPIKE_ARGS)),1),$(if $(filter 1,$(HPM)),1))
+    $(error ACT4 configuration $(ACTCFG) $(if $(findstring _sscofpmf,$(SPIKE_ARGS)),declares,does not declare) M9's counters, but this core is built with$(if $(filter 1,$(HPM)),, no) HPM=1 (DR-190): leave ACTCFG to its default)
   endif
 endif
 
