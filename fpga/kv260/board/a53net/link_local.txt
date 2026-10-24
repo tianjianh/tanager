@@ -1,0 +1,91 @@
+# The A53's NetworkManager keeps eth0's IPv6 link-local address (10-24, ARM mode; approved by the user 10-23 19:30).
+# Laptop times are UTC; the A53's clock is days behind (it reads 10-20), so its own stamps are relative.
+
+== before, and the change (05:29:50 UTC): nmcli connection modify, then nmcli connection up through systemd-run 2 s later
+connection.id:                          Wired connection 1
+connection.uuid:                        80e6cdac-f655-3bf0-a02a-11043bbc902d
+ipv4.method:                            auto
+ipv6.method:                            auto
+ipv4.may-fail:                          yes
+ipv6.may-fail:                          yes
+ipv4.dhcp-timeout:                      0 (default)
+connection.autoconnect-retries:         -1 (default)
+modified
+link-local
+reactivation-armed
+
+== the laptop's ping every 5 s (90 pings)
+pings: 90 answered, 0 lost, from 05:30:02 to 05:36:07
+
+
+== one SSH session held 7.5 minutes (05:30:18 to 05:37:48 UTC), eth0's state every 15 s
+session from 22:41:44 (the A53 clock), uptime 162.43 s
+22:41:44 100 (connected) ll=1 v4=0
+22:42:00 100 (connected) ll=1 v4=0
+22:42:15 100 (connected) ll=1 v4=0
+22:42:30 100 (connected) ll=1 v4=0
+22:42:45 100 (connected) ll=1 v4=0
+22:43:00 100 (connected) ll=1 v4=0
+22:43:15 100 (connected) ll=1 v4=0
+22:43:30 100 (connected) ll=1 v4=0
+22:43:45 100 (connected) ll=1 v4=0
+22:44:00 100 (connected) ll=1 v4=0
+22:44:15 100 (connected) ll=1 v4=0
+22:44:30 100 (connected) ll=1 v4=0
+22:44:45 100 (connected) ll=1 v4=0
+22:45:00 100 (connected) ll=1 v4=0
+22:45:16 100 (connected) ll=1 v4=0
+22:45:31 100 (connected) ll=1 v4=0
+22:45:46 100 (connected) ll=1 v4=0
+22:46:01 100 (connected) ll=1 v4=0
+22:46:16 100 (connected) ll=1 v4=0
+22:46:31 100 (connected) ll=1 v4=0
+22:46:46 100 (connected) ll=1 v4=0
+22:47:01 100 (connected) ll=1 v4=0
+22:47:16 100 (connected) ll=1 v4=0
+22:47:31 100 (connected) ll=1 v4=0
+22:47:46 100 (connected) ll=1 v4=0
+22:48:01 100 (connected) ll=1 v4=0
+22:48:17 100 (connected) ll=1 v4=0
+22:48:32 100 (connected) ll=1 v4=0
+22:48:47 100 (connected) ll=1 v4=0
+22:49:02 100 (connected) ll=1 v4=0
+session end
+
+== NetworkManager's journal for this boot (eth0 and DHCP lines; uptime stamps), then eth0's state, the method and the uptime at 05:38 UTC
+[  136.565305] kria NetworkManager[1156]: <info>  [1792536079.0327] dhcp4 (eth0): canceled DHCP transaction
+[  136.565815] kria NetworkManager[1156]: <info>  [1792536079.0329] dhcp4 (eth0): activation: beginning transaction (timeout in 45 seconds)
+[  136.566109] kria NetworkManager[1156]: <info>  [1792536079.0329] dhcp4 (eth0): state changed no lease
+[  136.571273] kria NetworkManager[1156]: <info>  [1792536079.0387] device (eth0): Activation: starting connection 'Wired connection 1' (80e6cdac-f655-3bf0-a02a-11043bbc902d)
+[  136.571684] kria NetworkManager[1156]: <info>  [1792536079.0391] device (eth0): state change: disconnected -> prepare (reason 'none', sys-iface-state: 'managed')
+[  136.572666] kria NetworkManager[1156]: <info>  [1792536079.0401] manager: NetworkManager state is now CONNECTING
+[  136.573352] kria NetworkManager[1156]: <info>  [1792536079.0408] device (eth0): state change: prepare -> config (reason 'none', sys-iface-state: 'managed')
+[  136.575487] kria NetworkManager[1156]: <info>  [1792536079.0430] device (eth0): state change: config -> ip-config (reason 'none', sys-iface-state: 'managed')
+[  136.576846] kria NetworkManager[1156]: <info>  [1792536079.0443] dhcp4 (eth0): activation: beginning transaction (timeout in 45 seconds)
+[  138.273571] kria NetworkManager[1156]: <info>  [1792536080.7410] device (eth0): state change: ip-config -> ip-check (reason 'none', sys-iface-state: 'managed')
+[  138.345356] kria NetworkManager[1156]: <info>  [1792536080.8128] device (eth0): state change: ip-check -> secondaries (reason 'none', sys-iface-state: 'managed')
+[  138.346038] kria NetworkManager[1156]: <info>  [1792536080.8135] device (eth0): state change: secondaries -> activated (reason 'none', sys-iface-state: 'managed')
+[  138.347203] kria NetworkManager[1156]: <info>  [1792536080.8147] manager: NetworkManager state is now CONNECTED_LOCAL
+[  138.348569] kria NetworkManager[1156]: <info>  [1792536080.8158] device (eth0): Activation: successful, device activated.
+[  138.757023] kria NetworkManager[1156]: <info>  [1792536081.2245] device (eth0): state change: activated -> deactivating (reason 'new-activation', sys-iface-state: 'managed'
+[  138.757887] kria NetworkManager[1156]: <info>  [1792536081.2254] manager: NetworkManager state is now DISCONNECTING
+[  138.762418] kria NetworkManager[1156]: <info>  [1792536081.2299] device (eth0): disconnecting for new activation request.
+[  138.778308] kria NetworkManager[1156]: <info>  [1792536081.2457] device (eth0): state change: deactivating -> disconnected (reason 'new-activation', sys-iface-state: 'manag
+[  138.789224] kria NetworkManager[1156]: <info>  [1792536081.2567] dhcp4 (eth0): canceled DHCP transaction
+[  138.789520] kria NetworkManager[1156]: <info>  [1792536081.2567] dhcp4 (eth0): state changed no lease
+[  138.793175] kria NetworkManager[1156]: <info>  [1792536081.2606] manager: NetworkManager state is now DISCONNECTED
+[  138.793788] kria NetworkManager[1156]: <info>  [1792536081.2612] device (eth0): Activation: starting connection 'Wired connection 1' (80e6cdac-f655-3bf0-a02a-11043bbc902d)
+[  138.796975] kria NetworkManager[1156]: <info>  [1792536081.2644] device (eth0): state change: disconnected -> prepare (reason 'none', sys-iface-state: 'managed')
+[  138.797933] kria NetworkManager[1156]: <info>  [1792536081.2654] manager: NetworkManager state is now CONNECTING
+[  138.801046] kria NetworkManager[1156]: <info>  [1792536081.2661] device (eth0): state change: prepare -> config (reason 'none', sys-iface-state: 'managed')
+[  138.801482] kria NetworkManager[1156]: <info>  [1792536081.2683] device (eth0): state change: config -> ip-config (reason 'none', sys-iface-state: 'managed')
+[  138.802202] kria NetworkManager[1156]: <info>  [1792536081.2697] dhcp4 (eth0): activation: beginning transaction (timeout in 45 seconds)
+[  140.641514] kria NetworkManager[1156]: <info>  [1792536083.1089] device (eth0): state change: ip-config -> ip-check (reason 'none', sys-iface-state: 'managed')
+[  140.647342] kria NetworkManager[1156]: <info>  [1792536083.1148] device (eth0): state change: ip-check -> secondaries (reason 'none', sys-iface-state: 'managed')
+[  140.647998] kria NetworkManager[1156]: <info>  [1792536083.1155] device (eth0): state change: secondaries -> activated (reason 'none', sys-iface-state: 'managed')
+[  140.649299] kria NetworkManager[1156]: <info>  [1792536083.1168] manager: NetworkManager state is now CONNECTED_LOCAL
+[  140.650539] kria NetworkManager[1156]: <info>  [1792536083.1179] device (eth0): Activation: successful, device activated.
+
+100 (connected)
+link-local
+636.40
