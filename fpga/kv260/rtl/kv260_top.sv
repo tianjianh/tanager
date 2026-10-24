@@ -222,6 +222,30 @@ module kv260_top
   logic [N_CORES-1:0][TRACE_WB_PORTS-1:0]                  trace_wb_v;
   logic [7:0] status;
 
+  // ---- The debug module's JTAG side (tg_map_pkg DEBUG_ON, docs/spec/soc.md §9.2): two BSCANE2s (UG974) on the
+  // device TAP, USER3 for dtmcs and USER4 for dmi. Every BSCANE2 gives the same TCK, TDI and TAP state, so the
+  // DTM takes them from USER3's, TCK through a BUFG (xdc/timing_debug.xdc's jtag_tck). Without the switch there
+  // is no BSCANE2, and USER3/USER4 stay free.
+  logic       jtag_tck;
+  jtag_t      jtag;
+  logic [1:0] jtag_tdo;
+  if (tg_map_pkg::DEBUG_ON) begin : g_jtag
+    logic tck_raw;
+    BSCANE2 #(.JTAG_CHAIN (3)) u_bscan_dtmcs (
+      .CAPTURE (jtag.capture), .DRCK (), .RESET (jtag.treset), .RUNTEST (), .SEL (jtag.sel[0]),
+      .SHIFT (jtag.shift), .TCK (tck_raw), .TDI (jtag.tdi), .TMS (), .UPDATE (jtag.update), .TDO (jtag_tdo[0])
+    );
+    BSCANE2 #(.JTAG_CHAIN (4)) u_bscan_dmi (
+      .CAPTURE (), .DRCK (), .RESET (), .RUNTEST (), .SEL (jtag.sel[1]), .SHIFT (), .TCK (), .TDI (), .TMS (),
+      .UPDATE (), .TDO (jtag_tdo[1])
+    );
+    BUFG u_bufg_tck (.I (tck_raw), .O (jtag_tck));
+  end else begin : g_nojtag
+    assign jtag_tck = 1'b0;
+    assign jtag     = '0;
+    wire unused_jtag = ^jtag_tdo;
+  end
+
   logic uart_txd;
   tanager_soc #(
     .N_CORES (N_CORES), .CLK_HZ (CORE_MHZ * 1_000_000), .CORE_KIND (CORE_KIND), .UART_SERIAL (PMOD_UART),
@@ -260,7 +284,8 @@ module kv260_top
     .board_status_i (fan_status), .board_ctrl_o (board_ctrl),
     .trace_o (trace), .trace_valid_o (trace_v), .trace_wb_o (trace_wb), .trace_wb_valid_o (trace_wb_v),
     .uart_txd_o (uart_txd), .uart_rxd_i (pmod_uart_rxd),
-    .status_o (status)
+    .status_o (status),
+    .jtag_tck_i (jtag_tck), .jtag_i (jtag), .jtag_tdo_o (jtag_tdo)
   );
 
   // ---- HPM1: the host DMA port, or nothing (reads DECERR, writes dropped) ----

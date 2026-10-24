@@ -150,7 +150,8 @@ module tb_soc;
     .m_axi_ps_r (ps_r), .m_axi_ps_r_valid (ps_rv), .m_axi_ps_r_ready (ps_rr), .ps_irq_i (ps_irq | (PS_IRQS'(sd_irq) << PS_IRQ_SD1)),
     .board_status_i (32'h0F0A_1234), .board_ctrl_o (board_ctrl),
     .trace_o (trace), .trace_valid_o (trace_v), .trace_wb_o (trace_wb), .trace_wb_valid_o (trace_wb_v),
-    .status_o (status)
+    .status_o (status),
+    .jtag_tck_i (1'b0), .jtag_i ('0), .jtag_tdo_o ()
   );
 
   for (genvar k = 0; k < N_BANKS; k++) begin : g_mem

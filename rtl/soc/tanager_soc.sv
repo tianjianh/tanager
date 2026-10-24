@@ -141,7 +141,13 @@ module tanager_soc
   output logic        uart_txd_o,
   input  logic        uart_rxd_i,
 
-  output logic [7:0]  status_o
+  output logic [7:0]  status_o,
+
+  // the debug module's JTAG side (tg_map_pkg DEBUG_ON, docs/spec/soc.md §9.2; tg_uncore): TCK, the device TAP's
+  // state outputs and the chains' SEL from two BSCANE2s (kv260_top) or a testbench's TAP model; TDO per chain
+  input  logic        jtag_tck_i,
+  input  jtag_t       jtag_i,
+  output logic [1:0]  jtag_tdo_o
 );
   localparam int NH = N_CORES * NUM_THREADS;      // harts in this build
   localparam int NT = NUM_THREADS;
@@ -153,6 +159,8 @@ module tanager_soc
   // The cores' reset comes from the uncore's host bridge (rst, or the host's CTRL register); the
   // trace stream holds a core's commit while its buffers are near full (interfaces.md §5).
   logic               core_rst;
+  logic [NH-1:0]      dbg_haltreq;            // the debug module's halt request to each hart (DEBUG_ON)
+  wire  [NH-1:0]      dbg_unavail = '0;       // the harts held off, from the cores' debug mode
   logic [N_CORES-1:0] trace_stall;
 
   // ---------------------------------------------------------------------------------------------
@@ -282,9 +290,12 @@ module tanager_soc
     .tg_en_o (tg_en), .tg_base_o (tg_base), .tg_lines_o (tg_lines),
     .tg_ops_i (tg_ops), .tg_errs_i (tg_errs), .tg_err_line_i (tg_err_line), .tg_pass_i (tg_pass),
     .uart_txd_o, .uart_rxd_i,
-    .status_o
+    .status_o,
+    .jtag_tck_i, .jtag_i, .jtag_tdo_o, .dbg_haltreq_o (dbg_haltreq), .dbg_unavail_i (dbg_unavail)
   );
 
-  // The traffic-generator controls are read only by tg_trafgen builds.
-  wire unused = ^{tg_en, tg_base, tg_lines};
+  // The traffic-generator controls are read only by tg_trafgen builds. The debug module's halt requests
+  // (DEBUG_ON, soc.md §9.4) wait for the cores' debug mode (core-priv.md), which also reports the harts it
+  // holds off; until then no core takes them.
+  wire unused = ^{tg_en, tg_base, tg_lines, dbg_haltreq};
 endmodule

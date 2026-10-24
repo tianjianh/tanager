@@ -138,6 +138,17 @@ package tg_uncore_pkg;
     logic [31:0]     data;
   } vio_ev_t;
 
+  // ---- The debug module's JTAG side (docs/spec/soc.md §9.2; TG_DEBUG): the device TAP's state outputs, which
+  // every BSCANE2 shares (UG974), and each chain's SEL; TCK travels on its own ----
+  typedef struct packed {
+    logic       tdi;
+    logic       treset;    // Test-Logic-Reset
+    logic       capture;   // Capture-DR
+    logic       shift;     // Shift-DR
+    logic       update;    // Update-DR
+    logic [1:0] sel;       // the chain's instruction is in IR: [0] USER3 (dtmcs), [1] USER4 (dmi)
+  } jtag_t;
+
   // ---- TileLink helpers ----
   function automatic logic tl_a_has_data(input tl_a_op_e op);
     return op == A_PUT_FULL || op == A_PUT_PARTIAL;
