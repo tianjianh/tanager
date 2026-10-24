@@ -3,6 +3,7 @@
 #   make -C tests/isa CFG=st [CORE=core|tcore] [SUITES="rv64ui-p rv64um-p"] [LAT=native] [SIMARGS=...]
 #   make -C tests/isa replay [SUITES=all]       the same suites, Spike against Spike (tg_replay)
 #   make -C tests/isa directed CFG=st [CORE=...] our directed tests (directed/*.S: interrupts, WFI)
+#     [DIR_EXCL=<file>]                          leaving out the tests that file lists (exclude/directed-timing.txt)
 CFG    ?= st
 CORE   ?= core
 SUITES ?= rv64ui-p rv64um-p rv64mi-p
@@ -46,5 +47,6 @@ $(DIR_OUT)/tanager-p-%: $(ROOT)/tests/isa/directed/%.S $(ROOT)/tests/isa/directe
 directed: build-directed
 	@$(MAKE) --no-print-directory -s -C $(ROOT)/sim CFG=$(CFG) CORE=$(CORE) $(TC_ARG) build
 	python3 $(ROOT)/tests/isa/run_isa.py --sim $(TANAGER_BUILD)/$(WT)/sim/$(CFG)-$(CORE)$(TC_SUFFIX)/tg_vsim --tests-dir $(DIR_OUT) \
-	  --suites tanager-p --jobs $(JOBS) --logdir $(TANAGER_BUILD)/$(WT)/isa-logs/$(CFG)-$(CORE)$(TC_SUFFIX) \
+	  --suites tanager-p $(if $(DIR_EXCL),--exclude $(DIR_EXCL)) --jobs $(JOBS) \
+	  --logdir $(TANAGER_BUILD)/$(WT)/isa-logs/$(CFG)-$(CORE)$(TC_SUFFIX) \
 	  --name "directed $(CFG) $(CORE)" -- --lat=$(LAT) --irq-rand=5 $(SIMARGS)

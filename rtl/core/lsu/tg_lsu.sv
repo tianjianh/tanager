@@ -92,8 +92,9 @@ module tg_lsu
   output robid_t                       replay_rob,    // cycle after the store's search
   output logic                         snp_valid,     // CoRR (architecture_plan §4.9): a thread's oldest load the snoop
   output robid_t                       snp_rob,       // marking found holding a value another hart may have overwritten
-  output logic [NUM_THREADS-1:0][2:0]  hpm_lsu,       // M9's counters (TG_HPM): each thread's L1D load misses (0), data
-                                                       // walks (1) and fetch's walks (2), pulses (tg_core registers them)
+  output logic [NUM_THREADS-1:0][4:0]  hpm_lsu,       // M9's counters (TG_HPM): each thread's L1D load misses (0), data
+                                                       // walks (1), fetch's walks (2), the walker's busy cycles (3) and L1D
+                                                       // store misses (4), pulses (tg_core registers them)
   output logic                         spx_valid,     // a store's PMP denial, found after it decided (S3)
   output robid_t                       spx_rob,
   output logic [1:0]                   sth_v,         // commit stops before these stores: S2, S3
@@ -598,6 +599,7 @@ module tg_lsu
   logic [PA_W-1:0]   pf_pa;
   logic              st_req, st_ack;
   logic              st_wait, st_resv;            // M7: the drain's store needs a miss entry; one waits (below)
+  logic              dc_st_miss;                  // M9's counters (TG_HPM): the store finds its line without T
   logic [PA_W-1:0]   st_pa;
   logic [15:0]       st_mask;
   logic [63:0]       st_wdata;
@@ -616,7 +618,7 @@ module tg_lsu
     .ld_rd_en(dc_rd_en), .ld_rd_pa(dc_rd_pa), .ld_m1_pa(m1_pa), .ld_hit(dc_hit), .ld_dword(dc_dword),
     .lm_req, .lm_pa, .mshr_idle, .lm_fdn, .lm_ans_v, .lm_ans_wait, .lm_ans_e, .m_done, .m_wake_any,
     .pf_req, .pf_pa,
-    .st_req, .st_pa, .st_mask, .st_wdata, .st_ack, .st_dropped, .st_wait, .st_resv,
+    .st_req, .st_pa, .st_mask, .st_wdata, .st_ack, .st_dropped, .st_wait, .st_resv, .st_miss(dc_st_miss),
     .am_req, .am_sel, .pr_hold, .am_pa, .am_wmask, .am_wdata, .am_ack, .am_rdata, .am_den, .lose_v, .lose_line,
     .a_o(l1d_a_o), .a_valid_o(l1d_a_valid_o), .a_ready_i(l1d_a_ready_i),
     .b_i(l1d_b_i), .b_valid_i(l1d_b_valid_i), .b_ready_o(l1d_b_ready_o),
@@ -692,6 +694,7 @@ module tg_lsu
   // load's (t_ln) and store's (t_sn), the head's, the load checker's load's (t_lck), the store checker's user's
   // (t_pst), the walk's (in tg_ptw)
   tid_t [DT_NR-1:0] dt_tid;                       // (driven below ln_lq's declaration)
+  tid_t [DT_NR-1:0] dt_tid_e;                     // the EARLY ports' threads a cycle ahead (with dt_vpn_e)
   tid_t             t_ln, t_sn;
   tid_t             pw_dtid;                      // the walk's thread (the fills')
   logic [NT-1:0]    xl_t;                         // each thread's data accesses translate
@@ -702,7 +705,7 @@ module tg_lsu
   assign xl_l = xl_t[t_ln];
   assign xl_s = xl_t[t_sn];
   tg_tlb #(.NE(DTLB_ENTRIES), .NR(DT_NR), .CAM(1'b1), .EARLY(LSU_AG_SPLIT ? DT_NR'(3) : DT_NR'(0))) u_dtlb (
-    .clk, .rst, .vpn(dt_vpn), .vpn_e(dt_vpn_e), .lk_tid(dt_tid), .hit(dt_hit), .pte(dt_pte), .fill(dt_fill),
+    .clk, .rst, .vpn(dt_vpn), .vpn_e(dt_vpn_e), .lk_tid(dt_tid), .lk_tid_e(dt_tid_e), .hit(dt_hit), .pte(dt_pte), .fill(dt_fill),
     .fill_vpn(pw_vpn), .fill_lvl(pw_lvl), .fill_pte(pw_pte), .fill_tid(pw_dtid), .flush(tlb_flush),
     .flush_tid(tlb_flush_tid));
 
@@ -822,6 +825,10 @@ module tg_lsu
     for (int r = 0; r < DT_NR; r++) dt_tid[r] = t_hd;
     dt_tid[0] = LSU_AG_SPLIT ? m1_t_q : ld_ag_pl.tid;   // ln_lq's thread: M1's (split), else AG's payload's
     dt_tid[1] = sn_t;
+    // ... and a cycle ahead, for the EARLY ports (with the split): what m1_t_q and sn_t_q load, every cycle
+    dt_tid_e    = dt_tid;
+    dt_tid_e[0] = ag_t;
+    dt_tid_e[1] = sta_ag_pl.tid;
   end
   // M1's thread (and M2's, t_m2): a load's, its LQ entry's; a PTE read's, the walk's (which lasts while its read is
   // in the pipe: a flush of its thread kills both)
@@ -2156,13 +2163,29 @@ module tg_lsu
   assign pw_tid[2]  = dpf_tid_q;
   // M9's counters (TG_HPM), each thread's events as they happen: a load's first miss at M2 (its replays while the line
   // comes do not count again; the walker's PTE reads aside), and a walk the walker takes for the head or the data
-  // prefetch (a data access's), or for fetch. tg_ptw acks one request a cycle (by priority), so each is one pulse
+  // prefetch (a data access's), or for fetch. tg_ptw acks one request a cycle (by priority), so each is one pulse. Then
+  // each cycle of a walk for the thread (tg_ptw busy: W_CHK to W_DONE, a flush of its thread ending it), and a committed
+  // store whose line the drain finds without T (once a store: hpm_swm_q, in the thread's drain cycles, until the
+  // write; a store prefetch's line that comes first is no miss, as a load hitting a filled line is none)
+  logic          pw_busy;
+  tid_t          pw_btid;
+  logic [NT-1:0] hpm_swm_q;
+  if (HPM_N > 0) begin : g_hpm_swm
+    always_ff @(posedge clk)
+      for (int t = 0; t < NT; t++)
+        if (rst) hpm_swm_q[t] <= 1'b0;
+        else if (t_dr_q == tid_t'(t)) hpm_swm_q[t] <= st_req && !st_ack && (hpm_swm_q[t] || dc_st_miss);
+  end else begin : g_no_hpm_swm
+    assign hpm_swm_q = '0;
+  end
   always_comb
     for (int t = 0; t < NT; t++) begin
       hpm_lsu[t][0] = lm_req && !m2_pt_q && !lq_mc_q[m2_lq_q] && t_m2 == tid_t'(t);
       hpm_lsu[t][1] = (pw_req[0] && pw_ack[0] && pw_tid[0] == tid_t'(t)) ||
                       (pw_req[2] && pw_ack[2] && pw_tid[2] == tid_t'(t));
       hpm_lsu[t][2] = pw_req[1] && pw_ack[1] && pw_tid[1] == tid_t'(t);
+      hpm_lsu[t][3] = pw_busy && pw_btid == tid_t'(t);
+      hpm_lsu[t][4] = st_req && dc_st_miss && !hpm_swm_q[t] && t_dr_q == tid_t'(t);
     end
   tg_ptw u_ptw (
     .clk, .rst, .flush, .flush_tid(t_fl), .satp_ppn, .sum, .mxr, .pmp_d, .pmp_pal,
@@ -2172,6 +2195,7 @@ module tg_lsu
     .req(pw_req), .req_va(pw_va), .req_acc(pw_at), .req_mode(pw_mode), .req_tid(pw_tid), .ack(pw_ack),
     .pt_req, .pt_pa, .pt_gnt, .pt_rsp, .pt_hit, .pt_den, .pt_data(m2_dword_q),
     .mshr_idle(DC_MSHRS == 1 ? mshr_idle : m_wake_any),   // (DR-149: any install, or none busy)
+    .busy(pw_busy), .busy_tid(pw_btid),
     .done(pw_done), .done_who(pw_who), .done_tid(pw_dtid), .done_ok(pw_ok), .done_cause(pw_cause),
     .fill_vpn(pw_vpn), .fill_lvl(pw_lvl), .fill_pte(pw_pte));
   assign dt_fill      = pw_done && pw_ok && !pw_who[1];

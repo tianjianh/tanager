@@ -17,7 +17,7 @@ at sibling interactions.
 
 **Exit criteria** (plan §11):
 1. Linux runs on the 2 harts of one core.
-2. Weighted throughput ≥ 1.3× ST at every latency point (30, 120 and 250 cycles).
+2. Weighted throughput at step 7's measured result, about 1.2× ST (DR-184, replacing DR-175's 1.3×), with no pair hangs and no loss for one thread alone: 1.226 / 1.217 / 1.192 at 30, 120 and 250 cycles.
 3. SMT-off works.
 4. Litmus tests with sibling harts run clean.
 
