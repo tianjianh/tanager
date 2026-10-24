@@ -2187,6 +2187,69 @@ The chains below are rc3_u100's, by net name, in `fpga/spikes/results/product_wt
 
 Results: [`fpga/spikes/results/ooc_dr191/`](../../fpga/spikes/results/ooc_dr191/) holds each run's summary, paths and per-family reports, and `compare.txt` (`fpga/spikes/scripts/ooc_compare.py`).
 
+#### The preview pair with DR-191's fixes 3–5 (2026-10-24)
+
+**Asked** (the coordinator, 10-24): "a full-chip preview pair, product flow at 0.95 and 1.05 ns", on main d7c2d835 (fix 4 is 16b6d5d1) with fix 3 (core-2's tlbreg b3ab9dfe) and fix 5 (fpu-2's tageflat f6865c1e) merged. It is a preview: the pair of record waits for all five fixes on main.
+- **Snapshot:** `snap/product_wt6` ffc9bb1fd548, pinned by `claude/spikes-2-board-pv3`.
+- **Flow:** the product form with `AltSpreadLogic_high` and main's `TG_ROUTE_DIRECTIVE=AlternateCLBRouting`.
+
+| | `pv3_u095` (0.95 ns) | `pv3_u105` (1.05 ns) |
+|---|---|---|
+| LUTs after `opt_design` / routed, FFs | 115,091 / 112,445 (96.0%), 57,795 | 115,091 / 112,535 (96.1%), 57,788 |
+| WNS after `phys_opt_design` (estimated, uncertainty on) | −0.072 | +0.001 |
+| Routing | level 6, **the router's trade** | level 5, no trade |
+| **WNS / TNS / WHS (ns)** | −1.161 / −542.2 / +0.009 (1,745 failing) | **−0.806 / −458.8 / +0.010** (1,720 failing) |
+
+- **Fixes 3–5 take their families out, even in the congested placement.** In u095, the same congestion and router trade as rc3_u100:
+
+  | Family | rc3_u100 | pv3_u095 |
+  |---|---|---|
+  | `m2_foh_q` | −1.096, 21 levels | +0.025, 12 levels |
+  | the walker's `chk_pa_q` | −1.104, 19 levels | +0.063, 12 levels |
+  | TAGE | −0.998, 14 levels | +0.134, 7 levels |
+
+  In u105 they are +0.60 or better.
+- **What fails is fixes 1 and 2's families and the next tier.**
+  - **Fix 1's** (on main since 6557e051, not in this preview): `lq_st_q` from the walker's `chk_req_q`, the checker's `pfc_wait_q` and the store FSM `xs_q` (−1.10 to −0.75, 22–24 levels); `fh_data_q`, `lx_valid_q`.
+  - **Fix 2's:** the I$ valid RAM from the L2's response (−1.161 at 25 levels in u095, −0.68 in core 1).
+  - **The next tier:**
+    - fetch's queue state from the issue queues' `dep_q` (`qs_q` −0.806, `rt_b_q`, `rn_v_q`, 19–21 levels);
+    - `occ_t_q` and rename's `pay_wd_q` from `head_t_q` (−0.74 / −0.66);
+    - the RAS's `p_push_q` / `p_pop_q` from the I$ data BRAM (−1.09 to −0.55, 16–18 levels);
+    - `m2_dword_q` from the DTLB CAM's `uf_q` (−1.151 in u095, 15 levels, 77% wire);
+    - the D$ meta and valid RAMs and `sq_head_q` / `sqh_q` from the L2 bank's `ms` (−0.84 to −0.58);
+    - CoRR's `ev1_v_q` (−0.786).
+- **The floorplan is OK:** l2b0 99%/76%, L2 bank 1 102%/78%, xbar 30%/24%.
+
+Results: `fpga/spikes/results/product_wt6_pv3_u095/` and `_u105/`.
+
+#### M9's indirect-target table out of context, both forms (2026-10-24)
+
+**Asked** (fpu-2, for the coordinator before the MR, DR-190): the indirect-target table (ITT, `claude/track-fpu-395911-itt` 1f5f9e18, main 6557e051 merged) out of context in both forms. `TG_ITT=1` is one 256-entry path table, `TG_ITT=2` the split, 128 by path and 128 by block.
+- **The runs:** three runs of one snapshot (`snap/ooc_base` c1063c1aec09): the table off (`fix_slot_b`, the matched baseline, main's RTL), `TG_ITT=1` (`fix_slot_c`) and `TG_ITT=2` (`fix_slot_d`).
+- **The flow:** `run_fix_ooc3.sh` with [`paths_itt.tcl`](../../fpga/spikes/tcl/paths_itt.tcl), which is DR-191's families plus the table's paths.
+
+| A core, out of context | ITT off | `TG_ITT=1` | `TG_ITT=2` |
+|---|---|---|---|
+| LUTs / FFs | 51,518 / 23,657 | **+1,055 / +316** | **+632 / +316** |
+| LUTRAM / RAMB36 | 8,784 / 53 | +40 / **+1** | +40 / **+2** |
+| WNS (ns), the worst path | +0.649 (`am_st_q` → `s3_den_q`, 15 levels) | +0.336 (`rt_b_q` → decode's `dred_pc`, 21) | +0.491 (the DTLB CAM → `rp_ra_q`, 20) |
+| from the table's read into anything | | +1.822, 16 levels (into `ka_q`) | +2.219, 17 levels (into `f3_rtop_q`) |
+| into the table (commit's training) | | +5.001, 9 levels | +4.367, 13 levels |
+| `krt_q` | +2.994, 7 levels | +1.301, **21** | +0.912, **18** |
+| `f3_rtop_q` | +3.123, 6 levels | +1.293, **21** | +0.896, **18** |
+| `kr_q` / `f3_ras_q` | +1.859, 15 / +1.699, 15 | +1.474, 21 / +1.891, 21 | +1.554, 18 / +1.556, 18 |
+| fetch's `fpc_q` | +0.950, 21 levels | +0.907, 20 | +1.429, 17 |
+
+- **The table's own paths are clear.** The read into fetch's state and the training write are +1.8 to +5 ns.
+- **The table's target in the restart registers costs depth.** `kr_q`, `krt_q`, `f3_ras_q` and `f3_rtop_q` now start at the I$ data BRAM and run 18–21 levels deep, up from 6–15.
+  - Out of context they are still +0.9 to +1.9 ns.
+  - In the chip, fetch's other paths from the I$ data BRAM (the RAS's push and pop, `kimm_q`) were 16–18 levels at −1.1 to −0.5 ns in the preview pair. At 18–21 levels these four would likely join the worst.
+- **The split form (2) is the cheaper and the shallower:** 3 levels fewer on these paths and 423 fewer LUTs than form 1, for one more RAMB36.
+- **The WNS changes are within the noise.** The worst paths of both forms are not the table's, and runs move by up to 0.5 ns.
+
+Results: [`fpga/spikes/results/ooc_itt/`](../../fpga/spikes/results/ooc_itt/) holds the three runs and `compare.txt`.
+
 #### core-2's A/B: the read thread with and without per-bank copies (2026-10-22)
 
 The fixes preview's base with core-2's newer heads (`snap/product_wt` and `snap/product_wt3`): e5b304cd, TAGE 8cf8e262, DR-183 ecfcc8a5, and core-2's walker fix a6abdc5d. The walker fix registers the head lookup's VPN, so DTLB port 2 starts at one register. Then:

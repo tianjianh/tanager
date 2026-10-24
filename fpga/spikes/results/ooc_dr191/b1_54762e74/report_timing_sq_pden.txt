@@ -1,0 +1,169 @@
+from *: 36183 registers; to *u_lsu/sq_pden_q*: 20 registers
+== the 1 worst paths, one per endpoint (slack, levels, logic / wire ns, start -> end)
+  2.435  16  2.15  5.27  u_lsu/g_pg.pfc_wait_q_reg[0]/C -> u_lsu/sq_pden_q_reg[14]/D
+
+== the same 1 paths in full (report_timing -input_pins)
+Slack (MET) :             2.435ns  (required time - arrival time)
+  Source:                 u_lsu/g_pg.pfc_wait_q_reg[0]/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_lsu/sq_pden_q_reg[14]/D
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            10.000ns  (clk rise@10.000ns - clk rise@0.000ns)
+  Data Path Delay:        7.424ns  (logic 2.155ns (29.027%)  route 5.269ns (70.973%))
+  Logic Levels:           16  (CARRY8=2 LUT2=2 LUT3=1 LUT4=1 LUT5=4 LUT6=5 MUXF7=1)
+  Clock Path Skew:        -0.148ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    1.675ns = ( 11.675 - 10.000 ) 
+    Source Clock Delay      (SCD):    1.928ns
+    Clock Pessimism Removal (CPR):    0.104ns
+  Clock Uncertainty:      0.035ns  ((TSJ^2 + TIJ^2)^1/2 + DJ) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Total Input Jitter      (TIJ):    0.000ns
+    Discrete Jitter          (DJ):    0.000ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    PBlock               Netlist Resource(s)
+  -------------------------------------------------------------------    ----------------------------------------
+                         (clock clk rise edge)        0.000     0.000 r                       
+                                                      0.000     0.000 r                       clk (IN)
+                         net (fo=36205, unset)        1.928     1.928                         u_lsu/clk
+    SLICE_X50Y115        FDRE                                         r  spike                u_lsu/g_pg.pfc_wait_q_reg[0]/C
+  -------------------------------------------------------------------    ----------------------------------------
+    SLICE_X50Y115        FDRE (Prop_DFF_SLICEL_C_Q)
+                                                      0.114     2.042 f  spike                u_lsu/g_pg.pfc_wait_q_reg[0]/Q
+                         net (fo=4, routed)           0.079     2.121                         u_lsu/u_ptw/lq_pck_q[3]_i_5_0[0]
+    SLICE_X50Y115                                                     f  spike                u_lsu/u_ptw/lq_pck_q[3]_i_9/I0
+    SLICE_X50Y115        LUT2 (Prop_E6LUT_SLICEL_I0_O)
+                                                      0.223     2.344 f  spike                u_lsu/u_ptw/lq_pck_q[3]_i_9/O
+                         net (fo=2, routed)           0.618     2.961                         u_lsu/u_ptw/pfc_pri
+    SLICE_X44Y115                                                     f  spike                u_lsu/u_ptw/g_pg.pfc_rsp_v_q_i_3/I5
+    SLICE_X44Y115        LUT6 (Prop_G6LUT_SLICEL_I5_O)
+                                                      0.151     3.112 r  spike                u_lsu/u_ptw/g_pg.pfc_rsp_v_q_i_3/O
+                         net (fo=37, routed)          0.402     3.514                         u_lsu/u_ptw/g_ckf.ck_pa1
+    SLICE_X44Y102                                                     r  spike                u_lsu/u_ptw/leaf_q[pr]_i_70/I1
+    SLICE_X44Y102        LUT5 (Prop_C6LUT_SLICEL_I1_O)
+                                                      0.081     3.595 r  spike                u_lsu/u_ptw/leaf_q[pr]_i_70/O
+                         net (fo=1, routed)           0.015     3.610                         u_lsu/u_ptw/leaf_q[pr]_i_70_n_0
+    SLICE_X44Y102                                                     r  spike                u_lsu/u_ptw/leaf_q_reg[pr]_i_28/I1
+    SLICE_X44Y102        MUXF7 (Prop_F7MUX_CD_SLICEL_I1_O)
+                                                      0.096     3.706 r  spike                u_lsu/u_ptw/leaf_q_reg[pr]_i_28/O
+                         net (fo=854, routed)         0.557     4.262                         u_csr/leaf_q_reg[pr]_i_77_0
+    SLICE_X47Y91                                                      r  spike                u_csr/g_pg.pfc_ok_q_i_402/I1
+    SLICE_X47Y91         LUT3 (Prop_F6LUT_SLICEL_I1_O)
+                                                      0.187     4.449 f  spike                u_csr/g_pg.pfc_ok_q_i_402/O
+                         net (fo=4, routed)           0.567     5.017                         u_csr/pmp_d_q_reg[1][3][a][15]_0
+    SLICE_X49Y96                                                      f  spike                u_csr/leaf_q[pr]_i_395/I5
+    SLICE_X49Y96         LUT6 (Prop_G6LUT_SLICEL_I5_O)
+                                                      0.057     5.074 f  spike                u_csr/leaf_q[pr]_i_395/O
+                         net (fo=1, routed)           0.648     5.722                         u_csr/leaf_q[pr]_i_395_n_0
+    SLICE_X45Y96                                                      f  spike                u_csr/leaf_q_reg[pr]_i_162/DI[7]
+    SLICE_X45Y96         CARRY8 (Prop_CARRY8_SLICEM_DI[7]_CO[7])
+                                                      0.080     5.802 f  spike                u_csr/leaf_q_reg[pr]_i_162/CO[7]
+                         net (fo=1, routed)           0.030     5.832                         u_csr/leaf_q_reg[pr]_i_162_n_0
+    SLICE_X45Y97                                                      f  spike                u_csr/leaf_q_reg[pr]_i_67/CI
+    SLICE_X45Y97         CARRY8 (Prop_CARRY8_SLICEM_CI_CO[7])
+                                                      0.073     5.905 f  spike                u_csr/leaf_q_reg[pr]_i_67/CO[7]
+                         net (fo=1, routed)           0.372     6.277                         u_csr/u_lsu/g_ckf.u_pmp_st/g_acc.lt0_30
+    SLICE_X44Y102                                                     f  spike                u_csr/leaf_q[pr]_i_26/I1
+    SLICE_X44Y102        LUT2 (Prop_E6LUT_SLICEL_I1_O)
+                                                      0.057     6.334 f  spike                u_csr/leaf_q[pr]_i_26/O
+                         net (fo=3, routed)           0.267     6.600                         u_csr/u_lsu/g_ckf.u_pmp_st/g_acc.lt0_3
+    SLICE_X43Y102                                                     f  spike                u_csr/g_pg.pfc_ok_q_i_32/I0
+    SLICE_X43Y102        LUT5 (Prop_H6LUT_SLICEM_I0_O)
+                                                      0.154     6.754 f  spike                u_csr/g_pg.pfc_ok_q_i_32/O
+                         net (fo=2, routed)           0.331     7.085                         u_csr/u_lsu/g_ckf.u_pmp_st/g_acc.lt1_3
+    SLICE_X40Y104                                                     f  spike                u_csr/leaf_q[pr]_i_39/I2
+    SLICE_X40Y104        LUT6 (Prop_D6LUT_SLICEM_I2_O)
+                                                      0.080     7.165 r  spike                u_csr/leaf_q[pr]_i_39/O
+                         net (fo=1, routed)           0.099     7.264                         u_csr/u_lsu/g_ckf.u_pmp_st/any_m[0]_40
+    SLICE_X40Y105                                                     r  spike                u_csr/leaf_q[pr]_i_9/I4
+    SLICE_X40Y105        LUT5 (Prop_C6LUT_SLICEM_I4_O)
+                                                      0.080     7.344 r  spike                u_csr/leaf_q[pr]_i_9/O
+                         net (fo=7, routed)           0.370     7.714                         u_csr/u_lsu/g_ckf.u_pmp_st/any_m[0]_4
+    SLICE_X43Y107                                                     r  spike                u_csr/g_pg.pfc_ok_q_i_5/I3
+    SLICE_X43Y107        LUT4 (Prop_F6LUT_SLICEM_I3_O)
+                                                      0.135     7.849 f  spike                u_csr/g_pg.pfc_ok_q_i_5/O
+                         net (fo=1, routed)           0.073     7.922                         u_csr/g_pg.pfc_ok_q_i_5_n_0
+    SLICE_X43Y107                                                     f  spike                u_csr/g_pg.pfc_ok_q_i_1/I4
+    SLICE_X43Y107        LUT6 (Prop_B6LUT_SLICEM_I4_O)
+                                                      0.225     8.147 f  spike                u_csr/g_pg.pfc_ok_q_i_1/O
+                         net (fo=11, routed)          0.292     8.439                         u_lsu/u_ptw/sa_chk[0]
+    SLICE_X43Y114                                                     f  spike                u_lsu/u_ptw/sq_pden_q[15]_i_3/I2
+    SLICE_X43Y114        LUT6 (Prop_H6LUT_SLICEM_I2_O)
+                                                      0.138     8.577 r  spike                u_lsu/u_ptw/sq_pden_q[15]_i_3/O
+                         net (fo=8, routed)           0.456     9.033                         u_lsu/u_ptw/sq_pden_q[15]_i_3_n_0
+    SLICE_X45Y117                                                     r  spike                u_lsu/u_ptw/sq_pden_q[14]_i_1/I2
+    SLICE_X45Y117        LUT5 (Prop_F6LUT_SLICEM_I2_O)
+                                                      0.224     9.257 r  spike                u_lsu/u_ptw/sq_pden_q[14]_i_1/O
+                         net (fo=1, routed)           0.095     9.352                         u_lsu/u_ptw_n_647
+    SLICE_X45Y117        FDRE                                         r  spike                u_lsu/sq_pden_q_reg[14]/D
+  -------------------------------------------------------------------    ----------------------------------------
+
+                         (clock clk rise edge)       10.000    10.000 r                       
+                                                      0.000    10.000 r                       clk (IN)
+                         net (fo=36205, unset)        1.675    11.675                         u_lsu/clk
+    SLICE_X45Y117        FDRE                                         r  spike                u_lsu/sq_pden_q_reg[14]/C
+                         clock pessimism              0.104    11.779                           
+                         clock uncertainty           -0.035    11.744                           
+    SLICE_X45Y117        FDRE (Setup_FFF_SLICEM_C_D)
+                                                      0.043    11.787    spike                  u_lsu/sq_pden_q_reg[14]
+  -------------------------------------------------------------------
+                         required time                         11.787                           
+                         arrival time                          -9.352                           
+  -------------------------------------------------------------------
+                         slack                                  2.435                           
+
+
+
+
+
+
+== the worst path into each endpoint register group, among the worst 500 from *
+  0.317  20  2.36  7.01  u_lsu/g_pg.pfc_wait_q_reg[0]/C -> u_lsu/lq_st_q_reg[2][0]/CE  (127 endpoints)
+  0.510  12  1.97  7.28  u_lsu/m1_t_q_reg[0]/C -> u_lsu/m2_dword_q_reg[39]/D  (64 endpoints)
+  0.560  19  2.64  6.41  u_fetch/u_cmp/head_t_q_reg[0][0]/C -> u_de/dred_pc_reg[7]/D  (24 endpoints)
+  0.591  21  2.61  6.60  u_fetch/u_cmp/head_t_q_reg[1][1]/C -> u_fetch/u_cmp/occ_t_q_reg[0][4]/D  (5 endpoints)
+  0.663  19  2.90  6.05  u_fetch/u_cmp/head_t_q_reg[0][0]/C -> u_rn/g_pay_wreg.pay_wd_q_reg[515]/D  (62 endpoints)
+  0.707  18  2.78  6.28  u_fetch/fpc_q_reg[18]/C -> u_fetch/fpc_q_reg[33]/CE  (94 endpoints)
+  0.717  18  2.05  6.99  u_lsu/g_pg.pfc_wait_q_reg[0]/C -> u_rob/sp_v_q_reg[0]/D  (1 endpoints)
+  0.751  18  2.07  6.94  u_lsu/g_pg.pfc_wait_q_reg[0]/C -> u_lsu/pf_v_q_reg/D  (1 endpoints)
+  0.760  17  3.37  5.47  u_fetch/g_way[1].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK -> g_ras.g_s[0].g_t0.u_ras/g_late.p_pop_q_reg/D  (1 endpoints)
+  0.765  15  2.55  6.33  u_lsu/sq_dv_q_reg[5]/C -> u_lsu/u_sqd/g_m32.g_prim[6].u_ram/RAMC_D1/I  (2 endpoints)
+  0.774  18  2.05  7.02  u_lsu/g_pg.pfc_wait_q_reg[0]/C -> u_lsu/s2_v_q_reg/D  (1 endpoints)
+  0.796  17  3.42  5.53  u_fetch/g_way[1].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK -> g_ras.g_s[0].g_t0.u_ras/g_late.p_push_q_reg/D  (1 endpoints)
+  0.797  18  2.08  6.88  u_lsu/g_pg.pfc_wait_q_reg[0]/C -> u_lsu/rp_v_q_reg/D  (1 endpoints)
+  0.808  17  3.36  5.42  u_fetch/g_way[1].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK -> g_ras.g_s[1].g_t1.u_ras/g_late.p_pop_q_reg/D  (1 endpoints)
+  0.814  24  3.11  5.85  u_fetch/ka_q_reg/C -> u_fetch/u_ival/g_m64.g_bank[0].g_prim[2].u_ram/RAMB/I  (1 endpoints)
+  0.898  15  2.41  6.33  u_lsu/sq_dv_q_reg[5]/C -> u_lsu/u_sqd/g_m32.g_prim[6].u_ram/RAMF_D1/I  (6 endpoints)
+  0.903  15  2.27  6.47  u_lsu/sq_dv_q_reg[5]/C -> u_lsu/u_sqd/g_m32.g_prim[3].u_ram/RAMB/I  (2 endpoints)
+  0.917  15  2.45  6.27  u_lsu/sq_dv_q_reg[5]/C -> u_lsu/u_sqd/g_m32.g_prim[6].u_ram/RAMF/I  (2 endpoints)
+  0.920  17  2.08  6.78  u_lsu/g_pg.pfc_wait_q_reg[0]/C -> u_lsu/sq_exc_q_reg[6]/D  (12 endpoints)
+  0.949  15  2.25  6.44  u_lsu/sq_dv_q_reg[5]/C -> u_lsu/u_sqd/g_m32.g_prim[3].u_ram/RAMB_D1/I  (5 endpoints)
+  0.971  18  2.79  6.14  u_fetch/fpc_q_reg[18]/C -> u_fetch/spc_s_q_reg[1][35]/D  (17 endpoints)
+  0.991  24  3.11  5.67  u_fetch/ka_q_reg/C -> u_fetch/u_ival/g_m64.g_bank[0].g_prim[0].u_ram/RAMF/I  (1 endpoints)
+  0.993  21  2.70  6.20  u_lsu/g_split.sn_t_q_reg[0]/C -> u_lsu/rp_ra_q_reg[2]/D  (2 endpoints)
+  1.005  17  3.36  5.21  u_fetch/g_way[1].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK -> g_ras.g_s[1].g_t1.u_ras/g_late.p_push_q_reg/D  (1 endpoints)
+  1.006  15  2.30  6.34  u_lsu/sq_dv_q_reg[5]/C -> u_lsu/u_sqd/g_m32.g_prim[6].u_ram/RAME/I  (3 endpoints)
+  1.013  24  3.04  5.73  u_fetch/ka_q_reg/C -> u_fetch/u_ival/g_m64.g_bank[0].g_prim[0].u_ram/RAMG/I  (1 endpoints)
+  1.019  18  2.16  6.63  u_lsu/g_pg.pfc_wait_q_reg[0]/C -> lx_valid_q_reg[3]/D  (2 endpoints)
+  1.026  18  2.86  5.99  u_fetch/fpc_q_reg[18]/C -> u_fetch/ft_q_reg_rep/D  (1 endpoints)
+  1.039  15  1.84  6.75  u_lsu/sq_dr_q_reg[6]/C -> u_lsu/u_sqd/g_m32.g_prim[6].u_ram/RAMG_D1/I  (2 endpoints)
+  1.053  17  2.06  6.56  u_lsu/g_pg.pfc_wait_q_reg[0]/C -> u_lsu/fh_data_q_reg[14]/CE  (19 endpoints)
+  1.053  15  2.20  6.39  u_lsu/sq_dv_q_reg[5]/C -> u_lsu/u_sqd/g_m32.g_prim[3].u_ram/RAMA_D1/I  (3 endpoints)
+  1.068  15  2.35  6.22  u_lsu/sq_dv_q_reg[5]/C -> u_lsu/u_sqd/g_m32.g_prim[6].u_ram/RAMD/I  (4 endpoints)
+  1.074  24  3.05  5.65  u_fetch/ka_q_reg/C -> u_fetch/u_ival/g_m64.g_bank[0].g_prim[1].u_ram/RAMA/I  (1 endpoints)
+  1.085  15  1.80  6.74  u_lsu/sq_dr_q_reg[6]/C -> u_lsu/u_sqd/g_m32.g_prim[7].u_ram/RAMA/I  (4 endpoints)
+  1.119  24  3.05  5.60  u_fetch/ka_q_reg/C -> u_fetch/u_ival/g_m64.g_bank[0].g_prim[2].u_ram/RAMD/I  (1 endpoints)
+  1.129  15  2.56  5.97  u_lsu/sq_dv_q_reg[5]/C -> u_lsu/u_sqd/g_m32.g_prim[1].u_ram/RAMD_D1/I  (4 endpoints)
+  1.138  14  1.79  6.95  u_lsu/r_data_q_reg[24]/C -> u_ex/bw_npc_q_reg[46]/D  (6 endpoints)
+  1.155  15  2.51  6.00  u_lsu/sq_dv_q_reg[5]/C -> u_lsu/u_sqd/g_m32.g_prim[2].u_ram/RAME_D1/I  (3 endpoints)
+  1.163  13  1.54  7.09  u_rob/ct_q_reg[0]/C -> u_lsu/u_ptw/chk_req_q_reg/D  (1 endpoints)
+  1.173  17  1.99  6.65  u_lsu/g_pg.pfc_wait_q_reg[0]/C -> u_lsu/sq_av_q_reg[17]/D  (2 endpoints)
+  1.174  15  2.52  5.95  u_lsu/sq_dv_q_reg[5]/C -> u_lsu/u_sqd/g_m32.g_prim[4].u_ram/RAMG/I  (2 endpoints)
+  1.179  24  3.04  5.56  u_fetch/ka_q_reg/C -> u_fetch/u_ival/g_m64.g_bank[0].g_prim[2].u_ram/RAMC/I  (1 endpoints)
+  1.180  18  2.07  6.43  u_lsu/g_pg.pfc_wait_q_reg[0]/C -> u_lsu/r_dst_q_reg[4]/CE  (1 endpoints)
+  1.180  14  1.73  7.01  u_lsu/r_data_q_reg[24]/C -> u_ex/bht_wd_q_reg[1]/D  (1 endpoints)
+  1.185  15  2.40  6.06  u_lsu/sq_dv_q_reg[5]/C -> u_lsu/u_sqd/g_m32.g_prim[3].u_ram/RAMC/I  (2 endpoints)
+  1.190  23  3.17  5.42  u_fetch/ka_q_reg/C -> u_fetch/u_ival/g_m64.g_bank[0].g_prim[1].u_ram/RAME/I  (1 endpoints)
+  1.202  20  2.59  5.58  g_p4.u_p4/u_fpu/g_div_gs.u_div/s1_q_reg[a][62]/C -> g_p4.u_p4/u_fpu/g_div_gs.u_div/u_rom/g_block.rd_q_reg/ADDRARDADDR[3]  (1 endpoints)
