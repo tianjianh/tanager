@@ -25,6 +25,8 @@ if {[info exists ::env(TG_UNCORE_DSP)]} {
 # (2 and up; unset or 0 picks by the clock: 4 above 150 MHz, else 2), TG_AR_SLICE, TG_B_SLICE, TG_D_SLICE,
 # TG_W_SLICE, TG_XBAR_SLICE, TG_MEM_SLICE (0 or 1) and TG_XBAR_IN_SLICE (0-15, a bit per channel). Unset
 # keeps tg_uncore_pkg's default; summary.txt lists the ones set. TG_DEBUG_CNT=1: the board debug counters.
+# TG_L2_WB_PACE=1: the L2's write-back batching (tg_l2_bank WB_PACE, soc.md §8.5), with TG_L2_PACE_INIT (0-4095) the
+# host-control block's L2_PACE at reset ([3:0] the batch, [11:4] the wait; unset: tg_uncore_pkg's L2_PACE_INIT_DEF).
 # TG_VIRTIO_WINDOW=1: the forwarded virtio window, TG_HOST_DMA=1: the coherent host DMA port on
 # M_AXI_HPM1_FPD (stage C, docs/spec/soc.md §8.1; without it reads there answer DECERR, writes are dropped).
 # TG_LAT_INJ=0: a release build (DR-177), without the two AXI latency injectors; unset or 1 keeps them (a
@@ -61,7 +63,8 @@ if {$release} {
 }
 foreach {v g hi} {TG_L2_DATA_LAT L2_DATA_LAT 8 TG_AR_SLICE AR_SLICE 1 TG_B_SLICE B_SLICE 1 TG_D_SLICE D_SLICE 1
                   TG_W_SLICE W_SLICE 1 TG_XBAR_IN_SLICE XBAR_IN_SLICE 15 TG_XBAR_SLICE XBAR_SLICE 1 TG_MEM_SLICE MEM_SLICE 1
-                  TG_DEBUG_CNT DEBUG_CNT 1 TG_VIRTIO_WINDOW VIRTIO_WINDOW 1 TG_HOST_DMA HOST_DMA 1 TG_LAT_INJ LAT_INJ 1} {
+                  TG_DEBUG_CNT DEBUG_CNT 1 TG_VIRTIO_WINDOW VIRTIO_WINDOW 1 TG_HOST_DMA HOST_DMA 1 TG_LAT_INJ LAT_INJ 1
+                  TG_L2_WB_PACE L2_WB_PACE 1 TG_L2_PACE_INIT L2_PACE_INIT 4095} {
   if {![info exists ::env($v)]} continue
   set val $::env($v)
   if {![string is integer -strict $val] || $val < 0 || $val > $hi || ($g eq "L2_DATA_LAT" && $val == 1)} {

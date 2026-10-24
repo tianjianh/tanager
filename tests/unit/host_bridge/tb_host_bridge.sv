@@ -75,6 +75,7 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0,
   logic        ctx_v, ctx_r, crx_v, crx_r;
   logic [7:0]  ctx_b, crx_b;
   logic [1:0]  board_ctrl, board_hook = 2'b00;            // BOARD_CTRL out; the reset write's status back
+  logic [11:0] l2_pace;                                    // L2_PACE out (the L2's write-back batching)
 
   tg_host_bridge #(.CLK_HZ (100_000_000), .CFG_CODE (8'd1), .N_CORES_SOC (2), .CORE_RST_INIT (1'b1),
                    .UNCORE_RST_INIT (1'b1), .TRACE (TRACE), .VIRTIO (VIRTIO), .HDMA (HDMA), .LAT_INJ (LAT_INJ),
@@ -90,7 +91,7 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0,
     .clk, .rst, .core_rst_o (core_rst), .uncore_rst_o (uncore_rst),
     .req_i (req), .req_valid_i (req_v), .rsp_o (rsp),
     .vio_req_valid_i (vreq_v), .vio_rsp_o (vrsp), .vio_wait_o (vwait), .vio_irq_o (virq),
-    .mbox_irq_o (mbox_irq),
+    .mbox_irq_o (mbox_irq), .l2_pace_o (l2_pace),
     .dram_base_o (dbase), .dram_size_o (dsize),
     .inj_rd_delay_o (ird), .inj_wr_delay_o (iwr), .inj_mode_o (imode), .inj_bw_o (ibw),
     .l2_init_done_i (1'b1), .inj_rd_count_i (32'd1234), .inj_lat_sum_i (32'd56789), .inj_lat_max_i (16'd77),
@@ -678,6 +679,12 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0,
     hw(16'h068, 32'h1111_2222); hw(16'h06C, 32'h3333_4444);
     repeat (60) @(posedge clk);
     cacc(12'h030, 0, '0, '0, q); if (q != 64'h3333_4444_1111_2222) fail("FROMHOST");
+    // L2_PACE (core side 0x048): its reset value, a write by bytes, the read-back and the output
+    cacc(12'h048, 0, '0, '0, q); if (q != 64'h401 || l2_pace != 12'h401) fail("L2_PACE at reset");
+    cacc(12'h048, 1, 64'hFFFF_FFFF_FFFF_F803, 8'h03, q);
+    cacc(12'h048, 0, '0, '0, q); if (q != 64'h803 || l2_pace != 12'h803) fail("L2_PACE write");
+    cacc(12'h048, 1, 64'h0000_0000_0000_0004, 8'h01, q);
+    cacc(12'h048, 0, '0, '0, q); if (q != 64'h804) fail("L2_PACE byte 0 alone");
 
     if (REL) test_no_console();
     else begin

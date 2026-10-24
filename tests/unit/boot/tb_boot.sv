@@ -32,6 +32,8 @@ module tb_boot;
   parameter bit HOST_DMA_TB   = 1'b0;    // the host DMA port, for +hdma_lines (external-write lockstep, below)
   parameter bit LAT_INJ_TB    = 1'b1;    // the two latency injectors; 0: a release build's memory path (DR-177)
   parameter bit RELEASE_TB    = 1'b0;    // a release build (tanager_soc RELEASE, DR-180): needs UART_SERIAL_TB
+  parameter bit L2_WB_PACE_TB = 1'b0;    // the L2's write-back batching (tanager_soc L2_WB_PACE)
+  parameter logic [11:0] L2_PACE_INIT_TB = 12'h401;   // its settings at reset: batch 1 (none), wait 64
   if (RELEASE_TB && !UART_SERIAL_TB) begin : g_bad_rel
     $error("tb_boot: a release build's console is the serial line alone: RELEASE_TB needs UART_SERIAL_TB");
   end
@@ -87,6 +89,7 @@ module tb_boot;
   tanager_soc #(
     .N_CORES (N_CORES), .CLK_HZ (100_000_000), .L2_SETS (L2_SETS_TB), .L2_MSHR (24), .DEBUG_CNT (DEBUG_CNT_TB),
     .HOST_DMA (HOST_DMA_TB), .LAT_INJ (LAT_INJ_TB), .RELEASE (RELEASE_TB),
+    .L2_WB_PACE (L2_WB_PACE_TB), .L2_PACE_INIT (L2_PACE_INIT_TB),
     .CORE_RST_INIT (1'b1), .UNCORE_RST_INIT (1'b1), .CORE_KIND ("core"), .UART_SERIAL (UART_SERIAL_TB)
   ) dut (
     .uart_txd_o (uart_txd), .uart_rxd_i (1'b1),
