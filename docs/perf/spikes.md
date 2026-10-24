@@ -1406,6 +1406,11 @@ Results: `fpga/spikes/results/h100_m7b0/`, `h100_m7b1/` (with `urf_chip.txt`), e
 
 ### 8.18 M7 step 5's product chip with real hart 1, the URF off and on (2026-10-21)
 
+**Outcome (10-23): the M8 release image of record is `rc3_u095r`.**
+- It is coord/rc3, which is main's RTL with M7 complete, at 100 MHz: WNS +0.748 ns, TNS 0, WHS +0.006.
+- The flow is the product form with `TG_ROUTE_DIRECTIVE=AlternateCLBRouting` at `TG_PR_UNC=0.95`.
+- `tanager.bit.bin` sha256 2a47608a…; see "The release pair on coord/rc3" below.
+
 **Asked** (the coordinator, 10-20 and 10-21):
 - **What to build:** M7 step 5c's full chip with hart 1 running. It is the board's product configuration (DR-177: M8's exit is defined on it), built by d4r2's recipe plus `TG_HART1=1` and the release form (`LAT_INJ=0`).
 - **The two chips:**
@@ -2090,9 +2095,33 @@ Each family runs 16–26 levels with 62–75% of its delay in wire, so the place
    **Fix:** register the read data before the update. **Owner:** fpu-2. **Effort:** half a day; lowest priority.
 - **The order:** 1 (the most endpoints, and within 0.4 ns in every placement), 4, 2 and 3, then 5. Fixing 1 to 4 would bring the bad placements' worst to about −0.1 ns, and the good ones' to about +1 ns.
 
-**The trials** (the coordinator: two at once, the budget at 58 while they run), from `snap/product_wt2` a1589f00712c, pinned by `claude/spikes-2-board-rc3t`. That is `coord/rc3`, the measurement commit, and measurement-only knobs: `TG_PHYS_DIRECTIVE`, `TG_ROUTE_DIRECTIVE`, and `TG_INCR_DCP`/`TG_INCR_DIRECTIVE` (incremental implementation). Unset, the flow is main's.
-- **`rc3i_u100`:** incremental implementation from rc2_u100's routed checkpoint (+0.296), with the `TimingClosure` directive, at 1.0 ns. The reuse rates go to `reports/incremental_reuse*.rpt`. There is no incremental synthesis: no synthesized rc2 checkpoint was kept, so reuse depends on how many cell names survived the re-rolled synthesis.
-- **`rc3_u110`:** a fresh placement at 1.10 ns.
+**The trials,** each one placement at a time (the coordinator: two at once, the budget raised while they ran). They run from `snap/product_wt2` a1589f00712c (pinned by `claude/spikes-2-board-rc3t`) and `snap/product_wt` 9b620a0da139 (pinned by `claude/spikes-2-board-rc3t2`). Both are `coord/rc3` and the measurement commit, plus knobs for `phys_opt_design`'s and `route_design`'s directives and for incremental implementation; unset, the flow is main's.
+
+| Trial | What | Result |
+|---|---|---|
+| `rc3i_u100` | incremental from rc2_u100's routed checkpoint, `TimingClosure`, 1.0 ns | stopped in `read_checkpoint`: reuse 86.1% of the cells (89.3% matched by name), 49.4% of the nets, 58.2% of the pins; then 2025.2's "Not able to open pb file" (Common 17-1999, an empty name) fails the command |
+| `rc3j_u100` | the same, ignoring the uncertainty (`incr.ignoreUserClockUncertainty`) and going on past the pb error | the reuse data loads and the incremental placer starts, then "could not place more than 5 percent of the moveable instances" (Place 46-13): with 86% of the cells at rc2's sites there is no room at 96% for the rest |
+| `rc3_u110` | a fresh placement at 1.10 ns | −0.237 / −21.2 (228 failing), WHS +0.010; no trade at level 6; the recurring families 0.1–0.24 ns short |
+| `rc3pro_u110` | `rc3_u110` routed, then `phys_opt_design -directive AggressiveExplore` and `route_design` | −0.237 to −0.224 after phys_opt, then −1.677 / −641 after the reroute; stopped once `rc3_u095r` closed |
+| **`rc3_u095r`** | **a fresh placement at 0.95 ns with `route_design -directive AlternateCLBRouting`** | **+0.748 / 0.000, 0 failing, WHS +0.006** |
+
+**The M8 release image of record: `rc3_u095r`** (the coordinator, 10-23: coord/rc3's RTL, which is main's).
+
+| | `rc3_u095r` |
+|---|---|
+| LUTs after synthesis / `opt_design` / routed | 119,477 / 115,333 / 112,806 (96.32%) |
+| FFs routed, CLBs, control sets | 58,024, 14,640 (all), 2,887 |
+| WNS estimated in placement, at its start / after placement (0.95 ns on) | −1.715 / +0.088 |
+| Routing | **level 5** with `AlternateCLBRouting`, no trade, 1.6 h (the default router was at level 6 in all three other rc3 placements, and traded in two) |
+| **WNS / TNS / WHS (ns)** | **+0.748 / 0.000 / +0.006**; `clk2x` within / into / back +1.725 / +0.995 / +0.794 |
+| Endpoints within 1 ns | 668 in 73 families, the worst +0.748 (core 0's `lx_valid_q` from the store pipe's `sn_v_q`), then `m2_dword_q`, `sqh_q`, `lq_st_q`, `m2_foh_q`, `dred_pc` and the I$ valid RAM, all +0.75 to +0.78 |
+
+- **The image:** `tanager.bit` sha256 baf853d9…, `tanager.bit.bin` sha256 2a47608a…, sent to soc-2 and the coordinator.
+- **Reproducing it:** main's `build.tcl` now takes `TG_PHYS_DIRECTIVE` and `TG_ROUTE_DIRECTIVE`, plus `TG_INCR_DCP` / `TG_INCR_DIRECTIVE`, off unless set (`fpga/kv260/README.md`). With `TG_ROUTE_DIRECTIVE=AlternateCLBRouting TG_PR_UNC=0.95` and the product's other settings, main reproduces this flow; defaults are unchanged.
+- **The lesson:** at 96% of the LUTs the router's congestion handling decides the chip.
+  - `AlternateCLBRouting` turned the netlist that missed by 0.24–1.1 ns in three placements into +0.748.
+  - Recovery after routing (incremental implementation, post-route `phys_opt_design`) has no room to work at this fill.
+  - The recurring families above still decide the margin, so their fixes stay the way to stop the lottery.
 
 Results: `fpga/spikes/results/product_wt4_rc3_u100/` (with the comparisons and the family chains) and `product_wt4_rc3_u105/`. The checkpoints are in `~/tanager-build/track-spikes-72f833/vivado/product_wt4_rc3_u100/` and `_u105/`.
 
