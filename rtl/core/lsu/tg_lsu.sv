@@ -1726,10 +1726,15 @@ module tg_lsu
   // and the cycles they spent parked (summed over the parked loads)
   bit lw_on;
   initial lw_on = $test$plusargs("lwtstat");
-  longint unsigned lw_n_mark, lw_n_park, lw_n_cyc;
+  longint unsigned lw_n_mark, lw_n_park, lw_n_cyc, lw_n_rpark;
+  logic lw_rp1_q, lw_rp2_q;                       // M1's, M2's load is a replay (its park a park again, or after a miss)
+  always_ff @(posedge clk) begin
+    lw_rp1_q <= ag_rp;
+    lw_rp2_q <= lw_rp1_q;
+  end
   always_ff @(posedge clk)
     if (rst) begin
-      lw_n_mark <= 0; lw_n_park <= 0; lw_n_cyc <= 0;
+      lw_n_mark <= 0; lw_n_park <= 0; lw_n_cyc <= 0; lw_n_rpark <= 0;
     end else begin
       int n;
       n = 0;
@@ -1737,10 +1742,11 @@ module tg_lsu
       lw_n_mark <= lw_n_mark + (rp_v_q ? 1 : 0);
       lw_n_park <= lw_n_park + ((m2_v_q && !m2_pt_q && !kill_t[t_m2] && m2_out == O_LWT) ? 1 : 0);
       lw_n_cyc  <= lw_n_cyc + longint'(n);
+      lw_n_rpark <= lw_n_rpark + ((m2_v_q && !m2_pt_q && !kill_t[t_m2] && m2_out == O_LWT && lw_rp2_q) ? 1 : 0);
     end
   final if (lw_on)
-    $fwrite(32'h8000_0002, "TG-LWT %m: ordering marks %0d; loads parked %0d, cycles parked %0d\n",
-            lw_n_mark, lw_n_park, lw_n_cyc);
+    $fwrite(32'h8000_0002, "TG-LWT %m: ordering marks %0d; loads parked %0d (on replays %0d), cycles parked %0d\n",
+            lw_n_mark, lw_n_park, lw_n_rpark, lw_n_cyc);
 `endif
 
   // ---- CoRR: a load's order against older loads of its address (architecture_plan §4.9; M7's exit 4) ----
