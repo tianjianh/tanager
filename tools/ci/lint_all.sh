@@ -14,7 +14,7 @@
 # product's combination (URF=1 and the release form, in both views) and a bigger chip's, every area measure that has a
 # switch off together (PMP_ENTRIES=16, four TAGE tables of 4K, the uncore's slices, a window of ROB 96, LQ 32, SQ 24:
 # WIN=, a copy of the configuration's file; lever 2's LUT form, IQ_CC=0; FP banks of 96, FP_BANK96=1; DR-183's three
-# PMP checkers, PMP_FILL=0; both views; M9's load-wait table on, LWT=1, in both views;
+# PMP checkers, PMP_FILL=0; both views; M9's load-wait table on, LWT=1, in both views; debug mode on, DEBUG=1, in both views;
 # docs/spec/area_switches.md), and with hart 1 the other forms of DR-185 (PAY_WREG=0, IQ_CC=0 and 3) and the FP banks
 # of 96 alone (both views); M9's performance counters on (HPM=1, DR-190) for every configuration and with hart 1, in
 # both views. They run JOBS at a time
@@ -70,10 +70,12 @@ else echo "lint-all: no RTL mentions TG_STORE_PF_MAX; skipping STORE_PF_MAX"; fi
 if mentioned TG_PMP_FILL; then profiles+=("PMP_FILL=0" "PMP_FILL=0 SYNTH=1"); else echo "lint-all: no RTL mentions TG_PMP_FILL; skipping PMP_FILL=0"; fi
 # M9's load-wait table (DR-190's addendum), off by default for now: its on form, in both views
 if mentioned TG_LWT; then profiles+=("LWT=1" "LWT=1 SYNTH=1"); else echo "lint-all: no RTL mentions TG_LWT; skipping LWT=1"; fi
+if mentioned TG_DEBUG; then profiles+=("DEBUG=1" "DEBUG=1 SYNTH=1"); else echo "lint-all: no RTL mentions TG_DEBUG; skipping DEBUG=1"; fi
 # DR-185's rename payload written straight into its LUTRAM (PAY_WREG=0; the package registers the write)
 if mentioned TG_PAY_WREG; then profiles+=("PAY_WREG=0"); else echo "lint-all: no RTL mentions TG_PAY_WREG; skipping PAY_WREG=0"; fi
 # M9's performance counters (DR-190; off by default), on, in both views
 if mentioned TG_HPM; then profiles+=("HPM=1" "HPM=1 SYNTH=1"); else echo "lint-all: no RTL mentions TG_HPM; skipping HPM=1"; fi
+# The debug module (DR-190 item 4, soc.md §9; development builds only, off by default), on, in both views
 profiles+=("SYNTH=1")
 # DR-177's release builds, without the two latency injectors (tanager_soc LAT_INJ, a parameter), in both views
 if grep -qsw LAT_INJ "$ROOT/rtl/soc/tanager_soc.sv"; then profiles+=("LAT_INJ=0" "LAT_INJ=0 SYNTH=1")

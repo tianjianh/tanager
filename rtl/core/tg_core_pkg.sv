@@ -189,6 +189,16 @@ package tg_core_pkg;
   localparam int TAGE_BI = 11;
 `endif
   localparam int TAGE_IXW = TAGE_NT * (TAGE_LI + TAGE_TW) + TAGE_BI;   // a block's indices and tags
+  // M9's indirect-target table (tg_itt; docs/spec/core-pipeline.md §3.2; DR-190): 0 none (the default, cycle for
+  // cycle), 1 one table of 256 entries by path, 2 the split (128 by path, 128 by block). It needs TAGE (its FTQ and
+  // F2's decision), so without TAGE_ON there is none.
+`ifdef TG_ITT
+  localparam int ITT_MODE = TAGE_ON ? `TG_ITT : 0;
+`else
+  localparam int ITT_MODE = 0;
+`endif
+  localparam bit ITT_ON  = ITT_MODE > 0;
+  localparam int ITT_PHW = 16;            // its path history's bits (the model's: the last four targets)
   // An ownership prefetch for stores (M6, DR-171; smt2-study's area_recovery.md §6.11): when a
   // cacheable store's address decides, the L1D requests its line with T through a free miss entry
   // (never the last one), so the drain finds it owned instead of waiting for it one store at a time.
@@ -260,6 +270,14 @@ package tg_core_pkg;
   localparam bit LWT_ON = `TG_LWT;
 `else
   localparam bit LWT_ON = 1'b0;
+`endif
+  // Debug mode (Sdext, M9's item 4, DR-190; core-priv.md "Debug mode", soc.md §9): dcsr, dpc and dscratch0/1 per hart,
+  // the halt request taken at commit, ebreak and step entry, dret, and the debug window's access in debug mode.
+  // Development builds only; off by default, and a release build never sets it. TG_DEBUG=1 turns it on.
+`ifdef TG_DEBUG
+  localparam bit DEBUG_ON = `TG_DEBUG;
+`else
+  localparam bit DEBUG_ON = 1'b0;
 `endif
   // DR-174 (the user, the area reserve): the integer register file in UltraRAM, double-pumped at clk2x (twice the
   // core clock, from the board's MMCM; spikes.md §8.14's "edge" plan). Off by default; TG_URF=1 turns it on, with
@@ -596,7 +614,8 @@ package tg_core_pkg;
 
   typedef enum logic [2:0] {
     SYS_NONE = 3'd0, SYS_FENCE = 3'd1, SYS_FENCEI = 3'd2, SYS_WFI = 3'd3, SYS_MRET = 3'd4,
-    SYS_SRET = 3'd5, SYS_SFENCE = 3'd6     // SFENCE.VMA and the Svinval forms
+    SYS_SRET = 3'd5, SYS_SFENCE = 3'd6,    // SFENCE.VMA and the Svinval forms
+    SYS_DRET = 3'd7                        // debug mode's dret (DEBUG_ON; commit judges it: illegal outside debug mode)
   } sys_e;
 
   typedef enum logic [1:0] { MUL_LO = 2'd0, MUL_H = 2'd1, MUL_HSU = 2'd2, MUL_HU = 2'd3 } mul_op_e;
@@ -881,6 +900,7 @@ package tg_core_pkg;
     sqid_t         sq;
     logic          ras_push;    // the return-address stack's operation at commit (ras_op)
     logic          ras_pop;
+    logic          ijmp;        // ITT_ON: a JALR that is not a return (no pop), which trains the indirect-target table
     logic          cbr;         // TAGE_ON: a conditional branch TAGE trains on (not a straddler)
     logic          ptk;         // ... its fetch-time direction
     logic [FTQW-1:0] ftq;       // ... its block's FTQ entry

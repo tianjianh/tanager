@@ -141,7 +141,13 @@ module tanager_soc
   output logic        uart_txd_o,
   input  logic        uart_rxd_i,
 
-  output logic [7:0]  status_o
+  output logic [7:0]  status_o,
+
+  // the debug module's JTAG side (tg_map_pkg DEBUG_WINDOW, docs/spec/soc.md §9.2; tg_uncore): TCK, the device TAP's
+  // state outputs and the chains' SEL from two BSCANE2s (kv260_top) or a testbench's TAP model; TDO per chain
+  input  logic        jtag_tck_i,
+  input  jtag_t       jtag_i,
+  output logic [1:0]  jtag_tdo_o
 );
   localparam int NH = N_CORES * NUM_THREADS;      // harts in this build
   localparam int NT = NUM_THREADS;
@@ -153,6 +159,7 @@ module tanager_soc
   // The cores' reset comes from the uncore's host bridge (rst, or the host's CTRL register); the
   // trace stream holds a core's commit while its buffers are near full (interfaces.md §5).
   logic               core_rst;
+  logic [NH-1:0]      dbg_haltreq;            // the debug module's halt request to each hart (DEBUG_WINDOW)
   logic [N_CORES-1:0] trace_stall;
 
   // ---------------------------------------------------------------------------------------------
@@ -181,6 +188,17 @@ module tanager_soc
   // drive them: a name used before its declaration is an implicit net in synthesis.
   logic [4:0]               core_dbg_sel;
   logic [N_CORES-1:0][31:0] core_dbg;
+  // The debug module (DEBUG_WINDOW, soc.md §9.4): core c's debug_req_i, its one debug port, in hart order as the
+  // interrupt lines (line l: hart c·NT + l; the core maps lines to its threads); 0 without the switch. The DM sees
+  // each core's hart 1 as unavailable in a build without it; the cores' reset it takes itself.
+  logic [N_CORES-1:0][NT-1:0] dbg_req;
+  logic [NH-1:0]              dbg_unavail;
+  for (genvar c = 0; c < N_CORES; c++) begin : g_dbgh
+    assign dbg_req[c] = dbg_haltreq[c * NT +: NT];
+    for (genvar l = 0; l < NT; l++) begin : g_l
+      assign dbg_unavail[c * NT + l] = l == 1 && !tg_core_pkg::HART1_ON;
+    end
+  end
 
   for (genvar c = 0; c < N_CORES; c++) begin : g_core
     logic [NT-1:0] mei, sei, mt, ms, me;
@@ -215,7 +233,7 @@ module tanager_soc
       tg_core #(.CORE_ID (c), .DBG_WORD (DEBUG_CNT)) u_core (
         .clk, .clk2x, .rst (core_rst), .boot_addr_i (BOOT_ADDR),
         .irq_mei_i (mei), .irq_sei_i (sei), .irq_mti_i (mt), .irq_msi_i (ms), .irq_ssi_i ('0),
-        .mtime_i (mtime), .debug_req_i ('0), .merr_o (me),
+        .mtime_i (mtime), .debug_req_i (dbg_req[c]), .merr_o (me),
         .l1i_a_o (l1i_a[c]), .l1i_a_valid_o (l1i_av[c]), .l1i_a_ready_i (l1i_ar[c]),
         .l1i_d_i (l1i_d[c]), .l1i_d_valid_i (l1i_dv[c]), .l1i_d_ready_o (l1i_dr[c]),
         .l1d_a_o (l1d_a[c]), .l1d_a_valid_o (l1d_av[c]), .l1d_a_ready_i (l1d_ar[c]),
@@ -282,9 +300,10 @@ module tanager_soc
     .tg_en_o (tg_en), .tg_base_o (tg_base), .tg_lines_o (tg_lines),
     .tg_ops_i (tg_ops), .tg_errs_i (tg_errs), .tg_err_line_i (tg_err_line), .tg_pass_i (tg_pass),
     .uart_txd_o, .uart_rxd_i,
-    .status_o
+    .status_o,
+    .jtag_tck_i, .jtag_i, .jtag_tdo_o, .dbg_haltreq_o (dbg_haltreq), .dbg_unavail_i (dbg_unavail)
   );
 
-  // The traffic-generator controls are read only by tg_trafgen builds.
-  wire unused = ^{tg_en, tg_base, tg_lines};
+  // The traffic-generator controls are read only by tg_trafgen builds, which take no halt request.
+  wire unused = ^{tg_en, tg_base, tg_lines, dbg_req};
 endmodule

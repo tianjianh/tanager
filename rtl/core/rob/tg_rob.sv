@@ -99,6 +99,10 @@ module tg_rob
   output logic [CW-1:0]                cm_cpred,
   output logic [CW-1:0][FTQW-1:0]      cm_cftq,
   output logic [CW-1:0][SLOT_W-1:0]    cm_cslot,
+  // The indirect-target table (ITT_ON) from commit: each retiring slot's address bits 17:2 (the path history's), and
+  // a JALR that is not a return
+  output logic [CW-1:0][17:2]          cm_pc,
+  output logic [CW-1:0]                cm_ijmp,
   output logic                         cm_hv,
   output logic [FTQW-1:0]              cm_hftq,
   // To the LSU
@@ -130,6 +134,16 @@ module tg_rob
   input  logic [63:0]                  irq_target,   // an interrupt's
   output logic                         xret_v,       // an MRET or SRET is in flight (registered) ...
   output logic                         xret_s,       // ... and it is SRET: tg_csr reads its xepc
+  output logic                         xret_d,       // ... it is dret (DEBUG_ON): tg_csr reads dpc
+  // Debug mode (DEBUG_ON; core-priv.md "Debug mode")
+  input  logic [NUM_THREADS-1:0]       dbg_req,      // each hart's halt request (level)
+  input  logic [NUM_THREADS-1:0]       dm_h,         // each hart in debug mode (tg_csr)
+  input  logic [NUM_THREADS-1:0]       dstep_h,      // each hart's dcsr.step
+  input  logic [NUM_THREADS-1:0]       debk_h,       // each hart's ebreak enters debug mode
+  output logic                         dbg_enter,    // entry at commit (slot 0's thread): tg_csr's writes
+  output logic [2:0]                   dbg_cause,    // 1 ebreak, 3 the halt request, 4 a step
+  output logic [63:0]                  dbg_epc,      // dpc: the head instruction's pc
+  output logic                         dret_o,       // dret retires
   input  logic [63:0]                  xepc,
   input  priv_e                        priv,
   input  logic                         irq_take,     // the head thread's (t_cm: tg_csr reads hd_tid_o)
@@ -198,7 +212,7 @@ module tg_rob
   assign head_o   = head_q;
   assign hd_tid_o = t_cm;
   assign hd_tid_n_o = (SPLIT && NT > 1) ? (rst ? RUN_TID : ct_n) : RUN_TID;   // (ct_q's next value)
-  logic [NT-1:0]          xr_v_q, xr_s_q;  // an MRET or SRET in flight; SRET
+  logic [NT-1:0]          xr_v_q, xr_s_q, xr_d_q;  // an MRET, SRET or dret in flight; SRET; dret
 
   logic   [NT-1:0]        exr_v_q;
   robid_t [NT-1:0]        exr_rob_q;
@@ -243,6 +257,9 @@ module tg_rob
       dpl[k].lq         = ds_ren[k].lq;
       dpl[k].sq         = ds_ren[k].sq;
       {dpl[k].ras_push, dpl[k].ras_pop} = ras_op(ds_uop[k].d);
+      // the indirect-target table trains on a JALR that is not a return (no pop), without a decode exception
+      dpl[k].ijmp       = ITT_ON && ds_uop[k].d.cls == C_BR && ds_uop[k].d.br_kind == BR_JALR &&
+                          !dpl[k].ras_pop && !ds_uop[k].d.exc;
       // TAGE trains on the conditional branches its blocks predict (a straddler with the block its
       // last parcel is in, at slot 0), not one with a decode exception
       dpl[k].cbr        = TAGE_ON && ds_uop[k].d.cls == C_BR && ds_uop[k].d.br_kind == BR_COND && !ds_uop[k].d.exc;
@@ -581,6 +598,15 @@ module tg_rob
   logic          stop;
   logic          pushed;            // a return-address-stack push retires in the group (one per cycle)
   logic [CW-1:0] mf;                // the slot whose mispredict ends the group
+  // Debug mode (DEBUG_ON; core-priv.md "Debug mode"): the debug window's entry points; per thread a step armed by
+  // dret with dcsr.step (stp_q) and its one instruction or trap done (std_q), then entry with cause 4
+  localparam logic [63:0] DBG_HALT = 64'(tg_map_pkg::DEBUG_BASE) + 64'h800,
+                          DBG_EXC  = 64'(tg_map_pkg::DEBUG_BASE) + 64'h808;
+  logic [NT-1:0] stp_q, std_q;
+  logic          do_dbg, do_dret, dm_c, stp_c;
+  logic [2:0]    dbg_c;
+  assign dm_c  = DEBUG_ON && dm_h[t_cm];
+  assign stp_c = DEBUG_ON && stp_q[t_cm];
   // Commit holds (cmh_*): a store whose PMP check comes after it completed retires only once a
   // denial would show, and a load whose ordering replay mark is a cycle late does not retire before
   // it; the group stops at the held entry. hold_le[j]: slot j or an older one is held.
@@ -617,10 +643,11 @@ module tg_rob
   logic [NT-1:0] wfp_q, wkh_q;
   logic go;
   always_comb begin
-    slp_now = slp_rdy[t_cm] && !wfi_wake;
+    slp_now = slp_rdy[t_cm] && !wfi_wake && !dm_c && !stp_c;
     unique case (hp[0].sys)
       SYS_FENCE, SYS_FENCEI, SYS_SFENCE: go = sq_drained;    // later walks see the stores
-      SYS_WFI:               go = wfi_wake || int'(wfi_cnt_q[t_cm]) == WFI_MAX || slp_now || (HART1_ON && sph_i);
+      SYS_WFI:               go = wfi_wake || int'(wfi_cnt_q[t_cm]) == WFI_MAX || slp_now || (HART1_ON && sph_i) ||
+                                  dm_c || stp_c;             // a nop in debug mode and when stepped (Sdext)
       default:               go = !(hp[0].is_csr && hp[0].insn[31:20] == 12'h180) || sq_drained;  // satp
     endcase
   end
@@ -678,6 +705,7 @@ module tg_rob
     ret = '0;
     do_flush = 1'b0; do_trap = 1'b0; do_irq = 1'b0; do_icinv = 1'b0; do_csr = 1'b0; do_mret = 1'b0;
     do_sret = 1'b0; do_sfence = 1'b0;
+    do_dbg = 1'b0; do_dret = 1'b0; dbg_c = 3'd0;
     sl_ret = 1'b0;
     use_tt = 1'b0;
     tlbx = 1'b0;
@@ -688,7 +716,15 @@ module tg_rob
     pushed = 1'b0;
     mf = '0;
     if (!flush && ready && !(MT && csr_hold) && has_h[0]) begin
-      if (irq_take && (MT || t_cm == RUN_TID) && hp[0].sys != SYS_WFI && !mmio_busy) begin   // (t_cm's)
+      // Debug mode's entry (DEBUG_ON): the halt request, as the highest interrupt (a WFI at the head completes first,
+      // woken by it), or a step's one instruction done; dpc is the head's pc
+      if (DEBUG_ON && !dm_c && (MT || t_cm == RUN_TID) && !mmio_busy &&
+          ((dbg_req[t_cm] && hp[0].sys != SYS_WFI) || std_q[t_cm])) begin
+        do_dbg   = 1'b1;
+        do_flush = 1'b1;
+        dbg_c    = dbg_req[t_cm] ? 3'd3 : 3'd4;
+        nf_pc    = DBG_HALT;
+      end else if (irq_take && (MT || t_cm == RUN_TID) && hp[0].sys != SYS_WFI && !mmio_busy && !dm_c && !stp_c) begin
         do_irq = 1'b1;
         do_flush = 1'b1;
         use_tt = 1'b1;
@@ -700,12 +736,25 @@ module tg_rob
         t_tval  = hp[0].is_ld ? hd_lva : hd_sva;
         if (!hd_tlb || hd_retry) begin
           do_flush = 1'b1;
+        end else if (hd_fault && dm_c) begin          // debug mode: no trap, the ROB's exception entry
+          do_flush = 1'b1;
+          nf_pc    = DBG_EXC;
         end else if (hd_fault) begin
           do_trap  = 1'b1;
           do_flush = 1'b1;
           use_tt   = 1'b1;
           tlbx     = 1'b1;
         end
+      end else if (cmp_h[0] && exc_h[0] && dm_c) begin
+        // Debug mode: traps don't take place (no CSR changes); ebreak re-enters the halt loop, the rest the exception
+        // entry
+        do_flush = 1'b1;
+        nf_pc    = (hp[0].dexc && hp[0].dexc_cause == EXC_BREAK) ? DBG_HALT : DBG_EXC;
+      end else if (DEBUG_ON && cmp_h[0] && exc_h[0] && hp[0].dexc && hp[0].dexc_cause == EXC_BREAK && debk_h[t_cm]) begin
+        do_dbg   = 1'b1;                            // ebreak with its mode's dcsr.ebreak: entry, cause 1
+        do_flush = 1'b1;
+        dbg_c    = 3'd1;
+        nf_pc    = DBG_HALT;
       end else if (cmp_h[0] && exc_h[0]) begin
         do_trap = 1'b1;
         do_flush = 1'b1;
@@ -722,6 +771,15 @@ module tg_rob
           t_cause = exr_cause_q[t_cm];
           t_tval  = exr_mem_q[t_cm] ? (hp[0].is_ld ? hd_lva : hd_sva) : exr_tval_q[t_cm];
         end
+      end else if (DEBUG_ON && cmp_h[0] && hp[0].serial && (hp[0].sys == SYS_DRET) && !dm_c) begin
+        do_trap  = 1'b1;                            // dret outside debug mode: an illegal instruction
+        do_flush = 1'b1;
+        use_tt   = 1'b1;
+        t_cause  = EXC_ILLEGAL;
+        t_tval   = {32'b0, hp[0].insn};
+      end else if (cmp_h[0] && hp[0].serial && dm_c && (hp[0].sys == SYS_MRET || hp[0].sys == SYS_SRET)) begin
+        do_flush = 1'b1;                            // mret and sret in debug mode: the exception entry (Sdext leaves
+        nf_pc    = DBG_EXC;                         // them unspecified)
       end else if (cmp_h[0] && hp[0].serial) begin
         if (go) begin
           ret[0]   = 1'b1;
@@ -731,13 +789,15 @@ module tg_rob
           do_mret  = hp[0].sys == SYS_MRET;
           do_sret  = hp[0].sys == SYS_SRET;
           do_sfence = hp[0].sys == SYS_SFENCE;
-          nf_pc    = (do_mret || do_sret) ? xepc : hd_pc_inc;
+          do_dret  = DEBUG_ON && hp[0].sys == SYS_DRET;
+          nf_pc    = (do_mret || do_sret || do_dret) ? xepc : hd_pc_inc;
           sl_ret   = hp[0].sys == SYS_WFI && slp_now;
         end
       end else begin
         stop = 1'b0;
         pushed = 1'b0;
         for (int j = 0; j < CW; j++) begin
+          if (stp_c && j > 0) stop = 1'b1;          // a step retires one instruction
           if (!stop) begin
             if (has_h[j] && cmp_h[j] && !exc_h[j] && !hp[j].serial && !rpl_h[j] && !(pushed && hp[j].ras_push)) begin
               ret[j] = 1'b1;
@@ -781,6 +841,8 @@ module tg_rob
       cm_cpred[j]    = hp[j].ptk;
       cm_cftq[j]     = hp[j].ftq;
       cm_cslot[j]    = hp[j].pc[SLOT_W:1] + SLOT_W'(!hp[j].rvc);
+      cm_pc[j]       = hp[j].pc[17:2];
+      cm_ijmp[j]     = ret[j] && hp[j].ijmp;
       tr_sq[j]    = COMMIT_TRACE ? hp[j].sq : '0;       // the trace's reads (DR-146: none without it)
       tr_lq[j]    = COMMIT_TRACE ? hp[j].lq : '0;
       tr_tag[j]   = COMMIT_TRACE ? hp[j].dst : '0;
@@ -806,6 +868,10 @@ module tg_rob
   assign tr_code  = do_irq ? irq_code : {2'b0, t_cause};
   assign tr_epc   = hp[0].pc;
   assign tr_tval  = t_tval;
+  assign dbg_enter = do_dbg;
+  assign dbg_cause = dbg_c;
+  assign dbg_epc   = hp[0].pc;
+  assign dret_o    = do_dret;
 
   // ---- Trace records ----
   // An atomic that reads memory: LR or an AMO, not SC (the A extension's opcode; funct5 3 is SC)
@@ -823,7 +889,14 @@ module tg_rob
       rec[j].pc   = hp[j].pc;
       rec[j].insn = hp[j].insn;
       rec[j].rvc  = hp[j].rvc;
-      if (j == 0 && do_irq) begin
+      if (DEBUG_ON && j == 0 && do_dbg) begin
+        // Debug mode's entry marker (verif-2's encoding): an interrupt record whose cause has bit 62 too, which no
+        // interrupt or exception sets, over dcsr.cause; pc is dpc and priv dcsr.prv. The checker stops there
+        rec[j].kind  = TR_IRQ;
+        rec[j].insn  = '0;
+        rec[j].rvc   = 1'b0;
+        rec[j].cause = {2'b11, 59'b0, dbg_c};
+      end else if (j == 0 && do_irq) begin
         rec[j].kind  = TR_IRQ;
         rec[j].insn  = '0;
         rec[j].rvc   = 1'b0;
@@ -953,7 +1026,8 @@ module tg_rob
       mpr_v_q  <= '0;
       xr_v_q   <= '0;
     end else begin
-      for (int j = 0; j < CW; j++) trace_valid_o[j] <= COMMIT_TRACE && (ret[j] || (j == 0 && (do_trap || do_irq)));
+      for (int j = 0; j < CW; j++)          // (debug mode's instructions leave no record: core-priv.md)
+        trace_valid_o[j] <= COMMIT_TRACE && (ret[j] || (j == 0 && (do_trap || do_irq || do_dbg))) && !dm_c;
       flush     <= do_flush;
       flush_slp <= HART1_ON && sl_ret;
       // Every flush is the committing thread's: its head instruction's tid
@@ -975,9 +1049,14 @@ module tg_rob
           // flush, so this holds until they commit
           xr_v_q[t_ds] <= 1'b0;
           xr_s_q[t_ds] <= 1'b0;
+          xr_d_q[t_ds] <= 1'b0;
           for (int k = 0; k < DISPATCH_WIDTH; k++) begin
-            if (ds_valid[k] && (ds_uop[k].d.sys == SYS_MRET || ds_uop[k].d.sys == SYS_SRET)) xr_v_q[t_ds] <= 1'b1;
+            // (a dret only in debug mode, which changes with flushes alone: outside it, it is an illegal instruction,
+            // whose trap needs port 1's trap vector, not dpc)
+            if (ds_valid[k] && (ds_uop[k].d.sys == SYS_MRET || ds_uop[k].d.sys == SYS_SRET ||
+                                (DEBUG_ON && ds_uop[k].d.sys == SYS_DRET && dm_h[t_ds]))) xr_v_q[t_ds] <= 1'b1;
             if (ds_valid[k] && ds_uop[k].d.sys == SYS_SRET) xr_s_q[t_ds] <= 1'b1;
+            if (DEBUG_ON && ds_valid[k] && ds_uop[k].d.sys == SYS_DRET && dm_h[t_ds]) xr_d_q[t_ds] <= 1'b1;
           end
           tail_q[t_ds] <= rob_add_t(tail_q[t_ds], $countones(ds_valid), t_ds, md);
         end
@@ -1008,6 +1087,32 @@ module tg_rob
   end
   assign xret_v    = xr_v_q[t_cm];
   assign xret_s    = xr_s_q[t_cm];
+  assign xret_d    = DEBUG_ON && xr_d_q[t_cm];
+  // The step's state (DEBUG_ON): armed by dret with dcsr.step; done once the thread retires an instruction or takes a
+  // trap; cleared at entry
+  if (DEBUG_ON) begin : g_step
+    always_ff @(posedge clk)
+      for (int t = 0; t < NT; t++)
+        if (rst) begin
+          stp_q[t] <= 1'b0;
+          std_q[t] <= 1'b0;
+        end else if (t_cm == tid_t'(t)) begin
+          if (do_dbg) begin
+            stp_q[t] <= 1'b0;
+            std_q[t] <= 1'b0;
+          end else if (do_dret) begin
+            stp_q[t] <= dstep_h[t];
+            std_q[t] <= 1'b0;
+          end else if (stp_q[t] && (ret[0] || do_trap || do_irq)) begin
+            std_q[t] <= 1'b1;
+          end
+        end
+  end else begin : g_nostep
+    assign stp_q = '0;
+    assign std_q = '0;
+    logic unused_dbg;
+    assign unused_dbg = ^dstep_h;
+  end
   always_ff @(posedge clk)
     hw_q <= rst ? hwin(rob_start(RUN_TID, MD_C), 0, RUN_TID, MD_C)
                 : (HART1_ON && mrs_i && ct_n == md.run) ? hwin(rob_start(md.run, mdn), 0, md.run, mdn)
@@ -1158,8 +1263,9 @@ module tg_rob
   always_ff @(posedge clk) begin
     if (!rst && !flush) begin
       assert (cnt >= 0 && cnt <= part_size(ROB_ENTRIES, md)) else $error("tg_rob: bad occupancy %0d", cnt);
-      if (do_trap && !hp[0].dexc && !tlbx)
+      if (do_trap && !hp[0].dexc && !tlbx && !(DEBUG_ON && hp[0].serial && hp[0].sys == SYS_DRET))   // (dret outside
         assert (exr_v_q[t_cm] && exr_rob_q[t_cm] == hid[0]) else $error("tg_rob: exception register does not hold the head");
+                                                                          // debug mode: commit's own illegal trap)
       for (int j = 0; j < CW; j++)
         if (ret[j] && misp_h[j])
           assert (mpr_v_q[t_cm] && mpr_rob_q[t_cm] == hid[j])

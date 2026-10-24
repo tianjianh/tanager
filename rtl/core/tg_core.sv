@@ -177,6 +177,13 @@ module tg_core
   logic [COMMIT_WIDTH-1:0][SLOT_W-1:0] cm_cslot;
   logic                                cm_hv;
   logic [FTQW-1:0]                     cm_hftq;
+  // ITT_ON, from commit (the indirect-target table's training): each retiring slot (itt_ret, cm_valid's copy declared
+  // ahead of the front end), its address's bits 17:2, and a JALR that is not a return; a trap or interrupt taken
+  // (itt_trv), its epc's bits 17:2 (the path history's)
+  logic [COMMIT_WIDTH-1:0]             itt_ret, cm_ijmp;
+  logic [COMMIT_WIDTH-1:0][17:2]       cm_pc;
+  logic                                itt_trv;
+  logic [17:2]                         itt_trepc;
   // The return-address stack (RAS_ON): decode (RAS_DEC) or fetch (RAS_FE, with TAGE) reads its top
   // and moves it; commit keeps its committed copy; a flush restores it from that copy, and with
   // RAS_FE decode's redirect repairs it from fetch's FTQ
@@ -203,6 +210,21 @@ module tg_core
   logic [idx_w(DECODE_WIDTH + 1)-1:0] iq_take, iq_take_t, iq_take_n;
   logic                               iq_tnz_t, iq_tnz_n;    // decode's takes are nonzero (the queue's read thread)
   logic                    de_take;                   // (declared ahead of fetch, which reads it)
+  // Debug mode (DEBUG_ON; core-priv.md "Debug mode"): the ROB's entry and dret, tg_csr's per-hart state (declared ahead
+  // of fetch and the LSU, which take dm_r_q: a name used before its declaration is an undriven net in Vivado)
+  logic             xret_d, dbg_enter, dret_c;
+  logic [2:0]       dbg_cause;
+  logic [63:0]      dbg_epc;
+  logic [NUM_THREADS-1:0] dm_h, dstep_h, debk_h;
+  // The halt requests come by hart line, as the interrupts do (thread t takes line t ^ RUN_TID: SOLO_TID's thread is
+  // hart 0)
+  logic [NUM_THREADS-1:0] dbg_req_t;
+  for (genvar t = 0; t < NUM_THREADS; t++) begin : g_dreq
+    assign dbg_req_t[t] = debug_req_i[tid_t'(t) ^ RUN_TID];
+  end
+  logic [NUM_THREADS-1:0] dm_r_q;          // each hart's debug mode, registered as priv for fetch and the LSU (a flush
+  always_ff @(posedge clk)                 // follows each change)
+    dm_r_q <= (rst || !DEBUG_ON) ? '0 : dm_h;
   // Fetch's own copy of the privilege and of whether it translates, a cycle behind tg_csr's: they
   // change only as a trap, an xRET or a serialising CSR write commits, and the flush that follows
   // is the next cycle, so fetch resumes after the copy has caught up (timing, DR-145: the CSR's
@@ -290,13 +312,14 @@ module tg_core
     .flush, .flush_tid, .flush_pc, .fl_slp(flush_slp), .icinv, .dred, .dred_tid, .dred_pc, .dred_ftq, .dred_slot, .dred_rop, .dred_rlink,
     .c_cbr(cm_cbr), .c_taken(cm_ctaken), .c_pred(cm_cpred), .c_ftq(cm_cftq), .c_slot(cm_cslot),
     .c_hv(cm_hv), .c_hftq(cm_hftq), .c_tid(cm_tid[0]),
+    .c_ret(itt_ret), .c_pc(cm_pc), .c_ijmp(cm_ijmp), .c_trv(itt_trv), .c_trepc(itt_trepc),
     .ras_v_s(ras_v_t), .ras_top_s(ras_top_t), .ras_tos_s(ras_tos_t), .ras_cnt_s(ras_cnt_t), .ras_tid(fras_tid),
     .ras_rtid(fras_rtid),
     .ras_push(fras_push), .ras_pop(fras_pop), .ras_link(fras_link),
     .ras_rv(fras_rv), .ras_rwr(fras_rwr), .ras_rtos(fras_rtos), .ras_rcnt(fras_rcnt), .ras_rtop(fras_rtop),
     .upd_valid, .upd_way, .upd_pc, .upd_slot, .upd_target, .upd_inval, .upd_tid,
     .iq_valid, .iq_insn, .iq_take, .iq_take_t, .iq_take_n, .iq_tnz_t, .iq_tnz_n, .de_take,
-    .xl_h(xl_f_q), .dst(de_state_h), .priv_h(priv_f_q), .pmp_d_h, .pmp_busy, .rn_block(rn_blk), .rn_acc,
+    .xl_h(xl_f_q), .dst(de_state_h), .priv_h(priv_f_q), .dm_h(dm_r_q), .pmp_d_h, .pmp_busy, .rn_block(rn_blk), .rn_acc,
     .pmp_lk_h, .pfc_req, .pfc_page, .pfc_tag, .pfc_tid, .pfc_pa, .pfc_m, .pfc_rsp_v, .pfc_rsp_tag, .pfc_rsp_ok, .pfc_rsp_nh,
     .pfc_rsp_x,
     .tlb_flush, .tlb_flush_tid,
@@ -393,6 +416,7 @@ module tg_core
   logic                             div_done;
   tid_t                             div_done_tid;   // its thread (rename's per-thread shares, hart 1)
   logic [CW-1:0]                    cm_valid, cm_rd_en;
+  assign itt_ret = cm_valid;
   logic [CW-1:0][4:0]               cm_rd;
   preg_t [CW-1:0]                   cm_dst, cm_old;
   logic [CW-1:0]                    cm_rd_fp;
@@ -659,7 +683,7 @@ module tg_core
     .tr_sq, .tr_st_wr, .tr_st_va,
     .tr_st_data,
     .tr_st_size, .tr_lq, .tr_ld_va, .tr_ld_size, .sq_drained, .mmio_busy, .irq_go(tr_irq), .rsv_clr, .st_dropped,
-    .priv(priv_l_q), .priv_d(priv_dl_q), .sum(sum_l_q), .mxr(mxr_l_q), .satp_sv39(sv39_l_q),
+    .priv(priv_l_q), .priv_d(priv_dl_q), .dm(dm_r_q), .sum(sum_l_q), .mxr(mxr_l_q), .satp_sv39(sv39_l_q),
     .satp_ppn(satp_ppn_l_q), .pmp_d(pmp_d_h), .pmp_pal(pmp_pal_h), .pmp_lk_h, .tlb_flush, .tlb_flush_tid,
     .pfc_req, .pfc_page, .pfc_tag, .pfc_tid, .pfc_pa, .pfc_m, .pfc_rsp_v, .pfc_rsp_tag, .pfc_rsp_ok, .pfc_rsp_nh, .pfc_rsp_x,
     .tlbm_valid, .tlbm_rob, .hd_tlb, .hd_retry, .hd_fault, .hd_cause, .hd_lva, .hd_sva,
@@ -679,6 +703,8 @@ module tg_core
   logic [NCW-1:0]   cm_n;
   logic [5:0]       tr_code, irq_code;
   logic [63:0]      tr_epc, tr_tval, trap_target, irq_target, xepc;
+  assign itt_trv   = tr_valid;
+  assign itt_trepc = tr_epc[17:2];
   logic             xret_v, xret_s;
   assign rsv_clr = tr_valid || mret || sret;
   assign priv_cm = MT ? priv_h[rob_hd_tid] : priv;
@@ -710,8 +736,8 @@ module tg_core
     .clk, .rst, .flush, .flush_tid, .ex_valid(csr_ex_valid), .ex_pl(csr_ex_pl), .ex_src(csr_ex_src),
     .ex_rdata(csr_ex_rdata), .ex_ill(csr_ex_ill),
     .cm_tid0(cm_tid[0]), .hd_tid(rob_hd_tid), .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret,
-    .sret,
-    .trap_target, .irq_target, .xret_v, .xret_s, .xepc_o(xepc), .irq_take, .irq_code, .wfi_wake, .wfi_wake_h, .wfi_arm_h,
+    .sret, .dbg_enter, .dbg_cause, .dbg_epc, .dret(dret_c), .dbg_req(dbg_req_t), .dm_h, .dstep_h, .debk_h,
+    .trap_target, .irq_target, .xret_v, .xret_s, .xret_d, .xepc_o(xepc), .irq_take, .irq_code, .wfi_wake, .wfi_wake_h, .wfi_arm_h,
     .misa_m, .misa_b,
     .misa_c, .misa_a, .misa_f, .misa_d, .fs, .fc_fflags, .fc_frm, .fc_wvalid, .fc_waddr,
     .fc_wdata, .fs_dirty, .hpm_ev, .cm_pc(tr_epc), .priv, .tvm, .tw, .tsr, .satp_sv39,
@@ -745,11 +771,12 @@ module tg_core
     .tlbm_valid, .tlbm_rob, .hd_tlb, .hd_retry, .hd_fault, .hd_cause, .hd_lva, .hd_sva,
     .sq_drained, .mmio_busy,
     .cm_valid, .cm_rd_en, .cm_rd_fp, .cm_rd, .cm_dst, .cm_old, .cm_ras_push, .cm_ras_pop, .cm_ras_link,
-    .cm_cbr, .cm_ctaken, .cm_cpred, .cm_cftq, .cm_cslot, .cm_hv, .cm_hftq,
+    .cm_cbr, .cm_ctaken, .cm_cpred, .cm_cftq, .cm_cslot, .cm_pc, .cm_ijmp, .cm_hv, .cm_hftq,
     .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va,
     .tr_st_data, .tr_st_size, .tr_lq, .tr_ld_va, .tr_ld_size, .tr_tag, .tr_data,
     .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret, .sret, .sfence,
-    .trap_target, .irq_target, .xret_v, .xret_s, .xepc, .priv(priv_cm), .irq_take, .irq_code, .wfi_wake, .wfi_wake_h, .wfi_arm_h,
+    .trap_target, .irq_target, .xret_v, .xret_s, .xret_d, .dbg_req(dbg_req_t), .dm_h, .dstep_h, .debk_h,
+    .dbg_enter, .dbg_cause, .dbg_epc, .dret_o(dret_c), .xepc, .priv(priv_cm), .irq_take, .irq_code, .wfi_wake, .wfi_wake_h, .wfi_arm_h,
     .csr_hold(csr_cold_busy), .flush, .flush_tid, .flush_pc, .icinv, .trace_o, .trace_valid_o,
     .md_i(md), .mdn_i(mdn), .mrs_i(mrs), .wk_i(wk), .sph_i(sph), .h1off_i(h1off), .flush_slp, .slp_o(slp),
     .wkr_o(wkr));

@@ -49,6 +49,7 @@ module tg_tb_top
     output bit e_ready_n);
 
   // Interrupt lines and mtime for the next cycle; one bit per hart of this core (index = tid).
+  import "DPI-C" function int tg_dpi_dbg_req();   // --dbg-win: the halt requests (TG_DEBUG's debug_req_i)
   import "DPI-C" function void tg_dpi_irq(
     input int merr,
     output int mei_n, output int sei_n, output int mti_n, output int msi_n, output int ssi_n,
@@ -99,6 +100,7 @@ module tg_tb_top
 
   // ---- Core ports ----
   logic [NUM_THREADS-1:0] irq_mei_q, irq_sei_q, irq_mti_q, irq_msi_q, irq_ssi_q, merr;
+  logic [NUM_THREADS-1:0] dbg_req_q;       // --dbg-win's halt requests (0 without it)
   logic [63:0]            mtime_q;
 
   tl_a_t l1i_a;   logic l1i_a_valid,  l1i_a_ready_q;
@@ -133,7 +135,7 @@ module tg_tb_top
     .irq_msi_i        (irq_msi_q),
     .irq_ssi_i        (irq_ssi_q),
     .mtime_i          (mtime_q),
-    .debug_req_i      ('0),
+    .debug_req_i      (dbg_req_q),
     .merr_o           (merr),
     .l1i_a_o          (l1i_a),
     .l1i_a_valid_o    (l1i_a_valid),
@@ -266,6 +268,7 @@ module tg_tb_top
       irq_msi_q <= msi_n[NUM_THREADS-1:0];
       irq_ssi_q <= ssi_n[NUM_THREADS-1:0];
       mtime_q   <= mtime_n;
+      dbg_req_q <= NUM_THREADS'(tg_dpi_dbg_req());
 
       // Commit trace of the cycle that is ending
       for (int i = 0; i < COMMIT_WIDTH; i++) begin

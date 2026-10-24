@@ -121,6 +121,8 @@ module tg_lsu
   // Translation and PMP (M3), each hart's (M7's step 4: an access takes its thread's)
   input  priv_e  [NUM_THREADS-1:0]                  priv,          // fetch walks
   input  priv_e  [NUM_THREADS-1:0]                  priv_d,        // loads and stores
+  input  logic   [NUM_THREADS-1:0]                  dm,            // each hart in debug mode (DEBUG_ON): the debug
+                                                                    // window takes its loads and stores only then
   input  logic   [NUM_THREADS-1:0]                  sum,
   input  logic   [NUM_THREADS-1:0]                  mxr,
   input  logic   [NUM_THREADS-1:0]                  satp_sv39,
@@ -782,8 +784,12 @@ module tg_lsu
   assign nl_pmpc = (xl_l && dt_pte[0].ph) || nl_lpc;   // a cached result applies: the DTLB's, or bare the region's
   // ... else the checker decides, later; with PMP_FILL not M-mode while its hart has no locked entry (DR-183)
   assign nl_pmpd = !nl_pmpc && !(PMP_FILL && priv_d[t_ln] == PRIV_M && !pmp_lk_h[t_ln]);
+  // Debug mode (DEBUG_ON; core-priv.md): the debug window faults a load from a hart not in debug mode
+  logic  nl_dwin;
+  assign nl_dwin = DEBUG_ON && !dm[t_ln] && (xl_l ? in_rg({dt_pte[0].ppn, ln_va[11:0]}, DEBUG_BASE, DEBUG_SIZE)
+                                                  : in_rg(ln_va[PA_W-1:0], DEBUG_BASE, DEBUG_SIZE));
   assign nl_acc  = (xl_l ? dt_pte[0].big : ln_va[63:PA_W] != '0) || nl_pma == PMA_NONE ||
-                   (nl_pmpc && !(xl_l ? dt_pte[0].pr : lpc_r));
+                   (nl_pmpc && !(xl_l ? dt_pte[0].pr : lpc_r)) || nl_dwin;
   assign nl_mmio = nl_pma == PMA_DEVICE || nl_pma == PMA_ROM;
   assign nl_exc  = nl_mis || nl_pf || (!nl_tm && nl_acc);
   assign nl_go   = !nl_exc && !nl_tm && !nl_mmio;
@@ -1580,7 +1586,8 @@ module tg_lsu
   assign sa_acc  = (xl_s ? dt_pte[1].big : sn_va[63:PA_W] != '0) ||
                    (sa_pmpc && !(sa_lr ? dt_pte[1].pr : dt_pte[1].pw)) || (!CKR && sa_pck && !sa_chk[0]) ||
                    (lps_hit && !(sa_lr ? lps_r : lps_w)) ||   // (#13: a bare S/U store in a cached region)
-                   sa_pma == PMA_NONE || sa_pma == PMA_ROM || (sa_amo && sa_pma != PMA_MEM);
+                   sa_pma == PMA_NONE || sa_pma == PMA_ROM || (sa_amo && sa_pma != PMA_MEM) ||
+                   (DEBUG_ON && !dm[t_sn] && in_rg(sa_pa, DEBUG_BASE, DEBUG_SIZE));   // (the debug window, below)
   assign sa_exc  = sa_mis || sa_pf || (!sa_tm && sa_acc);
   assign sa_mmio = sa_pma == PMA_DEVICE && !sa_amo;
   assign sa_ok   = sn_v && !sa_exc && !sa_tm && !kill_t[t_sn];

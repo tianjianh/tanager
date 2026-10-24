@@ -263,6 +263,11 @@ A recommendation follows: what M9 builds and in what order, what waits for v2, a
     the dispatch cost.
   - The micro-BTB at 128 drops out (−0.11%).
   - The boot's share is measured in M9, before the switch defaults on.
+- **Built (fpu-2, 10-24; core-pipeline.md §3.2):** both forms behind `TG_ITT`.
+  - The first build measured 3–5 times the estimate, so it was trimmed, then restructured until fetch's decision was at the table-off depth placed.
+  - The coordinator chose the split (`TG_ITT`=2) as the default form under DR-154, on the two-hart boot band.
+  - Mode 2 is 2.43% faster than off on nine points (3.00% on five). The interpreters are −41.6% (switch) and −48.4% (threaded) cycles, and the suite +0.13%.
+  - It costs about 0.86K LUTs and 4 RAMB36 a chip out of context, four times this section's estimate. So it stays off by default and switches on with M9's area package. That package's full-chip fit should watch `fpc_q`'s family, where any fix belongs in fetch's stream control.
 
 ## 7. virtio-net
 - **Today it is done, in two forms:**
