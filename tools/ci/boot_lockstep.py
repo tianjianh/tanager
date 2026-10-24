@@ -21,7 +21,9 @@ each (harts 0 and 2). VTHREADS sets the model's Verilator threads (the shape's b
 keeps its pace on a loaded host, where four stall at their barriers. TIMING names the DDR models' timing, one run each, side by side: board (a fixed 22 cycles,
 every ready at 100%), jitter (18-26 cycles), fixedN, default (tb_boot's own, 4-12). The gate runs st at 100M
 cycles with default and board timing when the change, against its merge base with BASE (main), reaches the core's
-fetch, decode, rename, LSU, MMU or CSR, or its top and package; otherwise it says so and passes.
+fetch, decode, rename, LSU, MMU or CSR, or its top and package, or how the boot is built and checked (GATE_HARNESS: the
+profile switches, the device trees, tb_boot's unit, the tap, tanager-lockstep's sources); otherwise it says so and
+passes.
 HPM=1 (M9's counters, DR-190) builds tanager-lockstep with Sscofpmf in Spike's ISA, as sim/Makefile's HPM=1, and the
 device tree with sw/dts HPM=1 where this tree's sw/dts takes it; the reference Image has no PMU driver, so a boot
 that should load Linux's names an Image with it (BOOT_KERNEL, the bench image's).
@@ -56,6 +58,18 @@ MEM_PARAMS = "-GL2_SETS_TB=1024"   # the board's L2 sets; the DDR timing is set 
 SHAPES = {"st": ("st", 1, 1, 1, 1), "board": ("smt2", 2, 2, 1, 4), "smp4": ("smt2", 2, 2, 2, 4)}
 GATE_PATHS = tuple(f"rtl/core/{d}/" for d in ("frontend", "decode", "rename", "lsu", "mmu", "csr")) + \
              ("rtl/core/tg_core.sv", "rtl/core/tg_core_pkg.sv")
+# How the boot is built and checked runs the gate too, as a core change does: the profile switches, the device trees,
+# tb_boot and its unit's rules, the tap, and tanager-lockstep's sources (sim/src's headers included). On 10-24
+# sim/profile.mk's empty HPM and the boot unit's new HPM=$(HPM) to sw/dts each passed alone and broke every tb_boot
+# together; and a checker change met its first Linux boot only at the next core change's gate.
+GATE_HARNESS = ("sim/profile.mk", "sim/Makefile", "sim/tb/tg_soc_tap", "sim/src/lockstep.cpp",
+                "sim/src/tanager_lockstep.cpp", "sim/src/elfload.cpp", "tests/unit/boot/", "tests/unit/common/",
+                "sw/dts/")
+
+
+def gate_harness(path):
+    return path.startswith(GATE_HARNESS) or (path.startswith("sim/src/") and path.endswith(".h") and
+                                             "/" not in path[len("sim/src/"):])
 # The gate's two timings, the ones that caught M6's micro-BTB alias on 0a1a418 soonest: tb_boot's own random
 # timing (89.3M cycles) and the board's fixed 22 (106.2M); jitter (18-26) ran 100M without it (DR-173)
 GATE_MCYC, GATE_TIMINGS = 100, ("default", "board")
@@ -415,8 +429,9 @@ def main():
     ap.add_argument("--tb-params", default="", help="more tb_boot parameters for the build, after MEM_PARAMS (e.g. "
                                                     "'-GL2_WB_PACE_TB=1 -GL2_PACE_INIT_TB=4100'); part of the build's key")
     ap.add_argument("--gate", action="store_true",
-                    help=f"run only if the change against --base reaches the core's {', '.join(GATE_PATHS)}; "
-                         f"then st at {GATE_MCYC}M with {' and '.join(GATE_TIMINGS)}")
+                    help=f"run only if the change against --base reaches the core's {', '.join(GATE_PATHS)}, or how "
+                         f"the boot is built and checked ({', '.join(GATE_HARNESS)}, sim/src/*.h); then st at "
+                         f"{GATE_MCYC}M with {' and '.join(GATE_TIMINGS)}")
     ap.add_argument("--base", default="", help="the gate's base: the change is what BRANCH (or HEAD) adds to its "
                                                "merge base with it (default main)")
     ap.add_argument("--nightly", action="store_true", help="the crontab's run (main; see the description)")
@@ -447,14 +462,16 @@ def main():
         base = a.base or "main"
         fork = ci.git("merge-base", base, a.branch or "HEAD")
         rtl, label = resolve(a)
-        changed = [c for c in ci.git("diff", "--name-only", fork, rtl, "--", "rtl/core").splitlines()
+        changed = [c[len("rtl/core/"):] for c in ci.git("diff", "--name-only", fork, rtl, "--", "rtl/core").splitlines()
                    if c.startswith(GATE_PATHS)]
+        changed += [c for c in ci.git("diff", "--name-only", fork, rtl, "--", "sim", "tests/unit", "sw/dts").splitlines()
+                    if gate_harness(c)]
         if not changed:
-            log(f"gate: {label} changes nothing in the core's fetch, decode, rename, LSU, MMU or CSR against "
-                f"{fork[:10]} (its merge base with {base}): skipped")
+            log(f"gate: {label} changes nothing in the core's fetch, decode, rename, LSU, MMU or CSR, nor in how the "
+                f"boot is built and checked, against {fork[:10]} (its merge base with {base}): skipped")
             return 0
         log(f"gate: {len(changed)} file(s) against {fork[:10]} (the merge base with {base}): "
-            f"{', '.join(c[9:] for c in changed[:6])}{' ...' if len(changed) > 6 else ''}")
+            f"{', '.join(changed[:6])}{' ...' if len(changed) > 6 else ''}")
         a.shape, a.timing = "st", " ".join(GATE_TIMINGS)
     a.mcyc = a.mcyc or GATE_MCYC
     return checks(a, tool)
