@@ -1404,6 +1404,19 @@ tools/           scripts, CI
 | Vivado can drop a RAM read port silently (SmolRV64) | Scripted primitive checks (§8.3) |
 | ZynqMP JTAG tunnelling traps | A53 bit-banged debug TAP (§7.4) |
 
+**The sources named above,** as the literature review gives them (`research_notes/`, `reports/`; [provenance.md](provenance.md) §3.2):
+- **RSD:** Mashimo et al., "An Open Source FPGA-Optimized Out-of-Order RISC-V Soft Processor", ICFPT 2019, pp. 63–71 (https://www.rsg.ci.i.u-tokyo.ac.jp/members/shioya/pdfs/Mashimo-FPT%2719.pdf).
+- **Wong:** Henry Wong, FCCM 2016 (https://www.eecg.utoronto.ca/~jayar/pubs/wong/wongfccm16.pdf) and TRETS 2016 (https://www.eecg.utoronto.ca/~jayar/pubs/wong/wongtrets16.pdf); his PhD thesis, University of Toronto, 2017 (https://www.eecg.utoronto.ca/~jayar/pubs/theses/HWong/HenryWong.pdf).
+- **Seznec 2002:** Seznec, Toullec and Rochecouste, MICRO 2002. The review names it but could not retrieve it.
+- **SmolRV64:** an independent design of 2026, described in its project's README (https://github.com/tommythorn/smolrv64); not a paper.
+- **SonicBOOM:** Zhao et al., CARRV 2020 (https://carrv.github.io/2020/papers/CARRV2020_paper_15_Zhao.pdf). It is also the source of Rocket's blocking evictions.
+- **Celio:** Celio et al., arXiv 1607.02318 (2016).
+- **OPA:** ORConf 2015 (https://github.com/terpstra/opa), as the RSD paper measures it.
+- **Store sets:** Chrysos and Emer, ISCA 1998 (https://acg.cis.upenn.edu/milom/cis501-Fall10/papers/store-sets.pdf).
+- **CVA6S+:** the papers the review names as Tedeschi (arXiv 2505.03762) and Fu (arXiv 2505.24363, CF 2025).
+- **Coherence-bug latency:** NaxRiscv's 37C3 slides (2023), on SpinalDoc.
+- **The A73:** the Chips and Cheese articles in Appendix B.
+
 ---
 
 ## Appendix B. Design discussion record (2026-10-12)

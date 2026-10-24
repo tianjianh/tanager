@@ -15,7 +15,9 @@ Much of the core still holds state in flip-flops and builds lookups, searches an
 1. **Zero IPC means cycle-identical.** A change must produce the same commit trace, cycle by cycle, as main on all riscv-tests, the benchmarks and a random set. This is the check the core track already uses. A change that moves any cycle goes on the reserve list (D18, DR-122), not into the RTL. **Only the user adopts a reserve lever, one at a time (DR-135):** list each with its LUT saving and its measured cycle cost per suite (`make cycle-identical` reports it).
 2. **Timing holds.** The unit closes 200 MHz out of context, and the next full-chip run confirms it.
 3. **Measured, not estimated.** Every change reports LUT, LUTRAM, flip-flop, BRAM and DSP counts before and after, from the budget flow (DR-113's settings), per unit.
-4. **Clean room (DR-001).** Ideas may come from published papers and talks; RSD's FPGA papers are a good source. Never read another core's RTL. Record the source of each idea in the unit's spec.
+4. **Clean room (DR-001).** Ideas may come from published papers and talks. Never read another core's RTL. Record the source of each idea in the unit's spec.
+   - RSD's FPGA papers are a good source: Mashimo et al., "An Open Source FPGA-Optimized Out-of-Order RISC-V Soft Processor", ICFPT 2019, pp. 63–71 (https://www.rsg.ci.i.u-tokyo.ac.jp/members/shioya/pdfs/Mashimo-FPT%2719.pdf).
+   - For T2's live-value table and XOR banking: LaForest and Steffan, FPGA 2010 (https://www.eecg.utoronto.ca/~steffan/papers/laforest_fpga10.pdf); LaForest et al., FPGA 2012 (https://people.csail.mit.edu/ml/pubs/fpga12_xor.pdf); and TRETS 2014 (https://people.csail.mit.edu/ml/pubs/trets_multiport.pdf), as the literature review cites them.
 5. **Pros and cons are written down** for every technique adopted or rejected, in the unit's spec and as a register entry (DR-124).
 
 ## 1. Where we stand

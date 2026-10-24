@@ -630,7 +630,11 @@ Spike lockstep on every test (verification.md): riscv-tests, the directed interr
 
 ## 15. Provenance
 - Out-of-order structure (rename with a free list and committed map, ROB, commit-time recovery): Smith and Pleszkun (1988), Hennessy and Patterson, *Computer Architecture*, 6th ed., ch. 3.
-- Writer-sharded register banks: Seznec et al., MICRO 2002. Dependency-vector wakeup and age-matrix select: Wong's FPGA scheduler papers (cited in the plan, Appendix A). Long-latency tags and early retirement: plan §4.5 (A73 behaviour reported by Chips and Cheese).
+- **Writer-sharded register banks:** Seznec, Toullec and Rochecouste, MICRO 2002, as the literature review names it.
+- **Dependency-vector wakeup and age-matrix select:** Wong's FPGA scheduler papers. Henry Wong, FCCM 2016 (https://www.eecg.utoronto.ca/~jayar/pubs/wong/wongfccm16.pdf) and TRETS 2016 (https://www.eecg.utoronto.ca/~jayar/pubs/wong/wongtrets16.pdf); his PhD thesis, University of Toronto, 2017 (https://www.eecg.utoronto.ca/~jayar/pubs/theses/HWong/HenryWong.pdf). Also the original matrix scheduler, Goshima et al., MICRO 2001, through Wong's summary.
+- **Long-latency tags and early retirement:** plan §4.5 (A73 behaviour reported by Chips and Cheese).
+- **XOR-banked rename tables (§5.2):** LaForest et al., FPGA 2012 (https://people.csail.mit.edu/ml/pubs/fpga12_xor.pdf).
+- **TAGE-lite:** the TAGE family. The literature review cites Seznec's limited-budget TAGE-SC-L entry to CBP-2016 (https://jilp.org/cbp2016/paper/AndreSeznecLimited.pdf). The original TAGE paper is not in the review, and `reports/m6-tage-design.md`, named in §3, is not in the repository.
 - Micro-BTB, pre-decode and compaction: spike S5 (our RTL); block-based fetch: Reinman et al., ISCA 1999.
 - RISC-V semantics: the unprivileged ISA (20240411) and privileged spec (1.13); CSR WARL behaviour as Spike implements it (Spike used as a reference model, as allowed by plan §2.3).
 - No other core's RTL was read.

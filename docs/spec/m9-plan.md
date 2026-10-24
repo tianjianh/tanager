@@ -396,6 +396,9 @@ A recommendation follows: what M9 builds and in what order, what waits for v2, a
   misaligned accesses): https://github.com/riscv/riscv-isa-manual
 - **The RISC-V profiles** (RVA22, RVA23): https://github.com/riscv/riscv-profiles/releases
 - **The ratified extensions list:** https://riscv.atlassian.net/wiki/spaces/HOME/pages/16154732/Ratified+Extensions
+- **Store sets (§5):** Chrysos and Emer, ISCA 1998 (https://acg.cis.upenn.edu/milom/cis501-Fall10/papers/store-sets.pdf), as the literature review cites them.
+  - The load-wait table has no paper in the review.
+  - The indirect-target table (§6) follows tgsim's design (area_recovery.md §7.11); the review names XiangShan's ITTAGE but cites no paper for it.
 - **The CMO specification:** https://github.com/riscvarchive/riscv-CMOs
 - **The SBI specification** (the PMU extension): https://github.com/riscv-non-isa/riscv-sbi-doc
 - **The RISC-V Debug specification 1.0:** https://github.com/riscv/riscv-debug-spec/releases/tag/1.0
