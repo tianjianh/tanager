@@ -9,6 +9,8 @@
 //   Memory: tb_axi_mem with random latency and out-of-order bursts.
 // Checks every GrantData and AccessAckData against the reference, permission rules, inclusive
 // completion, and a final read-back of every line. Plusargs: +seed=N +ops=N
+// WB_PACE: the write-back batching (tg_l2_bank, with 8 write-back buffers), the batch and the wait from +wb_batch=N
+// +wb_hold=N (4 and 32), or with +wb_rand drawn anew (batch 0-8, wait 0-400) every 2,000 cycles.
 module tb_l2;
   import tg_pkg::*, tg_tl_pkg::*, tg_uncore_pkg::*, tb_axi_mem_pkg::*;
 
@@ -21,6 +23,7 @@ module tb_l2;
   parameter int NTAGS  = 12;         // lines per set in the pool (> 8 ways forces evictions)
   parameter int CAP    = 6;          // lines an agent caches at most
   parameter int ACQ_N  = 1;          // Acquires an agent keeps outstanding at most (DR-149: 4)
+  parameter bit WB_PACE = 1'b0;      // write-back batching (tg_l2_bank; above)
 
   localparam int SET_W = $clog2(SETS);
   localparam int NLINES = NSETS_USED * NTAGS;
@@ -45,8 +48,25 @@ module tb_l2;
   always @(posedge clk) if (ev_err)
     assert (ev_err_info[2:0] == 3'd4 || ev_err_info[2:0] == 3'd5) else $error("L2 error described as kind %0d", ev_err_info[2:0]);
 
-  tg_l2_bank #(.BANK(0), .N_AGENTS(NA), .SETS(SETS), .N_MSHR(N_MSHR), .DATA_PRIM("block"), .DATA_LAT(DATA_LAT),
-               .DIR_S3(DIR_S3)) dut (
+  logic [3:0] wb_batch;
+  logic [11:0] wb_hold;
+  initial begin
+    int v;
+    wb_batch = 4'd4;
+    wb_hold  = 12'd32;
+    if ($value$plusargs("wb_batch=%d", v)) wb_batch = 4'(v);
+    if ($value$plusargs("wb_hold=%d", v))  wb_hold  = 12'(v);
+    if (WB_PACE) $display("tb_l2: write-back batching, batch %0d, wait %0d%s", wb_batch, wb_hold,
+                          $test$plusargs("wb_rand") ? ", both drawn anew every 2000 cycles" : "");
+    if ($test$plusargs("wb_rand"))
+      forever begin
+        repeat (2000) @(posedge clk);
+        wb_batch = 4'($urandom_range(8));
+        wb_hold  = 12'($urandom_range(400));
+      end
+  end
+  tg_l2_bank #(.BANK(0), .N_AGENTS(NA), .SETS(SETS), .N_MSHR(N_MSHR), .N_WB(WB_PACE ? 8 : 4), .DATA_PRIM("block"),
+               .DATA_LAT(DATA_LAT), .DIR_S3(DIR_S3), .WB_PACE(WB_PACE)) dut (
     .clk, .rst,
     .a_i (a), .a_valid_i (a_valid), .a_ready_o (a_ready),
     .b_o (b), .b_valid_o (b_valid), .b_ready_i (b_ready),
@@ -58,6 +78,7 @@ module tb_l2;
     .aw_o (aw), .aw_valid_o (aw_valid), .aw_ready_i (aw_ready),
     .w_o (w), .w_valid_o (w_valid), .w_ready_i (w_ready),
     .bresp_i (bresp), .bresp_valid_i (bresp_valid), .bresp_ready_o (bresp_ready),
+    .wb_batch_i (wb_batch), .wb_hold_i (wb_hold),
     .init_done_o (init_done), .ev_hit_o (ev_hit), .ev_miss_o (ev_miss), .ev_wb_o (ev_wb),
     .ev_probe_o (ev_probe), .ev_err_o (ev_err), .ev_err_info_o (ev_err_info), .ev_err_line_o (ev_err_line)
   );
