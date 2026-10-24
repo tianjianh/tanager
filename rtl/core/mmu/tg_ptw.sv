@@ -57,6 +57,8 @@ module tg_ptw
   input  logic [63:0]       pt_data,
   input  logic              mshr_idle,
   // Result, for one cycle
+  output logic              busy,         // M9's counters (TG_HPM): a walk is running (W_CHK to W_DONE) ...
+  output tid_t              busy_tid,     // ... for this thread
   output logic              done,
   output logic [2:0]        done_who,     // one-hot requester
   output tid_t              done_tid,     // the walk's thread (the fill's)
@@ -305,6 +307,8 @@ module tg_ptw
 `endif
 
   assign done       = st_q == W_DONE && !wk;
+  assign busy       = st_q != W_IDLE;
+  assign busy_tid   = wt;
   assign done_who   = who_q;
   assign done_tid   = wt;
   assign chk_tid    = wt;
