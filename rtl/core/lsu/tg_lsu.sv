@@ -1921,6 +1921,13 @@ module tg_lsu
   logic             pw_done, pw_ok;
   logic [3:0]       pw_cause;
   assign pw_req[0]  = hd_need && hd_walk && !sta_ag_valid && !hd_wtok && !hdf_q[t_hd] && sq_drn[t_hd];
+`ifndef SYNTHESIS
+  // (#12, core-2's check) A deciding walk never asks while the DTLB already translates the head: the registered miss
+  // and the fill guard keep the request off once a fill has made the head's page hit
+  always_ff @(posedge clk)
+    if (md_rs && !rst && ROB_HEAD_TLB_LATE && LSU_HDWALK_REG)
+      assert (!(pw_req[0] && hd_tok)) else $error("tg_lsu: a deciding walk asks while the DTLB translates the head (#12)");
+`endif
   assign pw_va[0]   = hd_va;
   assign pw_at[0]   = hd_at;
   assign pw_mode[0] = priv_d[t_hd];
