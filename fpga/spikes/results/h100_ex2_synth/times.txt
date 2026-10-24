@@ -1,0 +1,7 @@
+generate_target: Time (s): cpu = 00:00:09 ; elapsed = 00:00:10 . Memory (MB): peak = 1846.777 ; gain = 41.000 ; free physical = 29360 ; free virtual = 56262
+get_clocks: Time (s): cpu = 00:00:13 ; elapsed = 00:00:10 . Memory (MB): peak = 8569.770 ; gain = 0.000 ; free physical = 24018 ; free virtual = 51534
+synth_design: Time (s): cpu = 00:14:04 ; elapsed = 00:15:03 . Memory (MB): peak = 8569.770 ; gain = 6722.992 ; free physical = 24226 ; free virtual = 51743
+get_clocks: Time (s): cpu = 00:00:08 ; elapsed = 00:00:05 . Memory (MB): peak = 8569.770 ; gain = 0.000 ; free physical = 24646 ; free virtual = 51981
+read_xdc: Time (s): cpu = 00:00:08 ; elapsed = 00:00:06 . Memory (MB): peak = 8569.770 ; gain = 0.000 ; free physical = 24651 ; free virtual = 51986
+report_exceptions: Time (s): cpu = 00:00:25 ; elapsed = 00:00:19 . Memory (MB): peak = 8925.355 ; gain = 355.586 ; free physical = 27113 ; free virtual = 54507
+write_checkpoint: Time (s): cpu = 00:00:13 ; elapsed = 00:00:11 . Memory (MB): peak = 8957.371 ; gain = 32.016 ; free physical = 26771 ; free virtual = 54278

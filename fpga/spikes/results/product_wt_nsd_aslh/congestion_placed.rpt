@@ -1,0 +1,79 @@
+######## report_design_analysis -congestion -return_string
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+---------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
+| Date         : Thu Oct 22 08:42:34 2026
+| Host         : w-arrowlake running 64-bit Ubuntu 24.04.5 LTS
+| Command      : report_design_analysis -congestion -return_string
+| Design       : kv260_top
+| Device       : xck26
+| Design State : Fully Placed
+---------------------------------------------------------------------------------------------------------------------------------------------
+
+Report Design Analysis
+
+Table of Contents
+-----------------
+1. Placer Final Level Congestion Reporting
+
+1. Placer Final Level Congestion Reporting
+------------------------------------------
+
++-----------+--------+-------+-------------------------------------+---------------+----------------+-----+--------+------+------+------+------+-----+-------+-----+-----------------------------------------------------------------------------------------------------------------------------+
+| Direction |  Type  | Level |                Window               | Combined LUTs | Avg LUT Inputs | LUT | LUTRAM | Flop | MUXF | RAMB | URAM | DSP | CARRY | SRL |                                                          Cell Names                                                         |
++-----------+--------+-------+-------------------------------------+---------------+----------------+-----+--------+------+------+------+------+-----+-------+-----+-----------------------------------------------------------------------------------------------------------------------------+
+| South     | Global |     5 | (CLEM_X1Y94,CMT_L_X16Y120)          |            4% |          4.814 | 87% | 17%    |  29% |   2% | NA   | NA   | 5%  |   20% |  0% | u_soc/g_core[1].g_tgc.u_core/u_lsu(52%),u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dc(18%),u_soc/u_uncore(18%)                    |
+| East      | Global |     5 | (CLEM_X3Y101,CLEM_X18Y132)          |            5% |          4.804 | 88% | 16%    |  28% |   1% | NA   | NA   | 11% |   20% |  0% | u_soc/g_core[1].g_tgc.u_core/u_lsu(39%),u_soc/u_uncore(30%),u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dc(19%)                    |
+| West      | Global |     5 | (CLEL_R_X4Y97,CLEL_R_X19Y128)       |            5% |          4.765 | 87% | 21%    |  27% |   1% | 100% | NA   | 13% |   20% |  0% | u_soc/g_core[1].g_tgc.u_core/u_lsu(41%),u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dc(24%),u_soc/u_uncore(23%)                    |
+| South     | Long   |     5 | (CLEL_R_X0Y94,XIPHY_BYTE_L_X16Y120) |            4% |          4.800 | 87% | 17%    |  29% |   2% | NA   | NA   | 5%  |   21% |  0% | u_soc/g_core[1].g_tgc.u_core/u_lsu(51%),u_soc/u_uncore(18%),u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dc(18%)                    |
+| North     | Short  |     5 | (CLEM_X9Y108,CLEL_R_X23Y139)        |            5% |          5.074 | 92% | 9%     |  28% |   2% | 83%  | NA   | 11% |   18% |  0% | u_soc/u_uncore(32%),u_soc/g_core[0].g_tgc.u_core/u_csr(19%),u_soc/g_core[0].g_tgc.u_core/u_lsu(17%)                         |
+| South     | Short  |     5 | (CLEL_R_X2Y94,DSP_X17Y125)          |            4% |          4.848 | 88% | 19%    |  28% |   2% | NA   | NA   | 9%  |   21% |  0% | u_soc/g_core[1].g_tgc.u_core/u_lsu(51%),u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dc(22%),u_soc/u_uncore(17%)                    |
+| East      | Short  |     5 | (CLEM_X3Y99,CLEM_X18Y130)           |            5% |          4.784 | 87% | 17%    |  28% |   1% | NA   | NA   | 9%  |   20% |  0% | u_soc/g_core[1].g_tgc.u_core/u_lsu(42%),u_soc/u_uncore(27%),u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dc(20%)                    |
+| West      | Short  |     5 | (CLEM_X3Y83,CLEM_X18Y114)           |            4% |          4.511 | 81% | 30%    |  26% |   1% | NA   | NA   | 0%  |   24% |  0% | u_soc/g_core[1].g_tgc.u_core/u_lsu(58%),u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dc(25%),u_soc/g_core[1].g_tgc.u_core/u_csr(7%) |
++-----------+--------+-------+-------------------------------------+---------------+----------------+-----+--------+------+------+------+------+-----+-------+-----+-----------------------------------------------------------------------------------------------------------------------------+
+
+
+
+######## report_design_analysis -complexity -return_string
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+---------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
+| Date         : Thu Oct 22 08:42:43 2026
+| Host         : w-arrowlake running 64-bit Ubuntu 24.04.5 LTS
+| Command      : report_design_analysis -complexity -return_string
+| Design       : kv260_top
+| Device       : xck26
+| Design State : Fully Placed
+---------------------------------------------------------------------------------------------------------------------------------------------
+
+Report Design Analysis
+
+Table of Contents
+-----------------
+1. Complexity Characteristics (Cells)
+
+1. Complexity Characteristics (Cells)
+-------------------------------------
+
++--------+------+----------------+-----------------+-----------+------+------+------+------+------+------+------------+-----+------+------+------+-------------------+
+| Module | Rent | Average Fanout | Total Instances | Registers | LUT1 | LUT2 | LUT3 | LUT4 | LUT5 | LUT6 | Memory LUT | DSP | RAMB | MUXF | URAM | Hierarchical Name |
++--------+------+----------------+-----------------+-----------+------+------+------+------+------+------+------------+-----+------+------+------+-------------------+
+* No complexity report generated as cells satisfying given conditions are not present in the design.
+
+
+
+######## report_route_status -return_string
+Design Route Status
+                                               :      # nets :
+   ------------------------------------------- : ----------- :
+   # of logical nets.......................... :      345805 :
+       # of nets not needing routing.......... :      152071 :
+           # of internally routed nets........ :      130524 :
+           # of nets with no loads............ :       21547 :
+       # of routable nets..................... :      193734 :
+           # of nets with explicit gaps....... :           5 :
+           # of unrouted nets................. :      193729 :
+       # of nets with routing errors.......... :           0 :
+   ------------------------------------------- : ----------- :
+
+

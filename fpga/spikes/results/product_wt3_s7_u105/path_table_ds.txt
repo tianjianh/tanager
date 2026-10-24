@@ -1,0 +1,35 @@
+lvl loc            type    net in   cell      at   fo  input pin -> output net
+  1 SLICE_X14Y56   LUT4     0.319  0.083   5.790   11  c0:u_rn/i___788_i_2__0/I0 -> c0:u_rn/g_fl[2].u_fl/rwo_q[1]_i_26__0_0
+  2 SLICE_X14Y55   LUT5     0.235  0.152   6.177    1  c0:u_rn/g_fl[2].u_fl/tg_freelist__pa1_LUT5_12/I4 -> c0:u_rn/g_fl[2].u_fl/tg_freelist__pa1_net_44
+  3 SLICE_X15Y55   LUT6     0.205  0.187   6.569    4  c0:u_rn/g_fl[2].u_fl/tg_freelist__pa1_LUT6_33/I5 -> c0:u_rn/g_fl[2].u_fl/tg_freelist__pa1_net_114
+  4 SLICE_X15Y55   LUT3     0.071  0.219   6.859    2  c0:u_rn/g_fl[2].u_fl/ds_ren_q[1][sq][0]_i_6__0/I0 -> c0:u_rn/g_fl[1].u_fl/ds_ren_q[1][sq][0]_i_3__0
+  5 SLICE_X16Y57   LUT5     0.195  0.081   7.135    1  c0:u_rn/g_fl[1].u_fl/tg_freelist__pa_LUT5_2/I0 -> c0:u_rn/g_fl[0].u_fl/ds_ren_q[0][q][0]_i_2__0_3
+  6 SLICE_X15Y57   LUT6     0.091  0.136   7.362    5  c0:u_rn/g_fl[0].u_fl/tg_freelist_90_LUT6/I2 -> c0:u_rn/g_fl[0].u_fl/tg_freelist_90_net
+  7 SLICE_X15Y58   LUT5     0.203  0.058   7.623    4  c0:u_rn/g_fl[0].u_fl/tg_freelist_90_LUT5/I4 -> c0:u_rn/g_fl[0].u_fl/tg_freelist_90_net_1
+  8 SLICE_X15Y58   LUT3     0.103  0.136   7.862    9  c0:u_rn/g_fl[0].u_fl/tg_freelist_90_LUT3/I2 -> c0:u_rn/g_fl[0].u_fl/tg_freelist_90_net_29
+  9 SLICE_X15Y59   LUT3     0.105  0.091   8.058    4  c0:u_rn/g_fl[0].u_fl/head_q[0][1]_i_4__4/I2 -> c0:u_rn/g_fl[0].u_fl/head_q[0][1]_i_4__4_n_0
+ 10 SLICE_X15Y58   LUT6     0.225  0.224   8.507    1  c0:u_rn/g_fl[0].u_fl/tg_freelist_90_LUT6_2/I5 -> c0:u_rn/g_fl[0].u_fl/tg_freelist_90_net_2
+ 11 SLICE_X15Y58   LUT5     0.054  0.151   8.712    6  c0:u_rn/g_fl[0].u_fl/tg_freelist_90_LUT5_1/I4 -> c0:u_rn/g_fl[0].u_fl/tg_freelist_90_net_3
+ 12 SLICE_X15Y60   LUT2     0.124  0.186   9.022    5  c0:u_rn/g_fl[0].u_fl/g_ms[1].u_map_i_9__0/I1 -> c0:u_rn/g_fl[0].u_fl/g_ms[1].u_map_i_9__0_n_0
+ 13 SLICE_X14Y61   LUT5     0.175  0.152   9.349    2  c0:u_rn/g_fl[0].u_fl/head_q[0][1]_i_5__3/I2 -> c0:u_rn/g_fl[0].u_fl/head_q[0][1]_i_5__3_n_0
+ 14 SLICE_X14Y62   LUT3     0.143  0.186   9.678   12  c0:u_rn/g_fl[0].u_fl/head_q[0][1]_i_2__5/I1 -> c0:u_rn/g_fl[1].u_fl/p_9_in[0]
+ 15 SLICE_X14Y62   LUT4     0.062  0.150   9.890    1  c0:u_rn/g_fl[1].u_fl/g_one.w_q[15]_i_42__0/I1 -> c0:u_rn/g_fl[0].u_fl/g_one.w_q[15]_i_22__0_2
+ 16 SLICE_X14Y61   LUT5     0.096  0.057  10.043    1  c0:u_rn/g_fl[0].u_fl/tg_freelist_90_LUT5_21/I1 -> c0:u_rn/g_fl[0].u_fl/tg_freelist_90_net_44
+ 17 SLICE_X15Y61   LUT6     0.105  0.153  10.301    1  c0:u_rn/g_fl[0].u_fl/tg_freelist_90_LUT6_33/I4 -> c0:u_rn/g_fl[0].u_fl/tg_freelist_90_net_46
+ 18 SLICE_X16Y61   LUT3     0.166  0.058  10.525    1  c0:u_rn/g_fl[0].u_fl/tg_freelist_90_LUT3_11/I2 -> c0:u_rn/g_fl[0].u_fl/tg_freelist_90_net_47
+ 19 SLICE_X16Y60   LUT6     0.095  0.058  10.678    1  c0:u_rn/g_fl[0].u_fl/tg_freelist_90_LUT6_34/I5 -> c0:u_rn/g_fl[0].u_fl/tg_freelist_90_net_49
+ 20 SLICE_X15Y60   LUT6     0.225  0.188  11.091    1  c0:u_rn/g_fl[0].u_fl/tg_freelist_90_LUT6_35/I5 -> c0:u_rn/g_fl[0].u_fl/tg_freelist_90_net_51
+ 21 SLICE_X15Y59   LUT5     0.055  0.136  11.282    1  c0:u_rn/g_fl[0].u_fl/tg_freelist_90_LUT5_22/I4 -> c0:u_rn/g_fl[0].u_fl/tg_freelist_90_net_59
+ 22 SLICE_X15Y59   LUT6     0.070  0.224  11.576    1  c0:u_rn/g_fl[0].u_fl/tg_freelist_90_LUT6_40/I4 -> c0:u_rn/g_fl[0].u_fl/tg_freelist_90_net_62
+ 23 SLICE_X14Y59   LUT5     0.101  0.057  11.734    1  c0:u_rn/g_fl[0].u_fl/tg_freelist_90_LUT5_23/I4 -> c0:u_rn/g_fl[0].u_fl/tg_freelist_90_net_64
+ 24 SLICE_X14Y60   LUT6     0.147  0.137  12.018    1  c0:u_rn/g_fl[0].u_fl/tg_freelist_90_LUT6_43/I3 -> c0:u_rn/g_ffl.g_b[0].u_fl/g_one.w_q[15]_i_2__0_1
+ 25 SLICE_X13Y60   LUT6     0.109  0.060  12.187    1  c0:u_rn/g_ffl.g_b[0].u_fl/tg_freelist_88_LUT6_1/I1 -> c0:u_rn/g_ffl.g_b[0].u_fl/tg_freelist_88_net_4
+ 26 SLICE_X13Y60   LUT6     0.051  0.057  12.295  201  c0:u_rn/g_ffl.g_b[0].u_fl/tg_freelist_88_LUT6_3/I4 -> c0:u_rn/g_ffl.g_b[0].u_fl/tg_freelist_88_net_6
+ 27 SLICE_X13Y59   LUT2     0.142  0.093  12.530    8  c0:u_rn/g_ffl.g_b[0].u_fl/ltail_q[1][5]_i_4__0/I1 -> c0:u_rn/g_ffl.g_b[0].u_fl/ltail_q[1][5]_i_4__0_n_0
+ 28 SLICE_X15Y57   LUT6     0.237  0.137  12.904    6  c0:u_rn/g_ffl.g_b[0].u_fl/tg_freelist_88_LUT6_8/I5 -> c0:u_rn/g_ffl.g_b[0].u_fl/tg_freelist_88_net_10
+ 29 SLICE_X17Y56   LUT5     0.182  0.186  13.271   25  c0:u_rn/g_ffl.g_b[0].u_fl/tg_freelist_88_LUT5_5/I4 -> c0:u_de/de_take
+ 30 SLICE_X18Y55   LUT6     0.231  0.228  13.730  112  c0:u_de/tg_decode_stage_LUT6_2/I1 -> c0:u_de/tg_decode_stage_net_187
+ 31 SLICE_X18Y53   LUT6     0.132  0.186  14.048  113  c0:u_de/tg_decode_stage_LUT6_194/I5 -> c0:u_de/tg_decode_stage_net_213
+end: c0:u_de/dred_pc_reg[31]/CE (net in 1.341)
+Data Path Delay:        10.114ns  (logic 4.321ns (42.724%)  route 5.793ns (57.276%))
+Clock Path Skew:        -0.299ns

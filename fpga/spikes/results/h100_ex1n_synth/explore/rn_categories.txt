@@ -1,0 +1,23 @@
+== u_rn: 5399 LUT cells, 3284 FFs, 1376 LUTRAM sites
+category                                        LUTs  share    FFs LUTRAM   largest families (LUT cells)
+the two rename registers' 2:1 select (DS's w     791  14.7%    789      0   ds_uop_q[][d][imm][] 128, ds_uop_q[][pc][] 128, ds_uop_q[][pred_npc][] 128, ds_uop_q[][d][br_target][] 126, ds_uop_q[][insn][] 64, ds_uop_q[][d][jalr_off][] 24, ds_uop_q[][d][alu][grp][] 14, ds_uop_q[][d][amo_op][] 10, ds_uop_q[][d][fop][] 10, ds_uop_q[][d][rd][] 10, ds_uop_q[][d][rs1][] 10, ds_uop_q[][ftq][] 10, ds_uop_q[][d][cls][] 8, ds_uop_q[][d][exc_cause][] 8, ds_uop_q[][d][alu][un_fn][] 6, ds_uop_q[][d][rm][] 6, ds_uop_q[][d][sys][] 6, ds_uop_q[][d][alu][bit_fn][] 4, ds_uop_q[][d][alu][lg_fn][] 4, ds_uop_q[][d][alu][zba_sh][] 4, ds_uop_q[][d][br_kind][] 4, ds_uop_q[][d][div_op][] 4, ds_uop_q[][d][ifmt][] 4, ds_uop_q[][d][mem_size][] 4, ds_uop_q[][d][mul_op][] 4, ds_uop_q[][d][alu][cmp_max] 2, ds_uop_q[][d][alu][cmp_unsigned] 2, ds_uop_q[][d][alu][lg_invb] 2, ds_uop_q[][d][alu][sh_arith] 2, ds_uop_q[][d][alu][sh_left] 2, ds_uop_q[][d][alu][sh_rot] 2, ds_uop_q[][d][alu][sub] 2, ds_uop_q[][d][alu][uw] 2, ds_uop_q[][d][alu][word] 2, ds_uop_q[][d][amo] 2, ds_uop_q[][d][b_imm] 2, ds_uop_q[][d][bcnt] 2, ds_uop_q[][d][csr_wr] 2, ds_uop_q[][d][exc] 2, ds_uop_q[][d][exc_hi] 2
+wakeup tags and LLT allocation                   536   9.9%     80      0   wid_alloc[] 255, llt_busy_q[] 166, llt_tid_q[] 65, tag_busy_q[] 32, tag_tid_q[] 18
+integer map (tg_rmap)                            442   8.2%     71    384   u_imap/ 420, u_imap 22
+FP map (tg_rmap)                                 441   8.2%     71    384   g_fmap.u_fmap/ 427, g_fmap.u_fmap 14
+in-group bypass and source naming                402   7.4%      0      0   iq_dep[][] 222, iq_mdep[][] 180
+rename's results into DS                         369   6.8%    208      0   ds_ren_q[][dst][] 53, ds_ren_q[][rob][] 41, ds_ren_q[][wid][] 35, ds_ren_q[][sq][] 33, ds_ren_q[][lq][] 28, ds_ren_q[][llt][] 23, ds_ren_q[][old][] 21, ds_ren_q[][src2][] 21, ds_ren_q[][src1][] 20, ds_ren_q[][q][] 15, ds_ren_q[][w1][] 14, ds_ren_q[][w2][] 14, ds_ren_q[][src3][] 13, ds_fire 7, ds_ren_q[][w3][] 6, ds_valid_q[] 6, ds_ren_q[][p1] 4, ds_ren_q[][p2] 3, ds_ren_q[][c1] 2, ds_ren_q[][c2] 2, ds_ren_q[][has_q] 2, ds_ren_q[][p3] 2, ds_src2_rdy[] 2, ds_ren_q[][l1] 1, ds_ren_q[][l2] 1
+the two rename registers' choice, decode's t     324   6.0%     11      0   acc_o[] 249, de_take 64, sel_q 11
+integer free list, bank 2                        284   5.3%     69     32   g_fl[2].u_fl/ 284
+integer free list, bank 1                        282   5.2%     69     32   g_fl[1].u_fl/ 282
+ready tables                                     281   5.2%     14    240   u_irdy/ 116, g_frdy.u_frdy/ 84, u_irdy 49, g_frdy.u_frdy 32
+FP free list, bank 0                             268   5.0%     69     32   g_ffl.g_b[0].u_fl/ 268
+FP free list, bank 1                             268   5.0%     69     32   g_ffl.g_b[1].u_fl/ 268
+integer free list, bank 0                        267   4.9%     69     32   g_fl[0].u_fl/ 267
+per-thread tails, counters and blocks            194   3.6%     75      0   rtail_q[][] 28, fdiv_pre_t_q[][] 23, fpi_pre_t_q[][] 22, stail_q[][] 21, ltail_q[][] 19, div_cnt_q[] 18, div_t_q[][] 18, fdiv_pre_q[] 17, fpi_pre_q[] 17, block_q[] 5, fdiv_post_q[] 3, fpi_post_q[] 3
+dispatch: MX row tables                          102   1.9%      0    208   g_rowtab[].u_rdst 46, g_rowtab[0].u_row/ 22, g_rowtab[1].u_row/ 22, g_rowtab[].u_row 12
+integer free lists' inputs (pops, pushes, tr      61   1.1%      0      0   g_fl[].u_fl 61
+FP free lists' inputs (pops, pushes, transfe      40   0.7%      0      0   g_ffl.g_b[].u_fl 40
+free lists: transfers' wants                      25   0.5%      5      0   fl_want_q[] 19, ffl_want_q[] 6
+port and bank steering (the IQs' write enabl      12   0.2%      0      0   iq_we[][] 12
+the two rename registers (their data)             10   0.2%   1614      0   rn_v_q[][] 8, rn_u_q[][][d][serial] 2
+free lists' inputs (pops, pushes, transfers)       0   0.0%      1      0   

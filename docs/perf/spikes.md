@@ -1406,6 +1406,11 @@ Results: `fpga/spikes/results/h100_m7b0/`, `h100_m7b1/` (with `urf_chip.txt`), e
 
 ### 8.18 M7 step 5's product chip with real hart 1, the URF off and on (2026-10-21)
 
+**Outcome (10-23): the M8 release image of record is `rc3_u095r`.**
+- It is coord/rc3, which is main's RTL with M7 complete, at 100 MHz: WNS +0.748 ns, TNS 0, WHS +0.006.
+- The flow is the product form with `TG_ROUTE_DIRECTIVE=AlternateCLBRouting` at `TG_PR_UNC=0.95`.
+- `tanager.bit.bin` sha256 2a47608a…; see "The release pair on coord/rc3" below.
+
 **Asked** (the coordinator, 10-20 and 10-21):
 - **What to build:** M7 step 5c's full chip with hart 1 running. It is the board's product configuration (DR-177: M8's exit is defined on it), built by d4r2's recipe plus `TG_HART1=1` and the release form (`LAT_INJ=0`).
 - **The two chips:**
@@ -1589,21 +1594,902 @@ Results: `fpga/spikes/results/h100_hp1/` (with `near_families_hp1.txt`, `urf_chi
   - So `report_utilization -pblocks` counts a pblock's own cells wherever they sit: bank 0's own cells fill 968 slices against its 800.
   - hp1f's result is with soft pblocks. Hard ones are untested: bank 1's pblock, at 101% before `opt_design`, might not place hard.
 
+**hp1fs: a second sample of hp1f** (2026-10-21). The same netlist and pblocks, with 1.05 ns of over-constraint instead of 1.0, which is the perturbation the placer responds to (Vivado has no seed).
+
+| | hp1f (1.0 ns) | hp1fs (1.05 ns) |
+|---|---|---|
+| Placed LUTs | 113,893 | 113,789 |
+| WNS / TNS on the core clock (ns) | −0.096 / −1.131 | **−0.426 / −72.318** |
+| Failing endpoints | 31 (core 0 14, core 1 17) | 552 (core 0 343, core 1 205, the uncore 4) |
+| `clk2x`: into / within / back (ns) | +1.08 / +1.87 / +1.02 | +0.73 / +1.71 / +1.02 |
+| WHS (ns) | +0.006 | +0.001 |
+| Families within 1 ns | 369 | 421 |
+| Placement / routing time | 15 min / 1.45 h | 10 min / 1.41 h |
+
+- **The noise is about 0.3 ns.** hp1f's −0.096 was the good end. At 97.2% placed with the floorplan, two placements land 0.1–0.4 ns short of 100 MHz.
+- **The same units hold the near-critical families.** Below 1 ns:
+  - rename has 155 (hp1f 119), the LSU 147 (160), fetch 70 (52) and the RAS 26 (14);
+  - the worst are fetch's TAGE carry, the I$ valid-bit RAM and the RAS pop, rename's free-list counts, and the LSU's LQ state (187 endpoints).
+- **New in hp1fs: 57 families start at the ACLINT.** hp1f had none.
+  - The path runs from the uncore ACLINT's `rst_q`, through hart 3's timer compare (`g_mti[3]`), combinationally into core 1's CSR file (the interrupt decision and the trap code), then its ROB (the commit) and rename's free-list counts.
+  - That is 21 levels and 7.0 ns of wire, at −0.42 ns. The ACLINT sits in the uncore at row 113–170 and core 1's CSR file at row 173 and above, so this placement made the wire long.
+  - A register on each hart's timer-interrupt line, in the ACLINT or at the core's input, takes the path out for one cycle of interrupt latency.
+- **For M8:** "fit plus a little" has to cover this noise, about 0.3–0.4 ns of margin rather than 0.1. That margin comes from timing fixes such as the ACLINT register and the I$ valid-bit path, or from a lower fill.
+
+Results: `fpga/spikes/results/h100_hp1fs/` (with `near_families_hp1fs.txt`, `urf_chip.txt`, `floorplan.txt`, and `path_cells_aclint.txt` from [`q_path_cells.tcl`](../../fpga/spikes/tcl/query/q_path_cells.tcl)).
+
 **DR-181: the floorplan in the board's flow.** The coordinator adopted `g4_uncore` for the board's product builds; soc-2 wires it into `build.tcl` and spikes-2 keeps it tuned. [`fp_lib.tcl`](../../fpga/spikes/tcl/fp_lib.tcl) adds two checks for every product build:
 - `tg_fp_check`, after the floorplan and before `opt_design`: each pblock's LUT cells against its LUT sites. It warns above 105% and calls the pblock tight above 115%.
 - `tg_fp_check_placed`, after `place_design`: each pblock's own LUTs against its sites. It warns above 85% and calls the pblock tight above 90%, which means resize it. It also logs IS_SOFT and the share of the pblock's own LUT cells placed outside it.
 
-| Pblock | LUT sites | hp1f before `opt_design` | hp1f own after placement | hp1f outside | Main e6691d53 with the product windows, before `opt_design` |
-|---|---|---|---|---|---|
-| `l2b0` (L2 bank 0) | 6,400 | 95% | 73% | 20% | 94% |
-| `l2b1` (L2 bank 1) | 6,400 | 101% | 77% | 15% | 102% |
-| `xbar` (the crossbar) | 4,032 | 52% | 45% | 28% | 72% |
+| Pblock | LUT sites | hp1f before `opt_design` | hp1f own after placement | hp1f outside | Main e6691d53 with the product windows, before `opt_design` | soc-2's d4r2 check: before `opt_design` | own after placement | outside |
+|---|---|---|---|---|---|---|---|---|
+| `l2b0` (L2 bank 0) | 6,400 | 95% | 73% | 20% | 94% | 98% | 73% | 13% |
+| `l2b1` (L2 bank 1) | 6,400 | 101% | 77% | 15% | 102% | 102% | 76% | 16% |
+| `xbar` (the crossbar) | 4,032 | 52% | 45% | 28% | 72% | 65% | 51% | 31% |
 
 - **The two thresholds agree.** After `opt_design` and LUT packing, a pblock's own LUTs came to 76–87% of its estimate, so 105% before `opt_design` is about 80–90% own after placement.
 - **The product windows** grow the crossbar's pblock from 52% to 72%; the banks barely change.
+- **soc-2's DR-181 check** (10-21): `build.tcl` with d4r2's recipe and the floorplan, on main. That is hart 1 off, the URF off, the injectors in and the product windows on.
+  - It placed 107,657 LUTs (91.9%) and closed at WNS +0.876 ns and WHS +0.001 ns. d4r2 without the floorplan, on ef44e5b7, had closed at +0.367 ns.
+  - Every pblock graded OK. Its fill after placement is within a few points of hp1f's, so nothing needs resizing.
 - **Resizing:** a bank's pblock grows by two SLICE rows (160 LUT sites a row in the X2 column). The crossbar has room in X1.
 
 Results: `fpga/spikes/results/h100_hp1f/` (with `near_families_hp1f.txt`, `urf_chip.txt`, `floorplan.txt`, `congestion.rpt` and `worst_paths.txt`; `fp_checks.txt` from [`q_fp_checks.tcl`](../../fpga/spikes/tcl/query/q_fp_checks.tcl); `pb_spill.txt` and `pb_soft.txt`, the cells outside, from [`q_pb_spill.tcl`](../../fpga/spikes/tcl/query/q_pb_spill.tcl) and [`q_pb_soft.tcl`](../../fpga/spikes/tcl/query/q_pb_soft.tcl)); main's check in `h100_ex1_synth/fp_check_g4_uncore.txt`.
+
+#### The product closure baseline: places, doesn't route (2026-10-21)
+
+**Asked** (the coordinator, 21:40): the first measurement of where the product chip stands. It is a baseline, not a sign-off: step 6 (+~384 LUTs a core) and fpu-2's FPU levers (−290 a core, on main since 897bd3a3, not in this build) follow.
+- **Basis:** main c0030303 (DR-180, M7 step 5f) merged with soc-2's DR-181 branch c183e3ad. Its `build.tcl` is the one that landed as 5332b771.
+- **Flow:** the board's product flow, `build.tcl`: hart 1 real (`TG_DEFINES=TG_HART1=1`), `TG_RELEASE=1`, the URF on, the product windows (`TG_HOST_DMA=1`, `TG_PS_WINDOW=1`), the PMOD UART, the fan's PL regulator, smt2, two cores, 100 MHz.
+- **build.tcl's defaults:** the floorplan, `TG_PR_UNC` 1.0, `ExploreArea` and `AreaOptimized_high`.
+- **Measurement-only additions:** my snapshot added three read-only lines to `build.tcl`: utilization after `opt_design` and after placement, and a routed checkpoint, which the failed route never reached.
+
+| | Product (c0030303 + DR-181) | hp1f, for reference (7864d3bf, no windows, before DR-180) |
+|---|---|---|
+| LUTs after synthesis | 120,579 | 121,295 |
+| LUTs after `opt_design` | 116,190 (99.2%) | 116,223 |
+| LUTs placed | 113,792 (97.2%), 15,376 of them LUTRAM | 113,893 (97.2%) |
+| FFs placed | 63,912 | 62,016 |
+| CLBs used | 14,637 of 14,640 | 14,640 of 14,640 |
+| Control sets | 2,849 | 2,799 |
+| WNS / TNS after `phys_opt_design` (estimated, with `TG_PR_UNC`'s 1.0 ns still on) | −1.704 / −3,793 ns | — |
+| Routing | **failed:** 28,100 signals unrouted for congestion, 32,975 node overlaps, after 1 h 59 min | routed: −0.096 ns (hp1fs: −0.426) |
+| The router's starting congestion | short level 6 (64 × 64) in all four directions, over 29–34% of the tiles; global level 6 north | short level 5 north and south, 6 east and west |
+
+The floorplan checks all graded OK:
+
+| Pblock | Before `opt_design` | Own after placement | Own LUT cells outside |
+|---|---|---|---|
+| L2 bank 0 | 97% | 74% | 22% |
+| L2 bank 1 | 102% | 79% | 21% |
+| Crossbar | 70% | 55% | 37% |
+
+**Findings:**
+- **At hp1's LUT fill the product chip doesn't route.** It has the same LUTs as hp1f but 1,896 more flip-flops and 50 more control sets. Since hp1's tree, step 5d's second rename register added 1,626 flip-flops a chip, DR-180 removed 3,170, and the windows, 5e, 5f and DR-179 account for the rest. Every CLB was already used in hp1f.
+- **Its congestion is a level worse.** Short-wire congestion is level 6 in every direction instead of two, and the router gave up timing (an intermediate WNS of −7.3 ns) trying to route.
+- **One run can't separate the flip-flops from placement noise.** hp1f and hp1fs spread 0.33 ns, but neither came near failing to route.
+- **The chip is CLB-bound, so the area it needs back is LUTs and flip-flops both.**
+  - Measured today: PMP checks at TLB fill (at most 3.4K LUTs a chip), and rename's payload beside rename (about 3.4K FFs and 1K LUT cells a chip). Both are designs for core-2.
+  - fpu-2's −580 LUTs a chip are on main; step 6 adds about +770.
+- **Flow levers cost no LUTs:** a congestion-directed placement (`place_design -directive AltSpreadLogic_high`), which `build.tcl` doesn't offer yet, is untested here.
+
+**Where the flip-flops grew since hp1** (the coordinator, 10-22). Each step is the difference of two builds with the board's synthesis. Flip-flops keep their RTL names under `-flatten rebuilt`, so their units are reliable.
+
+| Step | Builds compared | FFs after synthesis | FFs after `opt_design` | Where (after synthesis) |
+|---|---|---|---|---|
+| The product windows | hu0 − hp0 (both 071de15c, URF off); hu1 − hp1 | +1,966 | +2,179 | All in the uncore: the host bridge +1,074, the host DMA and the PS window about +640 together, the crossbar +275 |
+| 5d, 5e and DR-179 | ex1 − hu1 | +1,867 | +1,867 | Each core: rename +790 (5d's second rename register), the LSU +90, fetch +61 |
+| 5f, DR-180 and the board's flow | product − ex1 | −3,175 | −2,150 | The uncore: the host bridge −2,847, the PLIC −221, the host DMA −96; the cores unchanged |
+| **Total** | product − hp1 | **+652** | **+1,896** | |
+
+- **DR-180's −3,170 flip-flops are −2,150 after `opt_design`.** About 1,025 of those it trims at synthesis were flip-flops that `opt_design` swept anyway: it removes 1,487 from hp1, 1,268 from hu1 and ex1, and only 243 from the product.
+- **After `opt_design` the uncore nets out near zero** (the windows' +2,179 against DR-180's −2,150). The placed flip-flop growth is, to first order, 5d's second rename register (+1,580 a chip), with the LSU's and fetch's +300.
+- **Control sets didn't grow.** After synthesis the product has 2,595 against hp1's 2,621 ([`q_ctrl_sets.tcl`](../../fpga/spikes/tcl/query/q_ctrl_sets.tcl)).
+  - By unit: rename −11 a core (5d added registers, not control sets), fetch +6 and the LSU +4 to +5 a core.
+  - The uncore −27: DR-180's PLIC −55 and the host bridge −12, against the new host DMA +33 and the PS window +11.
+  - So control-set merging is the weaker of the flow levers below.
+- **So the design lever that matches the growth is rename's payload beside rename.**
+  - It takes about 3.4K flip-flops and 1K LUT cells out of the same two registers and the DS register that 5d doubled.
+  - The PMP at TLB fill (2.5–3K LUTs) answers the LUTs.
+
+**Flow levers lined up** (no LUT cost), by what the AltSpreadLogic_high run (`product_asl_high`) shows:
+- **If it still doesn't route:** the same with `route_design -directive AlternateCLBRouting`, the router's documented congestion directive, keeping the spread placement.
+  - Next after that: `opt_design -control_set_merge -merge_equivalent_drivers`, which merges equivalent control and driver nets without adding LUTs.
+  - Not `-control_set_opt_threshold`: it moves enables and resets into LUTs, and LUTs are this chip's binding resource.
+- **If it routes but misses timing:** `AltSpreadLogic_medium`, which spreads less and so gives back less timing.
+- **If it routes near closure:** a second sample at 1.05 ns, for the noise (hp1f's two differed by 0.33 ns).
+
+Results: `fpga/spikes/results/product_c0030303/` (the utilization after synthesis, `opt_design` and placement; the floorplan's reports; `run_excerpt.txt`, the build's FLOORPLAN, timing and congestion lines).
+
+#### AltSpreadLogic_high: the product chip routes, at −1.55 ns (2026-10-22)
+
+The same snapshot as the baseline, with `place_design -directive AltSpreadLogic_high` in the measurement copy (approved by the coordinator; `product_asl_high`).
+
+| | Baseline (default placement) | AltSpreadLogic_high |
+|---|---|---|
+| LUTs placed / routed | 113,792 / — | 113,719 / 113,723 (97.1%) |
+| FFs, CLBs, control sets | 63,912, 14,637, 2,849 | 63,895, 14,640, 2,820 |
+| Routes | no: 28,100 unrouted | **yes** (2.4 h in all) |
+| WNS / TNS on the core clock (ns) | — | **−1.547 / −2,887**, 7,651 failing endpoints |
+| `clk2x` / the host clock (ns) | — | +1.607 / +3.025 |
+| Endpoints within 1 ns | — | 23,782 in 645 families |
+
+- **Spreading buys routability and costs timing.** The worst paths are 64–78% wire.
+- **The worst families sit in the cores.** Below 1 ns:
+  - the LSU has 193 families (worst −1.55: the walker's `base_q` from the ROB's `ct_q`), rename 192 (−1.41: from fetch's `u_cmp/rt_q` through decode into the per-thread rename registers), the CSR files 98 (−1.43) and fetch 83 (−1.51);
+  - the L2 has 27 (−0.90) and the crossbar, with its slices on, 13 (−0.15).
+- **128 families (4,055 endpoints, worst −1.43 ns) start at the ACLINT.** That is `rst_q` and the timer wake hints, running combinationally into both cores' CSR files (80 families), rename, the ROB and fetch.
+  - hp1fs showed the same path.
+  - A register on each hart's timer-interrupt and wake lines, in the ACLINT or at the core's input, removes them all for one cycle of interrupt latency.
+
+Results: `fpga/spikes/results/product_asl_high/` (summary, timing, utilization after `opt_design`, placement and routing, the floorplan's reports, `fail_families.txt` from [`q_fail_families.tcl`](../../fpga/spikes/tcl/query/q_fail_families.tcl)).
+
+#### No slices + AltSpreadLogic_high, with the ACLINT registers: −1.74 ns (2026-10-22)
+
+**Build 1 of the coordinator's combinations** (`product_wt_ns_aslh`):
+- **Snapshot:** `snap/product_wt`, main dde95639 with soc-2's ACLINT registers (b856230a) merged as a preview, plus the measurement lines.
+- **Settings:** no crossbar or memory-port slices (DR-186's new default), `TG_AR_SLICE=1`, `AltSpreadLogic_high`.
+
+| | asl_high (c0030303, slices on, no ACLINT registers) | **No slices + AltSpreadLogic_high + ACLINT registers** |
+|---|---|---|
+| LUTs after `opt_design` / routed | 116,190 / 113,723 | 115,692 / 113,346 (96.8%) |
+| FFs routed, DSPs | 63,895, 157 | 60,146, 140 |
+| CLBs, control sets | 14,640, 2,820 | 14,629, 2,878 |
+| The router's congestion | routed | level 5, never put routability ahead of timing |
+| WNS / TNS on the core clock (ns) | −1.547 / −2,887 (7,651 failing) | **−1.740 / −5,766** (11,571 failing) |
+| `clk2x` within / into it / back (ns) | +1.607 / — / — | +1.118 / **−0.298** / +0.269 |
+| Endpoints within 1 ns | 23,782 in 645 families | 24,794 in 619 families |
+
+- **The ACLINT registers worked.** No path from the ACLINT is left within 1 ns, where asl_high had 128 families and 4,055 endpoints (worst −1.43 ns).
+- **The response path through the crossbar shrank but remains.** From the L2 banks into the cores: 24 families and 1,169 endpoints within 1 ns (856 of them into fetch), worst −1.459 ns, from the bank's D-queue read pointer into core 1's fetch PC (22 levels).
+  - With default placement it had been 42 families and 2,441 endpoints at −3.168 ns.
+  - Nothing from the cores into the crossbar, and nothing on the memory ports, is within 1 ns.
+- **The worst paths are now decode into the per-thread rename registers.** Fetch's `u_cmp/rt_q` reaches `rn_u_q`'s `imm` (512 endpoints, −1.686 ns) and `br_target` (504, −1.666 ns) through 21 levels, 73% wire.
+  - Those are the payload fields that rename's payload lever would carry beside rename. So that lever pays in timing as well as area.
+  - Next come fetch's `rt_q` from rename's `ltail_q` (−1.740 ns, 26 levels), the ROB's `hw_q`, and the LSU's M2 from step 6's `md_q` (−1.47).
+  - By unit within 1 ns: rename 228 families, the LSU 153, fetch 84, the CSR files 79, the RAS 29.
+- **A new failure into `clk2x`:** core 0's issue-queue age (`age_q`) into the URF's UltraRAM read address, 14 levels, −0.298 ns. Build 3 (0.5 ns of uncertainty on `clk2x`) tests that side.
+- **Against asl_high this is no gain in WNS.** The ACLINT registers took 4K endpoints out, but the response path put 1.2K in, and the netlist moved on: step 6 and fpu-2's levers.
+
+Results: `fpga/spikes/results/product_wt_ns_aslh/`.
+
+#### The DR-185 preview: rename's payload in a LUTRAM routes at −1.11 ns (2026-10-22)
+
+**Asked** (the coordinator, "the most important build of the day"): core-2's DR-185 preview, `claude/track-core-adb715-dr185` at 3ed73e6f.
+- **What DR-185 does:** rename's payload (imm, pc, pred_npc, br_target, insn) waits in a LUTRAM beside rename instead of riding through the per-thread rename registers and DS. It is built on M7 step 7's head 032caa15.
+- **Snapshot:** merged into main a6ff993d (DR-186's slices off, the ACLINT registers in), plus the measurement lines.
+- **Flow:** `AltSpreadLogic_high`, everything else `build.tcl`'s (`product_wt2_dr185_aslh`).
+
+| | Build 1 (main dde95639 + ACLINT, no slices, high spread) | **DR-185 preview** (+ step 7, + DR-185) |
+|---|---|---|
+| LUTs after `opt_design` / routed | 115,692 / 113,346 | 116,663 / 114,067 (97.4%) |
+| FFs routed | 60,146 | **55,850** (−4,296) |
+| CLBs, control sets, DSPs | 14,629, 2,878, 140 | 14,639, 2,795, 140 |
+| Routing | 2.5 h; congestion level 5 | **1.0 h**; congestion level 6, but the router never put routability ahead of timing |
+| WNS / TNS on the core clock (ns) | −1.740 / −5,766 (11,571 failing) | **−1.108 / −595.5** (2,120 failing) |
+| `clk2x`: within / into it / back (ns) | +1.118 / −0.298 / +0.269 | +1.721 / **+0.652** / +0.867 |
+| Endpoints within 1 ns | 24,794 in 619 families | **12,886** in 439 families |
+
+- **The flip-flops were the lever.** 4.3K fewer FFs, at about 1K more LUTs (step 7 and DR-185's +86 a core), halved the near-critical endpoints, cut TNS tenfold, routed in 1 hour instead of 2.5, and fixed the path into `clk2x`.
+- **The decode → payload paths left the rename registers.**
+  - No path into `rn_u_q`'s imm, br_target, pc, pred_npc or insn is within 1 ns (build 1: 512 + 504 endpoints at −1.69 ns).
+  - The remaining `rn_u_q` families are its control fields: 45 families, 492 endpoints, worst −0.903 ns.
+  - The payload's own LUTRAM (`u_rn/u_pay`) now takes the decode path's writes: one family of 1,258 endpoints at −1.048 ns from fetch's `u_cmp/rt_q`, 18 levels. That is 0.6 ns better than before, but still among the worst.
+- **The worst families now** (−1.11 to −1.04 ns):
+  - fetch's `u_cmp/rt_q` from the LSU's LQ head (31 levels) and from rename's DS (34);
+  - fetch's TAGE from the I$ data;
+  - the payload LUTRAM;
+  - the LSU's LQ state from step 6/7's `md_l_q`;
+  - core 1's walker from the ROB.
+  - By unit within 1 ns: the LSU 146 families, rename 90, fetch 82, the CSR files 82.
+- **The L2 → crossbar → core response path:** 17 families and 565 endpoints, worst −1.021 ns into core 1's I$ valid-bit RAM (build 1: 1,169 endpoints at −1.459). The ACLINT stays clear.
+- **Not a pure A/B.** Step 7's changes ride along with DR-185, and placement noise at this fill is large. But this is the first routed product chip near −1 ns.
+- **Path queries** (the coordinator, for core-2 and fpu-2; [`q_pin_classes.tcl`](../../fpga/spikes/tcl/query/q_pin_classes.tcl), `q_path_cells.tcl`):
+  - **The payload LUTRAM fails on its write data, not its write address or enable.**
+    - Core 1: 522 write-data endpoints within 1 ns, 373 failing, worst −1.048 ns, from fetch's `u_cmp/rt_q` through decode (18 levels, 7.66 ns of wire). Its 736 write-enable endpoints are all met (worst +0.706).
+    - Core 0: 483 write-data endpoints, 56 failing, worst −0.373 ns. Its write enable is met at +0.172 ns.
+    - No write-address endpoint is within 1 ns.
+    - So the fix is a registered write-data port.
+  - **TAGE:** the families from the I$ data are core 0's `gp_n_s_q` (4 endpoints, −1.077 ns, 21 levels) and `gp_b_s_q` (2, −0.852), core 1's (−0.581, −0.450), and `fb_wd_q` (15 and 14, about −0.4).
+    - The worst path spends about 8 levels in fetch's F3 predecode (the parcel boundary marks), about 10 in `tg_tage` and 3 into `gp_n_s_q`.
+    - That is 4.26 ns of logic and 6.52 ns of wire.
+
+Results: `fpga/spikes/results/product_wt2_dr185_aslh/` (with `pin_classes_pay_core0.txt`, `pin_classes_pay_core1.txt` and `path_cells_tage_core0.txt`).
+
+#### The near-final chip closes 100 MHz in one of two placements (2026-10-22)
+
+**Asked** (the coordinator: "the near-final chip, and if it closes, that's 100 MHz"): a pair of placements of `snap/product_wt2` ca66235f564b, with `TG_PMP_FILL=1` and `AltSpreadLogic_high`, at 1.0 and 1.05 ns. The snapshot is main e88f2b98 (TAGE, the L2 bank's registered D output, lever 2, DR-185) plus the forms about to land:
+- soc-2's LQ-head fix (mhreg 6da660ec), which carries DR-183 773ebd38;
+- core-2's LSU branch (lsutid c06aa48a: the thread carried down the pipe and the walker's registered VPN), merged over DR-183's `tg_lsu` as before; core-2's side of that hunk is `t_lck` alone;
+- core-2's `rt_q` with per-bank copies (rtq3c a74817fe, "B").
+
+Step 7 is not in it. The two merge conflicts were resolved in the snapshot only: the known `tg_lsu` hunk, and `tools/ci/lint_all.sh` taken from main's side, which the build doesn't read.
+
+| | **Placement 1** (`fin1_u100`, 1.0 ns) | Placement 2 (`fin1_u105`, 1.05 ns) |
+|---|---|---|
+| LUTs after `opt_design` / routed | 113,640 / 111,359 (95.1%) | 113,640 / 111,096 |
+| FFs routed, CLBs, control sets, DSPs | 57,748, 14,621, 2,830, 140 | 57,757, 14,634, 2,845, 140 |
+| WNS after `phys_opt_design` (estimated, with the uncertainty on) | −0.743 ns | −0.642 ns |
+| Routing | level 5, no trade, 2.2 h | level 5, no trade, 3.2 h |
+| **WNS / TNS on the core clock (ns)** | **+0.257 / 0.000** (0 failing endpoints) | −0.720 / −502.1 (2,112 failing) |
+| WHS (ns) | +0.010 | +0.005 |
+| `clk2x`: within / into / back (ns) | +1.736 / +1.002 / +0.914 | +1.630 / +1.104 / +0.852 |
+| Endpoints within 1 ns | 4,880 in 250 families | 13,434 in 487 families |
+
+- **The pair's verdict: it closes.** The better placement meets 100 MHz with +0.257 ns of slack and nothing failing. The other misses by 0.72 ns, the placement spread seen all day.
+- **This is the first product chip that meets 100 MHz.** It is hart 1 real, the release form, the URF, the product windows and the floorplan, at 95.1% of the LUTs.
+- **The LQ-head family is gone.** No path from `lq_head_q` is within 1 ns in either placement (the previous preview: 1,111 endpoints at −0.79 ns).
+  - The LQ state's endpoints are still near-critical from other starts.
+  - In placement 1 all are met: `lq_st_q` +0.274, `fh_data_q` +0.367, `lx_valid_q` +0.371.
+  - In placement 2 they come from core 0's `priv_dl_q` (−0.698 ns, 187 endpoints, 23 levels) and core 1's `mh_lq_q` (−0.578).
+- **Placement 1's worst endpoints (all met):** core 1's D$ miss entry `g_mn.rl_q` (+0.257), the L2's response into core 0's I$ valid bits (+0.261), and the LSU's `r_data_q`, `lq_sq_q` and `lq_size_q` (+0.27).
+- **Placement 2's worst, beyond `priv_dl_q`'s:**
+  - fetch's `rt_b_q` from `head_t_q` (−0.720);
+  - the L2's response into the I$ valid bits (−0.704);
+  - M2's data from the DTLB's CAM (−0.67);
+  - the RAS pop from the I$ data and TAGE (−0.61);
+  - the decode and rename families from the issue queues' `dep_q` and the ROB's head (about −0.53).
+- **The floorplan is OK:** 99/103/37% before `opt_design` and 76/79/32% own after placement. L2 bank 1 is near its 105% warning before `opt_design`, so it is the pblock to watch as step 7 lands.
+
+Results: `fpga/spikes/results/product_wt2_fin1_u100/` and `product_wt2_fin1_u105/`. Placement 1's routed checkpoint is `~/tanager-build/track-spikes-72f833/vivado/product_wt2_fin1_u100/routed.dcp`.
+
+**The board image** (the coordinator, 10-22) was written from placement 1's routed checkpoint by `build.tcl`'s own stage: `write_bitstream`, then bootgen's `.bit.bin` ([`write_bit_from_dcp.tcl`](../../fpga/spikes/tcl/write_bit_from_dcp.tcl)).
+- **Files:** `tanager.bit` (md5 d48edff4…) and `tanager.bit.bin` (md5 62ed4eab…), beside the checkpoint.
+- **Timing as written:** +0.257 ns, nothing failing.
+- **Source:** snapshot ca66235f564b, pinned by the local scratch branch `claude/spikes-2-board-fin1`. Its merges: cafba0e3 (soc-2's 6da660ec, `lint_all.sh` from main), 149de679 (core-2's c06aa48a, the `tg_lsu` hunk), a64c830d (a74817fe).
+- **Status:** a preview image. The board build of record comes from main once those MRs land.
+
+#### The release candidate: main builds the board image bit for bit (2026-10-23)
+
+**Asked** (the coordinator, 10-22): a pair of placements of main c11e1bbd with core-2's LSU fix (932a5412) and fetch fix B (895ef1fc), with `TG_PMP_FILL=1` and `AltSpreadLogic_high`: "It becomes the release image once main matches." Snapshot: `snap/product_wt` b82e0e1744fb, pinned by `claude/spikes-2-board-rc1`.
+
+- **Both placements are the near-final pair's, number for number.**
+  - `rc1_u100`: +0.257 / 0.000 ns, 0 failing, WHS +0.010, 111,359 LUTs and 57,748 FFs.
+  - `rc1_u105`: −0.720 / −502.146 ns, 2,112 failing, WHS +0.005, 111,096 LUTs and 57,757 FFs.
+  - The failing-family listings match line for line.
+- **Why:** the RTL that differs between the two snapshots is switch definitions whose defaults give the same netlist (7 files, among them `FP_XBANK` and `IQ_CC` in `tg_core_pkg`). Vivado is deterministic for a given netlist and settings.
+- **The image.** It was written from `rc1_u100`'s checkpoint by `run_bit_if_pass.sh`:
+  - `tanager.bit` md5 b4ac9aac…, `tanager.bit.bin` md5 62ed4eab…, the board image's `.bit.bin` byte for byte;
+  - the two `.bit` files differ in 7 bytes, the header's date and time (offsets 111–123), with the same `SW_CRC` 66ac8b95.
+  - So the board's u100 image (DR-188, board MR35: four-hart Linux at 100 MHz) is already the release candidate's.
+- **Main matches.** The only RTL difference between this snapshot and main 51052152, the last main before step 7, is PMP_FILL's default (8d8bc8ad), which is the `TG_PMP_FILL=1` this pair passed. Main from 8d8bc8ad to 51052152 builds this chip without a define.
+
+Results: `fpga/spikes/results/product_wt_rc1/` holds the two summaries and the images' md5s; the reports are `product_wt2_fin1_u100/` and `_u105/`'s. The image and checkpoint are in `~/tanager-build/track-spikes-72f833/vivado/product_wt_rc1_u100/`.
+
+#### Step 7 on main: neither placement closes, −0.561 ns at best (2026-10-23)
+
+**Asked** (the coordinator, 10-23): "Launch the board pair now", on main 002ea157. That is M7 step 7 (the bank rule on the sibling's need, `ROWS_AT_RN` 2, no per-thread cap), with PMP_FILL on by default. "Write the passing placement's bitstream right away for soc-2." Snapshot: `snap/product_wt3` 189e60d07f37 (main 002ea157 and the measurement commit 0a30d99d), pinned by `claude/spikes-2-board-s7`.
+
+| | Placement 1 (`s7_u100`, 1.0 ns) | **Placement 2** (`s7_u105`, 1.05 ns) |
+|---|---|---|
+| LUTs after `opt_design` / routed | 114,386 / 111,918 (95.6%) | 114,386 / 112,071 (95.7%) |
+| FFs routed, CLBs, control sets, DSPs | 57,822, 14,618, 2,854, 140 | 57,823, 14,632, 2,809, 140 |
+| WNS after `phys_opt_design` (estimated, with the uncertainty on) | −0.964 ns | −0.287 ns |
+| Routing | level 6, no trade, 1.3 h | level 5, no trade, 1.3 h |
+| **WNS / TNS on the core clock (ns)** | −1.431 / −1,662.6 (3,302 failing) | **−0.561 / −296.2** (1,448 failing) |
+| WHS (ns) | +0.006 | +0.005 |
+| `clk2x`: within / into / back (ns) | +1.345 / +1.517 / +1.119 | +1.816 / +1.093 / +1.094 |
+| Endpoints within 1 ns | 13,545 in 450 families | 11,233 in 441 families |
+
+- **The pair's verdict: it doesn't close, so no bitstream was written.** The better placement misses 100 MHz by 0.561 ns. Against the near-final pair (+0.257 / −0.720), the better WNS is 0.82 ns worse. The second placement is better than the near-final pair's second (TNS −296 against −502).
+- **Step 7's area in the chip.** The release candidate's netlist differs from this one by step 7 alone. Against it, step 7 adds:
+  - +825 LUTs after synthesis, +746 after `opt_design` and +559 routed, for both cores;
+  - about 373 a core after `opt_design`, against 161 out of context.
+- **A new family, from step 7's logic: rename's DS register into decode's stall.** In core 0, `ds_ren_q`'s `q` and `has_q` reach:
+  - the clock enables of decode's redirect registers (`dred_pc`, `dred_rlink`, `dred_ftq`, `dred_rop`, `dred_slot`, `dred_tid`);
+  - fetch's `qs_q`.
+
+  Its slack and its cause:
+  - **Slack:** 31–32 levels, 56–57% wire, at −0.807 ns (u100) and −0.561 ns (u105's worst endpoint). In neither near-final placement is any path from `ds_ren_q` within 1 ns.
+  - **Depth, not placement.** The worst path's 31 LUTs stay in one cluster (u105: SLICE_X13–18, Y53–62). It is 4.32 ns of logic and 5.79 ns of wire, about 0.19 ns a net. A third placement is unlikely to clear it alone.
+    - Only its last net leaves the cluster: decode's clock-enable tree, fanout 113, 1.34 ns to the endpoint at SLICE_X32Y49.
+    - Both placements route the same cells, level for level ([`path_table_ds.txt`](../../fpga/spikes/results/product_wt3_s7_u105/path_table_ds.txt), with `report_timing -input_pins` in `report_timing_ds.txt`, in both result folders).
+    - The chain's other high-fanout nets: the first LUT's output (fanout 11), level 26 (201, likely `rn_fire`), `de_take` (25) and decode's tree (112).
+  - **Where the logic is.** 29 of its 31 LUTs are under `u_rn`; their names are smeared by flatten rebuilt. The last two are decode's.
+  - **The likely chain**, from the RTL (core-2 and fpu-2 own the check):
+    - the DS group's rows in each queue: step 7's `dk`/`dn`, besides STEER_LA's `st_free`;
+    - the caps: `cap_ok` indexed by `dn`, and `bank_ok`;
+    - the greedy ALU queue choice with its per-queue counts;
+    - `caps_ok`, then `rn_fire`, then decode's enable.
+  - **The path's net names agree.** They are kept where the cells' are not. In order:
+    - `ds_ren[0][has_q]`;
+    - a net of `rwo_q[1]`'s input cone (step 7's `rwo`, from the caps);
+    - the inputs of `ds_ren_q`'s `q` and `sq` (the steering);
+    - the free lists' `head_q`, a map table's and `ltail_q`'s inputs (rename's fire);
+    - decode's `de_take`, then two of decode's LUTs into `dred_pc`'s CE.
+- **The other families are the near-final chip's, moved by the placement:**
+  - **u100's worst:** core 1's fetch queue read, through decode, into rename's RN register (`rn_u_q`, `pay_wd_q`) from `head_t_q`. It is 18–19 levels at −1.43 ns with 73–75% wire. The near-final placement 1 has the same depth at +0.34 to +0.69. The path's cells are fetch's queue LUTRAM, decode and the RN register's input; none of step 7's logic is in it ([`path_rename.txt`](../../fpga/spikes/results/product_wt3_s7_u100/path_rename.txt)).
+  - **Core 0's LSU state, from `sv39_l_q`:** through the walker and the shared PMP checker (`u_csr/g_pg`), 27 levels at −1.42 ns in u100 ([`path_lsu.txt`](../../fpga/spikes/results/product_wt3_s7_u100/path_lsu.txt)). In u105 the LSU state comes from `priv_dl_q` and `lq_pck_q`, at −0.53.
+  - **u105's others:**
+    - core 0's `pay_wd_q` from `head_t_q` (−0.559, as deep as the DS family's worst);
+    - the decode family from the issue queues' `dep_q` (core 1's `dred_pc`, −0.558);
+    - the L2's responses into the I$ valid bits and fetch's `fpc_q` (−0.55);
+    - the free list's `count_q` from the ROB head (−0.54).
+- **The floorplan is OK:** l2b0 100%/76%, **L2 bank 1 103%/80%**, xbar 33%/28% (before `opt_design` / its own LUTs after placement; warn above 105/85%). Against the near-final pair, L2 bank 1's own share after placement moves from 79% to 80%, and before `opt_design` it is unchanged.
+- **The board image stays the near-final one.** That is the release candidate's, and so main's before step 7.
+- **What would close step 7:**
+  1. Take the DS family out of rename's fire. One direction: tg_issue counts the DS group's rows into the flags it registers, so the caps come from registers alone.
+  2. Then one more pair: the rest is the near-final chip's spread, in which one of two placements closed. In u105, without the DS family, the worst is −0.559 ns, all from those families.
+
+Results: `fpga/spikes/results/product_wt3_s7_u100/` and `product_wt3_s7_u105/`. The DS family's worst path is u105's [`path_ds.txt`](../../fpga/spikes/results/product_wt3_s7_u105/path_ds.txt). The routed checkpoints are in `~/tanager-build/track-spikes-72f833/vivado/product_wt3_s7_u100/` and `_u105/`.
+
+#### fpu-2's cut of the DS family: the family is gone, −0.422 ns overall (2026-10-23)
+
+**Asked** (the coordinator, 10-23): "run one placement now at 1.05 ns on fpu-2's cut", with soc-2's ckm (1cff68aa, the `priv_dl_q` fix) and without core-2's marg branches. "Report the ds_ren_q family first, then the families worse than −0.5 ns as usual."
+- **The cut, as built:** fpu-2's newer head 6fb83dcf, at fpu-2's request; the b3c78865 job was stopped in the queue before Vivado started. It is b3c78865 plus core-2's suggestion:
+  - `cap_ok` is constant with the cap at 100%;
+  - DS's queues are a registered one-hot (`ds_qoh_q`);
+  - the bank rule's sibling need reads a class-to-queue mask registered beside the RN group (`rn_need_q`).
+- **Snapshot:** `snap/product_wt` 06830a4861a8, which is main 1fbc0685, 6fb83dcf, 1cff68aa and the measurement commit, pinned by `claude/spikes-2-board-s7d`. Against the step-7 build only `tg_rename` and `tg_lsu` differ.
+
+| | `s7d_u105` (1.05 ns) | for comparison: `s7_u105` |
+|---|---|---|
+| LUTs after synthesis / `opt_design` / routed | 118,148 / 114,325 / 112,019 (95.6%) | 118,494 / 114,386 / 112,071 |
+| FFs routed, CLBs, control sets, DSPs | 57,908, 14,640 (all), 2,929, 140 | 57,823, 14,632, 2,809, 140 |
+| WNS / TNS after `phys_opt_design` (estimated, with the uncertainty on) | **+0.006 / 0.000** | −0.287 / −79.1 |
+| Routing | level 6, no trade, 1.0 h | level 5, no trade, 1.3 h |
+| **WNS / TNS on the core clock (ns)** | **−0.422 / −73.1** (490 failing) | −0.561 / −296.2 (1,448 failing) |
+| WHS (ns) | +0.008 | +0.005 |
+| `clk2x`: within / into / back (ns) | +2.035 / +1.167 / +1.131 | +1.816 / +1.093 / +1.094 |
+| Endpoints within 1 ns | 6,651 in 281 families | 11,233 in 441 families |
+
+- **The DS family is gone.** The worst path from `ds_ren_q` is now +1.732 ns at 17 levels, into decode's `dred_rlink` CE. Before the cut it was −0.561 at 31 levels and −0.807 at 32.
+- **The cut's new registers are clear as starts.**
+  - `ds_qoh_q`: +1.090 ns (23 levels, into core 1's `rt_b_q`), and +1.48 into decode's `dred_*`.
+  - `rn_need_q`: +1.085 (the same endpoint), and +1.42 into `dred_*`.
+  - So the next cut fpu-2 named, `sib_need` into `bank_ok`, isn't needed.
+- **`rn_need_q`'s own input is near the top.** Its D input is −0.416 (core 1, from fetch's `rt_b_q`, 20 levels, 70 endpoints) and −0.408 (core 0, from `head_t_q`, 21). That is the fetch queue's path through decode into the RN register, beside `rn_u_q` (−0.367) and `pay_wd_q` (−0.266).
+- **No family is worse than −0.5 ns.** The worst:
+  - core 1's fetch `rt_b_q` and `rt_q` from rename's free list `count_q`: −0.422 and −0.413, 26 levels. It is the worst rename start into fetch; into decode's `dred_*` the worst rename start is +0.129;
+  - the `rn_need_q` inputs above;
+  - core 0's decode `dred_*` from the issue queues' `dep_q`: −0.40 to −0.36, 23 levels;
+  - the LSU's `lq_st_q`: core 0 from `lq_pck_q` −0.361, core 1 from `priv_dl_q` −0.356.
+- **soc-2's `priv_dl_q` family keeps its depth.** It is core 1's `priv_dl_q` into `lq_st_q`'s CE: 25 levels, 314 endpoints, against 25 levels at −0.535 in the step-7 build. Both builds trace the same chain ([`path_table_priv.txt`](../../fpga/spikes/results/product_wt_s7d_u105/path_table_priv.txt), and the step-7 build's in `product_wt3_s7_u105/`):
+  1. `priv_dl_q`;
+  2. the walker's `g_plk.plk_q` net;
+  3. the checker's `pfc_x_q` match and the store checker `g_ckf.u_pmp_st`'s two CARRY8s;
+  4. `pfc_ok_q`'s cone;
+  5. `sa_chk[0]`, then a 128-fanout net, into `lq_st_q`'s CE.
+- **The router lost the margin.** With the uncertainty on, the placement estimated +0.006 ns and TNS 0; routing at congestion level 6 ended 1.47 ns lower.
+  - The step-7 pair lost 1.47 ns (u100, level 6) and 1.32 ns (u105, level 5).
+  - The near-final pair lost 0 (u100, level 5) and 1.13 ns (u105).
+  - At 95.6% of the LUTs and every CLB used, the router's detours are now most of the spread.
+- **The floorplan is OK:** l2b0 100%/78%, **L2 bank 1 102%/79%**, xbar 36%/31%.
+
+Results: `fpga/spikes/results/product_wt_s7d_u105/` holds the reports and the families. It also has `report_timing_*.txt` with their `path_table_*.txt`, from these starts:
+- `ds` (`ds_ren_q`), `qoh` (`ds_qoh_q`) and `need` (`rn_need_q`) to anything;
+- `toneed`, fetch into `rn_need_q`;
+- `rnde`, rename into `dred_*`;
+- `priv` (`priv_dl_q`).
+
+The routed checkpoint is `~/tanager-build/track-spikes-72f833/vivado/product_wt_s7d_u105/routed.dcp`.
+
+#### The near-final release with step 7 closes 100 MHz in both placements (2026-10-23)
+
+**Asked** (the coordinator, 10-23): "Go for a pair now ... the near-final release with step 7, every fix and the memory-ordering fix". The product form, `AltSpreadLogic_high`, 1.0 and 1.05 ns, and a passing placement's bitstream. "Report: the usual, plus whether any family starts or ends in the CoRR marking logic, and LUT and FF totals against s7d."
+- **Snapshot:** `snap/product_wt3` 9dbbad723e3f, pinned by `claude/spikes-2-board-rc2`. It is main 28d28d8a plus:
+  - fpu-2's step-7 cut f1d79a86 (b3c78865, 6fb83dcf, and 2557cb00, which takes `rn_need_q` back out);
+  - soc-2's ckm2 02da289b (the store's checker request from a register, and the head's MMIO request without `lq_pck_q`);
+  - core-2's marg3 813b6743 (core-2 confirmed the head);
+  - core-2's CoRR snoop marking b51bbbf6;
+  - the measurement commit.
+- **Checks before launch:** the four merges are clean, Verilator lint passes in the product's view (smt2, hart 1, release, URF, with and without SYNTH), and fwdref is clean.
+- **Not in it:** core-2's FENCE.I sweep fix (icsweep 379ca1ef, `tg_fetch` only). It merges cleanly on the snapshot and goes through its own MR.
+- **Run order:** at the 50 GB budget (`.locks/vivado.budget` since 04:31) two 26 GB builds don't fit together, so the 1.0 ns placement runs after the 1.05 ns one.
+
+| | **`rc2_u100` (1.0 ns)** | `rc2_u105` (1.05 ns) | for comparison: `s7d_u105` |
+|---|---|---|---|
+| LUTs after synthesis / `opt_design` / routed | 119,066 / 114,885 / 112,360 (95.9%) | 119,066 / 114,885 / 112,315 (95.9%) | 118,148 / 114,325 / 112,019 |
+| FFs routed, CLBs, control sets, DSPs | 57,976, 14,638, 2,836, 140 | 57,981, 14,639, 2,872, 140 | 57,908, 14,640, 2,929, 140 |
+| WNS after placement (estimated, with the uncertainty on) | +0.412 ns | +0.464 ns | +0.006 (after `phys_opt_design`) |
+| Routing | level 6, no trade, 1.3 h | level 5, no trade, 1.4 h | level 6, no trade, 1.0 h |
+| **WNS / TNS on the core clock (ns)** | **+0.296 / 0.000** (0 failing) | **+0.188 / 0.000** (0 failing) | −0.422 / −73.1 (490 failing) |
+| WHS (ns) | +0.010 | +0.011 | +0.008 |
+| `clk2x`: within / into / back (ns) | +2.001 / +1.062 / +1.049 | +1.820 / +1.088 / +1.079 | +2.035 / +1.167 / +1.131 |
+| Endpoints within 1 ns | 2,332 in 194 families | 2,552 in 164 families | 6,651 in 281 families |
+
+- **Both placements close 100 MHz; the better WNS is +0.296 ns (1.0 ns), TNS 0 in both.**
+  - It is the first product chip with step 7 to close, and the first with the memory-ordering fix.
+  - It is also the first pair whose placements both pass: the near-final pair without step 7 closed in one of two.
+  - Placement estimated +0.41 and +0.46 with the uncertainty on, so `phys_opt_design` had nothing to do. Routing cost 1.12 and 1.33 ns.
+- **No CoRR family is near-critical** in either placement (u100 / u105). The worst paths that start or end in the marking logic:
+  - into the event capture (`ev1_l_q`, `ev1_tm_q`): +0.699 / +0.718 ns, 13–15 levels, from the store queue head's `sqh_q.pa`;
+  - from the report registers `snp_v_q` and `snp_lq_q`: +1.366 / +1.380, 15–16 levels;
+  - into them, the oldest select from `lq_snp_q`: +1.534 / +2.203;
+  - into `lq_snp_q` (the E+2 compare): +1.947 / +1.953;
+  - from `ev1_*`/`ev2_*`: +2.691 / +3.894.
+- **Area against s7d:** +918 LUTs after synthesis, +560 after `opt_design`, +296 routed, +73 FFs. This combines the CoRR marking (core-2: about 300 LUTs a core), marg3, ckm2 and fpu-2's revert of `rn_need_q`. One pair can't split it.
+- **The worst families, all met.** In u100:
+  - the LSU's `fh_data_q` and `fh_w_q` from the store's `sn_v_q` (+0.296);
+  - `s2_v_q` and `sq_av_q` from `sn_t_q` (+0.30);
+  - fetch's `rt_b_q` from `dep_q` (+0.307);
+  - `lq_st_q` from the walker's `chk_req_q` (+0.322).
+
+  In u105:
+  - core 1's fetch `rt_b_q` from the issue queues' `dep_q` (+0.188, 21 levels);
+  - core 1's `lq_st_q` from the checker's `pfc_rsp_v_q` (+0.218);
+  - core 1's D$ valid and meta RAMs from `sqh_q` and the miss entry (+0.23, +0.25);
+  - rename's RN register from `dep_q` (+0.25);
+  - `m2_dword_q` from the DTLB's CAM (+0.25).
+- **The floorplan is OK** in both: l2b0 99%/75%, **L2 bank 1 102%/79%**, xbar 30%/24%.
+- **The board images** were written from both checkpoints by `build.tcl`'s bitstream stage (`run_bit_now.sh`, each as its placement ended). `timing_bit.rpt` says "All user specified timing constraints are met" in both.
+  - **u100, the board image:** `tanager.bit` md5 069905fb…, `tanager.bit.bin` md5 1cb29cf7….
+  - **u105, the fallback:** `tanager.bit` md5 db175ba8…, `tanager.bit.bin` md5 6bfcffca….
+  - Both went to soc-2.
+  - They are previews: of the four branches only f1d79a86 and 02da289b are on main so far (d9d700ec).
+
+Results: `fpga/spikes/results/product_wt3_rc2_u100/` and `product_wt3_rc2_u105/`. The CoRR queries are in `report_timing_corr_*.txt`:
+- `snpf`/`snpt`: from and into `lq_snp_q`;
+- `srf`/`srt`: the report registers;
+- `evf`/`evt`: the event registers.
+
+The images and checkpoints are in `~/tanager-build/track-spikes-72f833/vivado/product_wt3_rc2_u100/` and `_u105/`.
+
+#### The release pair on coord/rc3: neither placement closes; congestion and the router's trade (2026-10-23)
+
+**Asked** (the coordinator, 10-23): "go for the release pair, on ref coord/rc3 = 234fc366": main 490a7e27 (no RTL since d9d700ec) with core-2's three MRs merged (marg3 763c5170, icsweep 679ceb2c, CoRR b095eca3), the tree main will have. The same product form and flow as rc2, in a new snapshot folder.
+- **Snapshot:** `snap/product_wt4` 64fa49e9b982, pinned by `claude/spikes-2-board-rc3`; `coord/rc3` and the measurement commit. Lint in the product's view and fwdref are clean.
+- **The RTL against rc2's:** two changes, the FENCE.I sweep's gate on fetch's refill start (`tg_fetch`, 8 lines) and CoRR's `lq_io_q` (b30b57b3: a device load is never marked, a register per LQ entry; `tg_lsu`, 5 lines).
+
+| | `rc3_u100` (1.0 ns) | `rc3_u105` (1.05 ns) | for comparison: `rc2_u100` / `rc2_u105` |
+|---|---|---|---|
+| LUTs after synthesis / `opt_design` / routed | 119,477 / 115,333 / 112,762 (96.3%) | 119,477 / 115,333 / 112,773 (96.3%) | 119,066 / 114,885 / 112,360 and 112,315 |
+| FFs routed, CLBs, control sets | 58,034, 14,638, 2,867 | 58,050, 14,639, 2,851 | 57,976 / 57,981 |
+| WNS estimated in placement, at its start / after `phys_opt_design` (uncertainty on) | −1.631 / −0.270 | −1.201 / **0.000** | −0.482 / +0.412 and −1.055 / +0.464 |
+| Routing | level 6, **the router trades timing for routability** (Route 35-447), 1.8 h | the same, 1.8 h | level 6 and 5, no trade |
+| **WNS / TNS on the core clock (ns)** | −1.104 / −893.6 (2,608 failing) | −0.959 / −421.9 (1,502 failing) | +0.296 / 0 and +0.188 / 0 |
+| WHS (ns) | +0.002 | +0.010 | +0.010 / +0.011 |
+| `clk2x`: within / into / back (ns) | +1.630 / +0.572 / +0.943 | +2.297 / +1.096 / +0.923 | |
+| Endpoints within 1 ns | 11,007 in 475 families | 11,305 in 457 families | 2,332 and 2,552 |
+
+- **Both placements fail, and both hit the router's congestion trade.**
+  - u105 left placement at 0.000 ns with the 1.05 ns uncertainty on, which would be +1.05 after the takeback.
+  - At congestion level 6, the router then put "the successful completion of routing all nets over timing optimizations" and lost 2.0 ns (u100: 1.8 ns). rc2's routing traded nothing.
+- **Why rc3 places worse: synthesis re-rolled the netlist.**
+  - The two changes are about a dozen lines, but synthesis gives +411 LUTs and +47 FFs ([`hier_diff_synth_vs_rc2.txt`](../../fpga/spikes/results/product_wt4_rc3_u100/hier_diff_synth_vs_rc2.txt)), spread over the chip:
+    - fetch +335 a core, the LSU +223 / +264 (the walker +97 / +157);
+    - decode −137, ex −115, a RAS −70, the ROB −60;
+    - the uncore +52 with no RTL change.
+  - After routing, the L2 is +175, of which bank 0 is +130 ([`hier_diff_routed_vs_rc2.txt`](../../fpga/spikes/results/product_wt4_rc3_u100/hier_diff_routed_vs_rc2.txt)).
+  - With `flatten_hierarchy rebuilt` and AreaOptimized_high, a small change moves logic everywhere. At 96.3% of the LUTs, with every CLB used, that is enough to tip the router into its trade.
+  - L2 bank 1 is now 104% before `opt_design`, against the 105% warning.
+- **Neither change is on a failing path (u100):**
+  - into `lq_io_q` +1.302, from it +5.971;
+  - from the sweep's `ivs_q` +1.890 and `gpend_q` +1.980; into them +6.91 / +3.64;
+  - the I$ valid family runs through `refill_done` and the valid RAM's read-modify-write, with none of the gate's nets.
+  - CoRR's event capture is the closest new logic, at +0.105 (into `ev1_tm_q`, mostly wire).
+- **The failing families are the recurring ones, moved by the placement:** the LSU's state and data, the walker's `chk_pa_q`, the I$ valid RAM and TAGE (below), plus the D$ data RAM from `lq_st_q` (u105: −0.782, 8 levels, 86% wire).
+
+**The recurring families** (the coordinator: "so closure stops being a lottery"). Their worst slack in the last six placements:
+
+| Family | fin1 u100 | s7d u105 | rc2 u100 | rc2 u105 | rc3 u100 | rc3 u105 |
+|---|---|---|---|---|---|---|
+| (WNS) | +0.257 | −0.422 | +0.296 | +0.188 | −1.104 | −0.959 |
+| the LSU state `lq_st_q` | +0.274 | −0.361 | +0.322 | +0.218 | −1.080 | −0.959 |
+| `m2_foh_q` | +0.324 | +0.147 | +0.344 | +0.363 | −1.096 | −0.773 |
+| the load data `r_data_q` | +0.267 | +0.188 | +0.529 | +0.925 | −1.066 | −0.954 |
+| the walker's `chk_pa_q` | +0.585 | +0.223 | +0.801 | +0.411 | −1.104 | −0.696 |
+| the I$ valid RAM | +0.261 | −0.248 | +0.349 | +0.420 | −1.086 | −0.746 |
+| TAGE's tables | +0.761 | > +1.0 | > +1.0 | > +1.0 | −0.998 | +0.552 |
+
+Each family runs 16–26 levels with 62–75% of its delay in wire, so the placement decides it. Their chains are in rc3_u100's [`path_table_family_*.txt`](../../fpga/spikes/results/product_wt4_rc3_u100/), traced with net names because the cells' are smeared.
+1. **The LSU state and load data** (`lq_st_q`, `r_data_q`, `lx_valid_q`; 19–24 levels). The chain:
+   - the split store pipe's valid (`sn_v_q`, `sn_pck_q`) and the AMO FSM;
+   - the shared PMP checker's request select, with a 780-fanout operand-select net;
+   - the operand muxes and the two CARRY8 compares (`g_ckf.u_pmp_st`), then `pfc_ok` and `sa_chk`;
+   - `m2_rck_q`'s cone (fanout 89), into the LQ entries' state CE and the load result.
+
+   **Fix:** register the checker's verdict and update the LQ state and the load result a cycle later for checked accesses. That cuts every family at `sa_chk`. Registering and replicating the select would also help. **Owner:** soc-2 (DR-183's checker), with core-2 for the LSU side. **Effort:** about a day with checks. It is not cycle-identical, so DR-183's boot-cost bar applies.
+2. **`m2_foh_q`** (16–21 levels). The chain: the store's thread `sn_t_q`, the DTLB leaf LUTRAM's read address, the leaf data, the forward-hit compare (`m2_fhit`), then `m2_foh_q`.
+
+   **Fix:** the leaf read address from registers, as core-2 did for the walker's DTLB port. **Owner:** core-2. **Effort:** half a day; cycle-identical by construction if the select is known a cycle ahead.
+3. **The walker's `chk_pa_q`** (18–20 levels). The chain: the DTLB CAM's valid bits `v_q`, the match (`g_early.mq`), the hit's leaf LUTRAM read, then the walker's address mux into `chk_pa_q`.
+
+   **Fix:** load `chk_pa_q` from a registered DTLB result. That costs a cycle on a PTE read's PMP check, which is rare. **Owner:** soc-2 (DR-183's walker check), with core-2. **Effort:** half a day.
+4. **The I$ valid RAM** (20–26 levels). The chain: the L2's response (`d_idx`, `dh_out`), `refill_done`, the valid RAM's read address, the RAMD64E read, the way and valid merge (8–10 LUTs), into the valid RAM's write data: a read-modify-write in one cycle.
+
+   **Fix:** register `refill_done`, or keep the set's valid bits from the refill's start so the write doesn't depend on a read in the same cycle. **Owner:** core-2. **Effort:** about a day; the sweep's new assert helps check it.
+5. **TAGE's tables** (13–14 levels). The chain is the BRAM read, the update, then the BRAM write. It fails only in a congested placement.
+
+   **Fix:** register the read data before the update. **Owner:** fpu-2. **Effort:** half a day; lowest priority.
+- **The order:** 1 (the most endpoints, and within 0.4 ns in every placement), 4, 2 and 3, then 5. Fixing 1 to 4 would bring the bad placements' worst to about −0.1 ns, and the good ones' to about +1 ns.
+
+**The trials,** each one placement at a time (the coordinator: two at once, the budget raised while they ran). They run from `snap/product_wt2` a1589f00712c (pinned by `claude/spikes-2-board-rc3t`) and `snap/product_wt` 9b620a0da139 (pinned by `claude/spikes-2-board-rc3t2`). Both are `coord/rc3` and the measurement commit, plus knobs for `phys_opt_design`'s and `route_design`'s directives and for incremental implementation; unset, the flow is main's.
+
+| Trial | What | Result |
+|---|---|---|
+| `rc3i_u100` | incremental from rc2_u100's routed checkpoint, `TimingClosure`, 1.0 ns | stopped in `read_checkpoint`: reuse 86.1% of the cells (89.3% matched by name), 49.4% of the nets, 58.2% of the pins; then 2025.2's "Not able to open pb file" (Common 17-1999, an empty name) fails the command |
+| `rc3j_u100` | the same, ignoring the uncertainty (`incr.ignoreUserClockUncertainty`) and going on past the pb error | the reuse data loads and the incremental placer starts, then "could not place more than 5 percent of the moveable instances" (Place 46-13): with 86% of the cells at rc2's sites there is no room at 96% for the rest |
+| `rc3_u110` | a fresh placement at 1.10 ns | −0.237 / −21.2 (228 failing), WHS +0.010; no trade at level 6; the recurring families 0.1–0.24 ns short |
+| `rc3pro_u110` | `rc3_u110` routed, then `phys_opt_design -directive AggressiveExplore` and `route_design` | −0.237 to −0.224 after phys_opt, then −1.677 / −641 after the reroute; stopped once `rc3_u095r` closed |
+| **`rc3_u095r`** | **a fresh placement at 0.95 ns with `route_design -directive AlternateCLBRouting`** | **+0.748 / 0.000, 0 failing, WHS +0.006** |
+
+**The M8 release image of record: `rc3_u095r`** (the coordinator, 10-23: coord/rc3's RTL, which is main's).
+
+| | `rc3_u095r` |
+|---|---|
+| LUTs after synthesis / `opt_design` / routed | 119,477 / 115,333 / 112,806 (96.32%) |
+| FFs routed, CLBs, control sets | 58,024, 14,640 (all), 2,887 |
+| WNS estimated in placement, at its start / after placement (0.95 ns on) | −1.715 / +0.088 |
+| Routing | **level 5** with `AlternateCLBRouting`, no trade, 1.6 h (the default router was at level 6 in all three other rc3 placements, and traded in two) |
+| **WNS / TNS / WHS (ns)** | **+0.748 / 0.000 / +0.006**; `clk2x` within / into / back +1.725 / +0.995 / +0.794 |
+| Endpoints within 1 ns | 668 in 73 families, the worst +0.748 (core 0's `lx_valid_q` from the store pipe's `sn_v_q`), then `m2_dword_q`, `sqh_q`, `lq_st_q`, `m2_foh_q`, `dred_pc` and the I$ valid RAM, all +0.75 to +0.78 |
+
+- **The image:** `tanager.bit` sha256 baf853d9…, `tanager.bit.bin` sha256 2a47608a…, sent to soc-2 and the coordinator.
+- **Reproducing it:** main's `build.tcl` now takes `TG_PHYS_DIRECTIVE` and `TG_ROUTE_DIRECTIVE`, plus `TG_INCR_DCP` / `TG_INCR_DIRECTIVE`, off unless set (`fpga/kv260/README.md`). With `TG_ROUTE_DIRECTIVE=AlternateCLBRouting TG_PR_UNC=0.95` and the product's other settings, main reproduces this flow; defaults are unchanged.
+- **The lesson:** at 96% of the LUTs the router's congestion handling decides the chip.
+  - `AlternateCLBRouting` turned the netlist that missed by 0.24–1.1 ns in three placements into +0.748.
+  - Recovery after routing (incremental implementation, post-route `phys_opt_design`) has no room to work at this fill.
+  - The recurring families above still decide the margin, so their fixes stay the way to stop the lottery.
+
+Results: `fpga/spikes/results/product_wt4_rc3_u100/` (with the comparisons and the family chains) and `product_wt4_rc3_u105/`. The checkpoints are in `~/tanager-build/track-spikes-72f833/vivado/product_wt4_rc3_u100/` and `_u105/`.
+
+#### core-2's A/B: the read thread with and without per-bank copies (2026-10-22)
+
+The fixes preview's base with core-2's newer heads (`snap/product_wt` and `snap/product_wt3`): e5b304cd, TAGE 8cf8e262, DR-183 ecfcc8a5, and core-2's walker fix a6abdc5d. The walker fix registers the head lookup's VPN, so DTLB port 2 starts at one register. Then:
+- **A** (`product_wt_abA_aslh`): `rt_q` and `occ_t_q` on decode's take, d5696350.
+- **B** (`product_wt3_abB_aslh`): the same with per-bank copies of the read thread, 9e82b799.
+
+Both use `AltSpreadLogic_high` and one placement each, at TG_PR_UNC 1.0.
+
+| | A | B |
+|---|---|---|
+| LUTs after `opt_design` / routed | 113,779 / 111,481 | 113,718 / 111,228 |
+| FFs routed, CLBs | 57,646, 14,635 | 57,650, 14,599 |
+| WNS after `phys_opt_design` (estimated, with 1.0 ns on) | −0.415 ns | −0.923 ns |
+| Routing | **congested:** the router put routability ahead of timing | no trade |
+| WNS / TNS on the core clock (ns) | −1.721 / −3,787 (7,743 failing) | **−0.803 / −964.3** (3,351 failing) |
+| `clk2x`: within / into / back (ns) | +0.333 / −0.778 (a one-level URF enable, a routing detour) / +0.759 | +1.617 / +0.770 / +0.825 |
+
+| Family | Preview, placement 1 / 2 | A | B |
+|---|---|---|---|
+| `pay_wd_q` | −0.843 / −0.331 | −0.558 | −0.498 |
+| fetch's `rt_q` | −0.854 / −0.659 | −1.292 | −0.545 |
+| `occ_t_q` | −0.701 / −0.331 | −0.556 | −0.056 |
+| `head_t_q` | −0.588 / −0.079 | −0.635 | +0.006 |
+| The walker's `chk_pa_q` / `base_q` from `ct_q` | +0.479 / +0.426 | none within 1 ns | none within 1 ns |
+| The LQ state (`lq_st_q`) | −0.849 / −0.789 | −1.702 | −0.802 |
+| The L2 → crossbar → core response | −0.580 / −0.001 | −1.355 | −0.803 |
+
+- **The walker fix works.** No path from `ct_q` into `chk_pa_q` or `base_q` is within 1 ns in either.
+- **A's congested route spoiled its timing.** A's placement was the better one before routing, so A against B is undecided on one run each. B routed cleanly and has the best `occ_t_q` and `head_t_q` of any run.
+- **B's worst families** (−0.80 ns):
+  - the L2's response into core 1's I$ valid bits (from the bank's `d_idx`, 20 levels);
+  - the LQ state from the LQ head (31);
+  - decode's `dred_pc` from the issue queues' `dep_q`;
+  - the LSU's `fh_data_q` from `ct_q`;
+  - fetch's `kimm_q` from the I$ data.
+- **To decide A against B,** a second placement of each (1.05 ns) would make two pairs.
+
+Results: `fpga/spikes/results/product_wt_abA_aslh/` and `product_wt3_abB_aslh/`.
+
+#### The fixes preview, a pair of placements: −0.79 ns at best (2026-10-22)
+
+**Asked** (the coordinator): which families remain once the pending fixes are in, judged as a pair of placements. The snapshot (`snap/product_wt2` d1a72fbe) is main e5b304cd (the L2 bank's registered D output) plus:
+- TAGE 8cf8e262 (fpu-2);
+- DR-183 ecfcc8a5;
+- DR-185 196cb8ed with core-2's `rt_q` fix 28ac2bbc and mode-family fix 2175432b (merged over DR-183's `tg_lsu` as core-2 confirmed);
+- `AltSpreadLogic_high`, `TG_PMP_FILL=1`.
+
+| | Placement 1 (`pv1_aslh`, 1.0 ns) | Placement 2 (`pv1_aslh_u105`, 1.05 ns) |
+|---|---|---|
+| LUTs after `opt_design` / routed | 114,041 / 111,784 (95.4%) | — / 111,609 |
+| FFs routed, CLBs | 57,679, 14,634 | 57,585, 14,592 |
+| WNS after `phys_opt_design` (estimated, with the uncertainty on) | −0.571 ns | −0.230 ns |
+| WNS / TNS on the core clock (ns) | −0.854 / −495.4 (1,973 failing) | **−0.789 / −191.9** (822 failing) |
+| Endpoints within 1 ns | 9,216 in 331 families | 8,063 in 332 families |
+| `clk2x`: within / into / back (ns) | +1.624 / +0.334 / +0.569 | +1.755 / +0.928 / +0.974 |
+
+The pair's verdict: the better WNS is −0.789 ns, and TNS is between −192 and −495 ns. The best routed chip so far.
+
+| Family | Placement 1 | Placement 2 |
+|---|---|---|
+| The LSU's LQ state (`lq_st_q`) from the LQ head and the ROB's `ct_q` (29 levels) | −0.849 (364 endpoints) | −0.789 (355) |
+| fetch's `u_cmp/rt_q` | −0.854 | −0.659 |
+| The payload write register `pay_wd_q` | −0.843 (908) | −0.331 (722) |
+| `occ_t_q` (from the issue queues' `dep_q`) | −0.701 | −0.331 |
+| The walker (`u_ptw`) from `ct_q` | −0.396 | +0.426 |
+| `md_l_q`'s families: `rp_ra_q`, `m2_dword_q`, `sq_av_q` | +0.070, −0.339, −0.270 | −0.407, −0.100, +0.039 |
+| The L2 → crossbar → core response | −0.580 (720) | −0.001 (208) |
+| TAGE | +0.890 (only `tg_tage`'s `q_q`) | +0.834 |
+| DR-183's `g_pmpf`, the ACLINT | none within 1 ns | none |
+
+- **Only the LQ-head family is bad in both placements:** `lq_st_q`, `fh_data_q` and `lx_valid_q` from the LQ head, 24–29 levels. soc-2 takes it after DR-183.
+- **The rest move with the placement by 0.3–0.6 ns.** In placement 2 only 8 families are worse than −0.5 ns: the LQ-head ones, the RAS's `s_cnt_q`/`a_cnt_q` from the ROB's `hw_q`, and one `rt_q` endpoint.
+
+Results: `fpga/spikes/results/product_wt2_pv1_aslh/` and `product_wt2_pv1_aslh_u105/`.
+
+#### The area-pass forms together (0a30d99d): both clear, −2.86 ns in this placement (2026-10-22)
+
+`product_wt_a1_aslh`, "the closest to the final area-pass chip so far" (the coordinator):
+- **What's in it:** main dc2965be, DR-185 with the registered payload write (31a90443), and DR-183 at 87e74fb9 (fetch's request registers no longer read F1's late `f1_new`; `TG_PMP_FILL=1`).
+- **Flow:** `AltSpreadLogic_high` (now `build.tcl`'s own `TG_PLACE_DIRECTIVE`, DR-187).
+
+| | Registered write + DR-183 d07317a6 | **Registered write + DR-183 87e74fb9** |
+|---|---|---|
+| LUTs after `opt_design` / routed | 114,388 / 112,015 | 114,122 / 111,829 (95.5%) |
+| FFs routed, CLBs, control sets | 57,561, 14,626, 2,833 | 57,541, 14,631, 2,858 |
+| WNS after `phys_opt_design` (estimated, with 1.0 ns on) | −1.032 ns | −1.609 ns |
+| Routing | congestion level 6, no trade | level 5, no trade, 1.6 h |
+| WNS / TNS on the core clock (ns) | −2.440 / −3,544 (4,992 failing) | **−2.863 / −4,675** (6,523 failing) |
+| `clk2x`: within / into / back (ns) | +1.490 / +1.419 / +1.142 | +1.573 / +0.275 / +0.694 |
+
+- **Both area-pass forms left the near-critical set.**
+  - DR-183's fetch request paths went from 28 families and 194 endpoints to one epoch register, `g_pmpf.f1_ep_q`: 1 endpoint at −1.236 ns from `f3_s_q`, 27 levels.
+  - Nothing into the payload LUTRAM is within 1 ns. Its write register reads −1.200 ns in this placement.
+- **The worst families are the ones with fixes in progress:**
+  - the LSU's LQ state from the LQ head (192 endpoints a core, 25–27 levels, worst −2.863);
+  - fetch's `u_cmp/rt_q` from the issue queues' `dep_q` (32–33 levels, −2.83);
+  - the L2's response into the I$ valid-bit RAMs (13 families, 953 endpoints, −2.62; soc-2's registered D output);
+  - the LSU's replay pick from step 6/7's `md_l_q` (−2.54);
+  - TAGE (−2.23, fpu-2).
+  - By unit within 1 ns: the LSU 238 families, fetch 106, rename 104, the CSR files 98.
+- **Not the clock.** main's `tg_clkgen` change (DR-187's clk2x-aware VCO) leaves the core clock's uncertainty at 0.068 ns in both builds. The worse result is this placement: its estimate before routing was 0.58 ns worse.
+- **From here, configurations are judged by two placements** (TG_PR_UNC 1.0 and 1.05, `tools/launch_pair.sh`), by the better WNS and by TNS.
+
+Results: `fpga/spikes/results/product_wt_a1_aslh/`.
+
+#### The registered payload write with DR-183 (d07317a6): −2.44 ns, the payload clear (2026-10-22)
+
+`product_wt2_next_aslh`:
+- **What's in it:** main 854ec2ce, core-2's DR-185 with the payload's write registered (31a90443, `PAY_WREG` = 1), and DR-183 at d07317a6 (`TG_PMP_FILL=1`).
+- **Flow:** `AltSpreadLogic_high`.
+
+| | Combined preview (payload written directly) | **Registered payload write** |
+|---|---|---|
+| LUTs after `opt_design` / routed | 114,587 / 112,118 | 114,388 / 112,015 (95.6%) |
+| FFs routed | 56,054 | 57,561 (+1,507: the write register, about 750 a core) |
+| CLBs, control sets | 14,632, 2,893 | 14,626, 2,833 |
+| WNS after `phys_opt_design` (estimated, with 1.0 ns on) | −1.605 ns | −1.032 ns |
+| WNS / TNS on the core clock (ns) | −1.620 / −3,900 (8,533 failing) | **−2.440 / −3,544** (4,992 failing) |
+| Endpoints within 1 ns | 19,460 | 14,778 |
+
+- **The payload write left the near-critical set.**
+  - Nothing into `u_rn/u_pay` is within 1 ns (the direct write had 8,381 endpoints at −1.362).
+  - The new write register `pay_wd_q` takes decode's path at −0.426 ns (938 endpoints, 19 levels).
+- **DR-183 at d07317a6 still has its fetch request paths:** `g_pmpf.rq_pa_q` at −1.065 ns, 25 levels from `f3_s_q`, 28 families. soc-2's 87e74fb9 removes that clock-enable cone. The next build has it.
+- **This placement's WNS is in the LSU.**
+  - From the ROB's head into the walker's `ok_q` and `cause_q` and the LQ's state (−2.44 ns, 27–28 levels).
+  - From step 6/7's `md_l_q` into the replay pick and M2.
+  - Then core 1's TAGE (−2.15) and the L2's response into its I$ valid-bit RAM (−2.14, 27 levels).
+- **Fewer failing endpoints, a worse worst one.** Placement noise at this fill moves WNS by more than a lever is worth. TNS and the endpoint counts follow the levers better than WNS does.
+
+Results: `fpga/spikes/results/product_wt2_next_aslh/`.
+
+#### The combined preview: DR-185 + DR-183 routes at −1.62 ns (2026-10-22)
+
+**Asked** (the coordinator, through soc-2): whether DR-185 and DR-183 together route and close at 100 MHz.
+- **What's in it:** the DR-185 preview (3ed73e6f, the payload written directly) plus soc-2's DR-183, PMP checks at TLB fill (5a885ab9 with `TG_PMP_FILL=1`). Merged into main a6ff993d with `AltSpreadLogic_high` (`product_wt_combo_aslh`).
+- **A first attempt stopped in `build.tcl`'s synthesis check:** Synth 8-6901, a forward reference in DR-183's `tg_lsu`. The measurement copy moved the line, as soc-2's d07317a6 then did.
+
+| | DR-185 preview | **DR-185 + DR-183** |
+|---|---|---|
+| LUTs after `opt_design` / routed | 116,663 / 114,067 | 114,587 / **112,118 (95.7%)** |
+| FFs routed | 55,850 | 56,054 |
+| CLBs | 14,639 | 14,632 |
+| WNS after `phys_opt_design` (estimated, with 1.0 ns on) | −0.755 ns | −1.605 ns |
+| Routing | 1.0 h; congestion 6, no trade | 1.2 h; congestion level 5, no trade |
+| WNS / TNS on the core clock (ns) | −1.108 / −595.5 (2,120 failing) | **−1.620 / −3,900** (8,533 failing) |
+| `clk2x`: within / into / back (ns) | +1.721 / +0.652 / +0.867 | +1.338 / +1.054 / +1.128 |
+
+- **DR-183 takes about 1.95K LUTs off the routed chip and adds 204 FFs.** It routes, but it doesn't close.
+- **This placement came out worse before routing** (−1.61 against −0.76), the same spread seen in builds 1–3. One run each can't rank them.
+- **DR-183's new paths are fetch's PMP request registers.**
+  - `g_pmpf.rq_pa_q` (32 endpoints), `rq_tid_q`, `rq_tag_q` and `cw_q` are reached from F3's `f3_s_q` through 27 levels (worst −1.067 ns).
+  - `lp_pg_q` and `rq_pa_q` are reached from the L2's refill pointer through 24 (−0.94).
+  - Nothing into M2's grant (`m2_ok`) is within 1 ns. No same-core fetch → LSU request path is near-critical.
+- **The unregistered payload write** is much worse in this placement: 8,381 endpoints in `u_rn/u_pay`, worst −1.362 ns. The registered form (31a90443) is building next.
+- **The worst paths:**
+  - the L2's response into the cores' I$ valid-bit RAMs (−1.62, 24–28 levels);
+  - the LSU's LQ state from the ROB and the LQ head (−1.62, 25);
+  - fetch's `u_cmp/rt_q` from rename (40–41 levels);
+  - TAGE (−1.58).
+  - By unit within 1 ns: the LSU 201 families, fetch 116, rename 115, the CSR files 85.
+- **New with the crossbar unsliced:** core 0's fetch `apf_q` reaches both cores' D$ miss entries (−0.249 ns, 14 levels, 81% wire).
+
+Results: `fpga/spikes/results/product_wt_combo_aslh/`.
+
+#### Build 2, with the banks' D slice (`TG_D_SLICE=1`): doesn't route (2026-10-22)
+
+Build 1 plus `TG_D_SLICE=1`, which puts a skid buffer on each L2 bank's D channel before the crossbar (`product_wt_nsd_aslh`). It is a measurement: the D slice is off by the user's choice.
+
+| | Build 1 (no D slice) | Build 2 (D slice) |
+|---|---|---|
+| LUTs after `opt_design` / placed | 115,692 / 113,343 | 115,868 / 113,359 |
+| FFs placed | 60,133 | 60,729 (+596) |
+| CLBs, control sets | 14,629, 2,878 | 14,640, 2,857 |
+| WNS after `phys_opt_design` (estimated, with the 1.0 ns of uncertainty on) | −0.897 ns | −0.965 ns |
+| Routing | routed at −1.740 ns, congestion level 5 | **failed:** 25,101 signals unrouted for congestion (level 6), 29,681 node overlaps |
+
+- **Placed congestion:** every window is level 5. They center on core 1's LSU (39–58% of a window's cells) and its D$ (18–25%), beside the uncore (17–32%), in rows 83–139 next to the crossbar and L2 bank 0. One window over the uncore holds core 0's CSR file and LSU.
+- **Routability itself is noisy at this fill.** The same netlist with and without 596 flip-flops lands on either side of the line. One run each can't separate the D slice from placement noise.
+- **So the D slice's effect on the response path (−1.459 ns in build 1) is unmeasured here.** That path isn't the worst family anyway: decode into the rename registers (−1.69) and fetch (−1.74) are worse.
+
+Results: `fpga/spikes/results/product_wt_nsd_aslh/` (utilization after `opt_design` and placement, the floorplan's reports, `congestion_placed.rpt` from the placed checkpoint, `run_excerpt.txt`).
+
+#### Build 3, with 0.5 ns of uncertainty on `clk2x`: doesn't route (2026-10-22)
+
+Build 1 with `TG_PR_UNC2X=0.5`: `clk2x` carries 0.5 ns of placement uncertainty and the core clock keeps 1.0 (`product_wt_ns2x_aslh`; the log confirms 0.5 ns on c2x).
+
+| | Build 1 | Build 3 |
+|---|---|---|
+| LUTs placed, FFs, CLBs | 113,343, 60,133, 14,629 | 113,223, 60,124, 14,634 |
+| WNS after `phys_opt_design` (estimated, with the core clock's 1.0 ns on) | −0.897 ns | −2.172 ns |
+| Routing | routed at −1.740 ns | **failed:** 51,224 signals unrouted for congestion (level 6), 79,675 node overlaps |
+
+- **The placement itself came out worse** (−2.17 against −0.90 before routing), and routing then failed.
+- **Of the three ACLINT-snapshot builds with AltSpreadLogic_high, only build 1 routed.**
+  - The three differ by a D slice (+596 FFs) or by a clock uncertainty, yet the outcomes span routed at −1.74 ns to 51K nets unrouted.
+  - At 96.8% of the LUTs with every CLB used, whether this chip routes is a coin toss. Build 1 was the good toss.
+- **So the chip needs area back before flow levers can be judged:** single runs can't rank them. The `clk2x` setting is unjudged here.
+
+Results: `fpga/spikes/results/product_wt_ns2x_aslh/`.
+
+#### AltSpreadLogic_medium: spreads too little at this fill (2026-10-22)
+
+The slices-on product build on the new snapshot (`snap/product_wt2`, main e2570c7c) with `place_design -directive AltSpreadLogic_medium` (`product_wt2_aslm`).
+- **Placement looked best of all the runs:** the estimate after `phys_opt_design` was −0.172 ns with the 1.0 ns of uncertainty on, and the router's first timing pass −0.010 ns.
+- **Routing undid it.** The router's congestion then rose to level 6 (64 × 64), it reported that congestion kept it from routing every net, and it gave up timing.
+- **Result:** 114,385 routed LUTs, 64,213 FFs, WNS **−3.028 ns**, TNS −19,275 ns, 18,969 failing endpoints; `clk2x` +0.946 ns.
+- **So AltSpreadLogic_high is the spreading for this chip:** it routed the harder, older netlist at −1.547 ns. The next combinations use it.
+
+Results: `fpga/spikes/results/product_wt2_aslm/`.
+
+#### No crossbar or memory-port slices: routes, but congested (2026-10-22)
+
+**Asked** (the coordinator): the product build with `TG_XBAR_SLICE=0` and `TG_MEM_SLICE=0`, keeping `TG_AR_SLICE=1` (the user's decision), with everything else as the baseline: default placement.
+- **Why:** soc.md measures the slices at about 1,150 LUTs, 4,629 FFs and 21 DSPs. They were built for 200 MHz and cost cycles.
+- **Basis:** the new snapshot `snap/product_wt2`, main e2570c7c (M7 step 6 and its fix, fpu-2's FPU levers, DR-181). So beside the baseline it also carries step 6's +768 and fpu-2's −580 LUTs a chip.
+- **Run:** `product_wt2_noslice`.
+
+| | Baseline (c0030303, slices on) | No slices (e2570c7c) |
+|---|---|---|
+| LUTs after `opt_design` | 116,190 | 115,674 |
+| LUTs routed | — | 113,231 (96.7%) |
+| FFs placed | 63,912 | **60,185** (−3,727) |
+| DSPs | 157 | 140 |
+| CLBs, control sets | 14,637, 2,849 | 14,640, 2,852 |
+| WNS after `phys_opt_design` (estimated, with 1.0 ns of uncertainty on) | −1.704 ns | **−0.390 ns** |
+| The router's starting short congestion | level 6 in four directions, 29–34% of tiles | level 6 east and west, 5 north and south, 22–29% |
+| Routes | no | **yes**, after giving up timing for congestion |
+| WNS / TNS on the core clock (ns) | — | −3.507 / −13,951, 16,470 failing endpoints |
+| `clk2x` / the host clock (ns) | — | +1.810 / +4.367 |
+
+- **The flip-flops and the placement improved; routing undid the timing.** The router's first timing pass read −0.29 ns, with the uncertainty still on. Then it reported that congestion kept it from routing every net, put routability ahead of timing, and finished at −3.5 ns.
+- **The crossbar's response direction is where the slices mattered.** By path:
+
+| Path | Families below 1 ns | Endpoints | Worst |
+|---|---|---|---|
+| The L2 banks through the crossbar into both cores' fetch (the bank's `u_rack` pointer into the I$ valid-bit RAM and the fetch PC) | 42 | 2,441 | −3.168 ns, 23 levels |
+| The cores into the crossbar (fetch's `ps_q` into its error responder) | 6 | 16 | −1.283 ns |
+| The host bridge into a core | 2 | 6 | −0.527 ns |
+| Within the uncore | 15 | 523 | −0.520 ns |
+| The memory ports: the PS's responses into an L2 bank (`m_vact`, 88% wire) | 2 | 2 | −0.204 ns |
+
+- **The worst paths are still the cores'.** At −3.5 ns the LSU's LQ state and M2 registers are reached from rename's `md_q` (step 6's merged halves). Then come the walker, the ROB's `hw_q` and the DTLB.
+- **So no-slice alone is the better netlist but not yet a placement.** It needs the spread placement that made the slices-on chip routable.
+- **If the L2-to-core response is still long then:** the worst of it starts in the bank's ReleaseAck queue (`u_rack`), which feeds the bank's D channel.
+  - `TG_D_SLICE=1` puts a skid buffer (`tg_skid`) on each bank's D channel before the crossbar, so it registers that response at the bank.
+  - Its cost is two banks' D-channel registers, against about 4.6K FFs for the crossbar's own slices.
+
+Results: `fpga/spikes/results/product_wt2_noslice/` (summary, timing, utilization, the floorplan's reports, `route_excerpt.txt`, `fail_families.txt`).
+
+#### The area exploration: the LSU, rename and the PMP bound (2026-10-21)
+
+**Asked** (the coordinator): three synthesis-only measurements on main e6691d53 (DR-179's FP banks of 64), with hu1's settings: smt2, TG_HART1=1, the release form's `LAT_INJ=0`, the product windows, the URF on. Measurement only; nothing goes to main.
+1. Core 0's LSU, split by function.
+2. Core 0's rename, split by function.
+3. The upper bound of the PMP saving: the fetch and load checkers and their descriptor selects stubbed out.
+
+**The basis matters.** The board's `-flatten_hierarchy rebuilt` (ex1, 122,482 LUTs) mixes the units:
+- it dissolves the PMP checkers, putting their descriptor selects under the CSR file;
+- it files about 1.1K of the issue queues' and the LSU's cells under rename.
+
+So the breakdowns use ex1n, the same build with `-flatten_hierarchy none` (122,432 LUTs: the setting costs nothing here). On ex1n, core 0's units are:
+
+| Unit | ex1n (none) | ex1 (rebuilt, as hu1 was reported) |
+|---|---|---|
+| LSU | 13,243 | 11,563 |
+| Rename | 5,261 | 6,404 |
+| CSR file | 1,792 | 3,371 |
+
+The tables below count LUT cells. Synthesis packs about 1.24 of them into each reported LUT in the LSU and 1.36 in rename.
+
+**1. The LSU** (core 0: 13,243 LUTs, of them 1,696 LUTRAM; 14,270 LUT cells, 5,314 FFs):
+
+| Part | LUT cells | Share | FFs | What's in it |
+|---|---|---|---|---|
+| D$ control, miss entries and data selects | 3,573 | 25% | 888 | The D$'s own 2,892: data selects about 1.0K (the load's hit-way dword 468, the victim and probe data 384, port B's write data 128, the AMO read 64), the four miss entries about 0.6K, the tag, valid and state ports about 0.3K. The LSU's logic into the D$'s ports: 681. |
+| The two PMP checkers and their descriptor selects | 2,320 | 16% | 54 | Load: checker 557, select and inputs 565. Store and walker: 574 and 619. |
+| LQ state and control | 1,481 | 10% | 1,356 | The 24 entries' next state (`lq_st_q` 1,054, 44 an entry). |
+| DTLB (32 entries) | 1,120 | 8% | 284 | Plus 1,120 LUTRAM cells. The CAM match about 380, the tables' ports about 410, the valid bits 148. |
+| SQ state and control | 1,081 | 8% | 1,176 | The drain (`sq_dr_q` 412), the tags 198. |
+| Atomics and MMIO | 870 | 6% | 507 | |
+| Replay, with the ordering check's result | 855 | 6% | 7 | `rp_v_q` 681 (the ordering search with its window and state terms), the oldest select `rp_ra_q` 161. |
+| Byte overlap and forwarding data | 760 | 5% | 175 | |
+| The walker and the head's translation | 588 | 4% | 253 | `u_ptw` 451, of it the walk's PMP check of the page (`leaf_q[ph]`) 190. |
+| Forwarding's youngest select | 489 | 3% | 19 | `m2_foh_q`: the forwarding search and its carry-chain youngest select. |
+| The queues' LUTRAM fields | 246 | 2% | — | Plus 768 LUTRAM cells. |
+| Store prefetch | 61 | 0.4% | 111 | |
+| Other | 826 | 6% | — | Wakeups 100, exceptions 83, the M1 and M2 registers, the store's clash with the M1 load 60. |
+
+The address comparisons. A compare's LUTs carry the name of the register they feed, so they sit inside the rows above. q_cam_cost counts the first-level LUTs that the address flip-flops feed:
+
+| Search | Compared | Entries | Ports | First-level LUTs |
+|---|---|---|---|---|
+| Forwarding, in M1 | PA[33:3] (31 bits), plus one bit for the store's state, window and byte overlap | 20 (SQ) | 1: the M1 load | 234 (11.7 an entry) |
+| Ordering, at STA | PA[33:3] (31 bits), then the byte overlap from PA[2:0] and the size | 24 (LQ) | 1: the store address | at most 457 (19.0 an entry, counting `lq_pa_q`'s other readers) |
+
+- The reductions run on carry chains: the second level is only 14 and 1 LUTs. Every other comparison is scalar.
+- **Per-thread selects** have no family of their own; they fold into their consumers.
+  - The largest are the PMP descriptor selects, about 1.2K cells. Each picks its thread's 8 descriptors of about 70 bits.
+  - Hart 1 cost the LSU +987 LUTs a core (hz0 → hn0, above).
+
+**2. Rename** (core 0: 5,261 LUTs, of them 1,296 LUTRAM; 5,399 LUT cells, 3,284 FFs):
+
+| Part | LUT cells | Share | FFs | LUTRAM cells | What's in it |
+|---|---|---|---|---|---|
+| The free lists: three integer banks, two FP banks | 1,369 | 25% | 345 | 160 | 267–284 each: the LUTRAM's write selects 102, each thread's pointers and counts 146 (two copies), the pop index 13, init 6 |
+| The free lists' inputs and the transfers' wants | 126 | 2% | 6 | — | |
+| The two rename registers' 2:1 select, into DS | 791 | 15% | 789 | — | 572 cells of it select payload that rename never reads: imm, pc, pred_npc, br_target, insn |
+| The two rename registers | 10 | — | 1,614 | — | 1,144 of their FFs hold that payload |
+| Their choice, decode's take and each thread's room | 324 | 6% | 11 | — | `acc_o` 249, `de_take` 64 |
+| Wakeup tags and LLT allocation | 536 | 10% | 80 | — | `wid_alloc` 255, `llt_busy_q` 166, `llt_tid_q` 65 |
+| Integer map | 442 | 8% | 71 | 384 | |
+| FP map | 441 | 8% | 71 | 384 | |
+| In-group bypass and the issue queues' dependency vectors | 402 | 7% | — | — | `iq_dep` 222, `iq_mdep` 180 |
+| Rename's results into DS | 369 | 7% | 208 | — | dst, rob, wid, sq, lq, llt |
+| Ready tables | 281 | 5% | 14 | 240 | |
+| Per-thread tails, counters and blocks | 194 | 4% | 75 | — | |
+| MX row tables | 102 | 2% | — | 208 | |
+| Port and bank steering | 12 | — | — | — | Only the IQs' write enables. The choices land in DS's fields and in `acc_o`, and the room checks in the free lists' counts. |
+
+**Duplicated per thread:**
+- the two rename registers (1,614 FFs);
+- their 2:1 select (791 cells), rename's widest multiplexer;
+- the free lists' pointers and counts: two copies in each of five lists, about 730 cells;
+- each thread's room for decode (249);
+- the per-thread tails and counters (194);
+- the tags' thread owners (83).
+
+The transfers themselves are small.
+
+**3. The PMP bound** (ex2: scratch branch `claude/spikes-2-explore-pmp` at c24edecf, never merged and never simulated). It stubs the fetch and load checkers and their descriptor selects. The store-address and walker checker stays.
+
+| | ex1 (main e6691d53) | ex2 (stubbed) | Change a chip |
+|---|---|---|---|
+| LUTs after synthesis | 122,482 | 118,726 | **−3,756** |
+| LUTs after `opt_design ExploreArea` | 117,956 | 114,513 | **−3,443** |
+| FFs after synthesis | 67,258 | 67,150 | −108 |
+| Estimated WNS on the core clock after synthesis (ns) | −0.927 | −0.927 | 0 |
+| ... after `opt_design` (ns) | −0.927 | −1.235 | −0.308 |
+
+- **Where it comes from:** ex1n's fetch checker (584) and its select (592), and the load checker (557) and its select (565). That is about 2.3K cells, or about 1.9K LUTs a core at the LSU's packing.
+- **The WNS estimates can't see it.** Before placement, the worst path in both builds is the uncore PLIC's priority tree (37–38 levels), which DR-180's release PLIC removes. The −0.308 ns is opt_design remapping that tree.
+- **Placed, the PMP doesn't limit timing.** In hp1f its nearest families had +0.41 ns (fetch's `f2_pmpd_q`, 18 levels) and +0.84 ns (the CSR file's `pmpcfg`). Its lever is area.
+- **It is an upper bound by construction.** The stubs also fold the TLBs' cached-PMP paths and the access faults, which a check-at-fill design keeps.
+
+**Where the real levers are (my read):**
+- **The PMP is the largest no-IPC item found.**
+  - A core has three checkers, each with its own select of its thread's descriptors. With the CSR file's descriptor precompute (about 310), that is about 3.8K cells, or 3.1K LUTs, about 6% of a core.
+  - The walker already checks each page's PMP homogeneity, and the TLBs cache the result.
+  - A design would check at TLB fill and keep one shared checker for untranslated accesses (M-mode, bare) and pages that aren't homogeneous. The store and walker checker already serves two paths.
+  - It is bounded at 3.4K LUTs a chip after `opt_design`. A real design keeps a fallback path, so perhaps 2.5–3K.
+  - IPC: only M-mode and bare accesses (OpenSBI's) would take the slower path; Linux's are translated. This is for core-2 to design and measure.
+- **Rename's payload.** 286 bits a slot ride through both per-thread rename registers and DS: 1,144 + 572 FFs and 572 cells of the 2:1 select a core.
+  - The fix: carry the payload beside rename (decode writes it into a per-thread LUTRAM queue that DS reads), or recompute br_target (pc + imm) where it's used.
+  - It could save up to about 1.7K FFs and 0.5K LUT cells a core, less the queue's LUTRAM.
+  - The FFs count, since the chip is CLB-bound (DR-180).
+- **Worth a look, no lever yet:**
+  - the D$'s two wide data selects (the load's hit-way dword 468, the victim and probe data 384);
+  - the LQ entries' next state (1,054 cells, 44 an entry).
+- **Not levers:**
+  - the address CAMs (about 0.5–0.7K, already on carry chains);
+  - the store prefetch (61);
+  - the free lists' transfers.
+
+Results: `fpga/spikes/results/h100_ex1_synth/`, `h100_ex1n_synth/` and `h100_ex2_synth/`; the queries' outputs in `explore/` there (cell groups, per-unit utilization, CAM cost, the A/B), from [`q_cell_groups.tcl`](../../fpga/spikes/tcl/query/q_cell_groups.tcl), [`q_util_hier.tcl`](../../fpga/spikes/tcl/query/q_util_hier.tcl), [`q_cam_cost.tcl`](../../fpga/spikes/tcl/query/q_cam_cost.tcl) and [`q_explore_ab.tcl`](../../fpga/spikes/tcl/query/q_explore_ab.tcl); categories by [`unit_categories.py`](../../fpga/spikes/scripts/unit_categories.py) with `lsu_categories.json` and `rn_categories.json`.
 
 ## 9. S1: PL → PS DDR latency and bandwidth
 

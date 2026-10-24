@@ -1,0 +1,42 @@
+{
+  "families": [
+    ["^u_pmp_(ld|st)$", "PMP: descriptor selects and checker inputs"],
+    ["^u_pmp_(ld|st)/", "PMP: the two checkers"],
+    ["^u_dtlb", "DTLB"],
+    ["^u_ptw", "walker (PTW) and the head's translation"],
+    ["^u_dc", "D$ control and miss entries"],
+    ["^u_(lqc|lqrob|lqa|sqh|sqrob|sqsz|sqva|sqd)\\b", "queues' LUTRAM fields and their ports"],
+    ["^(fc_sq|m1_fhit|m2_fhit|st_cmp|oc_hit|oc_m|sa_hit|fhit|ord_hit)", "LQ/SQ address comparisons"],
+    ["^(m1_foh|m2_foh|.*_oldest|.*_youngest|oc_sel|oc_idx|lq_first|sq_first|sq_last)", "age and priority selection"],
+    ["^(m2_fcov|m2_fdat|m1_fdat|m1_fcov|fsd_|fwd|r_data|m2_fw|fw_|ld_data|m2_ldat|wb_data)", "byte overlap and forwarding data"],
+    ["^(dpf_|spf_|stpf|pf_)", "store prefetch"],
+    ["^(am_|rsv_|mm_|mmio_|sq_amo|xr_|am_st|AM_)", "atomics and MMIO"],
+    ["^(rp_|rply|replay)", "replay"],
+    ["(kill_t|_ot$|_ot\\[|lq_ot|sq_ot|^t_[a-z0-9]+|_t_q$|_t$|_tid)", "per-thread selects"]
+  ],
+  "sections": [
+    ["^Helpers", "other: helpers"],
+    ["^LQ$", "LQ state and control"],
+    ["^SQ$", "SQ state and control"],
+    ["^Age searches", "age and priority selection"],
+    ["^Commit-side trace", "other: trace reads"],
+    ["^D\\$", "D$ control and miss entries"],
+    ["^AG$", "replay"],
+    ["^DTLB", "DTLB"],
+    ["^New load", "load check (translate, PMA)"],
+    ["^The AG slot", "replay"],
+    ["^M1$", "LQ/SQ address comparisons"],
+    ["^M2$", "M2: load outcome, PTE reads, FP hold"],
+    ["^MMIO", "atomics and MMIO"],
+    ["^Result register", "byte overlap and forwarding data"],
+    ["^Atomics", "atomics and MMIO"],
+    ["^Store data capture", "store data capture"],
+    ["^STA$", "store address (STA)"],
+    ["^S2", "PMP: descriptor selects and checker inputs"],
+    ["^Store ownership prefetch", "store prefetch"],
+    ["^ROB reports", "ROB reports"],
+    ["^Translation", "walker (PTW) and the head's translation"],
+    ["^Cold storage", "queues' LUTRAM fields and their ports"],
+    ["^Sequential|^Commit|^Drain|^Replays|^Result|^M2 outcome|^M1 ->|^AG ->|^DR-149|^Waiting", "other: sequential blocks"]
+  ]
+}

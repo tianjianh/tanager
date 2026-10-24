@@ -1,0 +1,3 @@
+lvl loc            type    net in   cell      at   fo  input pin -> output net
+Data Path Delay:        10.284ns  (logic 3.510ns (34.130%)  route 6.774ns (65.870%))
+Clock Path Skew:        -0.180ns

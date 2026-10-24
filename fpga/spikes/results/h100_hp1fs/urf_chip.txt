@@ -1,0 +1,31 @@
+== /home/w/tanager-build/track-spikes-72f833/fp/h100_hp1fs_routed.dcp
+  c0 -> c0         WNS  -0.426  WHS   0.001
+  c0 -> clk2x      WNS   0.728  WHS    0.07
+  clk2x -> clk2x   WNS   1.712  WHS   0.159
+  clk2x -> c0      WNS   1.015  WHS   0.066
+  clk2x: c2x, 5.000 ns
+== core 0
+    u_soc/g_core[0].g_tgc.u_core/u_ex/u_irf/g_urf.u_urf
+    9 UltraRAMs: URAM288_X0Y0 URAM288_X0Y10 URAM288_X0Y11 URAM288_X0Y4 URAM288_X0Y5 URAM288_X0Y6 URAM288_X0Y7 URAM288_X0Y8 URAM288_X0Y9
+    select -> port B address (10 ns)         0.728  req 10.000  data  8.480 ns (logic 2.078, net 6.402) 14 levels  u_soc/g_core[0].g_tgc.u_core/u_is/u_wake/g_one.w_q_reg[23]/C -> u_soc/g_core[0].g_tgc.u_core/u_ex/u_irf/g_urf.u_urf/g_bank[2].g_copy[1].u_uram/ADDR_B[0]
+    late address -> port A (5 ns)            1.537  req  5.000  data  2.396 ns (logic 0.266, net 2.130)  1 levels  u_soc/g_core[0].g_tgc.u_core/u_ex/u_irf/g_urf.l_idx_q_reg[1][1]/C -> u_soc/g_core[0].g_tgc.u_core/u_ex/u_irf/g_urf.u_urf/g_bank[2].g_copy[1].u_uram/ADDR_A[1]
+    write -> UltraRAMs (10 ns)               2.122  req 10.000  data  6.931 ns (logic 1.201, net 5.730)  7 levels  u_soc/g_core[0].g_tgc.u_core/g_p4.u_p4/iq_rd_q_reg[0]/C -> u_soc/g_core[0].g_tgc.u_core/u_ex/u_irf/g_urf.u_urf/g_bank[1].g_copy[1].u_uram/ADDR_A[0]
+    port B held -> RF stage (10 ns)          3.856  req 10.000  data  5.584 ns (logic 2.849, net 2.735)  2 levels  u_soc/g_core[0].g_tgc.u_core/u_ex/u_irf/g_urf.u_urf/g_bank[1].g_copy[1].u_uram/CLK -> u_soc/g_core[0].g_tgc.u_core/u_ex/ex_a_q_reg[2][20]/D
+    port A mid-cycle -> RF stage (5 ns)      1.090  req  5.000  data  3.330 ns (logic 1.819, net 1.511)  1 levels  u_soc/g_core[0].g_tgc.u_core/u_ex/u_irf/g_urf.u_urf/g_bank[2].g_copy[2].u_uram/CLK -> u_soc/g_core[0].g_tgc.u_core/u_ex/ex_a_q_reg[1][53]/D
+      left after the mid-cycle data reaches its first LUT: 1.405 ns
+    half-cycle flag -> UltraRAMs             1.584  req  5.000  data  2.301 ns (logic 0.340, net 1.961)  1 levels  u_soc/g_core[0].g_tgc.u_core/u_ex/u_irf/g_urf.u_urf/t1_q_reg/C -> u_soc/g_core[0].g_tgc.u_core/u_ex/u_irf/g_urf.u_urf/g_bank[1].g_copy[2].u_uram/ADDR_A[3]
+    early bank -> bank select                6.885  req 10.000  data  2.858 ns (logic 0.475, net 2.383)  2 levels  u_soc/g_core[0].g_tgc.u_core/u_ex/u_irf/g_urf.u_urf/e_bank_q_reg[1][0]/C -> u_soc/g_core[0].g_tgc.u_core/u_ex/ex_a_q_reg[2][10]/D
+    tg_irf (URF + the LUTRAM ports): luts 846, lutram 240, ffs 26, urams 9
+== core 1
+    u_soc/g_core[1].g_tgc.u_core/u_ex/u_irf/g_urf.u_urf
+    9 UltraRAMs: URAM288_X0Y48 URAM288_X0Y49 URAM288_X0Y50 URAM288_X0Y51 URAM288_X0Y52 URAM288_X0Y53 URAM288_X0Y54 URAM288_X0Y55 URAM288_X0Y56
+    select -> port B address (10 ns)         1.567  req 10.000  data  7.490 ns (logic 2.285, net 5.205) 14 levels  u_soc/g_core[1].g_tgc.u_core/u_is/g_q[0].u_iq/age_q_reg[5][1]/C -> u_soc/g_core[1].g_tgc.u_core/u_ex/u_irf/g_urf.u_urf/g_bank[0].g_copy[0].u_uram/ADDR_B[5]
+    late address -> port A (5 ns)            1.607  req  5.000  data  2.163 ns (logic 0.337, net 1.826)  1 levels  u_soc/g_core[1].g_tgc.u_core/u_ex/u_irf/g_urf.l_idx_q_reg[0][4]/C -> u_soc/g_core[1].g_tgc.u_core/u_ex/u_irf/g_urf.u_urf/g_bank[0].g_copy[0].u_uram/ADDR_A[4]
+    write -> UltraRAMs (10 ns)               2.699  req 10.000  data  6.341 ns (logic 1.298, net 5.043)  7 levels  u_soc/g_core[1].g_tgc.u_core/g_p4.u_p4/iq_rd_q_reg[1]/C -> u_soc/g_core[1].g_tgc.u_core/u_ex/u_irf/g_urf.u_urf/g_bank[1].g_copy[1].u_uram/DIN_A[24]
+    port B held -> RF stage (10 ns)          4.077  req 10.000  data  5.475 ns (logic 2.967, net 2.508)  2 levels  u_soc/g_core[1].g_tgc.u_core/u_ex/u_irf/g_urf.u_urf/g_bank[1].g_copy[2].u_uram/CLK -> u_soc/g_core[1].g_tgc.u_core/u_ex/ex_a_q_reg[3][39]/D
+    port A mid-cycle -> RF stage (5 ns)      1.015  req  5.000  data  3.524 ns (logic 1.805, net 1.719)  1 levels  u_soc/g_core[1].g_tgc.u_core/u_ex/u_irf/g_urf.u_urf/g_bank[0].g_copy[2].u_uram/CLK -> u_soc/g_core[1].g_tgc.u_core/u_ex/ex_a_q_reg[1][33]/D
+      left after the mid-cycle data reaches its first LUT: 1.277 ns
+    half-cycle flag -> UltraRAMs             1.195  req  5.000  data  2.701 ns (logic 0.271, net 2.430)  1 levels  u_soc/g_core[1].g_tgc.u_core/u_ex/u_irf/g_urf.u_urf/t1_q_reg/C -> u_soc/g_core[1].g_tgc.u_core/u_ex/u_irf/g_urf.u_urf/g_bank[0].g_copy[1].u_uram/EN_A
+    early bank -> bank select                6.718  req 10.000  data  2.976 ns (logic 0.486, net 2.490)  2 levels  u_soc/g_core[1].g_tgc.u_core/u_ex/u_irf/g_urf.u_urf/e_bank_q_reg[1][0]/C -> u_soc/g_core[1].g_tgc.u_core/u_ex/ex_a_q_reg[2][63]/D
+    tg_irf (URF + the LUTRAM ports): luts 846, lutram 240, ffs 26, urams 9
+chip UltraRAMs: 50
