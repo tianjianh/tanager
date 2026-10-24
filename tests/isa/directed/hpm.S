@@ -4,8 +4,9 @@
    a write (a write across bit 63, counting and stopped), a counter written as -1 wrapping at its next count; LCOFIP set
    as OF rises, not by a second wrap or by software's OF; LCOFI taken in M, delegated in S, and from S in M; scountovf in
    M and from S under mcounteren. Passes at once without the counters (mhpmevent3 reads zero: TG_HPM off, Spike, the
-   test core). Spike's counters read zero, so with TG_HPM on it runs with --no-lockstep until the checker takes the
-   counters from the core. Added by the FPU track. */
+   test core). With TG_HPM on (HPM=1) it runs under lockstep: Spike with _sscofpmf, the counters', events' and
+   scountovf's reads taken from the core, the LCOFIs from its interrupt records (verification.md §3.4). Added by the
+   FPU track. */
 #include "tg_test.h"
 #define LCOF      (1 << 13)
 #define SCOUNTOVF 0xda0
