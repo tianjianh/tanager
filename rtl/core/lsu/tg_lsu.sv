@@ -689,6 +689,7 @@ module tg_lsu
   // load's (t_ln) and store's (t_sn), the head's, the load checker's load's (t_lck), the store checker's user's
   // (t_pst), the walk's (in tg_ptw)
   tid_t [DT_NR-1:0] dt_tid;                       // (driven below ln_lq's declaration)
+  tid_t [DT_NR-1:0] dt_tid_e;                     // the EARLY ports' threads a cycle ahead (with dt_vpn_e)
   tid_t             t_ln, t_sn;
   tid_t             pw_dtid;                      // the walk's thread (the fills')
   logic [NT-1:0]    xl_t;                         // each thread's data accesses translate
@@ -699,7 +700,7 @@ module tg_lsu
   assign xl_l = xl_t[t_ln];
   assign xl_s = xl_t[t_sn];
   tg_tlb #(.NE(DTLB_ENTRIES), .NR(DT_NR), .CAM(1'b1), .EARLY(LSU_AG_SPLIT ? DT_NR'(3) : DT_NR'(0))) u_dtlb (
-    .clk, .rst, .vpn(dt_vpn), .vpn_e(dt_vpn_e), .lk_tid(dt_tid), .hit(dt_hit), .pte(dt_pte), .fill(dt_fill),
+    .clk, .rst, .vpn(dt_vpn), .vpn_e(dt_vpn_e), .lk_tid(dt_tid), .lk_tid_e(dt_tid_e), .hit(dt_hit), .pte(dt_pte), .fill(dt_fill),
     .fill_vpn(pw_vpn), .fill_lvl(pw_lvl), .fill_pte(pw_pte), .fill_tid(pw_dtid), .flush(tlb_flush),
     .flush_tid(tlb_flush_tid));
 
@@ -795,6 +796,10 @@ module tg_lsu
     for (int r = 0; r < DT_NR; r++) dt_tid[r] = t_hd;
     dt_tid[0] = LSU_AG_SPLIT ? m1_t_q : ld_ag_pl.tid;   // ln_lq's thread: M1's (split), else AG's payload's
     dt_tid[1] = sn_t;
+    // ... and a cycle ahead, for the EARLY ports (with the split): what m1_t_q and sn_t_q load, every cycle
+    dt_tid_e    = dt_tid;
+    dt_tid_e[0] = ag_t;
+    dt_tid_e[1] = sta_ag_pl.tid;
   end
   // M1's thread (and M2's, t_m2): a load's, its LQ entry's; a PTE read's, the walk's (which lasts while its read is
   // in the pipe: a flush of its thread kills both)
