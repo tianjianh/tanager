@@ -1,0 +1,45 @@
+== build: product: build.tcl at d1c4c25ebf51 (c0030303 + c183e3ad + reports), product-hart1-release-urf-fp, 24 GB, in /home/w/tanager-build/track-spikes-72f833/vivado/product
+== env: TG_RELEASE=1 TG_PMOD_UART=1 TG_HOST_DMA=1 TG_PS_WINDOW=1 TG_URF=1 TG_DEFINES=TG_HART1=1 TG_FAN_PL=1 (floorplan, TG_PR_UNC 1.0, ExploreArea, AreaOptimized_high: build.tcl's defaults); args smt2 core 100 2 impl
+FLOORPLAN_OK l2b0: 6228 LUT cells for 6400 LUT sites, 97% before opt_design, IS_SOFT 1 (warn above 105%, tight above 115%)
+FLOORPLAN_OK l2b1: 6548 LUT cells for 6400 LUT sites, 102% before opt_design, IS_SOFT 1 (warn above 105%, tight above 115%)
+FLOORPLAN_OK xbar: 2840 LUT cells for 4032 LUT sites, 70% before opt_design, IS_SOFT 1 (warn above 105%, tight above 115%)
+FLOORPLAN_OK l2b0: its own 4737 LUTs for 6400 LUT sites, 74% after placement, with 2690 of other cells' inside; 22% of its 6100 LUT cells outside, IS_SOFT 1 (warn above 85%, tight above 90%)
+FLOORPLAN_OK l2b1: its own 5029 LUTs for 6400 LUT sites, 79% after placement, with 2481 of other cells' inside; 21% of its 6421 LUT cells outside, IS_SOFT 1 (warn above 85%, tight above 90%)
+FLOORPLAN_OK xbar: its own 2229 LUTs for 4032 LUT sites, 55% after placement, with 2650 of other cells' inside; 37% of its 2783 LUT cells outside, IS_SOFT 1 (warn above 85%, tight above 90%)
+INFO: [Physopt 32-603] Post Physical Optimization Timing Summary | WNS=-1.704 | TNS=-3793.161 |
+INFO: [Route 35-416] Intermediate Timing Summary | WNS=-1.480 | TNS=-2138.738| WHS=-0.242 | THS=-209.955|
+INFO: [Route 35-448] Estimated Global/Short routing congestion is level 6 (64x64). Congestion levels of 5 and greater can reduce routability and impact timing closure.
+INFO: [Route 35-581] Estimated Timing congestion is level 5 (32x32). Congestion levels of 5 and greater may impact timing closure.
+INFO: [Route 35-416] Intermediate Timing Summary | WNS=-5.804 | TNS=-38849.333| WHS=N/A    | THS=N/A    |
+INFO: [Route 35-416] Intermediate Timing Summary | WNS=-7.264 | TNS=-91311.817| WHS=N/A    | THS=N/A    |
+CRITICAL WARNING: [Route 35-162] 28100 signals failed to route due to routing congestion. Please run report_route_status to get a full summary of the design's routing.
+ERROR: [Route 35-2] Design is not legally routed. There are 32975 node overlaps.
+Phase 4.3.1 Print Estimated Congestion
+INFO: [Place 30-612] Post-Placement Estimated Congestion 
+ ________________________________________________________________________
+|           | Global Congestion | Long Congestion   | Short Congestion  |
+| Direction | Region Size       | Region Size       | Region Size       |
+|___________|___________________|___________________|___________________|
+|      North|              32x32|              32x32|              32x32|
+|___________|___________________|___________________|___________________|
+|      South|              16x16|              32x32|              32x32|
+|___________|___________________|___________________|___________________|
+|       East|              32x32|                4x4|              32x32|
+|___________|___________________|___________________|___________________|
+|       West|              32x32|              16x16|              32x32|
+|___________|___________________|___________________|___________________|
+
+INFO: [Route 35-449] Initial Estimated Congestion
+ ________________________________________________________________________
+|           | Global Congestion | Long Congestion   | Short Congestion  |
+|           |___________________|___________________|___________________|
+| Direction | Size   | % Tiles  | Size   | % Tiles  | Size   | % Tiles  |
+|___________|________|__________|________|__________|________|__________|
+|      NORTH|   64x64|     15.57|   32x32|      9.77|   64x64|     28.89|
+|___________|________|__________|________|__________|________|__________|
+|      SOUTH|   32x32|     15.23|   16x16|      7.70|   64x64|     31.14|
+|___________|________|__________|________|__________|________|__________|
+|       EAST|   32x32|     10.43|     4x4|      2.02|   64x64|     33.90|
+|___________|________|__________|________|__________|________|__________|
+|       WEST|   32x32|     13.71|   32x32|      5.67|   64x64|     34.33|
+|___________|________|__________|________|__________|________|__________|

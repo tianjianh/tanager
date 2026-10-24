@@ -1,0 +1,24 @@
+lvl loc            type    net in   cell      at   fo  input pin -> output net
+  1 SLICE_X25Y213  LUT5     0.211  0.137   6.252    2  c1:u_fetch/u_cmp/tg_fetch_compac1_LUT5_233/I4 -> c1:u_fetch/u_cmp/tg_fetch_compac1_net_782
+  2 SLICE_X25Y214  LUT4     0.109  0.083   6.443  182  c1:u_fetch/u_cmp/tg_fetch_compac1_LUT4_57/I3 -> c1:u_fetch/u_cmp/g_bank[2].u_ram/g_m32.g_prim[1].u_ram/ADDRA0
+  3 SLICE_X24Y218  RAMD32   0.516  0.225   7.185    2  c1:u_fetch/u_cmp/g_bank[2].u_ram/g_m32.g_prim[1].u_ram/RAMA/RADR0 -> c1:u_fetch/u_cmp/brdata[2]_1413[14]
+  4 SLICE_X26Y218  LUT6     0.488  0.081   7.754   51  c1:u_fetch/u_cmp/tg_fetch_compac1_LUT6_18/I2 -> c1:u_de/D[55]
+  5 SLICE_X29Y204  LUT3     0.726  0.185   8.664    3  c1:u_de/i___39_i_10/I0 -> c1:u_de/i___39_i_10_n_0
+  6 SLICE_X24Y209  LUT4     0.436  0.223   9.323    1  c1:u_de/i___54_i_4/I0 -> c1:u_de/i___54_i_4_n_0
+  7 SLICE_X28Y211  LUT6     0.412  0.149   9.884    1  c1:u_de/tg_decode_stage1_LUT6_100/I5 -> c1:u_fetch/u_cmp/g_pay_wreg.pay_wd_q_reg[575]_0
+  8 SLICE_X30Y211  LUT6     0.165  0.152  10.201   18  c1:u_fetch/u_cmp/tg_fetch_compac1_LUT6_117/I2 -> c1:u_fetch/u_cmp/g_dec[1].xi[11]
+  9 SLICE_X33Y209  LUT2     0.308  0.135  10.644    5  c1:u_fetch/u_cmp/i___75_i_1__4/I1 -> c1:u_de/rn_u_q_reg[1][1][d][cls][0]
+ 10 SLICE_X34Y211  LUT2     0.307  0.225  11.176   10  c1:u_de/tg_decode_stage1_LUT2_26/I1 -> c1:u_fetch/u_cmp/rn_u_q_reg[1][1][d][cls][0]
+ 11 SLICE_X31Y206  LUT4     0.505  0.152  11.833    4  c1:u_fetch/u_cmp/i___498_i_1__1/I1 -> c1:u_de/rn_u_q_reg[0][1][d][exc]_0
+ 12 SLICE_X32Y210  LUT6     0.279  0.152  12.263    1  c1:u_de/tg_decode_stage1_LUT6_208/I4 -> c1:u_fetch/u_cmp/i___64_i_8_1
+ 13 SLICE_X32Y208  LUT6     0.222  0.135  12.620    1  c1:u_fetch/u_cmp/tg_fetch_compac1_LUT6_952/I1 -> c1:u_fetch/u_cmp/tg_fetch_compac1_net_735
+ 14 SLICE_X33Y206  LUT2     0.257  0.093  12.970    1  c1:u_fetch/u_cmp/tg_fetch_compac1_LUT2_86/I1 -> c1:u_fetch/u_cmp/tg_fetch_compac1_net_736
+ 15 SLICE_X33Y207  LUT6     0.133  0.137  13.240    1  c1:u_fetch/u_cmp/tg_fetch_compac1_LUT6_953/I5 -> c1:u_fetch/u_cmp/tg_fetch_compac1_net_752
+ 16 SLICE_X33Y207  LUT6     0.057  0.152  13.449    4  c1:u_fetch/u_cmp/tg_fetch_compac1_LUT6_964/I4 -> c1:u_de/g_pay_wreg.pay_wd_q_reg[398]
+ 17 SLICE_X33Y206  LUT2     0.118  0.223  13.790  155  c1:u_de/tg_decode_stage1_LUT2_1/I0 -> c1:u_fetch/u_cmp/g_pay_wreg.pay_wd_q_reg[501]
+ 18 SLICE_X32Y204  LUT6     0.274  0.220  14.284    2  c1:u_fetch/u_cmp/tg_fetch_compac1_LUT6_979/I0 -> c1:u_fetch/u_cmp/tg_fetch_compac1_net_761
+ 19 SLICE_X32Y202  LUT6     0.163  0.058  14.505    7  c1:u_fetch/u_cmp/tg_fetch_compac1_LUT6_980/I5 -> c1:u_rn/rn_u_q_reg[1][1][d][cls][3]_0[2]
+ 20 SLICE_X29Y198  LUT2     0.367  0.138  15.010    2  c1:u_rn/i___278/I0 -> c1:u_rn/i___278_n_0
+end: c1:u_rn/rn_need_q_reg[1][1][0]/D (net in 0.408)
+Data Path Delay:        9.628ns  (logic 3.169ns (32.914%)  route 6.459ns (67.086%))
+Clock Path Skew:        -0.764ns

@@ -1,0 +1,216 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
+| Date         : Thu Oct 22 02:45:55 2026
+| Host         : w-arrowlake running 64-bit Ubuntu 24.04.5 LTS
+| Command      : report_utilization -hierarchical -hierarchical_depth 4 -file /home/w/tanager-build/track-spikes-72f833/vivado/product_asl_high/reports/utilization_hier.rpt
+| Design       : kv260_top
+| Device       : xck26-sfvc784-2LV-c
+| Speed File   : -2LV
+| Design State : Routed
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Utilization Design Information
+
+Table of Contents
+-----------------
+1. Utilization by Hierarchy
+
+1. Utilization by Hierarchy
+---------------------------
+
++-----------------------------------+--------------------------------+------------+------------+---------+------+-------+--------+--------+------+------------+
+|              Instance             |             Module             | Total LUTs | Logic LUTs | LUTRAMs | SRLs |  FFs  | RAMB36 | RAMB18 | URAM | DSP Blocks |
++-----------------------------------+--------------------------------+------------+------------+---------+------+-------+--------+--------+------+------------+
+| kv260_top                         |                          (top) |     113723 |      98347 |   15344 |   32 | 63895 |    118 |      4 |   50 |        157 |
+|   (kv260_top)                     |                          (top) |          0 |          0 |       0 |    0 |     0 |      0 |      0 |    0 |          0 |
+|   g_fan.u_fan                     |                         tg_fan |        134 |        134 |       0 |    0 |   125 |      0 |      0 |    0 |          1 |
+|   u_axil                          |                tg_axi4_to_axil |        208 |        208 |       0 |    0 |   146 |      0 |      0 |    0 |          0 |
+|   u_soc                           |                    tanager_soc |     113349 |      97973 |   15344 |   32 | 63616 |    118 |      4 |   50 |        156 |
+|     u_uncore                      |                      tg_uncore |      14847 |      13295 |    1552 |    0 | 14648 |     12 |      2 |   32 |         30 |
+|       u_xbar                      |                        tg_xbar |       2216 |       2216 |       0 |    0 |  2948 |      0 |      0 |    0 |         13 |
+|         (u_xbar)                  |                        tg_xbar |        818 |        818 |       0 |    0 |    28 |      0 |      0 |    0 |          0 |
+|         g_ib[0].g_s.u_s           |        tg_skid__parameterized9 |          2 |          2 |       0 |    0 |    62 |      0 |      0 |    0 |          0 |
+|         g_ib[1].g_s.u_s           |      tg_skid__parameterized9_8 |          2 |          2 |       0 |    0 |    62 |      0 |      0 |    0 |          0 |
+|         g_id[0].g_p.g_s.u_s       |        tg_skid__parameterized6 |         25 |         25 |       0 |    0 |   290 |      0 |      0 |    0 |          0 |
+|         g_id[12].g_p.g_s.u_s      |     tg_skid__parameterized6_10 |         66 |         66 |       0 |    0 |   262 |      0 |      0 |    0 |          0 |
+|         g_id[1].g_p.g_s.u_s       |     tg_skid__parameterized6_12 |         25 |         25 |       0 |    0 |   290 |      0 |      0 |    0 |          0 |
+|         g_id[4].g_p.g_s.u_s       |     tg_skid__parameterized6_14 |          2 |          2 |       0 |    0 |   132 |      0 |      0 |    0 |          0 |
+|         g_id[5].g_p.g_s.u_s       |     tg_skid__parameterized6_15 |          2 |          2 |       0 |    0 |   132 |      0 |      0 |    0 |          0 |
+|         g_id[8].g_p.g_s.u_s       |     tg_skid__parameterized6_17 |        121 |        121 |       0 |    0 |   131 |      0 |      0 |    0 |          0 |
+|         g_id[8].g_p.u_arb         |         tg_arb__parameterized6 |        168 |        168 |       0 |    0 |     7 |      0 |      0 |    0 |          0 |
+|         g_id[9].g_p.g_s.u_s       |     tg_skid__parameterized6_18 |        121 |        121 |       0 |    0 |   131 |      0 |      0 |    0 |          0 |
+|         g_id[9].g_p.u_arb         |      tg_arb__parameterized6_19 |        167 |        167 |       0 |    0 |     7 |      0 |      0 |    0 |          0 |
+|         g_ta[0].u_arb             |         tg_arb__parameterized1 |         83 |         83 |       0 |    0 |     7 |      0 |      0 |    0 |          0 |
+|         g_ta[1].u_arb             |      tg_arb__parameterized1_20 |         82 |         82 |       0 |    0 |     7 |      0 |      0 |    0 |          0 |
+|         g_ta_slice[0].g_s.u_s     |        tg_skid__parameterized4 |        102 |        102 |       0 |    0 |   376 |      0 |      0 |    0 |          0 |
+|         g_ta_slice[1].g_s.u_s     |     tg_skid__parameterized4_22 |        101 |        101 |       0 |    0 |   376 |      0 |      0 |    0 |          0 |
+|         g_ta_slice[3].g_s.u_s     |        tg_skid__parameterized5 |        114 |        114 |       0 |    0 |   185 |      0 |      0 |    0 |          5 |
+|         g_tc[0].g_s.u_s           |        tg_skid__parameterized7 |          3 |          3 |       0 |    0 |   165 |      0 |      0 |    0 |          4 |
+|         g_tc[1].g_s.u_s           |     tg_skid__parameterized7_25 |          6 |          6 |       0 |    0 |   165 |      0 |      0 |    0 |          4 |
+|       g_hdma.u_hdma               |                        tg_hdma |        660 |        532 |     128 |    0 |   275 |      0 |      0 |    0 |          0 |
+|       g_mem[0].g_ars.u_ars        |                        tg_skid |         28 |         28 |       0 |    0 |    66 |      0 |      0 |    0 |          0 |
+|       g_mem[0].u_slice            |                   tg_axi_slice |        124 |        124 |       0 |    0 |   605 |      0 |      0 |    0 |          4 |
+|         g_on.u_ar                 |                     tg_skid_51 |         24 |         24 |       0 |    0 |    92 |      0 |      0 |    0 |          0 |
+|         g_on.u_aw                 |                     tg_skid_52 |         23 |         23 |       0 |    0 |    92 |      0 |      0 |    0 |          0 |
+|         g_on.u_r                  |     tg_skid__parameterized2_54 |         71 |         71 |       0 |    0 |   276 |      0 |      0 |    0 |          0 |
+|         g_on.u_w                  |     tg_skid__parameterized1_55 |          3 |          3 |       0 |    0 |   131 |      0 |      0 |    0 |          4 |
+|       g_mem[0].u_win              |                  tg_axi_window |        143 |        135 |       8 |    0 |    33 |      0 |      0 |    0 |          0 |
+|         u_rarb                    |                      tg_arb_49 |         86 |         86 |       0 |    0 |     3 |      0 |      0 |    0 |          0 |
+|       g_mem[1].g_ars.u_ars        |                      tg_skid_1 |         28 |         28 |       0 |    0 |    66 |      0 |      0 |    0 |          0 |
+|       g_mem[1].u_slice            |                 tg_axi_slice_2 |        124 |        124 |       0 |    0 |   605 |      0 |      0 |    0 |          4 |
+|         g_on.u_ar                 |                     tg_skid_45 |         24 |         24 |       0 |    0 |    92 |      0 |      0 |    0 |          0 |
+|         g_on.u_aw                 |                     tg_skid_46 |         23 |         23 |       0 |    0 |    92 |      0 |      0 |    0 |          0 |
+|         g_on.u_r                  |     tg_skid__parameterized2_47 |         71 |         71 |       0 |    0 |   276 |      0 |      0 |    0 |          0 |
+|         g_on.u_w                  |        tg_skid__parameterized1 |          3 |          3 |       0 |    0 |   131 |      0 |      0 |    0 |          4 |
+|       g_mem[1].u_win              |                tg_axi_window_3 |        135 |        127 |       8 |    0 |    33 |      0 |      0 |    0 |          0 |
+|         u_rarb                    |                         tg_arb |         87 |         87 |       0 |    0 |     3 |      0 |      0 |    0 |          0 |
+|       g_pswin.u_pswin             |                   tg_ps_window |        100 |        100 |       0 |    0 |   205 |      0 |      0 |    0 |          0 |
+|       g_serial.u_phy              |                    tg_uart_phy |         88 |         88 |       0 |    0 |    94 |      0 |      0 |    0 |          0 |
+|       u_aclint                    |                      tg_aclint |        128 |        128 |       0 |    0 |   426 |      0 |      0 |    0 |          8 |
+|         (u_aclint)                |                      tg_aclint |        120 |        120 |       0 |    0 |   414 |      0 |      0 |    0 |          0 |
+|       u_dev                       |                      tg_tl_dev |        613 |        613 |       0 |    0 |   187 |      0 |      0 |    0 |          0 |
+|       u_host                      |                 tg_host_bridge |        537 |        537 |       0 |    0 |  2451 |      0 |      0 |    0 |          0 |
+|         (u_host)                  |                 tg_host_bridge |        186 |        186 |       0 |    0 |   657 |      0 |      0 |    0 |          0 |
+|         u_cfg                     |                  tg_cdc_mirror |        265 |        265 |       0 |    0 |  1106 |      0 |      0 |    0 |          0 |
+|         u_status                  |  tg_cdc_mirror__parameterized0 |         77 |         77 |       0 |    0 |   654 |      0 |      0 |    0 |          0 |
+|       u_l2                        |                          tg_l2 |       9736 |       8344 |    1392 |    0 |  6228 |     12 |      2 |   32 |          0 |
+|         g_bank[0].u_bank          |                     tg_l2_bank |       4728 |       4032 |     696 |    0 |  3114 |      6 |      1 |   16 |          0 |
+|         g_bank[1].u_bank          |     tg_l2_bank__parameterized0 |       5008 |       4312 |     696 |    0 |  3114 |      6 |      1 |   16 |          0 |
+|       u_plic                      |                        tg_plic |        116 |        116 |       0 |    0 |   211 |      0 |      0 |    0 |          0 |
+|       u_uart                      |                        tg_uart |        116 |        100 |      16 |    0 |   148 |      0 |      0 |    0 |          1 |
+|         (u_uart)                  |                        tg_uart |        100 |        100 |       0 |    0 |   148 |      0 |      0 |    0 |          1 |
+|     g_core[0].g_tgc.u_core        |                        tg_core |      49443 |      42531 |    6896 |   16 | 24511 |     53 |      1 |    9 |         63 |
+|       (g_core[0].g_tgc.u_core)    |                        tg_core |          4 |          4 |       0 |    0 |   183 |      0 |      0 |    0 |          0 |
+|       g_p4.u_p4                   |                  tg_fp_exec_65 |       6477 |       5690 |     776 |   11 |  3945 |      0 |      1 |    0 |         37 |
+|         (g_p4.u_p4)               |                  tg_fp_exec_65 |       2123 |       2122 |       0 |    1 |   544 |      0 |      0 |    0 |          0 |
+|         u_dq                      |                    tg_fifo_104 |         85 |          5 |      80 |    0 |     6 |      0 |      0 |    0 |          0 |
+|         u_fpu                     |                     tg_fpu_105 |       3754 |       3696 |      48 |   10 |  3395 |      0 |      1 |    0 |         37 |
+|         u_iq                      |  tg_ram_lut__parameterized3__1 |         56 |          0 |      56 |    0 |     0 |      0 |      0 |    0 |          0 |
+|         u_rf                      |                    tg_fprf_106 |        595 |          3 |     592 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ras.g_s[0].g_t0.u_ras     |                      tg_ras_66 |        294 |        246 |      48 |    0 |   145 |      0 |      0 |    0 |          0 |
+|         (g_ras.g_s[0].g_t0.u_ras) |                      tg_ras_66 |        246 |        246 |       0 |    0 |   145 |      0 |      0 |    0 |          0 |
+|       g_ras.g_s[1].g_t1.u_ras     |                      tg_ras_67 |        190 |        142 |      48 |    0 |    57 |      0 |      0 |    0 |          0 |
+|         (g_ras.g_s[1].g_t1.u_ras) |                      tg_ras_67 |        142 |        142 |       0 |    0 |    57 |      0 |      0 |    0 |          0 |
+|       u_csr                       |                         tg_csr |       3202 |       3026 |     176 |    0 |  2319 |      0 |      0 |    0 |          8 |
+|         (u_csr)                   |                         tg_csr |       2967 |       2967 |       0 |    0 |  2315 |      0 |      0 |    0 |          0 |
+|         u_cold                    | tg_ram_lut__parameterized46__1 |        112 |          0 |     112 |    0 |     0 |      0 |      0 |    0 |          0 |
+|         u_pmpaddr                 | tg_ram_lut__parameterized47__1 |         64 |          0 |      64 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       u_de                        |             tg_decode_stage_68 |        857 |        857 |       0 |    0 |   113 |      0 |      0 |    0 |          0 |
+|       u_ex                        |             tg_exec__xdcDup__1 |       6649 |       6257 |     392 |    0 |  2608 |      0 |      0 |    9 |         18 |
+|         (u_ex)                    |             tg_exec__xdcDup__1 |       2366 |       2366 |       0 |    0 |  1912 |      0 |      0 |    0 |          0 |
+|         g_alu[0].u_alu            |                      tg_alu_95 |        912 |        912 |       0 |    0 |     0 |      0 |      0 |    0 |          0 |
+|         g_alu[1].u_alu            |                      tg_alu_96 |        590 |        590 |       0 |    0 |     0 |      0 |      0 |    0 |          0 |
+|         u_bht                     | tg_ram_lut__parameterized29__2 |         72 |          8 |      64 |    0 |     0 |      0 |      0 |    0 |          0 |
+|         u_div                     |                      tg_div_97 |       1069 |        981 |      88 |    0 |   326 |      0 |      0 |    0 |          0 |
+|         u_irf                     |              tg_irf__xdcDup__1 |        846 |        606 |     240 |    0 |    26 |      0 |      0 |    9 |          0 |
+|         u_mul                     |                      tg_mul_98 |        786 |        786 |       0 |    0 |   299 |      0 |      0 |    0 |         16 |
+|       u_fetch                     |                    tg_fetch_69 |       7908 |       6940 |     968 |    0 |  2373 |     21 |      0 |    0 |          0 |
+|         (u_fetch)                 |                    tg_fetch_69 |       1953 |       1953 |       0 |    0 |  1643 |      0 |      0 |    0 |          0 |
+|         (g_tage.u_tage)           |                     tg_tage_91 |        799 |        799 |       0 |    0 |   159 |      0 |      0 |    0 |          0 |
+|         g_tage.u_fgh              |  tg_ram_lut__parameterized5__1 |         96 |          0 |      96 |    0 |     0 |      0 |      0 |    0 |          0 |
+|         g_tage.u_fix              |  tg_ram_lut__parameterized7__1 |         64 |          0 |      64 |    0 |     0 |      0 |      0 |    0 |          0 |
+|         u_cmp                     |            tg_fetch_compact_92 |       3803 |       3387 |     416 |    0 |    71 |      0 |      0 |    0 |          0 |
+|         u_itlb                    |                      tg_tlb_93 |        611 |        587 |      24 |    0 |   500 |      0 |      0 |    0 |          0 |
+|         u_ubtb                    |                     tg_ubtb_94 |        280 |        216 |      64 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       u_is                        |                    tg_issue_70 |       4294 |       3537 |     752 |    5 |  3674 |      0 |      0 |    0 |          0 |
+|         (u_is)                    |                    tg_issue_70 |        838 |        833 |       0 |    5 |   113 |      0 |      0 |    0 |          0 |
+|         g_q[0].u_iq               |                       tg_iq_85 |       1176 |        808 |     368 |    0 |   886 |      0 |      0 |    0 |          0 |
+|         g_q[1].u_iq               |       tg_iq__parameterized0_86 |        831 |        623 |     208 |    0 |   886 |      0 |      0 |    0 |          0 |
+|         g_q[2].u_iq               |       tg_iq__parameterized1_87 |        242 |        178 |      64 |    0 |   472 |      0 |      0 |    0 |          0 |
+|         g_q[3].u_iq               |       tg_iq__parameterized2_88 |        209 |        161 |      48 |    0 |   315 |      0 |      0 |    0 |          0 |
+|         g_q[4].u_iq               |       tg_iq__parameterized3_89 |        461 |        397 |      64 |    0 |   962 |      0 |      0 |    0 |          0 |
+|         u_wake                    |                     tg_wake_90 |        556 |        556 |       0 |    0 |    40 |      0 |      0 |    0 |          0 |
+|       u_lsu                       |                      tg_lsu_71 |      10995 |       9371 |    1624 |    0 |  5313 |     32 |      0 |    0 |          0 |
+|         (u_lsu)                   |                      tg_lsu_71 |       2758 |       2758 |       0 |    0 |  3967 |      0 |      0 |    0 |          0 |
+|         u_dc                      |                   tg_dcache_82 |       4637 |       3885 |     752 |    0 |   888 |     32 |      0 |    0 |          0 |
+|         u_dtlb                    |      tg_tlb__parameterized0_83 |       2348 |       1804 |     544 |    0 |   274 |      0 |      0 |    0 |          0 |
+|         u_lqc                     |    tg_ram_lut__parameterized38 |         96 |          0 |      96 |    0 |     0 |      0 |      0 |    0 |          0 |
+|         u_ptw                     |                      tg_ptw_84 |        949 |        949 |       0 |    0 |   184 |      0 |      0 |    0 |          0 |
+|         u_sqd                     |    tg_ram_lut__parameterized45 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       u_rn                        |                   tg_rename_72 |       6076 |       4780 |    1296 |    0 |  3285 |      0 |      0 |    0 |          0 |
+|         (u_rn)                    |                   tg_rename_72 |       3191 |       3191 |       0 |    0 |  2784 |      0 |      0 |    0 |          0 |
+|         g_ffl.g_b[0].u_fl         |                 tg_freelist_73 |        145 |        113 |      32 |    0 |    69 |      0 |      0 |    0 |          0 |
+|         g_ffl.g_b[1].u_fl         |                 tg_freelist_74 |        190 |        158 |      32 |    0 |    69 |      0 |      0 |    0 |          0 |
+|         g_fl[0].u_fl              |                 tg_freelist_75 |        143 |        111 |      32 |    0 |    69 |      0 |      0 |    0 |          0 |
+|         g_fl[1].u_fl              | tg_freelist__parameterized0_76 |        521 |        489 |      32 |    0 |    69 |      0 |      0 |    0 |          0 |
+|         g_fl[2].u_fl              | tg_freelist__parameterized1_77 |        157 |        125 |      32 |    0 |    69 |      0 |      0 |    0 |          0 |
+|         g_fmap.u_fmap             |                     tg_rmap_78 |        639 |        255 |     384 |    0 |    71 |      0 |      0 |    0 |          0 |
+|         g_frdy.u_frdy             |                   tg_rdytab_79 |        144 |         48 |      96 |    0 |     7 |      0 |      0 |    0 |          0 |
+|         g_rowtab[0].u_row         | tg_ram_lut__parameterized17__1 |         53 |         13 |      40 |    0 |     0 |      0 |      0 |    0 |          0 |
+|         g_rowtab[1].u_row         |    tg_ram_lut__parameterized17 |         54 |         14 |      40 |    0 |     0 |      0 |      0 |    0 |          0 |
+|         u_imap                    |     tg_rmap__parameterized0_80 |        650 |        266 |     384 |    0 |    71 |      0 |      0 |    0 |          0 |
+|         u_irdy                    |   tg_rdytab__parameterized0_81 |        237 |         93 |     144 |    0 |     7 |      0 |      0 |    0 |          0 |
+|       u_rob                       |                         tg_rob |       2751 |       1935 |     816 |    0 |   480 |      0 |      0 |    0 |          0 |
+|         (u_rob)                   |                         tg_rob |       1765 |       1765 |       0 |    0 |   480 |      0 |      0 |    0 |          0 |
+|         g_pl[0].u_pl              | tg_ram_lut__parameterized48__1 |        176 |          0 |     176 |    0 |     0 |      0 |      0 |    0 |          0 |
+|         g_pl[1].u_pl              | tg_ram_lut__parameterized48__2 |        176 |          0 |     176 |    0 |     0 |      0 |      0 |    0 |          0 |
+|     g_core[1].g_tgc.u_core        |        tg_core__parameterized0 |      49180 |      42268 |    6896 |   16 | 24454 |     53 |      1 |    9 |         63 |
+|       (g_core[1].g_tgc.u_core)    |        tg_core__parameterized0 |          4 |          4 |       0 |    0 |   183 |      0 |      0 |    0 |          0 |
+|       g_p4.u_p4                   |                     tg_fp_exec |       6465 |       5678 |     776 |   11 |  3945 |      0 |      1 |    0 |         37 |
+|         (g_p4.u_p4)               |                     tg_fp_exec |       2124 |       2123 |       0 |    1 |   544 |      0 |      0 |    0 |          0 |
+|         u_dq                      |                        tg_fifo |         85 |          5 |      80 |    0 |     6 |      0 |      0 |    0 |          0 |
+|         u_fpu                     |                         tg_fpu |       3747 |       3689 |      48 |   10 |  3395 |      0 |      1 |    0 |         37 |
+|         u_iq                      |     tg_ram_lut__parameterized3 |         56 |          0 |      56 |    0 |     0 |      0 |      0 |    0 |          0 |
+|         u_rf                      |                        tg_fprf |        595 |          3 |     592 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ras.g_s[0].g_t0.u_ras     |                         tg_ras |        294 |        246 |      48 |    0 |   145 |      0 |      0 |    0 |          0 |
+|         (g_ras.g_s[0].g_t0.u_ras) |                         tg_ras |        246 |        246 |       0 |    0 |   145 |      0 |      0 |    0 |          0 |
+|       g_ras.g_s[1].g_t1.u_ras     |                      tg_ras_57 |        191 |        143 |      48 |    0 |    57 |      0 |      0 |    0 |          0 |
+|         (g_ras.g_s[1].g_t1.u_ras) |                      tg_ras_57 |        143 |        143 |       0 |    0 |    57 |      0 |      0 |    0 |          0 |
+|       u_csr                       |         tg_csr__parameterized0 |       3189 |       3013 |     176 |    0 |  2255 |      0 |      0 |    0 |          8 |
+|         (u_csr)                   |         tg_csr__parameterized0 |       2954 |       2954 |       0 |    0 |  2251 |      0 |      0 |    0 |          0 |
+|         u_cold                    |    tg_ram_lut__parameterized46 |        112 |          0 |     112 |    0 |     0 |      0 |      0 |    0 |          0 |
+|         u_pmpaddr                 |    tg_ram_lut__parameterized47 |         64 |          0 |      64 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       u_de                        |                tg_decode_stage |       1014 |       1014 |       0 |    0 |   113 |      0 |      0 |    0 |          0 |
+|       u_ex                        |                        tg_exec |       6647 |       6255 |     392 |    0 |  2611 |      0 |      0 |    9 |         18 |
+|         (u_ex)                    |                        tg_exec |       2362 |       2362 |       0 |    0 |  1915 |      0 |      0 |    0 |          0 |
+|         g_alu[0].u_alu            |                         tg_alu |        912 |        912 |       0 |    0 |     0 |      0 |      0 |    0 |          0 |
+|         g_alu[1].u_alu            |                      tg_alu_60 |        591 |        591 |       0 |    0 |     0 |      0 |      0 |    0 |          0 |
+|         u_bht                     |    tg_ram_lut__parameterized29 |         72 |          8 |      64 |    0 |     0 |      0 |      0 |    0 |          0 |
+|         u_div                     |                         tg_div |       1073 |        985 |      88 |    0 |   326 |      0 |      0 |    0 |          0 |
+|         u_irf                     |                         tg_irf |        846 |        606 |     240 |    0 |    26 |      0 |      0 |    9 |          0 |
+|         u_mul                     |                         tg_mul |        779 |        779 |       0 |    0 |   299 |      0 |      0 |    0 |         16 |
+|       u_fetch                     |                       tg_fetch |       7663 |       6695 |     968 |    0 |  2373 |     21 |      0 |    0 |          0 |
+|         (u_fetch)                 |                       tg_fetch |       1904 |       1904 |       0 |    0 |  1643 |      0 |      0 |    0 |          0 |
+|         (g_tage.u_tage)           |                        tg_tage |        805 |        805 |       0 |    0 |   159 |      0 |      0 |    0 |          0 |
+|         g_tage.u_fgh              |     tg_ram_lut__parameterized5 |         96 |          0 |      96 |    0 |     0 |      0 |      0 |    0 |          0 |
+|         g_tage.u_fix              |     tg_ram_lut__parameterized7 |         64 |          0 |      64 |    0 |     0 |      0 |      0 |    0 |          0 |
+|         u_cmp                     |               tg_fetch_compact |       3602 |       3186 |     416 |    0 |    71 |      0 |      0 |    0 |          0 |
+|         u_itlb                    |                         tg_tlb |        612 |        588 |      24 |    0 |   500 |      0 |      0 |    0 |          0 |
+|         u_ubtb                    |                        tg_ubtb |        280 |        216 |      64 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       u_is                        |                       tg_issue |       4304 |       3547 |     752 |    5 |  3674 |      0 |      0 |    0 |          0 |
+|         (u_is)                    |                       tg_issue |        837 |        832 |       0 |    5 |   113 |      0 |      0 |    0 |          0 |
+|         g_q[0].u_iq               |                          tg_iq |       1176 |        808 |     368 |    0 |   886 |      0 |      0 |    0 |          0 |
+|         g_q[1].u_iq               |          tg_iq__parameterized0 |        837 |        629 |     208 |    0 |   886 |      0 |      0 |    0 |          0 |
+|         g_q[2].u_iq               |          tg_iq__parameterized1 |        241 |        177 |      64 |    0 |   472 |      0 |      0 |    0 |          0 |
+|         g_q[3].u_iq               |          tg_iq__parameterized2 |        210 |        162 |      48 |    0 |   315 |      0 |      0 |    0 |          0 |
+|         g_q[4].u_iq               |          tg_iq__parameterized3 |        461 |        397 |      64 |    0 |   962 |      0 |      0 |    0 |          0 |
+|         u_wake                    |                        tg_wake |        558 |        558 |       0 |    0 |    40 |      0 |      0 |    0 |          0 |
+|       u_lsu                       |                         tg_lsu |      10768 |       9144 |    1624 |    0 |  5314 |     32 |      0 |    0 |          0 |
+|         (u_lsu)                   |                         tg_lsu |       2706 |       2706 |       0 |    0 |  3968 |      0 |      0 |    0 |          0 |
+|         u_dc                      |                      tg_dcache |       4455 |       3703 |     752 |    0 |   888 |     32 |      0 |    0 |          0 |
+|         u_dtlb                    |         tg_tlb__parameterized0 |       2345 |       1801 |     544 |    0 |   274 |      0 |      0 |    0 |          0 |
+|         u_lqc                     | tg_ram_lut__parameterized38__1 |         96 |          0 |      96 |    0 |     0 |      0 |      0 |    0 |          0 |
+|         u_ptw                     |                         tg_ptw |        945 |        945 |       0 |    0 |   184 |      0 |      0 |    0 |          0 |
+|         u_sqd                     | tg_ram_lut__parameterized45__1 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       u_rn                        |                      tg_rename |       6094 |       4798 |    1296 |    0 |  3285 |      0 |      0 |    0 |          0 |
+|         (u_rn)                    |                      tg_rename |       3210 |       3210 |       0 |    0 |  2784 |      0 |      0 |    0 |          0 |
+|         g_ffl.g_b[0].u_fl         |                    tg_freelist |        147 |        115 |      32 |    0 |    69 |      0 |      0 |    0 |          0 |
+|         g_ffl.g_b[1].u_fl         |                 tg_freelist_58 |        189 |        157 |      32 |    0 |    69 |      0 |      0 |    0 |          0 |
+|         g_fl[0].u_fl              |                 tg_freelist_59 |        144 |        112 |      32 |    0 |    69 |      0 |      0 |    0 |          0 |
+|         g_fl[1].u_fl              |    tg_freelist__parameterized0 |        524 |        492 |      32 |    0 |    69 |      0 |      0 |    0 |          0 |
+|         g_fl[2].u_fl              |    tg_freelist__parameterized1 |        157 |        125 |      32 |    0 |    69 |      0 |      0 |    0 |          0 |
+|         g_fmap.u_fmap             |                        tg_rmap |        637 |        253 |     384 |    0 |    71 |      0 |      0 |    0 |          0 |
+|         g_frdy.u_frdy             |                      tg_rdytab |        144 |         48 |      96 |    0 |     7 |      0 |      0 |    0 |          0 |
+|         g_rowtab[0].u_row         | tg_ram_lut__parameterized17__3 |         54 |         14 |      40 |    0 |     0 |      0 |      0 |    0 |          0 |
+|         g_rowtab[1].u_row         | tg_ram_lut__parameterized17__2 |         53 |         13 |      40 |    0 |     0 |      0 |      0 |    0 |          0 |
+|         u_imap                    |        tg_rmap__parameterized0 |        651 |        267 |     384 |    0 |    71 |      0 |      0 |    0 |          0 |
+|         u_irdy                    |      tg_rdytab__parameterized0 |        237 |         93 |     144 |    0 |     7 |      0 |      0 |    0 |          0 |
+|       u_rob                       |         tg_rob__parameterized0 |       2842 |       2026 |     816 |    0 |   483 |      0 |      0 |    0 |          0 |
+|         (u_rob)                   |         tg_rob__parameterized0 |       1841 |       1841 |       0 |    0 |   483 |      0 |      0 |    0 |          0 |
+|         g_pl[0].u_pl              | tg_ram_lut__parameterized48__3 |        176 |          0 |     176 |    0 |     0 |      0 |      0 |    0 |          0 |
+|         g_pl[1].u_pl              |    tg_ram_lut__parameterized48 |        176 |          0 |     176 |    0 |     0 |      0 |      0 |    0 |          0 |
++-----------------------------------+--------------------------------+------------+------------+---------+------+-------+--------+--------+------+------------+
+* Note: The sum of lower-level cells may be larger than their parent cells total, due to cross-hierarchy LUT combining
+
+

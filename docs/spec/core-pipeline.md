@@ -457,8 +457,7 @@ With hart 1 a thread that waits in WFI while its sibling runs lends its half of 
 | `mcycle`, `minstret` | read/write; a write to `minstret` replaces that instruction's increment |
 | `cycle`, `time`, `instret` | read-only aliases; `time` = the core's snapshot of the ACLINT's `mtime` (`mtime_q`, a cycle behind `mtime_i`; monotonic; DR-146); cycle and time reads are `nondet` |
 | `mhpmcounter3–31`, `mhpmevent3–31` | read 0, writes ignored (counter reads `nondet`) |
-| `tselect`, `tdata1–3`, `tinfo` | read 0, writes ignored |
-| `mcontext` | 13 bits read/write |
+| `tselect`, `tdata1–3`, `tinfo`, `mcontext` (and `scontext` with S) | do not exist: illegal (no Sdtrig, M9 §10). A write of 0 to `tselect` that traps means no triggers (Debug spec §5.1), so OpenSBI finds no `sdtrig` and registers no SBI `dbtr`. Reading 0 had made it count one trigger. The checker removes them from Spike, which keeps them with no triggers |
 | `mtgsmt` (0x7C0, custom) | with hart 1 only (§8.5): bit 0 HART1_OFF, hart 1 kept asleep; one per core; else illegal |
 | `pmpcfg0, 2, …, 14`, `pmpaddr0–63` | entries 0–7 implemented (`PMP_ENTRIES`, DR-167; 0–15 with `TG_PMP_ENTRIES=16`; Spike's WARL rules: lock, R=0/W=1 dropped, 54-bit addresses); the others read 0 and ignore writes (Spike with `--pmpregions` at the same count). Reset: entry 0 = NAPOT RWX over the whole space, as Spike. Checked by `tg_pmp` (core-mmu.md) |
 

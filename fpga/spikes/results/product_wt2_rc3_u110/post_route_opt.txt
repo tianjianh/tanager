@@ -1,0 +1,3 @@
+start: WNS -0.237 TNS -21.204 failing 228 WHS 0.010 (/home/w/tanager-build/track-spikes-72f833/vivado/product_wt2_rc3_u110/routed.dcp)
+phys_opt_design -directive AggressiveExplore: WNS -0.224 TNS -21.072 failing 228 WHS 0.010
+route_design: WNS -1.677 TNS -641.055 failing 1044 WHS 0.010

@@ -1,0 +1,4 @@
+b4ac9aac7cb4571b6acac6dd76109f7c  tanager.bit
+62ed4eab32a6af03fc5cebe3e33bd09d  tanager.bit.bin
+d48edff4aed5397dfebf2492ccc9a7b7  fin1_u100/tanager.bit
+62ed4eab32a6af03fc5cebe3e33bd09d  fin1_u100/tanager.bit.bin

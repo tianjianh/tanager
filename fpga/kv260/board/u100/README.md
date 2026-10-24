@@ -133,8 +133,108 @@ The four-hart soak ([`../runs/soak4.sh`](../runs/soak4.sh), as on dr187b) ran on
   - its one FAIL was CoreMark's 10 s rule inside `hart_check` (round 4, hart 3 alone, after a slow calibration; the CRCs were right). `hart_check.sh` now treats that as a note, as the soak's DR-141 check does, and the soak was restarted with it.
 - **In all:** 40 rounds of hart stop and start with no failed fence on u100, against 1.9's one in its first 9; rc2 added 33 more. No oops, data error or trap line.
 
+## The rc3 swap's measurements, u100's side (10-23, 20:33 to 20:53 UTC)
+
+The coordinator's and soc-2's checks for rc3, run on u100 first so rc3 has something to compare with. u100 has the four-hart tree and tg1, with nothing else running.
+
+**The two store-heavy DR-141 rows, pinned** ([`../runs/store_rows.sh`](../runs/store_rows.sh); [`store_rows.txt`](store_rows.txt) with CPUs 0 and 2, then [`store_rows_4cpu.txt`](store_rows_4cpu.txt) with all four). Each cell is the median cycles per operation of five runs in one process:
+
+| | CPU 0 | CPU 1 | CPU 2 | CPU 3 |
+|---|---|---|---|---|
+| memset 1 MiB, first pass | 572,473 | | **533,780** | |
+| memset 1 MiB, second pass | 566,200 | 572,862 | 572,071 | 563,792 |
+| page fault, first pass | 4,983 | | 4,979 | |
+| page fault, second pass | 5,019 | 4,994 | 4,980 | 4,945 |
+
+- **memset 1 MiB's speed depends on the process, not the CPU.** CPU 2 ran at 534k in the first pass and 572k in the second.
+  - 12 more processes on CPU 2 ([`../runs/memset_procs.sh`](../runs/memset_procs.sh), [`memset_procs.txt`](memset_procs.txt)) gave medians of 556,387 to 571,623.
+  - That held with THP at `always` (8 processes) and at `never` (4). Each process's AnonHugePages was 0 kB, so the 1 MiB buffer never sits in a 2 MiB page.
+  - Of the 18 processes, one ran at 534k and 17 at 556k–573k. u100's own DR-141 set (534,552) caught the fast case.
+- **The page-fault test is steady:** 4,945–5,019 on every CPU, and u100's set had 4,964.
+- **The idle board's interrupts** over 10 s: the timer 76–162 per CPU, mmc0 213 (CPU 0 only), IPIs 5–28 per CPU.
+- **rc2's two rows, settled from its soak** ([`../rc2/soak_store_rows.txt`](../rc2/soak_store_rows.txt), [`../runs/soak_rows.sh`](../runs/soak_rows.sh)):
+  - Every soak round kept its three DR-141 sets, and both rows sit within 1% of u100's in the pinned steps.
+  - So rc2's +9.3% and +4.7% were its one set's luck, not step 7 ([`../rc2/README.md`](../rc2/README.md)).
+
+**soc-2's sibling check** ([`../runs/sibling_check.sh`](../runs/sibling_check.sh); [`sibling_check.txt`](sibling_check.txt), [`sibling_check_2.txt`](sibling_check_2.txt)):
+- memgap ran on CPU 0, with its thread sibling (CPU 1, idle) online and then offline, three runs each.
+- The whole check ran twice, so the states went online, offline, online, offline.
+
+| CPU 1 | wr1m (MiB/s) | wr16m (MiB/s) |
+|---|---|---|
+| online | 162.8–170.2, mean 165.4 | 148.6–153.0, mean 150.8 |
+| offline | 175.1–180.3, mean 177.1 | 157.6–159.9, mean 158.7 |
+| offline against online | +7.1% | +5.3% |
+
+- **An idle sibling that is online costs a thread 5–7% of its write rate.** The effect followed the sibling's state both times, so it isn't drift.
+- **The pages aren't it:** the 16 MiB buffer had 14,336 kB in 2 MiB pages in every run, in both states.
+- **The sibling isn't the whole gap:** with it offline, wr16m stays 13% below d4r2's 182.
+
+**memcal, bare metal** ([`../runs/memcal_release.sh`](../runs/memcal_release.sh) `u100`, records in [`../memcal/`](../memcal/)):
+- verif-2's `memcal-big.bin` ran twice on u100's bitstream (`f8037f92…`), through tanager-host in ARM mode.
+- u100 is a release build, so its lines came out on COM5 (`memcal_u100_1.txt`, `memcal_u100_2.txt`, `run_memcal_u100.txt`).
+- The new dfx-mgr app `tanager-u100` is in the change log.
+- The table gives cycles per test. d4r1's and d4r2's columns are the means of their two runs of 10-21, which agreed within 0.3%.
+
+| | d4r1 | d4r2 | u100, run 1 | u100, run 2 | u100 against d4r2 |
+|---|---|---|---|---|---|
+| memset-16M (64 MiB) | 39,639,313 | 33,980,355 | 40,234,836 | 40,228,205 | **+18.4%** |
+| memcpy-8M (32 MiB) | 24,850,115 | 24,804,166 | 23,461,665 | 23,501,902 | −5.3% |
+| memset-1M (32 MiB) | 16,515,490 | 16,515,472 | 15,729,121 | 13,697,176 | −4.8%, −17.1% |
+| memcpy-1M (32 MiB) | 24,802,790 | 24,788,030 | 23,499,195 | 23,491,976 | −5.2% |
+| read-8M | 2,031,954 | 2,033,657 | 1,585,179 | 1,582,072 | −22.1% |
+| chase-4M | 5,164,753 | 5,164,740 | 4,186,778 | 4,186,242 | −18.9% |
+
+- **The 16 MiB write gap is in the hardware.**
+  - With no Linux, u100's memset-16M takes 18.4% more cycles than d4r2's.
+  - At 100 MHz that is 159.1 MiB/s against d4r2's 188.3. Linux's wr16m with the sibling offline agrees (158.7).
+- **It is d4r1's figure:** u100 is 1.5% above d4r1's 161.5 MiB/s. Whatever made d4r2's 16 MiB memset 14% faster than d4r1's (10-21) isn't in u100. For soc-2.
+- **Every other row is faster on u100:**
+  - reads use 22% fewer cycles and the pointer chase 19% fewer;
+  - both copies use 5% fewer.
+- **memset-1M moved by 15% between u100's two runs.** d4r1's and d4r2's four runs agree to 0.001%. This row fits in the L2, and it is the only one that moved.
+
+**soc-2's write-stream probe: at full speed u100 is at its slowest** (10-23, 23:33 UTC):
+- **What it is:** soc-2's `wsd.bin` (sha256 `ae231676…`; its source `wsd.c` is beside it in soc-2's tree on home-wsl).
+  - Hart 0 writes 16 MiB in 64-byte lines of eight `sd`, with k turns of an idle counted loop after each line. It prints the cycles per line for each k.
+  - The other harts wait in WFI.
+- **How it ran:** as memcal did (`memcal_release.sh` with `wsd.bin`), twice on u100's bitstream and twice on d4r2's.
+  - d4r2's is the dfx-mgr app `tanager-d4r2`, the same `33e29f3d…` as p1's kept image, so nothing new was installed.
+  - Records: `../memcal/wsd_*.txt` and `run_wsd.txt`.
+- The table gives cycles per line; each image's two runs agree within 0.2%.
+
+| k | 0 | 4 | 8 | 12 | 16 | 24 | 32 | 48 |
+|---|---|---|---|---|---|---|---|---|
+| u100 | **38.3** | **29.9** | 32.7 | 39.5 | 46.4 | 61.2 | 78.5 | 127.5 |
+| d4r2 | **32.0** | 33.7 | 34.6 | 40.0 | 46.6 | 61.2 | 78.5 | 127.5 |
+| soc-2's model for u100 | 30.1 | 30.8 | 32.7 | 39.4 | 46.4 | | | |
+
+- **On u100, a slower issue makes the stream faster.**
+  - Four idle turns per line take it from 38.3 to 29.9 cycles per line, that is from 159 to 204 MiB/s at 100 MHz.
+  - So back-to-back lines cost u100 28% more than lines four turns apart. By the probe's own reading (`wsd.c`), the memory side reacts to the request pattern.
+- **d4r2 has no such penalty:** its k = 0 is its best (32.0 cycles, 190 MiB/s), and a gap only adds time.
+- **So u100's 16 MiB gap is the full-speed case alone:**
+  - at full speed, 38.3 against 32.0 cycles (+19.5%; memcal's memset-16M gave +18.4%);
+  - with a four-turn gap, u100 beats d4r2's best by 7%.
+- **soc-2's model** matches u100 from k = 4 to 16, within 3%. It misses k = 0: 30.1 predicted, 38.3 measured.
+- **From k = 24 the two images agree to the cycle,** so the idle loop sets the pace there.
+
 ## Since then
 
 The board moved on to rc2 on 10-23 at 16:20 UTC ([`../rc2/README.md`](../rc2/README.md)).
+- rc2's soak lost SD1's interrupt, and u100 came back on p1 at 20:17 UTC.
+- u100 ran the rc3 swap's measurements above.
+- **The soak from 21:03 UTC** ([`soak4_u100b.log`](soak4_u100b.log)) was stopped at a step boundary at 23:29 UTC, for soc-2's probe.
+  - It had passed 14 rounds and round 15's first two steps: 44 stress passes, 44 DR-141 sets, 14 `hart_check`s and 14 rounds of hart stop and start.
+  - 0 fails. Its 5 notes were CoreMark's timing rule, with the CRCs right.
+  - No trouble line in the kernel log.
+- **The soak restarted on u100 at 23:52 UTC** ([`soak4_u100c.log`](soak4_u100c.log)), after the probe, while rc3 built.
+  - It stopped at a step boundary at 01:37 UTC on 10-24, for rc3.
+  - It had passed 10 rounds and round 11's first two steps: 32 stress passes, 32 DR-141 sets, 10 `hart_check`s and 10 rounds of hart stop and start.
+  - 0 fails, one CoreMark timing note, and no trouble line in the kernel log.
+- **In all, on 10-23 and 10-24 u100 soaked 4.2 hours clean, in two runs:** 24 rounds, 76 stress passes, 76 DR-141 sets, 24 `hart_check`s and 24 hotplug rounds.
+- **The board moved on to rc3 at 01:41 UTC on 10-24** ([`../rc3/README.md`](../rc3/README.md)).
+
+The kept images:
 - **u100 is kept on p1** in `tanager-u100/`, with tg1's `fw_jump.bin` and `fw_jump.bin.b0094d23`. To bring it back, in ARM mode: `FH_BACKUP=tanager-u100 bash ~/tanager/runs/fh_p1.sh back`.
 - **The older kept images:** dr187b in `tanager-dr187b-80/`, and the two-core 100 MHz image in `tanager-d4r2-100/`. Both still hold `fw_jump.bin` `b0094d23…`.

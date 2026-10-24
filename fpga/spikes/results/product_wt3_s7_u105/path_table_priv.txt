@@ -1,0 +1,29 @@
+lvl loc            type    net in   cell      at   fo  input pin -> output net
+  1 SLICE_X22Y153  LUT3     0.272  0.188   5.839    2  c1:u_lsu/u_ptw/tg_ptw_LUT3/I1 -> c1:u_lsu/u_ptw/tg_ptw_net
+  2 SLICE_X18Y140  LUT5     0.405  0.058   6.302   28  c1:u_lsu/u_ptw/tg_ptw_LUT5/I4 -> c1:u_lsu/u_ptw/tg_ptw_net_1
+  3 SLICE_X20Y140  LUT5     0.181  0.135   6.618    2  c1:u_lsu/u_ptw/tg_ptw_LUT5_2/I3 -> c1:u_lsu/u_ptw/g_plk.plk_q_reg[1]
+  4 SLICE_X20Y138  LUT2     0.109  0.057   6.784   37  c1:u_lsu/u_ptw/tg_ptw_LUT2/I1 -> c1:u_lsu/u_ptw/s3_den_q_i_4__0_n_0
+  5 SLICE_X19Y138  LUT2     0.142  0.230   7.156   12  c1:u_lsu/u_ptw/s3_den_q_i_2__0/I0 -> c1:u_lsu/u_ptw/g_split.sn_v_q_reg
+  6 SLICE_X19Y135  LUT2     0.176  0.138   7.469   39  c1:u_lsu/u_ptw/tg_ptw_LUT2_2/I1 -> c1:u_lsu/u_ptw/tg_ptw_net_6
+  7 SLICE_X19Y136  MUXF7    0.238  0.103   7.811  761  c1:u_lsu/u_ptw/g_pg.pfc_x_q_reg_i_28__0/S -> c1:u_csr/g_pg.pfc_x_q_reg_i_139__0_0
+  8 SLICE_X19Y133  LUT3     0.750  0.137   8.698    3  c1:u_csr/g_pg.pfc_x_q_i_536__0/I1 -> c1:u_csr/g_pg.pfc_x_q_i_536__0_n_0
+  9 SLICE_X18Y129  LUT2     0.347  0.138   9.183    1  c1:u_csr/g_pg.pfc_x_q_i_603__0/I0 -> c1:u_csr/g_pg.pfc_x_q_i_603__0_n_0
+ 10 SLICE_X19Y127  LUT5     0.272  0.136   9.591    2  c1:u_csr/tg_csr__paramet_LUT5_231/I4 -> c1:u_csr/tg_csr__paramet_net_531
+ 11 SLICE_X19Y127  CARRY8   0.015  0.219   9.825    1  c1:u_csr/g_pg.pfc_x_q_reg_i_139__0/S[2] -> c1:u_csr/g_pg.pfc_x_q_reg_i_139__0_n_0
+ 12 SLICE_X19Y128  CARRY8   0.030  0.073   9.928    3  c1:u_csr/g_pg.pfc_x_q_reg_i_54/CI -> c1:u_csr/u_lsu/g_ckf.u_pmp_st/g_acc.lt0_60
+ 13 SLICE_X14Y135  LUT2     0.467  0.081  10.476    1  c1:u_csr/g_pg.pfc_ok_q_i_368__0/I1 -> c1:u_csr/u_lsu/g_ckf.u_pmp_st/g_acc.lt0_6
+ 14 SLICE_X15Y134  LUT6     0.239  0.224  10.939    1  c1:u_csr/tg_csr__paramet_LUT6_444/I5 -> c1:u_csr/tg_csr__paramet_net_444
+ 15 SLICE_X15Y137  LUT6     0.231  0.081  11.251    1  c1:u_csr/tg_csr__paramet_LUT6_445/I4 -> c1:u_csr/tg_csr__paramet_net_446
+ 16 SLICE_X17Y137  LUT6     0.111  0.083  11.445    1  c1:u_csr/tg_csr__paramet_LUT6_447/I4 -> c1:u_csr/tg_csr__paramet_net_449
+ 17 SLICE_X20Y137  LUT5     0.185  0.138  11.768    1  c1:u_csr/tg_csr__paramet_LUT5_158/I4 -> c1:u_csr/g_pg.pfc_ok_q_i_20__0_n_0
+ 18 SLICE_X20Y136  LUT4     0.075  0.189  12.032    1  c1:u_csr/g_pg.pfc_ok_q_i_5__0/I0 -> c1:u_csr/g_pg.pfc_ok_q_i_5__0_n_0
+ 19 SLICE_X21Y136  LUT6     0.167  0.057  12.256    1  c1:u_csr/tg_csr__paramet_LUT6_462/I2 -> c1:u_csr/tg_csr__paramet_net_476
+ 20 SLICE_X21Y138  LUT5     0.104  0.057  12.417   10  c1:u_csr/tg_csr__paramet_LUT5_167/I3 -> c1:u_rob/sa_chk[0]
+ 21 SLICE_X22Y153  LUT4     0.393  0.136  12.946   10  c1:u_rob/lq_st_q[23][3]_i_12__0/I0 -> c1:u_rob/p_1117_out
+ 22 SLICE_X22Y148  LUT2     0.209  0.137  13.292   15  c1:u_rob/tg_rob__paramet_LUT2_36/I1 -> c1:u_lsu/lq_st_q_reg[18][0]_1
+ 23 SLICE_X25Y141  LUT6     0.722  0.137  14.151    4  c1:u_lsu/tg_lsu_LUT6_969/I0 -> c1:u_lsu/u_dc/lq_st_q_reg[9][0]_1
+ 24 SLICE_X29Y137  LUT6     0.474  0.225  14.850    1  c1:u_lsu/u_dc/tg_dcache_LUT6_165/I0 -> c1:u_lsu/u_dc/tg_dcache_net_140
+ 25 SLICE_X30Y136  LUT6     0.163  0.188  15.201    4  c1:u_lsu/u_dc/tg_dcache_LUT6_166/I5 -> c1:u_lsu/u_dc_n_56
+end: c1:u_lsu/lq_st_q_reg[9][2]/CE (net in 0.299)
+Data Path Delay:        10.235ns  (logic 3.459ns (33.797%)  route 6.776ns (66.203%))
+Clock Path Skew:        -0.152ns

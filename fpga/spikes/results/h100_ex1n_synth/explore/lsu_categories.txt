@@ -1,0 +1,20 @@
+== u_lsu: 14270 LUT cells, 5314 FFs, 2640 LUTRAM sites
+category                                        LUTs  share    FFs LUTRAM   largest families (LUT cells)
+D$ control and miss entries                     3573  25.0%    888    752   u_dc/ 2892, u_dc 681
+LQ state and control                            1481  10.4%   1356      0   lq_st_q[][] 1054, lq_pav_q[] 121, lq_v_q[] 61, lq_wany_q[] 59, lq_pa_q[][] 51, lq_part_q[] 51, lq_blk_q[][] 41, lq_size_q[][] 23, lq_head_q[][] 19, lq_sq_q[][] 1
+PMP: descriptor selects and checker inputs      1189   8.3%     54      0   u_pmp_st 619, u_pmp_ld 565, s3_den_q 2, s2_dbl_q 1, s2_m_q 1, s2_rob_q[] 1
+PMP: the two checkers                           1131   7.9%      0      0   u_pmp_st/ 574, u_pmp_ld/ 557
+DTLB                                            1120   7.8%    284   1120   u_dtlb/ 1086, u_dtlb 30, s2_v_q 4
+SQ state and control                            1081   7.6%   1176      0   sq_dr_q[] 412, sq_tag_q[][] 198, sq_hge_q[] 95, sq_v_q[] 95, sq_dv_q[] 51, sq_pa_q[][] 45, sq_av_q[] 41, sq_pden_q[] 31, sq_tail_q[][] 30, sq_fp_q[] 22, sq_cmt_q[][] 19, sq_head_q[][] 16, sq_mmio_q[] 15, sq_mask_q[][] 11
+atomics and MMIO                                 870   6.1%    507      0   mmio_a_o[data][] 184, am_res_q[] 142, xr_data_q[] 141, rsv_v_e_inferred 89, rsv_line_q[][] 56, FSM_onehot_am_st_q[] 54, x_pa_q[] 35, rsv_hold_q[][] 20, sq_amo_q[] 20, am_rob_q[][] 16, am_sq_q[][] 16, mmio_a_o[mask][] 16, am_dst_q[][] 12, am_llt_q[][] 11, am_op_q[][] 10, x_size_q[] 10, am_pden_q 6, am_v_q[] 5, mmio_busy 3, am_dv_q[] 2, am_pa_q[] 2, rsv_v_q[] 2, stm_q[] 2, stw_q[] 2, x_kill_q 2, x_st_q 2, x_t_q[] 2, xr_v_q 2, FSM_onehot_xs_q[] 1, am_t_q[] 1, mmio_a_o[opcode][] 1, x_lq_q[] 1, x_wdata_q[] 1, xd_q 1
+replay                                           855   6.0%      7      0   rp_v_q 681, rp_ra_q[] 161, rp_turn_q 13
+byte overlap and forwarding data                 760   5.3%    175      0   r_data_q[] 204, m2_fcov_q 178, fh_data_q[] 145, fsd_tag[] 144, m2_fdat_q 41, r_rob_q[] 15, r_dst_q[] 12, r_llt_q[] 10, fh_w_q[] 4, r_fv_q 2, fh_llt_q[] 1, r_dv_q 1, r_fb_q 1, r_mmio_q 1, r_v_q 1
+unassigned                                       605   4.2%     94      0   sd_tag[] 158, wake_ld[] 100, hd_tlb 75, lq_we_q[][] 45, exc_cause[][] 42, sqh_q[pa][] 34, exc_valid[] 33, llt_done[] 24, ld_block 17, sqh_q[size][] 10, exc_rob[][] 8, sq_drained 8, sqh_q[mask][] 8, tlbm_valid[] 8, fld_idx[] 6, fp_block 5, hd_cause[] 4, hd_retry 4, fld_m2_will 3, ld_m2_will 3, ld_res_valid 3, hd_fault 2, fld_bank 1, fld_valid 1, it_fill 1, iw_done 1, sth_v[] 1
+walker (PTW) and the head's translation          588   4.1%    253      0   u_ptw/ 451, u_ptw 126, hd_tok_q[] 5, hdf_q[] 3, hdc_q[][] 2, g_hd_late.hd_at_q[][] 1
+age and priority selection                       489   3.4%     19      0   m2_foh_q[] 489
+queues' LUTRAM fields and their ports            246   1.7%      0    768   u_lqa 106, u_sqd 102, u_sqrob 21, u_sqh 10, u_lqc 7
+LQ/SQ address comparisons                        157   1.1%     42      0   m2_fhit_q 66, st_cmp_valid[] 60, m1_pa_q[] 26, m1_lq_q[] 5
+store prefetch                                    61   0.4%    111      0   dpf_vas_q[][] 55, dpf_ats_q[][] 2, dpf_p_q 1, dpf_tids_q[][] 1, dpf_v_q 1, pf_v_q 1
+M2: load outcome, PTE reads, FP hold              35   0.2%    120      0   m2_clash_q 21, m2_pa_q[] 5, m2_v_q 3, ma3_v_q 3, ma4_v_q 2, fh_v_q 1
+section: Where a new load and a store addres      27   0.2%    226      0   g_split.m2_dbl_q 14, g_split.m2_mck_q 10, g_split.cl_v_q 1, g_split.g_mreg.lm_den_q 1, g_split.m2_pck_q 1
+per-thread selects                                 2   0.0%      2      0   fh_tid_q[] 1, t_dr_q[] 1

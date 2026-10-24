@@ -128,6 +128,30 @@ if {$place_dir ni {Default Explore EarlyBlockPlacement WLDrivenBlockPlacement Ex
                    RuntimeOptimized Quick}} {
   puts "ERROR: TG_PLACE_DIRECTIVE must be one of place_design's directives (fpga/kv260/README.md)"; exit 1
 }
+# phys_opt_design's and route_design's directives (spikes 8.18, the coordinator, 10-23): unset gives each command's
+# default, as before. The M8 release image (rc3_u095r, +0.748 ns at 100 MHz) is TG_ROUTE_DIRECTIVE=AlternateCLBRouting
+# at TG_PR_UNC=0.95, where the default router traded timing for routability in two placements of the same netlist.
+# summary.txt records them as phys_opt= and route=. Checked here, before synthesis.
+set phys_dir [expr {[info exists ::env(TG_PHYS_DIRECTIVE)] ? $::env(TG_PHYS_DIRECTIVE) : "Default"}]
+if {$phys_dir ni {Default Explore ExploreWithHoldFix ExploreWithAggressiveHoldFix AggressiveExplore AlternateReplication
+                  AggressiveFanoutOpt AddRetime AlternateFlowWithRetiming RuntimeOptimized}} {
+  puts "ERROR: TG_PHYS_DIRECTIVE must be one of phys_opt_design's directives (fpga/kv260/README.md)"; exit 1
+}
+set route_dir [expr {[info exists ::env(TG_ROUTE_DIRECTIVE)] ? $::env(TG_ROUTE_DIRECTIVE) : "Default"}]
+if {$route_dir ni {Default Explore AggressiveExplore NoTimingRelaxation MoreGlobalIterations HigherDelayCost
+                   AdvancedSkewModeling AlternateCLBRouting RuntimeOptimized Quick}} {
+  puts "ERROR: TG_ROUTE_DIRECTIVE must be one of route_design's directives (fpga/kv260/README.md)"; exit 1
+}
+# TG_INCR_DCP: incremental implementation from a routed reference checkpoint (read_checkpoint -incremental before
+# place_design, TG_INCR_DIRECTIVE TimingClosure unless set); off unless set. On spikes-2's rc3 from rc2's closed
+# placement it reused 86% of the cells and then could not place the rest at 96% of the LUTs (spikes 8.18); it ignores
+# TG_PR_UNC's uncertainty, and goes on past 2025.2's empty "pb file" error once the reuse data is built.
+set incr_dcp [expr {[info exists ::env(TG_INCR_DCP)] ? $::env(TG_INCR_DCP) : ""}]
+set incr_dir [expr {[info exists ::env(TG_INCR_DIRECTIVE)] ? $::env(TG_INCR_DIRECTIVE) : "TimingClosure"}]
+if {$incr_dcp ne "" && ![file exists $incr_dcp]} { puts "ERROR: TG_INCR_DCP: no such checkpoint: $incr_dcp"; exit 1 }
+if {$incr_dir ni {TimingClosure RuntimeOptimized Quick}} {
+  puts "ERROR: TG_INCR_DIRECTIVE must be TimingClosure, RuntimeOptimized or Quick (fpga/kv260/README.md)"; exit 1
+}
 # TG_CHECKPOINT=1 (DR-187): post_opt.dcp after opt_design (with the place-and-route uncertainty set) and
 # post_place.dcp after phys_opt_design, in the run directory, so another placement or a reroute starts from one
 # of them instead of from synthesis. Off by default (each is several hundred MB).
@@ -312,6 +336,12 @@ if {$pr_unc > 0} {
   }
 }
 if {$ckpt} { stamp "write_checkpoint post_opt"; write_checkpoint -force ./post_opt.dcp }
+if {$incr_dcp ne ""} {
+  config_implementation {incr.ignoreUserClockUncertainty 1}
+  stamp "read_checkpoint -incremental ($incr_dir) $incr_dcp"
+  if {[catch {read_checkpoint -incremental $incr_dcp -directive $incr_dir} err]} { puts "TG_INCR read_checkpoint: $err" }
+  report_incremental_reuse -file $rep/incremental_reuse_pre_place.rpt
+}
 stamp "place_design ($place_dir)"
 place_design -directive $place_dir
 if {$fp_on} {
@@ -320,11 +350,12 @@ if {$fp_on} {
   tg_fp_check_placed
   file copy -force util_pblocks.rpt $rep/util_pblocks.rpt
 }
-stamp "phys_opt_design"
-phys_opt_design
+stamp "phys_opt_design ($phys_dir)"
+phys_opt_design -directive $phys_dir
 if {$ckpt} { stamp "write_checkpoint post_place"; write_checkpoint -force ./post_place.dcp }
-stamp "route_design"
-route_design
+stamp "route_design ($route_dir)"
+route_design -directive $route_dir
+if {$incr_dcp ne ""} { report_incremental_reuse -file $rep/incremental_reuse.rpt }
 if {$pr_unc > 0} { set_clock_uncertainty -setup 0 $core_clk }   ;# the reports at the real period
 stamp "reports"
 report_timing_summary -max_paths 20 -report_unconstrained -file $rep/timing_summary.rpt
@@ -379,6 +410,8 @@ puts $fh "profile=$profile defines=[expr {$defines eq {} ? {-} : $defines}] synt
 puts $fh "pr_unc=$pr_unc (ns of setup uncertainty on clk_core for placement and routing, taken back before the reports)$pr_unc_note"
 puts $fh "opt=$opt_dir (opt_design's directive, DR-166)"
 puts $fh "place=$place_dir (place_design's directive, DR-187)"
+puts $fh "phys_opt=$phys_dir route=$route_dir (phys_opt_design's and route_design's directives)"
+if {$incr_dcp ne ""} { puts $fh "incremental=$incr_dcp ($incr_dir; reuse in reports/incremental_reuse*.rpt)" }
 if {$urf} { puts $fh "urf=1 (DR-174: the integer register file in UltraRAM, clk2x at [expr {2 * $core_mhz}] MHz)" }
 puts $fh "uncore=[expr {$unc_set eq {} ? {-} : $unc_set}]"
 if {[info exists ::env(TG_LAT_INJ)] && !$::env(TG_LAT_INJ)} {

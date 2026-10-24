@@ -1,0 +1,10 @@
+SIBCHECK-BEGIN 2026-10-23T15:36:12Z cpu0's thread siblings: 0-1 (the other: cpu1)
+sibling online, run 1: wr1m 163.3 wr16m 150.6 MiB/s, AnonHugePages during wr16m 14336 kB
+sibling online, run 2: wr1m 173.1 wr16m 149.6 MiB/s, AnonHugePages during wr16m 14336 kB
+sibling online, run 3: wr1m 164.6 wr16m 149.8 MiB/s, AnonHugePages during wr16m 14336 kB
+cpu1 offline: online 0,2-3
+sibling offline, run 1: wr1m 174.3 wr16m 157.8 MiB/s, AnonHugePages during wr16m 14336 kB
+sibling offline, run 2: wr1m 177.1 wr16m 158.1 MiB/s, AnonHugePages during wr16m 14336 kB
+sibling offline, run 3: wr1m 176.8 wr16m 157.9 MiB/s, AnonHugePages during wr16m 14336 kB
+cpu1 back online: online 0-3
+SIBCHECK-END 2026-10-23T15:39:35Z

@@ -5,7 +5,8 @@
 # signal they drive or hold, with bit indices folded to [], and _i_N, _INST_0, _reg and replication suffixes removed.
 # Writes groups_<label>.tsv: unit, family, LUTs, flip-flops, LUTRAM sites. Compare two with cell_groups_diff.py.
 # Post-synthesis checkpoints built with -flatten_hierarchy none keep the units apart (h100_hn0, h100_hz0).
-#   tools/vivado_run.sh <run-dir> fpga/spikes/tcl/query/q_cell_groups.tcl <label=dcp>...       (about 5 GB)
+#   tools/vivado_run.sh <run-dir> fpga/spikes/tcl/query/q_cell_groups.tcl [units=<u>,<u>...] <label=dcp>...  (about 5 GB)
+# units= replaces UNITS, e.g. units=u_lsu,u_lsu/u_dc,u_lsu/u_dtlb,u_rn for the D$'s and the DTLB's own groups.
 set UNITS {u_fetch u_rn u_lsu u_csr u_rob}
 set CORE "u_soc/g_core\[0\].g_tgc.u_core/"
 proc fam {rel} {
@@ -23,6 +24,7 @@ proc fam {rel} {
 }
 foreach arg $argv {
   lassign [split $arg =] label dcp
+  if {$label eq "units"} { set UNITS [split $dcp ,]; continue }
   open_checkpoint $dcp
   set fs [open groups_$label.tsv w]
   foreach u $UNITS {

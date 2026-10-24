@@ -1,0 +1,2 @@
+db175ba87ef3d7b633568e9eb7bf2a20  tanager.bit
+6bfcffca43829f066d43890c64c60759  tanager.bit.bin

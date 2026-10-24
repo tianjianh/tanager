@@ -117,6 +117,11 @@ class spike_env_t final : public simif_t {
         if (!v) v = std::make_shared<reg_t>(0);
         p->get_state()->csrmap[mtgsmt_csr_t::ADDR] = std::make_shared<mtgsmt_csr_t>(p, v);
       }
+      // No Sdtrig (M9 section 10): with no triggers Spike still keeps tselect, tdata1-3 and tinfo (reading 0) and the
+      // context CSRs; the core has none of them, so an access traps as illegal in both
+      for (reg_t a : {CSR_TSELECT, CSR_TDATA1, CSR_TDATA2, CSR_TDATA3, CSR_TINFO, CSR_TCONTROL, CSR_MCONTEXT,
+                      CSR_MSCONTEXT, CSR_SCONTEXT, CSR_HCONTEXT})
+        p->get_state()->csrmap.erase(a);
     }
   }
 

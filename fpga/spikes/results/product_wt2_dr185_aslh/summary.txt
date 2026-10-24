@@ -1,0 +1,14 @@
+cfg=smt2 kind=core core_mhz=100 n_cores=2
+WNS=-1.108 WHS=0.011
+runtime_s=3624
+commit=89ef75bcf5d9
+profile=product-hart1-release-urf-fp-dr185_aslh defines=TG_HART1=1 TG_COMMIT_TRACE=0 synth=AreaOptimized_high
+pr_unc=1.0 (ns of setup uncertainty on clk_core for placement and routing, taken back before the reports) and on clk2x (TG_URF=1)
+opt=ExploreArea (opt_design's directive, DR-166)
+urf=1 (DR-174: the integer register file in UltraRAM, clk2x at 200 MHz)
+uncore=RELEASE=1 AR_SLICE=1 XBAR_SLICE=0 MEM_SLICE=0 VIRTIO_WINDOW=0 HOST_DMA=1 LAT_INJ=0 PS_WINDOW=1
+lat_inj=0 (release: no latency injectors, DR-177)
+release=1 (DR-180: the PLIC's S contexts alone, no host console, no DMA line counters or completions, trimmed crossings; no injectors, virtio window or trace)
+pmod_uart=1 txd=H12 rxd=B10
+fan=ttc0.wave2 invert=0 pl=1 pin=A12
+floorplan=g4_uncore (DR-181: soft pblocks for the L2 banks and the crossbar) l2b0 98%/74%, l2b1 102%/78%, xbar 34%/29% (before opt_design / its own LUTs after placement; warn above 105 / 85%, tight above 115 / 90%): OK

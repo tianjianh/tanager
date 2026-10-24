@@ -1,0 +1,474 @@
+from *u_fetch/gpend_q*: 4 registers; to any endpoint
+== the 3 worst paths, one per endpoint (slack, levels, logic / wire ns, start -> end)
+  1.980  18  2.49  5.34  c0:u_fetch/gpend_q_reg[1]/C -> c0:u_fetch/u_ival/g_m64.g_bank[0].g_prim[2].u_ram/RAMC/I
+  2.034  18  2.48  5.29  c0:u_fetch/gpend_q_reg[1]/C -> c0:u_fetch/u_ival/g_m64.g_bank[0].g_prim[0].u_ram/RAMB/I
+  2.065  19  2.67  4.96  c1:u_fetch/gpend_q_reg[1]/C -> c1:u_fetch/u_ival/g_m64.g_bank[0].g_prim[2].u_ram/RAMB/I
+
+== the same 3 paths in full (report_timing -input_pins)
+Slack (MET) :             1.980ns  (required time - arrival time)
+  Source:                 u_soc/g_core[0].g_tgc.u_core/u_fetch/gpend_q_reg[1]/C
+                            (rising edge-triggered cell FDRE clocked by c0  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[2].u_ram/RAMC/I
+                            (rising edge-triggered cell RAMD64E clocked by c0  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             c0
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            10.000ns  (c0 rise@10.000ns - c0 rise@0.000ns)
+  Data Path Delay:        7.823ns  (logic 2.487ns (31.790%)  route 5.336ns (68.210%))
+  Logic Levels:           18  (LUT2=3 LUT3=3 LUT4=3 LUT5=3 LUT6=5 RAMD64E=1)
+  Clock Path Skew:        0.008ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    5.653ns = ( 15.653 - 10.000 ) 
+    Source Clock Delay      (SCD):    5.240ns
+    Clock Pessimism Removal (CPR):    -0.405ns
+  Clock Uncertainty:      0.068ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE + UU
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.116ns
+    Phase Error              (PE):    0.000ns
+    User Uncertainty         (UU):    0.000ns
+  Clock Net Delay (Source):      2.558ns (routing 1.060ns, distribution 1.498ns)
+  Clock Net Delay (Destination): 2.424ns (routing 0.975ns, distribution 1.449ns)
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock c0 rise edge)         0.000     0.000 r  
+    PS8_X0Y0             PS8                          0.000     0.000 r  u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/PS8_i/PLCLK[0]
+                         net (fo=1, routed)           0.229     0.229    u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/pl_clk_unbuffered[0]
+    BUFG_PS_X0Y72                                                     r  u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/I
+    BUFG_PS_X0Y72        BUFG_PS (Prop_BUFG_PS_I_O)
+                                                      0.038     0.267 r  u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/O
+                         net (fo=1, routed)           2.127     2.394    u_clkgen/clk_in
+    MMCM_X0Y2                                                         r  u_clkgen/u_mmcm/CLKIN1
+    MMCM_X0Y2            MMCME4_ADV (Prop_MMCM_CLKIN1_CLKOUT0)
+                                                     -0.103     2.291 r  u_clkgen/u_mmcm/CLKOUT0
+                         net (fo=1, routed)           0.347     2.638    u_clkgen/c0
+    BUFGCE_X0Y62                                                      r  u_clkgen/u_bufg_core/I
+    BUFGCE_X0Y62         BUFGCE (Prop_BUFCE_BUFGCE_I_O)
+                                                      0.044     2.682 r  u_clkgen/u_bufg_core/O
+    X1Y1 (CLOCK_ROOT)    net (fo=82577, routed)       2.558     5.240    u_soc/g_core[0].g_tgc.u_core/u_fetch/clk_core
+    SLICE_X11Y89         FDRE                                         r  u_soc/g_core[0].g_tgc.u_core/u_fetch/gpend_q_reg[1]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X11Y89         FDRE (Prop_CFF2_SLICEL_C_Q)
+                                                      0.115     5.355 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/gpend_q_reg[1]/Q
+                         net (fo=2, routed)           0.307     5.662    u_soc/g_core[0].g_tgc.u_core/u_fetch/gpend_q_reg_n_0_[1]
+    SLICE_X11Y89                                                      r  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT4_50/I3
+    SLICE_X11Y89         LUT4 (Prop_B6LUT_SLICEL_I3_O)
+                                                      0.152     5.814 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT4_50/O
+                         net (fo=9, routed)           0.551     6.365    u_soc/g_core[0].g_tgc.u_core/u_fetch/ivs_q[6]_i_1_n_0
+    SLICE_X19Y93                                                      r  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT6_303/I4
+    SLICE_X19Y93         LUT6 (Prop_C6LUT_SLICEL_I4_O)
+                                                      0.221     6.586 f  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT6_303/O
+                         net (fo=63, routed)          0.252     6.838    u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_net_84
+    SLICE_X18Y92                                                      f  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT6_638/I4
+    SLICE_X18Y92         LUT6 (Prop_G6LUT_SLICEM_I4_O)
+                                                      0.082     6.920 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT6_638/O
+                         net (fo=23, routed)          0.899     7.818    u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_net_308
+    SLICE_X17Y88                                                      r  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT5_319/I3
+    SLICE_X17Y88         LUT5 (Prop_E6LUT_SLICEM_I3_O)
+                                                      0.187     8.005 f  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT5_319/O
+                         net (fo=1, routed)           0.165     8.170    u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_net_530
+    SLICE_X19Y88                                                      f  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT3_122/I2
+    SLICE_X19Y88         LUT3 (Prop_E6LUT_SLICEL_I2_O)
+                                                      0.057     8.227 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT3_122/O
+                         net (fo=10, routed)          0.216     8.444    u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[1].u_ram/ADDRD3
+    SLICE_X18Y85                                                      r  u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[1].u_ram/RAMD/RADR3
+    SLICE_X18Y85         RAMD64E (Prop_D6LUT_SLICEM_RADR3_O)
+                                                      0.134     8.578 f  u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[1].u_ram/RAMD/O
+                         net (fo=1, routed)           0.220     8.798    u_soc/g_core[0].g_tgc.u_core/u_fetch/iv_rd[1]_28[0]
+    SLICE_X17Y86                                                      f  u_soc/g_core[0].g_tgc.u_core/u_fetch/i___862/I4
+    SLICE_X17Y86         LUT5 (Prop_D5LUT_SLICEM_I4_O)
+                                                      0.135     8.933 f  u_soc/g_core[0].g_tgc.u_core/u_fetch/i___862/O
+                         net (fo=4, routed)           0.224     9.157    u_soc/g_core[0].g_tgc.u_core/u_fetch/i___862_n_0
+    SLICE_X16Y88                                                      f  u_soc/g_core[0].g_tgc.u_core/u_fetch/i___858_i_3__0/I0
+    SLICE_X16Y88         LUT3 (Prop_D5LUT_SLICEL_I0_O)
+                                                      0.133     9.290 f  u_soc/g_core[0].g_tgc.u_core/u_fetch/i___858_i_3__0/O
+                         net (fo=2, routed)           0.197     9.487    u_soc/g_core[0].g_tgc.u_core/u_fetch/i___858_i_3__0_n_0
+    SLICE_X15Y86                                                      f  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT2_111/I0
+    SLICE_X15Y86         LUT2 (Prop_E6LUT_SLICEL_I0_O)
+                                                      0.083     9.570 f  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT2_111/O
+                         net (fo=4, routed)           0.152     9.722    u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_net_558
+    SLICE_X16Y86                                                      f  u_soc/g_core[0].g_tgc.u_core/u_fetch/i___872/I2
+    SLICE_X16Y86         LUT4 (Prop_H5LUT_SLICEL_I2_O)
+                                                      0.132     9.854 f  u_soc/g_core[0].g_tgc.u_core/u_fetch/i___872/O
+                         net (fo=2, routed)           0.443    10.298    u_soc/g_core[0].g_tgc.u_core/u_fetch/i___872_n_0
+    SLICE_X16Y87                                                      f  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT3_127/I2
+    SLICE_X16Y87         LUT3 (Prop_G6LUT_SLICEL_I2_O)
+                                                      0.137    10.435 f  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT3_127/O
+                         net (fo=2, routed)           0.245    10.680    u_soc/g_core[0].g_tgc.u_core/u_fetch/i___868_i_3_n_0
+    SLICE_X16Y86                                                      f  u_soc/g_core[0].g_tgc.u_core/u_fetch/i___855_i_1__0/I1
+    SLICE_X16Y86         LUT2 (Prop_H6LUT_SLICEL_I1_O)
+                                                      0.083    10.763 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/i___855_i_1__0/O
+                         net (fo=5, routed)           0.114    10.877    u_soc/g_core[0].g_tgc.u_core/u_fetch/i___855_i_1__0_n_0
+    SLICE_X16Y86                                                      r  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT4_168/I1
+    SLICE_X16Y86         LUT4 (Prop_A6LUT_SLICEL_I1_O)
+                                                      0.082    10.959 f  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT4_168/O
+                         net (fo=4, routed)           0.131    11.090    u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_net_561
+    SLICE_X16Y88                                                      f  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT5_333/I4
+    SLICE_X16Y88         LUT5 (Prop_E6LUT_SLICEL_I4_O)
+                                                      0.187    11.277 f  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT5_333/O
+                         net (fo=4, routed)           0.269    11.547    u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_net_659
+    SLICE_X16Y88                                                      f  u_soc/g_core[0].g_tgc.u_core/u_fetch/i___851_i_1__0/I1
+    SLICE_X16Y88         LUT2 (Prop_H6LUT_SLICEL_I1_O)
+                                                      0.137    11.684 f  u_soc/g_core[0].g_tgc.u_core/u_fetch/i___851_i_1__0/O
+                         net (fo=6, routed)           0.114    11.797    u_soc/g_core[0].g_tgc.u_core/u_fetch/i___851_i_1__0_n_0
+    SLICE_X16Y88                                                      f  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT6_883/I3
+    SLICE_X16Y88         LUT6 (Prop_F6LUT_SLICEL_I3_O)
+                                                      0.056    11.853 f  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT6_883/O
+                         net (fo=9, routed)           0.218    12.071    u_soc/g_core[0].g_tgc.u_core/u_fetch/pway_q[2]_i_2_n_0
+    SLICE_X19Y88                                                      f  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT6_897/I3
+    SLICE_X19Y88         LUT6 (Prop_B6LUT_SLICEL_I3_O)
+                                                      0.224    12.295 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT6_897/O
+                         net (fo=1, routed)           0.152    12.447    u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_net_586
+    SLICE_X19Y87                                                      r  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT6_898/I5
+    SLICE_X19Y87         LUT6 (Prop_F6LUT_SLICEL_I5_O)
+                                                      0.150    12.597 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT6_898/O
+                         net (fo=2, routed)           0.466    13.063    u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[2].u_ram/DIC
+    SLICE_X18Y86         RAMD64E                                      r  u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[2].u_ram/RAMC/I
+  -------------------------------------------------------------------    -------------------
+
+                         (clock c0 rise edge)        10.000    10.000 r  
+    PS8_X0Y0             PS8                          0.000    10.000 r  u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/PS8_i/PLCLK[0]
+                         net (fo=1, routed)           0.181    10.181    u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/pl_clk_unbuffered[0]
+    BUFG_PS_X0Y72                                                     r  u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/I
+    BUFG_PS_X0Y72        BUFG_PS (Prop_BUFG_PS_I_O)
+                                                      0.035    10.216 r  u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/O
+                         net (fo=1, routed)           1.929    12.145    u_clkgen/clk_in
+    MMCM_X0Y2                                                         r  u_clkgen/u_mmcm/CLKIN1
+    MMCM_X0Y2            MMCME4_ADV (Prop_MMCM_CLKIN1_CLKOUT0)
+                                                      0.739    12.884 r  u_clkgen/u_mmcm/CLKOUT0
+                         net (fo=1, routed)           0.306    13.190    u_clkgen/c0
+    BUFGCE_X0Y62                                                      r  u_clkgen/u_bufg_core/I
+    BUFGCE_X0Y62         BUFGCE (Prop_BUFCE_BUFGCE_I_O)
+                                                      0.039    13.229 r  u_clkgen/u_bufg_core/O
+    X1Y1 (CLOCK_ROOT)    net (fo=82577, routed)       2.424    15.653    u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[2].u_ram/WCLK
+    SLICE_X18Y86         RAMD64E                                      r  u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[2].u_ram/RAMC/CLK
+                         clock pessimism             -0.405    15.248    
+                         clock uncertainty           -0.068    15.180    
+    SLICE_X18Y86         RAMD64E (Setup_C6LUT_SLICEM_CLK_I)
+                                                     -0.137    15.043    u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[2].u_ram/RAMC
+  -------------------------------------------------------------------
+                         required time                         15.043    
+                         arrival time                         -13.063    
+  -------------------------------------------------------------------
+                         slack                                  1.980    
+
+Slack (MET) :             2.034ns  (required time - arrival time)
+  Source:                 u_soc/g_core[0].g_tgc.u_core/u_fetch/gpend_q_reg[1]/C
+                            (rising edge-triggered cell FDRE clocked by c0  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[0].u_ram/RAMB/I
+                            (rising edge-triggered cell RAMD64E clocked by c0  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             c0
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            10.000ns  (c0 rise@10.000ns - c0 rise@0.000ns)
+  Data Path Delay:        7.772ns  (logic 2.483ns (31.947%)  route 5.289ns (68.053%))
+  Logic Levels:           18  (LUT2=3 LUT3=4 LUT4=3 LUT5=3 LUT6=4 RAMD64E=1)
+  Clock Path Skew:        0.011ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    5.656ns = ( 15.656 - 10.000 ) 
+    Source Clock Delay      (SCD):    5.240ns
+    Clock Pessimism Removal (CPR):    -0.405ns
+  Clock Uncertainty:      0.068ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE + UU
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.116ns
+    Phase Error              (PE):    0.000ns
+    User Uncertainty         (UU):    0.000ns
+  Clock Net Delay (Source):      2.558ns (routing 1.060ns, distribution 1.498ns)
+  Clock Net Delay (Destination): 2.427ns (routing 0.975ns, distribution 1.452ns)
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock c0 rise edge)         0.000     0.000 r  
+    PS8_X0Y0             PS8                          0.000     0.000 r  u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/PS8_i/PLCLK[0]
+                         net (fo=1, routed)           0.229     0.229    u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/pl_clk_unbuffered[0]
+    BUFG_PS_X0Y72                                                     r  u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/I
+    BUFG_PS_X0Y72        BUFG_PS (Prop_BUFG_PS_I_O)
+                                                      0.038     0.267 r  u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/O
+                         net (fo=1, routed)           2.127     2.394    u_clkgen/clk_in
+    MMCM_X0Y2                                                         r  u_clkgen/u_mmcm/CLKIN1
+    MMCM_X0Y2            MMCME4_ADV (Prop_MMCM_CLKIN1_CLKOUT0)
+                                                     -0.103     2.291 r  u_clkgen/u_mmcm/CLKOUT0
+                         net (fo=1, routed)           0.347     2.638    u_clkgen/c0
+    BUFGCE_X0Y62                                                      r  u_clkgen/u_bufg_core/I
+    BUFGCE_X0Y62         BUFGCE (Prop_BUFCE_BUFGCE_I_O)
+                                                      0.044     2.682 r  u_clkgen/u_bufg_core/O
+    X1Y1 (CLOCK_ROOT)    net (fo=82577, routed)       2.558     5.240    u_soc/g_core[0].g_tgc.u_core/u_fetch/clk_core
+    SLICE_X11Y89         FDRE                                         r  u_soc/g_core[0].g_tgc.u_core/u_fetch/gpend_q_reg[1]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X11Y89         FDRE (Prop_CFF2_SLICEL_C_Q)
+                                                      0.115     5.355 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/gpend_q_reg[1]/Q
+                         net (fo=2, routed)           0.307     5.662    u_soc/g_core[0].g_tgc.u_core/u_fetch/gpend_q_reg_n_0_[1]
+    SLICE_X11Y89                                                      r  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT4_50/I3
+    SLICE_X11Y89         LUT4 (Prop_B6LUT_SLICEL_I3_O)
+                                                      0.152     5.814 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT4_50/O
+                         net (fo=9, routed)           0.551     6.365    u_soc/g_core[0].g_tgc.u_core/u_fetch/ivs_q[6]_i_1_n_0
+    SLICE_X19Y93                                                      r  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT6_303/I4
+    SLICE_X19Y93         LUT6 (Prop_C6LUT_SLICEL_I4_O)
+                                                      0.221     6.586 f  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT6_303/O
+                         net (fo=63, routed)          0.252     6.838    u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_net_84
+    SLICE_X18Y92                                                      f  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT6_638/I4
+    SLICE_X18Y92         LUT6 (Prop_G6LUT_SLICEM_I4_O)
+                                                      0.082     6.920 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT6_638/O
+                         net (fo=23, routed)          0.899     7.818    u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_net_308
+    SLICE_X17Y88                                                      r  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT5_319/I3
+    SLICE_X17Y88         LUT5 (Prop_E6LUT_SLICEM_I3_O)
+                                                      0.187     8.005 f  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT5_319/O
+                         net (fo=1, routed)           0.165     8.170    u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_net_530
+    SLICE_X19Y88                                                      f  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT3_122/I2
+    SLICE_X19Y88         LUT3 (Prop_E6LUT_SLICEL_I2_O)
+                                                      0.057     8.227 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT3_122/O
+                         net (fo=10, routed)          0.216     8.444    u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[1].u_ram/ADDRD3
+    SLICE_X18Y85                                                      r  u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[1].u_ram/RAMD/RADR3
+    SLICE_X18Y85         RAMD64E (Prop_D6LUT_SLICEM_RADR3_O)
+                                                      0.134     8.578 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[1].u_ram/RAMD/O
+                         net (fo=1, routed)           0.220     8.798    u_soc/g_core[0].g_tgc.u_core/u_fetch/iv_rd[1]_28[0]
+    SLICE_X17Y86                                                      r  u_soc/g_core[0].g_tgc.u_core/u_fetch/i___862/I4
+    SLICE_X17Y86         LUT5 (Prop_D5LUT_SLICEM_I4_O)
+                                                      0.135     8.933 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/i___862/O
+                         net (fo=4, routed)           0.224     9.157    u_soc/g_core[0].g_tgc.u_core/u_fetch/i___862_n_0
+    SLICE_X16Y88                                                      r  u_soc/g_core[0].g_tgc.u_core/u_fetch/i___858_i_3__0/I0
+    SLICE_X16Y88         LUT3 (Prop_D5LUT_SLICEL_I0_O)
+                                                      0.133     9.290 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/i___858_i_3__0/O
+                         net (fo=2, routed)           0.197     9.487    u_soc/g_core[0].g_tgc.u_core/u_fetch/i___858_i_3__0_n_0
+    SLICE_X15Y86                                                      r  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT2_111/I0
+    SLICE_X15Y86         LUT2 (Prop_E6LUT_SLICEL_I0_O)
+                                                      0.083     9.570 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT2_111/O
+                         net (fo=4, routed)           0.152     9.722    u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_net_558
+    SLICE_X16Y86                                                      r  u_soc/g_core[0].g_tgc.u_core/u_fetch/i___872/I2
+    SLICE_X16Y86         LUT4 (Prop_H5LUT_SLICEL_I2_O)
+                                                      0.132     9.854 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/i___872/O
+                         net (fo=2, routed)           0.443    10.298    u_soc/g_core[0].g_tgc.u_core/u_fetch/i___872_n_0
+    SLICE_X16Y87                                                      r  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT3_127/I2
+    SLICE_X16Y87         LUT3 (Prop_G6LUT_SLICEL_I2_O)
+                                                      0.137    10.435 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT3_127/O
+                         net (fo=2, routed)           0.245    10.680    u_soc/g_core[0].g_tgc.u_core/u_fetch/i___868_i_3_n_0
+    SLICE_X16Y86                                                      r  u_soc/g_core[0].g_tgc.u_core/u_fetch/i___855_i_1__0/I1
+    SLICE_X16Y86         LUT2 (Prop_H6LUT_SLICEL_I1_O)
+                                                      0.083    10.763 f  u_soc/g_core[0].g_tgc.u_core/u_fetch/i___855_i_1__0/O
+                         net (fo=5, routed)           0.114    10.877    u_soc/g_core[0].g_tgc.u_core/u_fetch/i___855_i_1__0_n_0
+    SLICE_X16Y86                                                      f  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT4_168/I1
+    SLICE_X16Y86         LUT4 (Prop_A6LUT_SLICEL_I1_O)
+                                                      0.082    10.959 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT4_168/O
+                         net (fo=4, routed)           0.131    11.090    u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_net_561
+    SLICE_X16Y88                                                      r  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT5_333/I4
+    SLICE_X16Y88         LUT5 (Prop_E6LUT_SLICEL_I4_O)
+                                                      0.187    11.277 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT5_333/O
+                         net (fo=4, routed)           0.269    11.547    u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_net_659
+    SLICE_X16Y88                                                      r  u_soc/g_core[0].g_tgc.u_core/u_fetch/i___851_i_1__0/I1
+    SLICE_X16Y88         LUT2 (Prop_H6LUT_SLICEL_I1_O)
+                                                      0.137    11.684 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/i___851_i_1__0/O
+                         net (fo=6, routed)           0.061    11.744    u_soc/g_core[0].g_tgc.u_core/u_fetch/i___851_i_1__0_n_0
+    SLICE_X16Y88                                                      r  u_soc/g_core[0].g_tgc.u_core/u_fetch/i___854/I1
+    SLICE_X16Y88         LUT3 (Prop_G5LUT_SLICEL_I1_O)
+                                                      0.090    11.834 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/i___854/O
+                         net (fo=2, routed)           0.185    12.019    u_soc/g_core[0].g_tgc.u_core/u_fetch/i___854_n_0
+    SLICE_X15Y88                                                      r  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT6_887/I4
+    SLICE_X15Y88         LUT6 (Prop_F6LUT_SLICEL_I4_O)
+                                                      0.150    12.169 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT6_887/O
+                         net (fo=1, routed)           0.172    12.341    u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_net_575
+    SLICE_X17Y87                                                      r  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT6_888/I5
+    SLICE_X17Y87         LUT6 (Prop_G6LUT_SLICEM_I5_O)
+                                                      0.186    12.527 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT6_888/O
+                         net (fo=2, routed)           0.485    13.012    u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[0].u_ram/DIB
+    SLICE_X18Y84         RAMD64E                                      r  u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[0].u_ram/RAMB/I
+  -------------------------------------------------------------------    -------------------
+
+                         (clock c0 rise edge)        10.000    10.000 r  
+    PS8_X0Y0             PS8                          0.000    10.000 r  u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/PS8_i/PLCLK[0]
+                         net (fo=1, routed)           0.181    10.181    u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/pl_clk_unbuffered[0]
+    BUFG_PS_X0Y72                                                     r  u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/I
+    BUFG_PS_X0Y72        BUFG_PS (Prop_BUFG_PS_I_O)
+                                                      0.035    10.216 r  u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/O
+                         net (fo=1, routed)           1.929    12.145    u_clkgen/clk_in
+    MMCM_X0Y2                                                         r  u_clkgen/u_mmcm/CLKIN1
+    MMCM_X0Y2            MMCME4_ADV (Prop_MMCM_CLKIN1_CLKOUT0)
+                                                      0.739    12.884 r  u_clkgen/u_mmcm/CLKOUT0
+                         net (fo=1, routed)           0.306    13.190    u_clkgen/c0
+    BUFGCE_X0Y62                                                      r  u_clkgen/u_bufg_core/I
+    BUFGCE_X0Y62         BUFGCE (Prop_BUFCE_BUFGCE_I_O)
+                                                      0.039    13.229 r  u_clkgen/u_bufg_core/O
+    X1Y1 (CLOCK_ROOT)    net (fo=82577, routed)       2.427    15.656    u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[0].u_ram/WCLK
+    SLICE_X18Y84         RAMD64E                                      r  u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[0].u_ram/RAMB/CLK
+                         clock pessimism             -0.405    15.251    
+                         clock uncertainty           -0.068    15.183    
+    SLICE_X18Y84         RAMD64E (Setup_B6LUT_SLICEM_CLK_I)
+                                                     -0.137    15.046    u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[0].u_ram/RAMB
+  -------------------------------------------------------------------
+                         required time                         15.046    
+                         arrival time                         -13.012    
+  -------------------------------------------------------------------
+                         slack                                  2.034    
+
+Slack (MET) :             2.065ns  (required time - arrival time)
+  Source:                 u_soc/g_core[1].g_tgc.u_core/u_fetch/gpend_q_reg[1]/C
+                            (rising edge-triggered cell FDRE clocked by c0  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_soc/g_core[1].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[2].u_ram/RAMB/I
+                            (rising edge-triggered cell RAMD64E clocked by c0  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             c0
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            10.000ns  (c0 rise@10.000ns - c0 rise@0.000ns)
+  Data Path Delay:        7.626ns  (logic 2.669ns (34.997%)  route 4.957ns (65.003%))
+  Logic Levels:           19  (LUT2=3 LUT3=4 LUT4=4 LUT5=2 LUT6=5 RAMD64E=1)
+  Clock Path Skew:        -0.103ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    5.601ns = ( 15.601 - 10.000 ) 
+    Source Clock Delay      (SCD):    5.302ns
+    Clock Pessimism Removal (CPR):    -0.403ns
+  Clock Uncertainty:      0.068ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE + UU
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.116ns
+    Phase Error              (PE):    0.000ns
+    User Uncertainty         (UU):    0.000ns
+  Clock Net Delay (Source):      2.620ns (routing 1.060ns, distribution 1.560ns)
+  Clock Net Delay (Destination): 2.372ns (routing 0.975ns, distribution 1.397ns)
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock c0 rise edge)         0.000     0.000 r  
+    PS8_X0Y0             PS8                          0.000     0.000 r  u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/PS8_i/PLCLK[0]
+                         net (fo=1, routed)           0.229     0.229    u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/pl_clk_unbuffered[0]
+    BUFG_PS_X0Y72                                                     r  u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/I
+    BUFG_PS_X0Y72        BUFG_PS (Prop_BUFG_PS_I_O)
+                                                      0.038     0.267 r  u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/O
+                         net (fo=1, routed)           2.127     2.394    u_clkgen/clk_in
+    MMCM_X0Y2                                                         r  u_clkgen/u_mmcm/CLKIN1
+    MMCM_X0Y2            MMCME4_ADV (Prop_MMCM_CLKIN1_CLKOUT0)
+                                                     -0.103     2.291 r  u_clkgen/u_mmcm/CLKOUT0
+                         net (fo=1, routed)           0.347     2.638    u_clkgen/c0
+    BUFGCE_X0Y62                                                      r  u_clkgen/u_bufg_core/I
+    BUFGCE_X0Y62         BUFGCE (Prop_BUFCE_BUFGCE_I_O)
+                                                      0.044     2.682 r  u_clkgen/u_bufg_core/O
+    X1Y1 (CLOCK_ROOT)    net (fo=82577, routed)       2.620     5.302    u_soc/g_core[1].g_tgc.u_core/u_fetch/clk_core
+    SLICE_X55Y135        FDRE                                         r  u_soc/g_core[1].g_tgc.u_core/u_fetch/gpend_q_reg[1]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X55Y135        FDRE (Prop_DFF2_SLICEL_C_Q)
+                                                      0.115     5.417 f  u_soc/g_core[1].g_tgc.u_core/u_fetch/gpend_q_reg[1]/Q
+                         net (fo=2, routed)           0.221     5.638    u_soc/g_core[1].g_tgc.u_core/u_fetch/gpend_q_reg_n_0_[1]
+    SLICE_X55Y135                                                     f  u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_LUT4_51/I3
+    SLICE_X55Y135        LUT4 (Prop_E6LUT_SLICEL_I3_O)
+                                                      0.083     5.721 f  u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_LUT4_51/O
+                         net (fo=9, routed)           0.595     6.315    u_soc/g_core[1].g_tgc.u_core/u_fetch/ivs_q[6]_i_1__0_n_0
+    SLICE_X54Y169                                                     f  u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_LUT6_245/I4
+    SLICE_X54Y169        LUT6 (Prop_G6LUT_SLICEM_I4_O)
+                                                      0.137     6.452 r  u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_LUT6_245/O
+                         net (fo=63, routed)          0.483     6.935    u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_net_83
+    SLICE_X56Y140                                                     r  u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_LUT6_581/I4
+    SLICE_X56Y140        LUT6 (Prop_B6LUT_SLICEL_I4_O)
+                                                      0.188     7.123 f  u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_LUT6_581/O
+                         net (fo=23, routed)          0.121     7.244    u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_net_306
+    SLICE_X56Y142                                                     f  u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_LUT4_88/I3
+    SLICE_X56Y142        LUT4 (Prop_E6LUT_SLICEL_I3_O)
+                                                      0.187     7.431 f  u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_LUT4_88/O
+                         net (fo=12, routed)          0.345     7.777    u_soc/g_core[1].g_tgc.u_core/u_fetch/i___584_i_1__1_n_0
+    SLICE_X57Y145                                                     f  u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_LUT2_22/I1
+    SLICE_X57Y145        LUT2 (Prop_E6LUT_SLICEL_I1_O)
+                                                      0.152     7.929 r  u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_LUT2_22/O
+                         net (fo=11, routed)          0.478     8.407    u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_net_473
+    SLICE_X59Y143                                                     r  u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_LUT3_120/I1
+    SLICE_X59Y143        LUT3 (Prop_A6LUT_SLICEL_I1_O)
+                                                      0.058     8.465 r  u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_LUT3_120/O
+                         net (fo=10, routed)          0.245     8.710    u_soc/g_core[1].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[2].u_ram/ADDRF2
+    SLICE_X58Y145                                                     r  u_soc/g_core[1].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[2].u_ram/RAMF/RADR2
+    SLICE_X58Y145        RAMD64E (Prop_F6LUT_SLICEM_RADR2_O)
+                                                      0.149     8.859 r  u_soc/g_core[1].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[2].u_ram/RAMF/O
+                         net (fo=9, routed)           0.179     9.038    u_soc/g_core[1].g_tgc.u_core/u_fetch/iv_rd[1]_92[9]
+    SLICE_X59Y146                                                     r  u_soc/g_core[1].g_tgc.u_core/u_fetch/i___861/I0
+    SLICE_X59Y146        LUT5 (Prop_D5LUT_SLICEL_I0_O)
+                                                      0.187     9.225 r  u_soc/g_core[1].g_tgc.u_core/u_fetch/i___861/O
+                         net (fo=4, routed)           0.287     9.512    u_soc/g_core[1].g_tgc.u_core/u_fetch/i___861_n_0
+    SLICE_X59Y144                                                     r  u_soc/g_core[1].g_tgc.u_core/u_fetch/i___858_i_2__2/I0
+    SLICE_X59Y144        LUT3 (Prop_G6LUT_SLICEL_I0_O)
+                                                      0.226     9.738 f  u_soc/g_core[1].g_tgc.u_core/u_fetch/i___858_i_2__2/O
+                         net (fo=2, routed)           0.174     9.912    u_soc/g_core[1].g_tgc.u_core/u_fetch/i___858_i_2__2_n_0
+    SLICE_X60Y145                                                     f  u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_LUT2_109/I1
+    SLICE_X60Y145        LUT2 (Prop_E5LUT_SLICEL_I1_O)
+                                                      0.156    10.068 r  u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_LUT2_109/O
+                         net (fo=4, routed)           0.195    10.263    u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_net_555
+    SLICE_X60Y145                                                     r  u_soc/g_core[1].g_tgc.u_core/u_fetch/i___872/I2
+    SLICE_X60Y145        LUT4 (Prop_D5LUT_SLICEL_I2_O)
+                                                      0.133    10.396 r  u_soc/g_core[1].g_tgc.u_core/u_fetch/i___872/O
+                         net (fo=2, routed)           0.212    10.609    u_soc/g_core[1].g_tgc.u_core/u_fetch/i___872_n_0
+    SLICE_X60Y144                                                     r  u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_LUT3_126/I2
+    SLICE_X60Y144        LUT3 (Prop_H6LUT_SLICEL_I2_O)
+                                                      0.058    10.667 r  u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_LUT3_126/O
+                         net (fo=2, routed)           0.157    10.824    u_soc/g_core[1].g_tgc.u_core/u_fetch/i___868_i_3__0_n_0
+    SLICE_X60Y145                                                     r  u_soc/g_core[1].g_tgc.u_core/u_fetch/i___855_i_1__2/I1
+    SLICE_X60Y145        LUT2 (Prop_D6LUT_SLICEL_I1_O)
+                                                      0.152    10.976 f  u_soc/g_core[1].g_tgc.u_core/u_fetch/i___855_i_1__2/O
+                         net (fo=5, routed)           0.120    11.096    u_soc/g_core[1].g_tgc.u_core/u_fetch/i___855_i_1__2_n_0
+    SLICE_X60Y147                                                     f  u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_LUT4_170/I1
+    SLICE_X60Y147        LUT4 (Prop_E6LUT_SLICEL_I1_O)
+                                                      0.057    11.153 r  u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_LUT4_170/O
+                         net (fo=4, routed)           0.052    11.205    u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_net_558
+    SLICE_X60Y147                                                     r  u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_LUT5_337/I4
+    SLICE_X60Y147        LUT5 (Prop_B6LUT_SLICEL_I4_O)
+                                                      0.083    11.288 r  u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_LUT5_337/O
+                         net (fo=5, routed)           0.123    11.412    u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_net_565
+    SLICE_X60Y147                                                     r  u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_LUT6_823/I4
+    SLICE_X60Y147        LUT6 (Prop_C6LUT_SLICEL_I4_O)
+                                                      0.187    11.599 f  u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_LUT6_823/O
+                         net (fo=5, routed)           0.224    11.823    u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_net_659
+    SLICE_X59Y147                                                     f  u_soc/g_core[1].g_tgc.u_core/u_fetch/i___854/I2
+    SLICE_X59Y147        LUT3 (Prop_H5LUT_SLICEL_I2_O)
+                                                      0.088    11.911 r  u_soc/g_core[1].g_tgc.u_core/u_fetch/i___854/O
+                         net (fo=2, routed)           0.247    12.158    u_soc/g_core[1].g_tgc.u_core/u_fetch/i___854_n_0
+    SLICE_X59Y147                                                     r  u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_LUT6_836/I4
+    SLICE_X59Y147        LUT6 (Prop_A6LUT_SLICEL_I4_O)
+                                                      0.137    12.295 r  u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_LUT6_836/O
+                         net (fo=1, routed)           0.098    12.393    u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_net_581
+    SLICE_X59Y147                                                     r  u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_LUT6_837/I5
+    SLICE_X59Y147        LUT6 (Prop_F6LUT_SLICEL_I5_O)
+                                                      0.136    12.529 r  u_soc/g_core[1].g_tgc.u_core/u_fetch/tg_fetch_LUT6_837/O
+                         net (fo=2, routed)           0.399    12.928    u_soc/g_core[1].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[2].u_ram/DIB
+    SLICE_X58Y145        RAMD64E                                      r  u_soc/g_core[1].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[2].u_ram/RAMB/I
+  -------------------------------------------------------------------    -------------------
+
+                         (clock c0 rise edge)        10.000    10.000 r  
+    PS8_X0Y0             PS8                          0.000    10.000 r  u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/PS8_i/PLCLK[0]
+                         net (fo=1, routed)           0.181    10.181    u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/pl_clk_unbuffered[0]
+    BUFG_PS_X0Y72                                                     r  u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/I
+    BUFG_PS_X0Y72        BUFG_PS (Prop_BUFG_PS_I_O)
+                                                      0.035    10.216 r  u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/O
+                         net (fo=1, routed)           1.929    12.145    u_clkgen/clk_in
+    MMCM_X0Y2                                                         r  u_clkgen/u_mmcm/CLKIN1
+    MMCM_X0Y2            MMCME4_ADV (Prop_MMCM_CLKIN1_CLKOUT0)
+                                                      0.739    12.884 r  u_clkgen/u_mmcm/CLKOUT0
+                         net (fo=1, routed)           0.306    13.190    u_clkgen/c0
+    BUFGCE_X0Y62                                                      r  u_clkgen/u_bufg_core/I
+    BUFGCE_X0Y62         BUFGCE (Prop_BUFCE_BUFGCE_I_O)
+                                                      0.039    13.229 r  u_clkgen/u_bufg_core/O
+    X1Y1 (CLOCK_ROOT)    net (fo=82577, routed)       2.372    15.601    u_soc/g_core[1].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[2].u_ram/WCLK
+    SLICE_X58Y145        RAMD64E                                      r  u_soc/g_core[1].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[2].u_ram/RAMB/CLK
+                         clock pessimism             -0.403    15.198    
+                         clock uncertainty           -0.068    15.130    
+    SLICE_X58Y145        RAMD64E (Setup_B6LUT_SLICEM_CLK_I)
+                                                     -0.137    14.993    u_soc/g_core[1].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[2].u_ram/RAMB
+  -------------------------------------------------------------------
+                         required time                         14.993    
+                         arrival time                         -12.928    
+  -------------------------------------------------------------------
+                         slack                                  2.065    
+
+
+
+
+
+
+== the worst path into each endpoint register group, among the worst 500 from *u_fetch/gpend_q*
+  1.980  18  2.49  5.34  c0:u_fetch/gpend_q_reg[1]/C -> c0:u_fetch/u_ival/g_m64.g_bank[0].g_prim[2].u_ram/RAMC/I  (46 endpoints)
+  2.034  18  2.48  5.29  c0:u_fetch/gpend_q_reg[1]/C -> c0:u_fetch/u_ival/g_m64.g_bank[0].g_prim[0].u_ram/RAMB/I  (46 endpoints)
+  2.066  18  2.61  5.04  c0:u_fetch/gpend_q_reg[1]/C -> c0:u_fetch/u_ival/g_m64.g_bank[0].g_prim[1].u_ram/RAMF/I  (46 endpoints)
+  2.083  18  2.52  5.20  c0:u_fetch/gpend_q_reg[1]/C -> c0:u_fetch/u_ival/g_m64.g_bank[0].g_prim[0].u_ram/RAMD/I  (48 endpoints)
+  2.114  16  2.38  5.22  c0:u_fetch/gpend_q_reg[1]/C -> c0:u_fetch/u_ival/g_m64.g_bank[0].g_prim[1].u_ram/RAMA/I  (48 endpoints)
+  2.164  18  2.53  5.11  c0:u_fetch/gpend_q_reg[1]/C -> c0:u_fetch/u_ival/g_m64.g_bank[0].g_prim[0].u_ram/RAME/I  (46 endpoints)
+  2.187  18  2.49  5.13  c0:u_fetch/gpend_q_reg[1]/C -> c0:u_fetch/u_ival/g_m64.g_bank[0].g_prim[0].u_ram/RAMG/I  (46 endpoints)
+  2.801  16  2.39  4.64  c1:u_fetch/gpend_q_reg[1]/C -> c1:u_fetch/rway_q_reg[2]/D  (11 endpoints)
+  2.928  17  2.44  4.46  c1:u_fetch/gpend_q_reg[1]/C -> c1:u_fetch/pway_q_reg[0]/D  (12 endpoints)
+  5.201   7  1.09  3.30  c0:u_fetch/gpend_q_reg[1]/C -> c0:u_fetch/u_ival/g_m64.g_bank[0].g_prim[1].u_ram/RAMH/WE  (42 endpoints)
+  5.730   3  0.71  3.14  c0:u_fetch/gpend_q_reg[1]/C -> c0:u_fetch/rbeat_q_reg[1]/CE  (4 endpoints)
+  5.951   4  0.63  3.19  c0:u_fetch/gpend_q_reg[1]/C -> c0:u_fetch/ps_q_reg[1]/CE  (10 endpoints)
+  6.058   3  0.55  2.98  c0:u_fetch/gpend_q_reg[1]/C -> c0:u_fetch/pline_q_reg[23]/CE  (31 endpoints)
+  6.157   3  0.39  3.19  c1:u_fetch/gpend_q_reg[1]/C -> c1:u_fetch/FSM_onehot_rs_q_reg[1]/CE  (6 endpoints)
+  6.210   6  1.00  2.59  c1:u_fetch/gpend_q_reg[1]/C -> c1:u_fetch/gpend_q_reg[0]/R  (4 endpoints)
+  6.419   2  0.49  2.84  c0:u_fetch/gpend_q_reg[1]/C -> c0:u_fetch/rline_q_reg[18]/CE  (28 endpoints)
+  6.544   3  0.42  2.73  c1:u_fetch/gpend_q_reg[1]/C -> c1:u_fetch/pbeat_q_reg[0]/R  (4 endpoints)
+  6.575   5  0.86  2.28  c1:u_fetch/gpend_q_reg[1]/C -> c1:u_fetch/gps_q_reg[3]/CE  (14 endpoints)
+  6.678   3  0.68  2.35  c0:u_fetch/gpend_q_reg[1]/C -> c0:u_fetch/rden_q_reg/D  (2 endpoints)
+  7.110   2  0.34  2.34  c1:u_fetch/gpend_q_reg[1]/C -> c1:u_fetch/rr_q_reg[0]/CE  (3 endpoints)
+  7.152   4  0.57  2.20  c1:u_fetch/gpend_q_reg[1]/C -> c1:u_fetch/pbad_q_reg/D  (2 endpoints)
+  7.196   3  0.52  2.21  c1:u_fetch/gpend_q_reg[1]/C -> c1:u_fetch/rpoison_q_reg/D  (1 endpoints)

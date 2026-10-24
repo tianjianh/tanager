@@ -1,0 +1,3 @@
+5854:CRITICAL WARNING: [Designutils 20-5754] set_clock_uncertainty constraint will adversely impact the incremental design run. Please consider setting config_implementation {incr.ignoreUserClockUncertainty 1} which will ignore this constraint.
+5864:ERROR: [Common 17-1999] Not able to open pb file 
+6414:ERROR: [Common 17-39] 'read_checkpoint' failed due to earlier errors.

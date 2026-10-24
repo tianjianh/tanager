@@ -157,8 +157,6 @@ module tg_csr
     logic        satp_mode;
     logic [15:0] satp_asid;
     logic [43:0] satp_ppn;
-    logic [12:0] mcontext;
-    logic [31:0] scontext;
     logic [NPMP-1:0][7:0] pmpcfg;
   } csr_hart_t;
   function automatic csr_hart_t hart_reset();
@@ -483,8 +481,9 @@ module tg_csr
       12'h305, 12'h340, 12'h341, 12'h342, 12'h343: rval = cold_rd;
       12'h320: rval = {32'b0, re.mcountinhibit};
       12'h344: rval = {50'b0, mip[et]};
-      12'h7A0, 12'h7A1, 12'h7A2, 12'h7A3, 12'h7A4: rval = '0;
-      12'h7A8: rval = {51'b0, re.mcontext};
+      // No Sdtrig (M9 section 10): tselect, tdata1-3, tinfo and the context CSRs (mcontext, scontext) do not exist,
+      // so an access traps as illegal (the default below). A write of tselect that traps means no triggers (Debug spec
+      // 5.1), so OpenSBI finds no sdtrig and registers no SBI dbtr; reading 0 had made it count one trigger
       12'h7C0: begin rval = {63'b0, h1off_q}; exists = HART1_ON; end      // mtgsmt (step 6), with hart 1
       // ---- F and D ----
       12'h001: begin rval = {59'b0, fc_fflags}; exists = EXT_FD; if (re.fs == 2'd0) deny = 1'b1; end
@@ -515,7 +514,6 @@ module tg_csr
         rval = {re.satp_mode, 3'b0, re.satp_asid, re.satp_ppn}; exists = SU;
         if (re.priv == PRIV_S && re.tvm) deny = 1'b1;
       end
-      12'h5A8: begin rval = {32'b0, re.scontext}; exists = SU; end
       12'h302: begin rval = {44'b0, re.medeleg}; exists = SU; end
       12'h303: begin rval = {50'b0, re.mideleg}; exists = SU; end
       12'h306: begin rval = {32'b0, re.mcounteren}; exists = SU; end
@@ -661,16 +659,18 @@ module tg_csr
   assign ins_wr = cm_csr && pv && pa == 12'hB02;
   // A write takes effect in the counter a cycle late (tg_dsp_ctr): in that cycle the write's
   // flush is on, so nothing reads the counter, and the pending write holds (a flush keeps EX from
-  // writing it). The retiring instructions are all slot 0's thread's. With hart 1 the next cycle's
-  // committing thread may be the other one, so each hart's counters load its own pending write.
+  // writing it). The retiring instructions are all slot 0's thread's. In the next cycle nothing
+  // commits, so slot 0's thread (wt, pd) need not be the writer's (with hart 1 the other one; with
+  // SOLO_TID=1 thread 0, whose pending write is zero, so a write loaded 0): each hart's counters load
+  // its own pending write
   for (genvar t = 0; t < NT; t++) begin : g_ctr
     logic ld_c, ld_i;
     assign ld_c = cyc_wr && wt == tid_t'(t);
     assign ld_i = ins_wr && wt == tid_t'(t);
     tg_dsp_ctr #(.IW(1)) u_mcycle (
-      .clk, .rst, .ld(ld_c), .d(MT ? pw_d_q[t] : pd), .inc(!h_q[t].mcountinhibit[0]), .q(mcycle_q[t]));
+      .clk, .rst, .ld(ld_c), .d(pw_d_q[t]), .inc(!h_q[t].mcountinhibit[0]), .q(mcycle_q[t]));
     tg_dsp_ctr #(.IW(CNW)) u_minstret (
-      .clk, .rst, .ld(ld_i),  .d(MT ? pw_d_q[t] : pd),
+      .clk, .rst, .ld(ld_i),  .d(pw_d_q[t]),
       .inc((h_q[t].mcountinhibit[2] || wt != tid_t'(t)) ? '0 : CNW'(cm_n)), .q(minstret_q[t]));
   end
 `ifndef SYNTHESIS
@@ -862,8 +862,6 @@ module tg_csr
                 x.satp_ppn  = pd[43:0];
               end
             end
-            12'h7A8: x.mcontext = pd[12:0];
-            12'h5A8: x.scontext = pd[31:0];
             12'h3A0: for (int i = 0; i < 8; i++) x.pmpcfg[i] = pmpcfg_w(h_q[t].pmpcfg[i], pd[8*i +: 8]);
             12'h3A2: for (int i = 8; i < NPMP; i++)        // (entries 8-15: none with 8 entries)
                        x.pmpcfg[i] = pmpcfg_w(h_q[t].pmpcfg[i], pd[8*(i-8) +: 8]);

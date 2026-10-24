@@ -1,0 +1,15 @@
+﻿
+===== COM5 logger (reopening, UTC line stamps) started 2026-10-23T19:10:32.2419032-07:00 =====
+
+===== COM5 opened 2026-10-23T19:10:32.2513464-07:00 =====
+[02:12:18.838] STRESS pass 1 ok=1 fails=0 113s cpu2=64.49 mem2=136.33 thr2=2106 up=1422.28 load=1.81 2.01 1.74
+[02:14:12.695] STRESS pass 2 ok=1 fails=0 113s cpu2=89.95 mem2=146.85 thr2=2322 up=1536.16 load=1.94 1.99 1.76
+[02:16:09.639] STRESS pass 3 ok=1 fails=0 116s cpu2=94.47 mem2=140.96 thr2=1343 up=1653.07 load=1.91 1.94 1.77
+[02:18:06.885] STRESS pass 4 ok=1 fails=0 116s cpu2=94.50 mem2=118.85 thr2=1327 up=1770.35 load=1.96 1.94 1.79
+[02:20:03.351] STRESS pass 5 ok=1 fails=0 115s cpu2=87.75 mem2=144.37 thr2=2331 up=1886.78 load=1.93 1.93 1.81
+[02:22:01.106] STRESS pass 6 ok=1 fails=0 117s cpu2=86.51 mem2=116.92 thr2=2338 up=2004.54 load=1.96 1.93 1.83
+[02:23:55.528] STRESS pass 7 ok=1 fails=0 113s cpu2=71.37 mem2=104.71 thr2=1834 up=2119.00 load=2.04 1.96 1.85
+[02:25:50.572] STRESS pass 8 ok=1 fails=0 114s cpu2=93.85 mem2=136.32 thr2=2285 up=2234.04 load=1.97 1.95 1.86
+[02:27:50.071] STRESS pass 9 ok=1 fails=0 119s cpu2=94.53 mem2=139.74 thr2=2338 up=2353.52 load=1.92 1.93 1.87
+
+===== COM5 logger ended 2026-10-23T19:28:16.7745665-07:00 =====
