@@ -80,6 +80,11 @@ module tg_issue
 `else
   localparam bit FIX_C = 1'b1;
 `endif
+`ifdef TG_RASFIX_CTH
+  localparam int FIX_C_TH = `TG_RASFIX_CTH;   // the count from which a load does not speculate
+`else
+  localparam int FIX_C_TH = 3;
+`endif
   function automatic logic [4:0] ph_of(input logic [15:1] pcb);   // pcb: the PC's bits 15:1
     return pcb[5:1] ^ pcb[10:6] ^ pcb[15:11];
   endfunction
@@ -493,7 +498,7 @@ module tg_issue
     logic [31:0][1:0] swp_q;          // RASFIX_C: per PC hash, how its loads fared in M2 (2 or more: no speculation)
     logic            m2_ok;           // the load in M2 completed there
     assign sw_rf = '{v: iss_valid[Q_LD] && iss_pl[Q_LD].dst_en && !iss_pl[Q_LD].dst_fp,
-                     spec: !FIX_C || !swp_q[ld_ph][1], tid: iss_pl[Q_LD].tid, llt: iss_pl[Q_LD].llt, ph: ld_ph};
+                     spec: !FIX_C || int'(swp_q[ld_ph]) < FIX_C_TH, tid: iss_pl[Q_LD].tid, llt: iss_pl[Q_LD].llt, ph: ld_ph};
     assign m2_ok = |(wake_reg & col_m2);
     always_ff @(posedge clk) begin
       if (rst) begin
