@@ -669,6 +669,9 @@ module tg_lsu
   tid_t           sn_t;                          // ... its thread, from its payload (its SQ entry's: asserted)
   logic        s2_v_q, s2_go, s2_den;            // S2: a store's PMP check, the cycle after it decides (STA)
   logic [SIW-1:0] s2_idx_q;
+  logic        s3g_q, s3_amo_q, s3_den;          // #13: the store S2 checked last cycle, its answer now (S3)
+  logic [SIW-1:0] s3_idx_q;
+  tid_t           s3_t_q;
   // Three lookups: the LD port, the STA port, and the ROB head's check. The head's check has a
   // port of its own (timing: on a shared port the head VA and the store's address reached each
   // other's checks, paths that are never live together), and still counts only when STA is
@@ -712,6 +715,7 @@ module tg_lsu
   logic [PA_W-1:0] nl_pa;
   logic        nl_mis, nl_pf, nl_tm, nl_acc, nl_mmio, nl_exc, nl_go, nl_pmpc, nl_pmpd;
   logic        nl_lpc, lpc_r;                     // #13: an untranslated S/U load's region cached (g_lpc); its read verdict
+  logic        lps_hit, lps_r, lps_w;             // ... the deciding store's (sn_va), and its read and write verdicts
   logic [0:0]  nl_chk;
   logic [PA_W-1:0] lck_pa;                        // the checker's access: a registered PA and size
   logic        lck_dbl;
@@ -976,13 +980,13 @@ module tg_lsu
       // hit ? r : 0. A new load whose region hits needs no check: it completes in M2, or faults at M1. A TLB flush of
       // the hart (PMP, satp or SFENCE.VMA writes) empties its entries and drops a fill in the same cycle; round robin
       localparam int LW = (LPC_N > 1) ? $clog2(LPC_N) : 1;
-      logic [LPC_N-1:0]            lv_q, lr_q;
+      logic [LPC_N-1:0]            lv_q, lr_q, lw_q;
       tid_t [LPC_N-1:0]            lt_q;
       logic [LPC_N-1:0][PA_W-22:0] lrg_q;
       logic [LW-1:0]               lrr_q;
       logic [PA_W-22:0]            lg_rg_q;      // the granted load's region and S/U-ness, with lg_*
       logic                        lg_m_q;
-      logic [LPC_N-1:0]            lph, lpf;       // M1's new load's region hits; the fill's is there already
+      logic [LPC_N-1:0]            lph, lpf, lps;  // M1's new load's region hits; the fill's is there already; the store's
       logic                        fill;
       always_ff @(posedge clk) begin
         lg_rg_q <= lck_pa[PA_W-1:21];
@@ -992,9 +996,14 @@ module tg_lsu
         for (int i = 0; i < LPC_N; i++) begin
           lph[i] = lv_q[i] && lt_q[i] == t_ln && lrg_q[i] == ln_va[PA_W-1:21];
           lpf[i] = lv_q[i] && lt_q[i] == lg_t_q && lrg_q[i] == lg_rg_q;
+          lps[i] = lv_q[i] && lt_q[i] == t_sn && lrg_q[i] == sn_va[PA_W-1:21];
         end
       assign nl_lpc = !xl_l && priv_d[t_ln] != PRIV_M && |lph;
       assign lpc_r  = |(lph & lr_q);
+      // (a store's decision, for soc-2's side: an untranslated S/U store whose region is cached decides with its R and W)
+      assign lps_hit = !xl_s && priv_d[t_sn] != PRIV_M && |lps;
+      assign lps_r   = |(lps & lr_q);
+      assign lps_w   = |(lps & lw_q);
       assign fill   = lg_v_q && lg_k_q != LG_MMIO && !kill_t[lg_t_q] && !lg_m_q && !ck_nh_q && !(|lpf) &&
                       !(tlb_flush && (NT == 1 || lg_t_q == tlb_flush_tid));
       always_ff @(posedge clk) begin
@@ -1007,6 +1016,7 @@ module tg_lsu
             lt_q[lrr_q]  <= lg_t_q;
             lrg_q[lrr_q] <= lg_rg_q;
             lr_q[lrr_q]  <= ck_hit_q && ck_rwx_q[2];
+            lw_q[lrr_q]  <= ck_hit_q && ck_rwx_q[1];
             lrr_q        <= (int'(lrr_q) == LPC_N - 1) ? '0 : lrr_q + 1'b1;
           end
           if (tlb_flush)
@@ -1014,8 +1024,11 @@ module tg_lsu
         end
       end
     end else begin : g_nolpc
-      assign nl_lpc = 1'b0;
-      assign lpc_r  = 1'b0;
+      assign nl_lpc  = 1'b0;
+      assign lpc_r   = 1'b0;
+      assign lps_hit = 1'b0;
+      assign lps_r   = 1'b0;
+      assign lps_w   = 1'b0;
     end
 `ifndef SYNTHESIS
     // +chkstat: the verdicts taken a cycle late, by kind, the held loads' takes and the denials
@@ -1049,6 +1062,9 @@ module tg_lsu
     assign lg_den    = 1'b0;
     assign nl_lpc    = 1'b0;
     assign lpc_r     = 1'b0;
+    assign lps_hit   = 1'b0;
+    assign lps_r     = 1'b0;
+    assign lps_w     = 1'b0;
     logic unused_mck;                             // (the parked MMIO load's check: CK_LD's)
     assign unused_mck = m2_mck;
   end
@@ -1315,8 +1331,10 @@ module tg_lsu
   assign am_sc    = am_op == AMO_SC;
   assign am_go    = am_v_q[t_dr_q] && am_st_q == AM_IDLE && sq_v_q[dh] && sq_av_q[dh] && sq_dv_q[dh] &&
                     sq_head_q[t_dr_q] == am_sq_q[t_dr_q] && rob_head[t_dr_q] == am_rob_q[t_dr_q] &&
-                    !(s2_v_q && s2_idx_q == dh) && !kill_t[t_dr_q] && !(HART1_ON && NT > 1 && fpc_t[t_dro]) &&
-                    !(CKR && mh_gnt);   // (#13: the head's MMIO check's answer takes exception port 2 next cycle)
+                    !(s2_v_q && s2_idx_q == dh) && !(CKR && s3g_q && s3_idx_q == dh) && !kill_t[t_dr_q] &&
+                    !(HART1_ON && NT > 1 && fpc_t[t_dro]) &&
+                    !(CKR && mh_gnt);   // (#13: the head's MMIO check's answer takes exception port 2 next cycle; an
+                                        // atomic's own S2 answer comes in S3, its mark at S3's end)
   // Its PMP check (S2) denied it: it faults as it starts, without an access. It starts only after
   // that check (timing: the checker's verdict, which the walker's address also reaches, stays off
   // the atomic's start)
@@ -1549,6 +1567,7 @@ module tg_lsu
   // atomics only in main memory (interfaces.md §2.4)
   assign sa_acc  = (xl_s ? dt_pte[1].big : sn_va[63:PA_W] != '0) ||
                    (sa_pmpc && !(sa_lr ? dt_pte[1].pr : dt_pte[1].pw)) || (!CKR && sa_pck && !sa_chk[0]) ||
+                   (lps_hit && !(sa_lr ? lps_r : lps_w)) ||   // (#13: a bare S/U store in a cached region)
                    sa_pma == PMA_NONE || sa_pma == PMA_ROM || (sa_amo && sa_pma != PMA_MEM);
   assign sa_exc  = sa_mis || sa_pf || (!sa_tm && sa_acc);
   assign sa_mmio = sa_pma == PMA_DEVICE && !sa_amo;
@@ -1591,6 +1610,11 @@ module tg_lsu
         assert (sh_ld_ok == (xl_l ? dt_pte[0].pr : lpc_r))
           else $error("tg_lsu: a load's cached PMP result (r %b) differs from the full check (%b) at PA %h",
                       xl_l ? dt_pte[0].pr : lpc_r, sh_ld_ok, nl_pa);
+      // (#13's region cache: the port a store's decision may take, soc-2's side; its verdict against the full check)
+      if (sn_v && lps_hit && !sa_mis && !sa_pf && !sa_tm)
+        assert (sh_st_ok == (sa_lr ? lps_r : lps_w))
+          else $error("tg_lsu: a store's region-cache result (r %b w %b) differs from the full check (%b) at PA %h",
+                      lps_r, lps_w, sh_st_ok, sa_pa);
       if (sn_v && sa_pmpc && dt_hit[1] && !sa_mis && !sa_pf && !sa_tm)
         assert (sh_st_ok == (sa_lr ? dt_pte[1].pr : dt_pte[1].pw))
           else $error("tg_lsu: a store's cached PMP result (r %b w %b) differs from the full check (%b) at PA %h",
@@ -1605,7 +1629,8 @@ module tg_lsu
   // The ROB retires nothing from the store on while it is in S2 (sth_v[0], registered: the
   // verdict stays off the commit path) and, if denied, in S3 until the exception shows
   // (sth_v[1]). An atomic, which retires only after it runs, is marked instead (sq_pden_q): it
-  // faults as it starts, as for a denied line.
+  // faults as it starts, as for a denied line. With #13 S3 takes S2's answer registered (ck_ok_q): the report and
+  // the hold come in S3 as before, the mark a cycle later, which the atomic's start waits for (s3g_q).
   // The checker is shared with the walker, which takes it as before, in a cycle without a store
   // at the decision (chk_gnt; so walks keep their timing). The S2 check then waits a cycle; the
   // walker never checks two cycles running, and no store comes to S2 meanwhile. A bare-mode
@@ -1736,9 +1761,12 @@ module tg_lsu
     ck_nh_q  <= pg_nh;
   end
   always_ff @(posedge clk) begin
-    s2_v_q   <= !rst && ((sa_ok && ((xl_s && !sa_pmpc) || (CKR && sa_pck))) || (s2_v_q && !s2_go && !kill_t[s2_t_q]));
+    s2_v_q   <= !rst && ((sa_ok && ((xl_s && !sa_pmpc) || (CKR && sa_pck && !lps_hit))) ||
+                         (s2_v_q && !s2_go && !kill_t[s2_t_q]));
     // (S2 waits with a store at the decision only for another thread's bare store, which does not enter S2; with #13
-    // a bare store enters S2 and none checks at its decision, so S2 waits only for the walker, with no store deciding)
+    // a bare store enters S2 and none checks at its decision, so S2 waits only for the walker, with no store deciding.
+    // A bare S/U store in a region the cache holds (lps_hit) decides with its cached verdict instead, as a translated
+    // store with sa_pmpc does, and takes no S2: so its check no longer meets the next load's M2 check)
     if (sn_v && !(s2_v_q && bst)) begin
       s2_pa_q  <= sa_pa;
       s2_dbl_q <= sn_size == 2'd3;
@@ -1751,7 +1779,14 @@ module tg_lsu
     end
     s3_den_q <= !rst && s2_den && !s2_amo_q;
     s3_rob_q <= s2_rob_q;
+    // #13: S3 takes S2's answer registered (ck_ok_q), so the verdict reaches neither S3's report nor an atomic's
+    // mark (sq_pden_q) straight from the checker; the report comes in S3 as before, the mark a cycle later
+    s3g_q    <= !rst && CKR && s2_go && !kill_t[s2_t_q];
+    s3_amo_q <= s2_amo_q;
+    s3_t_q   <= s2_t_q;
+    s3_idx_q <= s2_idx_q;
   end
+  assign s3_den = CKR ? s3g_q && !s3_amo_q && !ck_ok_q : s3_den_q;
   // ---- Store ownership prefetch (STORE_PF, DR-171) ----
   // A cacheable store whose address decides without a fault asks the D$ for its line with T the next
   // cycle; s2_pa_q, which every decided store loads, holds its PA then. Its PMP verdict may still be
@@ -1762,11 +1797,11 @@ module tg_lsu
     pf_v_q <= !rst && STORE_PF && DC_MSHRS > 1 && sa_ok && !sa_amo && sa_pma == PMA_MEM;
   assign pf_req = pf_v_q && !flush;               // (a hint: any flush drops it)
   assign pf_pa  = s2_pa_q;
-  assign spx_valid  = s3_den_q;
+  assign spx_valid  = s3_den;
   assign spx_rob    = s3_rob_q;
   assign sth_v[0]   = s2_v_q && !s2_amo_q;
   assign sth_rob[0] = s2_rob_q;
-  assign sth_v[1]   = s3_den_q;
+  assign sth_v[1]   = s3_den;
   assign sth_rob[1] = s3_rob_q;
 
   // Ordering check: the oldest younger load that has its value (or is in M1/M2) and overlaps
@@ -2651,7 +2686,8 @@ module tg_lsu
         sq_mask_q[sa_idx] <= sa_mask;
         sq_mmio_q[sa_idx] <= sa_mmio;
       end
-      if (s2_den && s2_amo_q) sq_pden_q[s2_idx_q] <= 1'b1;
+      if (CKR ? s3g_q && s3_amo_q && !ck_ok_q && !kill_t[s3_t_q] : s2_den && s2_amo_q)   // (#13: from S3)
+        sq_pden_q[CKR ? s3_idx_q : s2_idx_q] <= 1'b1;
 
       if (lm_req && !m2_pt_q) lq_mc_q[m2_lq_q] <= 1'b1;   // (M9's counters: a load's miss counts once)
       // ---- Dispatch: new LQ / SQ entries ----
