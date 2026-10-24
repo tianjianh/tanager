@@ -298,7 +298,7 @@ def run_one(build, dtb, images, shape, timing, mcyc, seed, outdir, nice=False, p
     tbl = open(os.path.join(outdir, "tb_boot.log"), errors="replace").read()
     prog = re.findall(r"\[tb_boot\] (\d+) M cycles, (\d+) instructions retired", tbl)
     cyc_m, instr = (int(prog[-1][0]), int(prog[-1][1])) if prog else (0, 0)
-    end = re.search(r"tanager-lockstep: (PASS|MISMATCH) after (\d+) records", lsl)
+    end = re.search(r"tanager-lockstep: (PASS|MISMATCH|STOPPED) after (\d+) records", lsl)
     where = f"{cyc_m}M cycles, {instr / 1e6:.1f}M instructions{f' (IPC {instr / (cyc_m * 1e6):.2f})' if cyc_m else ''}"
     tag = f"{shape} {timing} {mcyc}M seed {seed}{f' (planted fault at record {plant})' if plant is not None else ''}"
     if end and end[1] == "MISMATCH":
@@ -307,6 +307,10 @@ def run_one(build, dtb, images, shape, timing, mcyc, seed, outdir, nice=False, p
         detail = (f"MISMATCH at record {int(first[1]):,} (cycle {int(first[2]):,}): {first[3]}" if first else "MISMATCH") + \
                  (f"; RTL {' '.join(rtl[1].split())[:120]}" if rtl else "")
         return "MISMATCH", f"{tag}: {detail}; {minutes:.0f} min; report {outdir}/lockstep.log", detail
+    if end and end[1] == "STOPPED":   # a hart entered debug mode, which a boot never should (verification.md §3.7)
+        stop = re.search(r"tanager-lockstep: (hart \d+ entered debug mode[^\n]*)", lsl)
+        why = f"checked only up to a hart's entry into debug mode: {stop[1] if stop else '?'}"
+        return "BROKEN", f"{tag}: could not be checked: {why[:300]} ({where}); logs in {outdir}", why
     reached = "TEST PASSED (boot" in tbl
     limit_hit = "not seen" in tbl
     if end and end[1] == "PASS" and (reached or limit_hit) and not timed_out:

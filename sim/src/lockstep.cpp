@@ -191,6 +191,10 @@ class lockstep_impl_t {
 
   bool cycle(const std::vector<tr_rec_t>& recs, const std::vector<tr_wb_t>& wbs) {
     if (failed_) return false;
+    if (stopped_) {  // after a hart's entry into debug mode the trace is read and dropped (debug_entry)
+      dropped_ += recs.size() + wbs.size();
+      return true;
+    }
     // Writebacks for tags pending before this cycle first, then the records, then writebacks
     // for tags the records created (§3.5).
     std::vector<const tr_wb_t*> later;
@@ -202,15 +206,20 @@ class lockstep_impl_t {
         later.push_back(&w);
       }
     }
-    for (auto& r : recs)
-      if (!rec(r)) return false;
-    for (auto* w : later)
-      if (!wb(*w)) return false;
+    for (auto& r : recs) {
+      if (stopped_) dropped_++;
+      else if (!rec(r)) return false;
+    }
+    for (auto* w : later) {
+      if (stopped_) dropped_++;
+      else if (!wb(*w)) return false;
+    }
     return true;
   }
 
   bool finish() {
     if (failed_) return false;
+    if (stopped_) return true;  // nothing after debug mode's entry is checked, its writebacks included
     for (auto& h : harts_) {
       if (h.pending.empty()) continue;
       auto& [tag, pw] = *h.pending.begin();
@@ -224,6 +233,7 @@ class lockstep_impl_t {
 
   bool check_stale(uint64_t now, uint64_t limit) {
     if (failed_) return false;
+    if (stopped_) return true;
     for (auto& h : harts_)
       for (auto& [tag, pw] : h.pending)
         if (now > pw.cycle && now - pw.cycle > limit)
@@ -235,12 +245,18 @@ class lockstep_impl_t {
   }
 
   size_t pending_wbs() const {
+    if (stopped_) return 0;
     size_t n = 0;
     for (auto& h : harts_) n += h.pending.size();
     return n;
   }
   bool failed() const { return failed_; }
   const std::string& error() const { return error_; }
+  bool stopped() const { return stopped_; }
+  std::string stopped_why() const {
+    return stopped_ ? strfmt("%s; %llu records and writebacks after it not checked", stop_.c_str(),
+                             (unsigned long long)dropped_) : std::string();
+  }
   uint64_t steps() const {
     uint64_t n = 0;
     for (auto& h : harts_) n += h.steps;
@@ -322,7 +338,7 @@ class lockstep_impl_t {
     switch (r.kind) {
       case TR_RETIRE: return retire(h, r);
       case TR_TRAP: return trap(h, r);
-      case TR_IRQ: return irq(h, r);
+      case TR_IRQ: return (r.cause >> 62) == 3 ? debug_entry(h, r) : irq(h, r);
       default: return mismatch(&h, &r, strfmt("unknown record kind %u", r.kind));
     }
   }
@@ -1406,6 +1422,35 @@ class lockstep_impl_t {
     return false;
   }
 
+  // late_find takes the newest late lander that shows a byte. Where an older lander of the same hart shows every byte
+  // a read took the younger one for, the older one is the one to settle: one hart's stores land in order, so the younger
+  // may still land later (seed 3420615 of the soak, 10-24: two sd's of hart 0 both wrote zeros where hart 1's AMO read
+  // zeros; settling the younger dropped it, and it landed after the AMO, under hart 1's next load of the doubleword)
+  void oldest_landers(uint64_t dw, uint64_t pa, unsigned n, uint64_t* late, const uint8_t* got) const {
+    auto it = late_.find(dw);
+    if (it == late_.end()) return;
+    const auto& v = it->second;  // by id
+    for (unsigned i = 0; i < n; i++) {
+      if (late[i] == HW_NONE) continue;
+      const uint64_t id = late[i];
+      auto c = std::find_if(v.begin(), v.end(), [&](const late_t& x) { return x.id == id; });
+      for (auto o = v.begin(); o != c && c != v.end(); ++o) {
+        if (o->hart != c->hart) continue;
+        bool all = true;
+        for (unsigned j = 0; j < n && all; j++)
+          if (late[j] == id) {
+            const unsigned b = unsigned(pa - dw) + j;
+            all = (o->mask >> b & 1) && o->nw[b] == got[j];
+          }
+        if (all) {
+          for (unsigned j = 0; j < n; j++)
+            if (late[j] == id) late[j] = o->id;
+          break;
+        }
+      }
+    }
+  }
+
   // A read of n bytes at pa that returned `got` showed the late landers late[0..n) (ids; HW_NONE: none): each
   // reached memory after the writes it may land on, so Spike's memory gets its bytes where the read shows them, and
   // its write moves behind them in the history, as if it had just been written (old bytes: those it replaced;
@@ -1413,14 +1458,16 @@ class lockstep_impl_t {
   // Bytes the read did not cover stay as they were, it may still land on them. Its hart's earlier late landers on
   // the bytes it settled came before it. Plain stores it landed over that the reading hart hi might not have seen
   // yet (in its window) may still land on top: they become late landers there.
-  void late_settle(size_t hi, uint64_t pa, unsigned n, const uint64_t* late, const uint8_t* got) {
+  void late_settle(size_t hi, uint64_t pa, unsigned n, const uint64_t* late_in, const uint8_t* got) {
+    const uint64_t dw = pa & ~7ull;
+    std::vector<uint64_t> late(late_in, late_in + n);
+    oldest_landers(dw, pa, n, late.data(), got);
     std::vector<uint64_t> ids;
     for (unsigned i = 0; i < n; i++)
       if (late[i] != HW_NONE) ids.push_back(late[i]);
     if (ids.empty()) return;
     std::sort(ids.begin(), ids.end());
     ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
-    const uint64_t dw = pa & ~7ull;
     uint8_t* m = mem_at(dw);
     std::vector<std::pair<unsigned, uint64_t>> landed;  // (hart, id) of the late landers this read settled
     for (uint64_t id : ids) {
@@ -1572,6 +1619,7 @@ class lockstep_impl_t {
  public:
   // §3.7, early atomics (lockstep.h)
   int early_atomic(const tr_rec_t& r, const std::vector<const tr_rec_t*>& later) {
+    if (stopped_) return -1;
     auto it = by_id_.find(r.hart);
     if (failed_ || !multi() || it == by_id_.end() || r.kind != TR_RETIRE || !r.mem_ld || adopts_value(r))
       return -1;
@@ -1634,6 +1682,7 @@ class lockstep_impl_t {
   }
 
   int early_atomic(const tr_wb_t& w, const std::vector<const tr_rec_t*>& later) {
+    if (stopped_) return -1;
     auto it = by_id_.find(w.hart);
     if (failed_ || !multi() || it == by_id_.end()) return -1;
     const size_t hi = it->second;
@@ -1689,6 +1738,22 @@ class lockstep_impl_t {
       return mismatch(&h, &r, strfmt("trap cause: RTL %llu, Spike %llu", (unsigned long long)r.cause, (unsigned long long)st.cause));
     if (st.tval != r.tval)
       return mismatch(&h, &r, strfmt("trap tval: RTL %016llx, Spike %016llx", (unsigned long long)r.tval, (unsigned long long)st.tval));
+    return true;
+  }
+
+  // A hart's entry into debug mode (TG_DEBUG, core-priv.md "Debug mode"; verification.md §3.7): a TR_IRQ record
+  // whose cause has bits 63 and 62 set, which no interrupt or exception code sets, and dcsr.cause in its low bits,
+  // at dpc in the mode it halted from (rec has checked both against Spike). The hart leaves no record in debug mode,
+  // and a debugger may change registers, CSRs and memory there, which Spike cannot follow: checking stops for every
+  // hart, since the others may read what it changes. The trace keeps draining, its records read and dropped.
+  bool debug_entry(hart_state_t& h, const tr_rec_t& r) {
+    static const char* const why[8] = {"?", "ebreak", "trigger", "haltreq", "step", "resethaltreq", "halt group", "?"};
+    const unsigned c = unsigned(r.cause & 7);
+    uint64_t checked = 0;
+    for (auto& x : harts_) checked += x.nrec;
+    stopped_ = true;
+    stop_ = strfmt("hart %u entered debug mode before %016llx in %c mode (dcsr.cause %u, %s) after %llu records", h.id,
+                   (unsigned long long)r.pc, priv_char(r.priv), c, why[c], (unsigned long long)checked);
     return true;
   }
 
@@ -1762,6 +1827,9 @@ class lockstep_impl_t {
   std::map<uint32_t, size_t> by_id_;
   std::unique_ptr<disassembler_t> dis_;
   bool failed_ = false;
+  bool stopped_ = false;  // a hart entered debug mode (debug_entry)
+  std::string stop_;
+  uint64_t dropped_ = 0;
   std::string error_;
   int fail_hart_ = -1;
   tr_rec_t fail_rec_;
@@ -1899,6 +1967,8 @@ bool lockstep_t::finish() { return impl_->finish(); }
 bool lockstep_t::check_stale(uint64_t now, uint64_t limit) { return impl_->check_stale(now, limit); }
 size_t lockstep_t::pending_wbs() const { return impl_->pending_wbs(); }
 bool lockstep_t::failed() const { return impl_->failed(); }
+bool lockstep_t::stopped() const { return impl_->stopped(); }
+std::string lockstep_t::stopped_why() const { return impl_->stopped_why(); }
 const std::string& lockstep_t::error() const { return impl_->error(); }
 void lockstep_t::report(FILE* f) const { impl_->report(f); }
 std::string lockstep_t::disasm(uint32_t insn) const { return impl_->disasm(insn); }
