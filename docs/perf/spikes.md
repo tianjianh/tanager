@@ -2227,6 +2227,94 @@ Results: [`fpga/spikes/results/ooc_dr191/`](../../fpga/spikes/results/ooc_dr191/
 
 Results: `fpga/spikes/results/product_wt_rec_u095/` and `_u105/`, with `images_sha256_md5.txt`. The images and checkpoints are in `~/tanager-build/track-spikes-72f833/vivado/product_wt_rec_u095/` and `_u105/`, both on `KEEP.txt`.
 
+#### M9's area package doesn't place: 92 CLBs short (2026-10-24)
+
+**Asked** (the coordinator, for M9's area decision): the full chip with the release features switched on together.
+- **The features:** `TG_HPM=1`, `TG_LWT=1` and `TG_ITT=2`. `TG_DEBUG` is off, since it's for development builds only.
+- **The source:** main 950b485d with fpu-2's table head ebf9f226 merged in. Against main, the table's RTL is identical to the placed T6 check's (bf29152f).
+- **The flow:** the product flow at 0.95 and 1.05 ns.
+- **The snapshot:** `snap/product_wt` e1eee3b02804, pinned `claude/spikes-2-board-m9a`. Forward references and lint with all three switches came back clean. Synthesis got `TG_HPM=1`, `TG_ITT=2` and `TG_LWT=1`.
+
+| | **`m9a`** (both placements: one synthesis) | `rec_u105` (all three off) |
+|---|---|---|
+| LUTs after synthesis | **121,762 (104.0%)** | 119,547 (102.1%) |
+| LUTs after `opt_design` | **117,539 (100.4%)** | 115,574 (98.7%) |
+| FFs after synthesis | 59,543 | 58,414 |
+| `place_design` (`AltSpreadLogic_high`) | **fails** after 6–8 min: 10,778 and 10,781 CLBs needed, 10,686 left | placed: 14,638 of the 14,640 CLBs in use, routed 112,862 LUTs (96.4%) |
+
+- **The package is about 2,000 LUTs over the pair of record:** +2,215 after synthesis and +1,965 after `opt_design`. That matches the three features' own costs:
+  - the counters, about 870 LUTs a chip ([area_switches.md](../spec/area_switches.md));
+  - the table, about 860 (+431 a core out of context, bf29152f);
+  - the load-wait table, 100–300 (50–150 a core, [area_recovery.md](area_recovery.md)).
+- **Both placements fail in the packer** (Place 30-487), 92 and 95 CLBs short. `rec_u105` already used 14,638 of the device's 14,640 CLBs, so nothing was left for 2,000 more LUTs.
+- **By unit, after synthesis, both cores together** (flatten rebuilt smears units, so this split is approximate):
+  - fetch +725 LUTs (the table's `u_itt` 177 a core);
+  - the CSR files +654 (the counters, about 85 LUTs each);
+  - the LSUs +503;
+  - the ROBs +441;
+  - the walkers +251.
+  - The uncore is unchanged (+8).
+- **What would likely fit:**
+  - Dropping one of the two larger features (the counters or the table, about 860–870 LUTs each) would bring the package within about 25 CLBs of the device, closer to the edge than the pair of record. It would likely place, and might not route.
+  - One feature alone, or two features with about 1K LUTs recovered elsewhere, would sit where the pair of record does.
+- **No timing:** neither placement reached routing.
+
+Results: [`fpga/spikes/results/m9a_area/`](../../fpga/spikes/results/m9a_area/):
+- the synthesis and `opt_design` utilization, the hierarchy, and `hier_diff_vs_rec_u105.txt`;
+- `place_errors.txt`;
+- the pair of record's paths with `paths_m9a.tcl`, the baseline for a fit that places.
+
+#### M9's area package: no placement form packs it; each feature's price (2026-10-24)
+
+**Asked** (the coordinator, after the pair's Place 30-487), in this order:
+1. Can the package pack at about 98% with no RTL change? Placement forms that pack denser than `AltSpreadLogic_high` and/or the L2 pblocks loosened, at 1.05 ns.
+2. Each feature's full-chip cost, synthesis plus `opt_design`.
+3. If nothing packs, the LUT gap to a fill that packs.
+
+**The method:**
+- **One netlist for every trial:** the package taken to `opt_design` with its checkpoint and 1.05 ns of placement uncertainty (`m9o_all`).
+- **The trials:** [`place_trial.tcl`](../../fpga/spikes/tcl/place_trial.tcl) runs one placement form from that checkpoint:
+  - the placer's directive;
+  - DR-181's pblocks kept or removed;
+  - an optional second `opt_design` pass;
+  - then `build.tcl`'s own steps.
+- **The prices:** `build.tcl` stopped after `opt_design` (the snapshot's measurement knob `TG_STOP_AFTER_OPT`, f0701da682ca), with each switch alone on the same tree.
+
+| Placement form (1.05 ns, the same netlist) | LUTs when placing | CLBs the packer needs (10,686 left) | |
+|---|---|---|---|
+| `AltSpreadLogic_high`, pblocks kept (the pair, `m9a`) | 117,539 | 10,778 / 10,781 | fails |
+| `Default`, pblocks kept | 117,539 | 10,779 | fails |
+| `Default`, pblocks removed | 117,539 | 10,770 | fails |
+| a second `opt_design` pass, then `AltSpreadLogic_high`, pblocks kept | 116,959 | 10,732 | fails |
+| a second `opt_design` pass, then `Default`, pblocks removed | 116,926 | 10,718 | fails |
+
+The second pass is `opt_design -remap -aggressive_remap -resynth_seq_area -merge_equivalent_drivers -control_set_merge`, after the build's own `ExploreArea`.
+
+| After `opt_design` | LUTs | against off | against `rec_u105` (115,574) | LUTRAM | FFs | DSPs | BRAM tiles |
+|---|---|---|---|---|---|---|---|
+| all three off (`m9o_off`) | 115,724 | | +150 | 16,656 | 58,169 | 140 | 120 |
+| `TG_HPM=1` | 116,001 | **+277** | +427 | +0 | +312 | +32 | +0 |
+| `TG_LWT=1` | 116,148 | **+424** | +574 | +48 | +128 | +0 | +0 |
+| `TG_ITT=2` | 116,646 | **+922** | +1,072 | +240 | +685 | +0 | +4 |
+| all three (`m9o_all`) | 117,539 | **+1,815** | +1,965 | +288 | +1,131 | +32 | +4 |
+
+- **1: no.** No placement form packs the package, so none reached routing and there is no timing.
+  - The placer's directive moves the packer's count by about 10 CLBs, and the pblocks by about 10.
+  - The second `opt_design` pass cuts 580–613 LUTs and 46–52 CLBs, which still leaves the package 32–46 CLBs short.
+- **2: the prices.**
+  - The three alone add up to +1,623 LUTs; together they cost +1,815. The +192 is their interaction or synthesis noise (about ±300 a core).
+  - The counters cost few LUTs because they count in DSPs.
+  - The table's cost is in LUTs, LUTRAM (its keys) and 4 BRAM tiles (its targets).
+- **3: the gap.** The packer's count falls about 12 CLBs per 100 LUTs at this fill.
+  - **To place at all:** the package needs about 1,000–1,150 LUTs less with the build's `opt_design`, or 400–550 less with the second pass. The cliff is about 116,500 LUTs after `opt_design` (99.5%).
+  - **That cliff is not a working fill:** a netlist there would route at about 99.6% of the LUT sites. The pair of record (115,574 after `opt_design`, 96.4% placed) closed both placements; the pacing image (115,755) closed its one.
+  - **The fill that closes:** about 115,600–115,750 after `opt_design`. That is the package's whole cost, 1,800–1,950 LUTs, to recover elsewhere.
+- **The lone features against the cliff:** the counters (116,001) and the load-wait table (116,148) sit 350–500 LUTs below it. The table (116,646) sits at it.
+
+Results: [`fpga/spikes/results/m9a_area/`](../../fpga/spikes/results/m9a_area/):
+- `m9o_*_opt_utilization.rpt`, each run's `opt_design` utilization;
+- `m9t_*_trial.txt`, each placement form with the packer's count.
+
 #### The write-pacing measurement image on main closes at +1.068 ns (2026-10-24)
 
 **Asked** (the coordinator): soc-2's measurement image for the board's write-pacing sweep ([soc.md](../spec/soc.md) §8.5, `tests/bench/mem` `wsdp.bin`).
