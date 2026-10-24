@@ -1,0 +1,11 @@
+== fix_f2_a6ade462 against fix_base_b30594fe: WNS +0.429 (-0.121), LUTs 51726 (-178), FFs 23477 (+7)
+family                    slack    levels      logic ns        net ns  start of the fix's worst
+lq_st_q         +0.550->+0.429  18->20   1.93->2.46  7.18->6.82  u_fetch/g_pmpf.rq_v_q_reg/C
+r_data_q        +1.542->+1.075  15->17   1.80->2.35  6.44->6.41  u_fetch/g_pmpf.rq_v_q_reg/C
+lx_valid_q      +0.603->+0.958  18->20   2.22->2.71  7.06->6.08  u_fetch/g_pmpf.rq_v_q_reg/C
+m2_foh_q        +0.729->+1.612  17->12   1.99->1.75  7.18->6.46  u_lsu/u_ptw/tid_q_reg[0]/C
+chk_pa_q        +0.774->+1.596  16->17   1.76->2.79  7.36->5.61  u_lsu/u_dtlb/v_q_reg[23]/C
+ival_ram        +1.176->+1.109  22->22   3.34->3.33  5.27->5.35  u_fetch/ka_q_reg/C
+tage            +2.203->+2.311  13->14   3.20->3.33  3.82->3.54  u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKARDCLK
+lq_st_q_sn      +0.859->+0.536  18->18   1.86->2.26  7.07->7.08  u_lsu/g_split.sn_t_q_reg[0]/C
+chk_pa_q_dtlb   +0.901->+1.596  15->17   1.77->2.79  7.35->5.61  u_lsu/u_dtlb/v_q_reg[23]/C
