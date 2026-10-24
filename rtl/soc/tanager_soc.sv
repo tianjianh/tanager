@@ -188,16 +188,15 @@ module tanager_soc
   // drive them: a name used before its declaration is an implicit net in synthesis.
   logic [4:0]               core_dbg_sel;
   logic [N_CORES-1:0][31:0] core_dbg;
-  // The debug module (DEBUG_WINDOW, soc.md §9.4): thread t of core c takes the halt request of the hart whose mhartid
-  // it has, c·NT + (t ^ RUN_TID) (debug_req_i, the core's one debug port; 0 without the switch). The DM sees each
-  // core's hart 1 as unavailable in a build without it; the cores' reset it takes itself.
+  // The debug module (DEBUG_WINDOW, soc.md §9.4): core c's debug_req_i, its one debug port, in hart order as the
+  // interrupt lines (line l: hart c·NT + l; the core maps lines to its threads); 0 without the switch. The DM sees
+  // each core's hart 1 as unavailable in a build without it; the cores' reset it takes itself.
   logic [N_CORES-1:0][NT-1:0] dbg_req;
   logic [NH-1:0]              dbg_unavail;
   for (genvar c = 0; c < N_CORES; c++) begin : g_dbgh
-    for (genvar t = 0; t < NT; t++) begin : g_t
-      localparam tid_t HT = tid_t'(t) ^ tg_core_pkg::RUN_TID;     // the thread's hart in its core
-      assign dbg_req[c][t]           = dbg_haltreq[c * NT + int'(HT)];
-      assign dbg_unavail[c * NT + t] = t == 1 && !tg_core_pkg::HART1_ON;
+    assign dbg_req[c] = dbg_haltreq[c * NT +: NT];
+    for (genvar l = 0; l < NT; l++) begin : g_l
+      assign dbg_unavail[c * NT + l] = l == 1 && !tg_core_pkg::HART1_ON;
     end
   end
 
