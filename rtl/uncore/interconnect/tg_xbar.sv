@@ -110,7 +110,8 @@ module tg_xbar
   endfunction
 
   // Which targets an initiator's requests can reach (route_a below): the L2 banks and the error
-  // responder from every initiator, the boot ROM from l1i and mmio, devices from mmio. Each
+  // responder from every initiator, the boot ROM from l1i and mmio (and the debug window behind its port,
+  // DEBUG_WINDOW), devices from mmio. Each
   // arbiter has only the inputs that can reach it, so no multiplexer spans the 16-entry
   // initiator index space.
   function automatic logic reaches(input int i, input int t);
@@ -163,6 +164,8 @@ module tg_xbar
     if (p == PMA_MEM) return TW'(T_L2B0 + int'(addr[BANK_BIT]));
     if (p == PMA_ROM && ((i >= SRC_L1I0 && i < SRC_L1I0 + MAX_CORES) ||
                          (i >= SRC_MMIO0 && i < SRC_MMIO0 + MAX_CORES))) return TW'(T_ROM);
+    if (DEBUG_WINDOW && in_rg(addr, DEBUG_BASE, DEBUG_SIZE) && ((i >= SRC_L1I0 && i < SRC_L1I0 + MAX_CORES) ||
+                                                           (i >= SRC_MMIO0 && i < SRC_MMIO0 + MAX_CORES))) return TW'(T_ROM);
     if (p == PMA_DEVICE && i >= SRC_MMIO0 && i < SRC_MMIO0 + MAX_CORES) return TW'(T_DEV);
     return TW'(T_ERR);
   endfunction

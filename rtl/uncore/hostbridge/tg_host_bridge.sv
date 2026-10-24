@@ -58,6 +58,7 @@ module tg_host_bridge
   // ---- core domain ----
   input  logic        clk,
   input  logic        rst,               // SoC reset (not the uncore reset this block generates)
+  input  logic        ndmreset_i,        // the debug module's ndmreset (docs/spec/soc.md §9.3): cores and uncore, as CTRL = 0x3
   output logic        core_rst_o,
   output logic        uncore_rst_o,
   input  dev_req_t    req_i,
@@ -503,8 +504,8 @@ module tg_host_bridge
   tg_cdc_bit #(.INIT (UNCORE_RST_INIT)) u_urst (.src_in (ctrl_q[1]), .dst_clk (clk), .dst_out (uncore_rst_c));
   logic urst_q, crst_q;
   always_ff @(posedge clk) begin
-    urst_q <= rst || uncore_rst_c;
-    crst_q <= rst || uncore_rst_c || core_rst_c;
+    urst_q <= rst || uncore_rst_c || ndmreset_i;
+    crst_q <= rst || uncore_rst_c || core_rst_c || ndmreset_i;
   end
   assign uncore_rst_o = urst_q;
   assign core_rst_o   = crst_q;

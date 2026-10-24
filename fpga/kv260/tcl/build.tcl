@@ -97,6 +97,19 @@ if {[lsearch -regexp $defines {^TG_URF(=|$)}] >= 0} {
   puts "ERROR: TG_URF goes in its own variable, not in TG_DEFINES (fpga/kv260/README.md)"; exit 1
 }
 if {$urf} { lappend def_args -verilog_define TG_URF=1 }
+# TG_DEBUG=1: the debug module (docs/spec/soc.md §9, DR-190 item 4; tg_map_pkg DEBUG_WINDOW): the DM and the DTM on
+# two BSCANE2s (USER3, USER4), and the cores' debug mode. A development build's option, as the define every file
+# sees, with xdc/timing_debug.xdc's JTAG clock. A release build has none of it. TG_DEFINES must not set TG_DEBUG.
+set dbg [expr {[info exists ::env(TG_DEBUG)] ? $::env(TG_DEBUG) : 0}]
+if {$dbg ni {0 1}} { puts "ERROR: TG_DEBUG must be 0 or 1 (fpga/kv260/README.md)"; exit 1 }
+if {[lsearch -regexp $defines {^TG_DEBUG(=|$)}] >= 0} {
+  puts "ERROR: TG_DEBUG goes in its own variable, not in TG_DEFINES (fpga/kv260/README.md)"; exit 1
+}
+if {$dbg && $release} { puts "ERROR: TG_RELEASE=1 builds no debug module: leave TG_DEBUG unset or 0"; exit 1 }
+if {$dbg} {
+  lappend def_args -verilog_define TG_DEBUG=1
+  lappend unc_set "DEBUG=1"
+}
 # The commit the sources come from, for summary.txt (fpga/kv260/package.sh), taken before they are read.
 # A snapshot without git (git archive, README) names it in TG_COMMIT.
 if {[info exists ::env(TG_COMMIT)]} {
@@ -211,6 +224,7 @@ if {$urf} {
   }
   read_xdc -ref tg_urf $urf_xdc
 }
+if {$dbg} { read_xdc [file join $root fpga kv260 xdc timing_debug.xdc] }
 
 # ---- synthesis ----
 # TG_SYNTH_DIRECTIVE: synth_design's directive, AreaOptimized_high unless set (the coordinator, 10-16, DR-150:
