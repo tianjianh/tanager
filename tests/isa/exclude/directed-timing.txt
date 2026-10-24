@@ -1,0 +1,3 @@
+# Directed tests that time instructions with mcycle and need the run's cycles undisturbed: regress's trace
+# back-pressure run (--trace-stall=50) and random-wake run (+xwake=20), and cycle-identical's stress suite, leave them out.
+tanager-p-zkt  # Zkt (m9-isa-check.md): each listed instruction's chain must take the same cycles under every operand class

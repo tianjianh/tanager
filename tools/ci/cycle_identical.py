@@ -357,8 +357,8 @@ def has_fd():
                                         if "localparam" in l)
 
 
-def isa_programs(cfg, args_of):
-    """riscv-tests of the regression's suites and our directed tests: (name, elf, args)."""
+def isa_programs(cfg, args_of, dir_excl=()):
+    """riscv-tests of the regression's suites and our directed tests but those in dir_excl: (name, elf, args)."""
     tdir = os.path.join(os.environ.get("RISCV_TESTS", ""), "isa")
     if not os.path.isdir(tdir):
         fail("RISCV_TESTS is not set or has no isa/: source tools/env.sh first")
@@ -378,7 +378,8 @@ def isa_programs(cfg, args_of):
     make("-C", "tests/isa", "build-directed")
     ddir = os.path.join(TB, WT, "directed")
     for i, t in enumerate(sorted(f for f in os.listdir(ddir) if f.startswith("tanager-p-"))):
-        out.append((t, os.path.join(ddir, t), args_of(1000 + i, True)))
+        if t not in dir_excl:
+            out.append((t, os.path.join(ddir, t), args_of(1000 + i, True)))
     return out
 
 
@@ -436,7 +437,9 @@ def vsim_programs(suites, cfg, randn, jobs):
             def stress(i, d):
                 a = [x for x in run_random.stress_args(i + 1, 0, True) if not x.startswith("--trace-stall")]
                 return a + ["--trace-stall=50"] + (["--irq-rand=5"] if d else [])
-            add("stress", isa_programs(cfg, stress))
+            # trace back-pressure changes cycle counts, so the directed tests that time instructions sit it out
+            timing = run_isa.read_exclusions([os.path.join(ROOT, "tests", "isa", "exclude", "directed-timing.txt")])
+            add("stress", isa_programs(cfg, stress, timing))
         elif s == "reset":
             add("reset", isa_programs(cfg, lambda i, d: ["--lat=native", "--rand-reset", f"--seed={i + 1}"] +
                                       (["--irq-rand=5"] if d else [])))

@@ -155,13 +155,15 @@ if [ "${RESULTS[0]}" = PASS ]; then
     make -C "$ROOT/tests/isa" directed CFG="$CFG" CORE="$CORE" ${TIMING_CUTS:+TIMING_CUTS="$TIMING_CUTS"} LAT="$LAT" JOBS="$JOBS" SIMARGS="$SIMARGS"
   step "CoreMark A/B and Dhrystone ($MARCH), lockstep, lat=$LAT" "$LOGS/bench.log" \
     make -C "$ROOT/tests/bench" run CFG="$CFG" CORE="$CORE" ${TIMING_CUTS:+TIMING_CUTS="$TIMING_CUTS"} MARCH="$MARCH" LAT="$LAT" JOBS="$JOBS" SIMARGS="$SIMARGS"
-  # Trace back-pressure (verification.md §2.9)
+  # Trace back-pressure (verification.md §2.9). It and the random wakes below change cycle counts by design, so the
+  # directed tests that time instructions (zkt.S) sit out those two runs.
+  DIR_TIMING="$ROOT/tests/isa/exclude/directed-timing.txt"
   stall_pass() {
     python3 "$ROOT/tests/isa/run_isa.py" --sim "$BIN" --suites "$SUITES" "${EXCL[@]}" --jobs "$JOBS" \
       --logdir "$LOGS/isa-stall" --name "riscv-tests $CFG $CORE, trace stall" -- --lat="$LAT" --trace-stall=50 \
       $SIMARGS &&
     make -C "$ROOT/tests/isa" directed CFG="$CFG" CORE="$CORE" ${TIMING_CUTS:+TIMING_CUTS="$TIMING_CUTS"} LAT="$LAT" JOBS="$JOBS" \
-      SIMARGS="--trace-stall=50 $SIMARGS"
+      SIMARGS="--trace-stall=50 $SIMARGS" DIR_EXCL="$DIR_TIMING"
   }
   step "riscv-tests and directed tests under trace back-pressure (--trace-stall=50), lockstep" \
     "$LOGS/stall.log" stall_pass
@@ -175,7 +177,7 @@ if [ "${RESULTS[0]}" = PASS ]; then
   if [ "$HART1" = 1 ] && grep -q '"xwake=' "$ROOT/rtl/core/rob/tg_rob.sv" 2>/dev/null; then
     step "directed tests with random wakes (+xwake=20: merges and splits), lockstep, lat=$LAT" "$LOGS/directed-xwake.log" \
       make -C "$ROOT/tests/isa" directed CFG="$CFG" CORE="$CORE" ${TIMING_CUTS:+TIMING_CUTS="$TIMING_CUTS"} LAT="$LAT" JOBS="$JOBS" \
-        SIMARGS="+xwake=20 $SIMARGS"
+        SIMARGS="+xwake=20 $SIMARGS" DIR_EXCL="$DIR_TIMING"
     if [ "$RANDN" != 0 ]; then
       step "random programs with random wakes ($RANDN seeds, $MARCH, timer interrupts, +xwake=20), lockstep" \
         "$LOGS/random-xwake.log" make -C "$ROOT/tests/random" CFG="$CFG" CORE="$CORE" ${TIMING_CUTS:+TIMING_CUTS="$TIMING_CUTS"} \
