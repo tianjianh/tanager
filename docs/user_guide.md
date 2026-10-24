@@ -55,7 +55,11 @@ RISC-V mode needs one package. It is the files for the card's boot partition, pl
 
 Every firmware setting in these files is listed, with how to change it, in [firmware_switches.md](spec/firmware_switches.md). The hardware's build switches are in [area_switches.md](spec/area_switches.md).
 
-**The board's MAC is in the device tree.** The release trees carry our board's address, `00:0a:35:2a:df:d8`. Another KV260 needs a package built with its own: `ETH_MAC=xx:xx:xx:xx:xx:xx` for `riscv_package.sh` or `sw/dts/board-trees.sh`. Use the address Ubuntu shows for `eth0`. **TBD-v1:** how v1 sets the MAC per board.
+**One package for every board.** The device trees carry no MAC address (DR-192).
+- At boot, the A53's U-Boot reads the board's own MAC from the SOM's EEPROM, as `ethaddr`. `riscv.scr` writes it into the tree's Ethernet node before it releases Tanager, and Debian's `eth0` uses it.
+- If U-Boot has no `ethaddr`, the tree goes without one, and Linux picks an address.
+- **TBD-v1: not yet run on the board.** QEMU's U-Boot runs the same script lines (`sw/d4mode/hook_qtest.sh`), and the board run waits for the next session there.
+- rc3's package predates this and carries our board's MAC, `00:0a:35:2a:df:d8`. On another KV260 its Ethernet would use ours.
 
 ## 4. Preparing the SD card (once)
 
@@ -88,7 +92,8 @@ Ubuntu's image fills the card, so p2 shrinks to 6 GiB and p3 takes the rest.
 
    On our board cloud-init regrew a shrunk root at the next boot ([board/sdcard/README.md](../fpga/kv260/board/sdcard/README.md)).
 2. **Then shrink p2 and add p3.** The simplest way is with the card in the Linux host's reader, unmounted.
-   - The commands, with `/dev/sdX` the card. They follow our board's own tool, `tg-shrink-root.premount`:
+   - **TBD-v1: these commands haven't run on a card yet.** They copy the tested form of our board's own tool, `tg-shrink-root.premount`, and a spare card tries them next.
+   - The commands, with `/dev/sdX` the card:
      ```bash
      sudo e2fsck -f /dev/sdX2
      sudo resize2fs /dev/sdX2 6000M                 # the file system a little under 6 GiB first
