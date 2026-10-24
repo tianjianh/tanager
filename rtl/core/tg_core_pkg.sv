@@ -22,12 +22,12 @@ package tg_core_pkg;
   // Timing cuts that cost cycles, as build switches (DR-140; core-pipeline §13). Each is an
   // elaboration parameter that selects generate branches, so a setting builds only its own logic.
   // Two profiles are verified (DR-140, as the user set it after DR-141's board runs):
-  //   default:  #4, #5, #9, #10, #11 and #12 on; #2 and #8 off (the shipping profile);
-  //   fallback: #2, #4, #5, #8, #9, #10, #11 and #12 off (TG_TIMING_CUTS=0: the core without them).
+  //   default:  #4, #5, #9, #10, #11, #12 and #13 on; #2 and #8 off (the shipping profile);
+  //   fallback: #2, #4, #5, #8, #9, #10, #11, #12 and #13 off (TG_TIMING_CUTS=0: the core without them).
   // #2 and #8 are lint-only switches until the user turns one on: TG_ROB_STORE_REPORT_LATE=1 and
   // TG_DE_STAGE=1, each on top of the default. TG_LSU_AG_SPLIT, TG_DC_AMO_READ_REG,
-  // TG_ROB_HEAD_TLB_LATE, TG_LSU_MMIO_PMP_REG, TG_DC_PORTB_WREG and TG_LSU_HDWALK_REG =0|1 override
-  // their profile value; other combinations are not verified.
+  // TG_ROB_HEAD_TLB_LATE, TG_LSU_MMIO_PMP_REG, TG_DC_PORTB_WREG, TG_LSU_HDWALK_REG and TG_LSU_CHK_REG
+  // =0|1 override their profile value; other combinations are not verified.
 `ifdef TG_TIMING_CUTS
   localparam bit TIMING_CUTS = `TG_TIMING_CUTS;
 `else
@@ -83,6 +83,14 @@ package tg_core_pkg;
   localparam bit LSU_HDWALK_REG = `TG_LSU_HDWALK_REG;
 `else
   localparam bit LSU_HDWALK_REG = TIMING_CUTS;
+`endif
+  // #13 (DR-191; spikes §8.18, fix 1): with PMP_FILL, the shared PMP checker's answer is registered (ck_ok_q and
+  // its hit, permissions and page test): each user takes it the cycle after its grant, so a checked access's
+  // state and result wait a cycle. Without PMP_FILL it does nothing
+`ifdef TG_LSU_CHK_REG
+  localparam bit LSU_CHK_REG = `TG_LSU_CHK_REG;
+`else
+  localparam bit LSU_CHK_REG = TIMING_CUTS;
 `endif
   // DR-149: misses the L1D keeps in flight, 4 (four MSHRs, a request register for the loads' misses,
   // per-entry refill wakeups) in both profiles since DR-156 (the user, 10-17), or 1 (one MSHR, the L1D

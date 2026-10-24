@@ -736,6 +736,10 @@ module tg_lsu
   // DR-183 (PMP_FILL): no load checker; the shared one (u_pmp_st) checks a load in a cycle it grants it (l_gnt)
   logic l_ask, l_gnt, l_nok;     // a load (or a parked MMIO load) asks the checker; granted; an M2 load unchecked
   logic [0:0] sa_chk;
+  // #13 (DR-191; spikes §8.18, fix 1): the shared checker's answer, registered every cycle (below, after fetch's
+  // response): with LSU_CHK_REG each user takes it the cycle after its grant
+  logic       ck_ok_q, ck_hit_q, ck_nh_q;
+  logic [2:0] ck_rwx_q;
   if (!PMP_FILL) begin : g_pmp_ld
     tg_pmp #(.S(1)) u_pmp_ld (.pa(lck_pa), .dbl(lck_dbl), .acc(ACC_R),
                               .m_mode(ck_ml), .d(pmp_d[t_lck]), .ok(nl_chk), .hit(pmp_hit_ld),
@@ -1563,6 +1567,14 @@ module tg_lsu
     logic unused_pfc;
     assign unused_pfc = ^{pfc_req, pfc_page, pfc_tag, pfc_tid, pfc_pa, pfc_m, pmp_lk_h, pc_lvl, pfc_gnt};
   end
+  always_ff @(posedge clk) begin
+    ck_ok_q  <= sa_chk[0];
+    ck_hit_q <= pmp_hit_st;
+    ck_rwx_q <= pmp_rwx_st;
+    ck_nh_q  <= pg_nh;
+  end
+  logic unused_ckq;                               // (until the users take it)
+  assign unused_ckq = ^{ck_ok_q, ck_hit_q, ck_rwx_q, ck_nh_q, LSU_CHK_REG};
   always_ff @(posedge clk) begin
     s2_v_q   <= !rst && ((sa_ok && xl_s && !sa_pmpc) || (s2_v_q && !s2_go && !kill_t[s2_t_q]));
     // (S2 waits with a store at the decision only for another thread's bare store, which does not enter S2)
