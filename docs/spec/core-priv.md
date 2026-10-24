@@ -97,9 +97,12 @@ Status: spec for review (core-2), 2026-10-24. soc-2's Debug Module, DTM and debu
 - **The design is execution-based.** A halted hart runs the DM's ROM from the debug window, and the DM implements Access Register by writing instructions for the hart to run (soc.md §9.5). Nothing reaches rename or the register files.
 
 ### Interface (soc.md §9.4)
-- **`debug_req_i[t]`** (from the DM's `dbg_haltreq[h]`): a level halt request per hart.
-- **`hart_unavail_o[t]`:** the hart is in reset or held off (hart 1 without `HART1`, or with `mtgsmt.HART1_OFF`).
-- **`havereset_o[t]`:** a one-cycle pulse as the hart leaves reset. The DM keeps it until `ackhavereset`.
+- **`debug_req_i[t]`** (from the DM's `dbg_haltreq[h]`): a level halt request per hart. It is the core's only debug signal, and `tg_core` already has it, so its port list doesn't change.
+- **The DM derives the rest without new core ports.**
+  - `havereset[h]`: the core's one reset, `core_rst`, so all its harts leave reset together.
+  - `hart_unavail[h]`: that reset, plus hart 1's absence in a build without it (`tg_core_pkg::HART1_ON`).
+  - **A limit:** a hart held off at run time by `mtgsmt.HART1_OFF`, which the firmware leaves at 0, isn't reported unavailable. A halt request to it waits until the debugger times out.
+- **The crossbar** routes the I$'s line Gets to the debug window with `TG_DEBUG`. Without it they go only to memory and the boot ROM (soc.md §9.5).
 
 ### The CSRs, per hart (debug mode only; elsewhere an illegal instruction)
 | CSR | Address | Contents |
@@ -154,7 +157,7 @@ Status: spec for review (core-2), 2026-10-24. soc-2's Debug Module, DTM and debu
   - the trace's suppression and its marker.
 - **`tg_fetch`:** the window's fetch permission, by the thread's debug mode.
 - **`tg_lsu`:** the window's loads and stores in debug mode only, PMP-exempt, and MPRV ignored in debug mode.
-- **`tg_core`:** `debug_req_i` connected, `hart_unavail_o` and `havereset_o`, and the halt request among the sleepers' wake events.
+- **`tg_core`:** `debug_req_i` connected, and the halt request among the sleepers' wake events.
 
 ### Cost and checks
 - **Cost:** m9-plan §8 estimates about 50 LUTs and 100 FFs a hart for the CSRs, and 150–300 LUTs a core for entry and exit. Measured when built, in a development build.
