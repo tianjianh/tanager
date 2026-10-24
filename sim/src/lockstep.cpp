@@ -1376,12 +1376,19 @@ class lockstep_impl_t {
     ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
     const uint64_t dw = pa & ~7ull;
     uint8_t* m = mem_at(dw);
+    std::vector<std::pair<unsigned, uint64_t>> landed;  // (hart, id) of the late landers this read settled
     for (uint64_t id : ids) {
       auto it = late_.find(dw);
       if (it == late_.end()) return;
       auto& v = it->second;
       auto c = std::find_if(v.begin(), v.end(), [&](const late_t& x) { return x.id == id; });
       if (c == v.end()) continue;
+      // A younger late lander of a hart whose older one this read showed has not landed: one hart's stores land in
+      // order, so where it matched, its bytes equal the older one's (seed 1950150 of the soak, 10-23: the middle of
+      // three sd's showed on two bytes and the last matched the other two, which settled it there and dropped it on
+      // the first two, though it landed later)
+      if (std::any_of(landed.begin(), landed.end(), [&](const auto& l) { return l.first == c->hart && l.second < id; }))
+        continue;
       uint8_t before[8], mask = 0, drop = 0;
       memcpy(before, m, 8);
       for (unsigned i = 0; i < n; i++) {
@@ -1389,6 +1396,7 @@ class lockstep_impl_t {
         if (c->mask >> b & 1) (got[i] == c->nw[b] ? mask : drop) |= uint8_t(1u << b);
       }
       const unsigned hart = c->hart;
+      if (mask) landed.emplace_back(hart, id);
       for (unsigned b = 0; b < 8; b++)
         if (mask >> b & 1) m[b] = c->nw[b];
       c->mask &= uint8_t(~(mask | drop));
