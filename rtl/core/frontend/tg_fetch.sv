@@ -1647,8 +1647,7 @@ module tg_fetch
       end
       // The FTQ keeps each block's lookup: its history (u_fil; decode's redirect restores it) and the coordinates it
       // read (u_fri; training writes there), the latter read for the group's last retiring instruction (jp), the one
-      // that can pend. u_fri is block memory (the coordinator's 10-24 headroom): its read lands a cycle later, when the
-      // pending jump takes it (pjl_q), a flush in that cycle straight from the RAM's output
+      // that can pend
       logic [JW-1:0] jp;
       logic [PW-1:0] fl_rd;
       logic [IRW-1:0] ir_rd;
@@ -1658,9 +1657,8 @@ module tg_fetch
       end
       tg_ram_lut #(.DEPTH(FTQ_ENTRIES << SB), .WIDTH(PW), .NR(1)) u_fil (
         .clk, .we(ft_we), .waddr(fqa(f2_s_q, ft_tail)), .wdata(ilk_q), .raddr(fr_ra[0]), .rdata(fl_rd));
-      tg_ram_sdp #(.DEPTH(FTQ_ENTRIES << SB), .WIDTH(IRW)) u_fri (
-        .clk, .we(ft_we), .waddr(fqa(f2_s_q, ft_tail)), .wdata(iri), .re(1'b1), .raddr(fqa(cs, c_ftq[jp])),
-        .rdata(ir_rd));
+      tg_ram_lut #(.DEPTH(FTQ_ENTRIES << SB), .WIDTH(IRW), .NR(1)) u_fri (
+        .clk, .we(ft_we), .waddr(fqa(f2_s_q, ft_tail)), .wdata(iri), .raddr(fqa(cs, c_ftq[jp])), .rdata(ir_rd));
       // Commit: a retiring JALR that is not a return, the last instruction of its group, pends until its thread's next
       // instruction. A flush of the thread before that one retires comes from it, the instruction at the jump's target
       // (its own mispredict's correction, or a replay: core-2's review), so the table learns the flush's address, at the
@@ -1670,8 +1668,6 @@ module tg_fetch
       // group, the next group's first, a trap's or interrupt's epc, or the flush's address, of which bits 17:2 suffice
       logic [NS-1:0]             pj_v_q, pj_u_q;     // pending; it ran in U
       logic [NS-1:0][IRW-1:0]     pj_r_q;             // the coordinates its block read
-      logic [NS-1:0]             pjl_q, pjl_n;       // it pended last cycle: its coordinates are on u_fri's output
-      logic [NS-1:0][IRW-1:0]     pjr_e;              // its coordinates this cycle
       logic [NS-1:0][SLOT_W-1:0] pj_s_q;             // its last parcel's slot
       logic [NS-1:0]             pjn_v, pjn_u;
       logic [NS-1:0][IRW-1:0]     pjn_r;
@@ -1691,14 +1687,12 @@ module tg_fetch
         wri = '0;
         wsl  = '0;
         cph_n = cph_s_q;
-        for (int t = 0; t < NS; t++) pjr_e[t] = pjl_q[t] ? ir_rd : pj_r_q[t];
-        pjn_v = pj_v_q; pjn_u = pj_u_q; pjn_r = pjr_e; pjn_s = pj_s_q;
-        pjl_n = '0;
+        pjn_v = pj_v_q; pjn_u = pj_u_q; pjn_r = pj_r_q; pjn_s = pj_s_q;
         for (int t = 0; t < NS; t++)
           if (fl_s[t]) begin                       // (nothing of the stream retires in its flush's cycle)
             if (pj_v_q[t]) begin
               cph_n[t] = padd(cph_n[t][PW-5:0], flush_pc[17:2]);
-              if (!wr) begin wr = 1'b1; wri = pjr_e[t]; wsl = pj_s_q[t]; wu = pj_u_q[t]; end
+              if (!wr) begin wr = 1'b1; wri = pj_r_q[t]; wsl = pj_s_q[t]; wu = pj_u_q[t]; end
             end
             pjn_v[t] = 1'b0;
           end else if (cs == 1'(t)) begin
@@ -1714,7 +1708,7 @@ module tg_fetch
                 else begin                         // the group's last retiring instruction (jp): it pends
                   pjn_v[t] = 1'b1;
                   pjn_u[t] = cu;
-                  pjl_n[t] = 1'b1;                 // (its coordinates: u_fri's read, next cycle)
+                  pjn_r[t] = ir_rd;
                   pjn_s[t] = c_slot[j];
                 end
               end
@@ -1725,11 +1719,9 @@ module tg_fetch
           ph_s_q  <= '0;
           cph_s_q <= '0;
           pj_v_q  <= '0;
-          pjl_q   <= '0;
         end else begin
           cph_s_q <= cph_n;
           pj_v_q  <= pjn_v;
-          pjl_q   <= pjl_n;
           for (int t = 0; t < NS; t++)
             if (fl_s[t])      ph_s_q[t] <= cph_n[t];      // a flush: commit's, with its own jump's target
             else if (dr_s[t]) ph_s_q[t] <= fl_rd;         // decode's redirect: its block's lookup history
