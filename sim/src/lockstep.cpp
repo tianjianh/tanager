@@ -335,12 +335,27 @@ class lockstep_impl_t {
           return mismatch(&h, &r, strfmt("rvc flag %u does not match the encoding %08x", r.rvc, r.insn));
       }
     }
+    bool ok;
     switch (r.kind) {
-      case TR_RETIRE: return retire(h, r);
-      case TR_TRAP: return trap(h, r);
-      case TR_IRQ: return (r.cause >> 62) == 3 ? debug_entry(h, r) : irq(h, r);
+      case TR_RETIRE: ok = retire(h, r); break;
+      case TR_TRAP: ok = trap(h, r); break;
+      case TR_IRQ: ok = (r.cause >> 62) == 3 ? debug_entry(h, r) : irq(h, r); break;
       default: return mismatch(&h, &r, strfmt("unknown record kind %u", r.kind));
     }
+    static const uint64_t dbg_dw = getenv("TG_DBG_DW") ? strtoull(getenv("TG_DBG_DW"), nullptr, 16) : 0;  // SCRATCH
+    if (dbg_dw && (r.mem_st || r.mem_ld) && (r.mem_vaddr & ~7ull) == dbg_dw) {
+      fprintf(stderr, "DBG %llu h%u %016llx %-28s ok=%d spike=%016llx late=", (unsigned long long)r.cycle, r.hart,
+              (unsigned long long)r.pc, disasm(r.insn).c_str(), ok, (unsigned long long)read_mem64(dbg_dw));
+      auto it = late_.find(dbg_dw);
+      if (it != late_.end())
+        for (auto& c : it->second) {
+          fprintf(stderr, "[id%llu h%u m%02x", (unsigned long long)c.id, c.hart, c.mask);
+          for (int b = 7; b >= 0; b--) fprintf(stderr, (c.mask >> b & 1) ? "%02x" : "..", c.nw[b]);
+          fprintf(stderr, "]");
+        }
+      fprintf(stderr, "\n");
+    }
+    return ok;
   }
 
   bool retire(hart_state_t& h, const tr_rec_t& r) {
