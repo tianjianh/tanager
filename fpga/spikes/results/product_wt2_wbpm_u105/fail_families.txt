@@ -1,0 +1,17 @@
+== /home/w/tanager-build/track-spikes-72f833/vivado/product_wt2_wbpm_u105/routed.dcp (WNS 1.068)
+  endpoints by setup slack: < 0: 0, < 0.1: 0, < 0.2: 0, < 0.3: 0, < 0.5: 0, < 1.0: 0
+  all: 0 endpoints below 1.0 ns in 0 families
+  cones cut: F2 (840 cells: registers and I$ RAMs) -> fetch, TAGE and the RAS (8754); the queue head (0) -> the RAS (788)
+  without those cones: 0 endpoints below 1.0 ns in 0 families
+  without any path inside the front end (8754 -> 8754 cells): 0 endpoints below 1.0 ns in 0 families
+  the host bridge's core-reset registers (41 cells): their worst ten endpoints
+      2.265   1 levels, net 7.172 ns  u_soc/u_uncore/u_host/crst_q_reg_replica_1/C -> u_soc/g_core[1].g_tgc.u_core/u_lsu/sq_tail_q_reg[0][5]/R
+      2.667   0 levels, net 6.950 ns  u_soc/u_uncore/u_host/crst_q_reg_replica_5/C -> u_soc/g_core[0].g_tgc.u_core/u_lsu/lq_head_q_reg[0][3]/R
+      2.667   0 levels, net 6.950 ns  u_soc/u_uncore/u_host/crst_q_reg_replica_5/C -> u_soc/g_core[0].g_tgc.u_core/u_lsu/sq_cmt_q_reg[0][3]/R
+      2.667   0 levels, net 6.950 ns  u_soc/u_uncore/u_host/crst_q_reg_replica_5/C -> u_soc/g_core[0].g_tgc.u_core/u_lsu/sq_head_q_reg[0][3]/R
+      2.783   1 levels, net 6.642 ns  u_soc/u_uncore/u_host/crst_q_reg_replica_1/C -> u_soc/g_core[1].g_tgc.u_core/u_lsu/sq_cmt_q_reg[0][5]/R
+      2.890  18 levels, net 4.522 ns  u_soc/u_uncore/u_host/crst_q_reg_replica/C -> u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[1].u_ram/RAMA/I
+      2.942  19 levels, net 4.485 ns  u_soc/u_uncore/u_host/crst_q_reg_replica_1/C -> u_soc/g_core[1].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[0].u_ram/RAMA/I
+      2.987  18 levels, net 4.423 ns  u_soc/u_uncore/u_host/crst_q_reg_replica/C -> u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[2].u_ram/RAMD/I
+      2.993  18 levels, net 4.328 ns  u_soc/u_uncore/u_host/crst_q_reg_replica/C -> u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[0].u_ram/RAMD/I
+      3.005  18 levels, net 4.320 ns  u_soc/u_uncore/u_host/crst_q_reg_replica/C -> u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[1].u_ram/RAMG/I
