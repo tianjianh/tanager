@@ -44,9 +44,9 @@ module tb_fetch
   logic [38:1]       dred_rlink;
   logic [COMMIT_WIDTH-1:0] c_cbr, c_taken, c_pred;
   logic [COMMIT_WIDTH-1:0] c_ret, c_ijmp;                     // the indirect-target table's (ITT_ON; not driven here)
-  logic [COMMIT_WIDTH-1:0][38:1] c_pc;
+  logic [COMMIT_WIDTH-1:0][17:2] c_pc;
   logic        c_trv;
-  logic [38:1] c_trepc;
+  logic [17:2] c_trepc;
   logic [COMMIT_WIDTH-1:0][FTQW-1:0]   c_ftq;
   logic [COMMIT_WIDTH-1:0][SLOT_W-1:0] c_slot;
   logic        c_hv;

@@ -10,8 +10,9 @@
 // An entry: {valid, slot, an 8-bit tag (the block address folded another way), U (the privilege it was trained in:
 // U against S and M, so U-mode code never steers an S-mode jump), the target's bits 38:1}: 51 bits in a 72-bit row of
 // block memory, one RAMB36 a table. F1 reads it as the block moves into F2 (re); F2 gets the entry's hit (valid, tag
-// and privilege), its slot and its target. Commit writes {1, slot, tag, U, target} where the jump's block read: the
-// block address and the history that block's lookup used (the FTQ keeps it), so lookup and training agree.
+// and privilege), its slot and its target, and the lookup's coordinates (ri: the index or indices and the tag), which
+// the FTQ keeps for the block. Commit writes {1, slot, tag, U, target} at the coordinates the jump's block read (w_ri),
+// so lookup and training agree without the block's address or history at commit (the coordinator's trim, 10-24).
 module tg_itt
   import tg_pkg::*;
 #(
@@ -20,7 +21,8 @@ module tg_itt
   parameter int HW   = 16,                // the path history's bits
   localparam int SW  = idx_w(NP),
   localparam int LI  = (MODE == 2) ? 7 : 8,   // a table's index bits
-  localparam int TW  = 8
+  localparam int TW  = 8,
+  localparam int RIW = (MODE == 2 ? 2 * LI : LI) + TW   // the coordinates: {path index, [block index,] tag}
 ) (
   input  logic          clk,
   // F1: the lookup, read as the block moves into F2 (re): the stream's block (TAGE's), its path history, its privilege
@@ -28,18 +30,18 @@ module tg_itt
   input  logic [38:4]   blk,
   input  logic [HW-1:0] ph,
   input  logic          pu,
-  // F2: the block's entry
-  output logic          hit,
-  output logic [SW-1:0] slot,
-  output logic [38:1]   tgt,
-  // Training (commit): the jump's block (its last parcel's), the history its block's lookup used, its privilege,
-  // its last parcel's slot and its target
-  input  logic          we,
-  input  logic [38:4]   w_blk,
-  input  logic [HW-1:0] w_ph,
-  input  logic          w_pu,
-  input  logic [SW-1:0] w_slot,
-  input  logic [38:1]   w_tgt
+  // F2: the block's entry, and the coordinates its lookup read
+  output logic           hit,
+  output logic [SW-1:0]  slot,
+  output logic [38:1]    tgt,
+  output logic [RIW-1:0] ri,
+  // Training (commit): the coordinates the jump's block read (its last parcel's block), its privilege, its last
+  // parcel's slot and its target
+  input  logic           we,
+  input  logic [RIW-1:0] w_ri,
+  input  logic           w_pu,
+  input  logic [SW-1:0]  w_slot,
+  input  logic [38:1]    w_tgt
 );
   typedef struct packed {
     logic          v;
@@ -72,28 +74,43 @@ module tg_itt
     return r;
   endfunction
 
-  // F1: the indices; the tag and privilege go with the block into F2
+  // F1: the indices; the tag and privilege go with the block into F2, the indices too (the coordinates)
+  logic [LI-1:0] pi, bi, pi_q, bi_q;
   logic [TW-1:0] tg_q;
   logic          pu_q;
+  assign pi = pidx(blk, ph);
+  assign bi = ifold(blk);
   always_ff @(posedge clk)
     if (re) begin
+      pi_q <= pi;
+      bi_q <= bi;
       tg_q <= tfold(blk);
       pu_q <= pu;
     end
+  // the write's coordinates
+  logic [LI-1:0] w_pi, w_bi;
+  logic [TW-1:0] w_tg;
   ent_t wd;
-  assign wd = '{v: 1'b1, slot: w_slot, tag: tfold(w_blk), pu: w_pu, tgt: w_tgt};
+  assign wd = '{v: 1'b1, slot: w_slot, tag: w_tg, pu: w_pu, tgt: w_tgt};
   ent_t          ep, eb;
   logic [EW-1:0] dp;
   tg_ram_sdp #(.DEPTH(1 << LI), .WIDTH(EW)) u_path (
-    .clk, .we(we), .waddr(pidx(w_blk, w_ph)), .wdata(wd), .re, .raddr(pidx(blk, ph)), .rdata(dp));
+    .clk, .we(we), .waddr(w_pi), .wdata(wd), .re, .raddr(pi), .rdata(dp));
   assign ep = ent_t'(dp);
   if (MODE == 2) begin : g_blk
     logic [EW-1:0] db;
     tg_ram_sdp #(.DEPTH(1 << LI), .WIDTH(EW)) u_blk (
-      .clk, .we(we), .waddr(ifold(w_blk)), .wdata(wd), .re, .raddr(ifold(blk)), .rdata(db));
+      .clk, .we(we), .waddr(w_bi), .wdata(wd), .re, .raddr(bi), .rdata(db));
     assign eb = ent_t'(db);
+    assign ri = {pi_q, bi_q, tg_q};
+    assign {w_pi, w_bi, w_tg} = w_ri;
   end else begin : g_one
     assign eb = '0;
+    assign ri = {pi_q, tg_q};
+    assign {w_pi, w_tg} = w_ri;
+    assign w_bi = '0;
+    logic unused_bi;
+    assign unused_bi = ^{bi_q, w_bi};
   end
 
   // F2: the path half's entry when it matches, else the block half's

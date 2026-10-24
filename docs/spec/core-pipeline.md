@@ -117,7 +117,7 @@ M2 is the plan's "conservative out-of-order" core. It must pass riscv-tests (`rv
   - **Path history** (per stream, 16 bits, the model's): a JALR that is not a return shifts it left by 4 and xors in its target's bits 17:2, so it holds about the last four targets.
     - **Speculative** (`ph`): moved by each delivered block whose exit is such a JALR, with the target F2 sent fetch to, a cycle later (as TAGE's history bits).
     - **The lookup's lag:** F1 reads with the speculative history as the block moves into F2, as TAGE does. So a block fetched right behind a JALR's block is looked up without that JALR. Its target is that block's own address, which the index has anyway. The FTQ keeps the history each lookup used, and training writes there, so lookup and training agree.
-    - **Commit's** (`cph`): moved by each retiring such JALR, with its actual target (below). A flush copies it into the speculative one, as for TAGE.
+    - **Commit's** (`cph`): moved by each retiring such JALR, with its actual target's bits 17:2 (below). A flush copies it into the speculative one, as for TAGE.
     - **Decode's redirect** restores the speculative history from the redirecting block's FTQ entry: the history its lookup used. Where that lookup lagged, the history lacks that one target until four more JALRs have moved it, a transient.
   - **Decision (F2):**
     - A JALR whose entry matches (valid, tag, privilege, its slot) is an exit candidate in TAGE's decision, as at the micro-BTB's slot. The hit does not wait for pre-decode's pop bit (timing, below). In mode 2 the path half's entry comes first, else the block half's.
@@ -125,21 +125,25 @@ M2 is the plan's "conservative out-of-order" core. It must pass riscv-tests (`rv
     - Its target replaces the micro-BTB's at the micro-BTB's slot too. F2 refetches when the two differ, as for a return the stack predicts.
     - The queue carries the target, and execute checks it.
     - *Model:* tgsim consults its table only where the micro-BTB missed or was wrong the last time, a bit per address. Here the table answers for every such JALR it holds. A simulation count of the targets it overrode wrongly says what that costs.
-  - **FTQ:** each entry also keeps the history its block's lookup used (16 bits). Decode's repair reads it, and so does training, which recomputes the index and tag from it.
+  - **FTQ:** each entry also keeps its block's lookup, in two LUT RAMs:
+    - the history it used (16 bits), which decode's repair reads;
+    - the coordinates it read (the index, mode 2's two, and the tag: 16 bits, 22 in mode 2), where training writes. So commit needs neither the block's address nor its history.
   - **Training at commit:**
-    - A retiring JALR that is not a return writes {valid, its slot, the tag, its target} where its block read: the index and tag from its FTQ entry's history and its own address.
-    - It does so once its target is known: its thread's next retiring instruction's address, a trap's or interrupt's `epc`, or else a flush's address. A flush of its thread before the next instruction retires comes from that instruction, the one at its target (a replay; its own mispredict's correction; after a trap's record), so that address is the target (core-2's review).
-    - Commit's history moves with the same target.
-    - One write a cycle: a second such jump in one commit group moves the history but does not train.
+    - A retiring JALR that is not a return, the last instruction of its commit group, pends until its thread's next instruction.
+    - A flush of the thread before that instruction retires comes from it, the one at the jump's target: its own mispredict's correction, or a replay (core-2's review). The table then learns {valid, its slot, the tag, the flush's address} at the coordinates its block read.
+    - If the next instruction retires or traps instead, the jump went where fetch sent it (the table's entry or the micro-BTB's), and nothing is written.
+    - *Model:* tgsim trains on every such jump. Here the table learns only the jumps something mispredicted, so a jump the micro-BTB predicts is not copied in. This is the coordinator's trim (10-24): commit needs no target or address but the flush's.
+    - Commit's history moves with every such jump's target: a later instruction of its group, the next group's first, a trap's or interrupt's `epc`, or the flush's address (bits 17:2).
+    - One write a cycle. A jump whose target retires in its own group went where it was predicted and moves only the history.
     - The entry is overwritten, with no confidence counter, as the model's.
-  - **The ROB's part:** a payload bit for a JALR that does not pop, and the retiring slots' addresses to fetch, beside the trap record it already gives.
+  - **The ROB's part:** a payload bit for a JALR that does not pop, and the retiring slots' address bits 17:2 (the path history's) to fetch, beside the FTQ entries, slots and trap record it already gives.
   - **Timing:**
     - The hit (the tag and slot compares on the RAM's output) enters each slot's JALR term beside the micro-BTB's hit, before pre-decode's pop bit. So the exit search is no deeper than without the table. With the pop bit in the term, spikes-2's out-of-context run (10-24) had 21 levels from the I$ data to `kr_q`, against 15 off.
     - The target compare for the refetch feeds F2's registered action, as the stack's does.
     - The table's target has its own registers beside the stack's top: `kit_q` for the refetch and `f3_itgt_q` for the queue. A one-bit select is taken after them, as the stack's top is (spikes.md §7.1's A and B), so `krt_q` and `f3_rtop_q` keep their depth: 6–7 levels, against 21 with the select before them. F1's next-PC multiplexer gains one registered input.
-  - **Cost (an estimate, to measure):** one RAMB36 a core (mode 2: two) and about 0.2–0.3K LUTs a core.
-    - The table's read, compares and override are about 0.1K (smt2-study's estimate in m9-plan.md §6).
-    - The rest: the two path histories per stream, their repair, the FTQ field, and commit's training and target.
+  - **Cost:** one RAMB36 a core (mode 2: two). smt2-study's estimate was about 0.2–0.3K LUTs a core (m9-plan.md §6).
+    - As first built (1f5f9e18), spikes-2's out-of-context run measured mode 1 at +1,055 LUTs a core and mode 2 at +632, and my budget synthesis +938 and +760. Most of it was commit's training: each stream's pending jump with 38-bit address and target multiplexers, a 35-bit adder a commit slot for a straddler's block, the folds on the write side, and the ROB's retiring addresses.
+    - The trim keeps the coordinates in the FTQ, trains only from a flush, and narrows the ROB's addresses to bits 17:2. Its cost is to be measured.
   - **Measured on the RTL (to come):** the two-hart boot band (DR-184's rule), the suite and the two interpreters, beside the model's numbers:
     - §7.11: the suite +0.20%, the interpreters +98% and +47%;
     - §7.12: the boot +2.9%, or +4.1% split.

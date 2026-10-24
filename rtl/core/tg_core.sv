@@ -178,11 +178,12 @@ module tg_core
   logic                                cm_hv;
   logic [FTQW-1:0]                     cm_hftq;
   // ITT_ON, from commit (the indirect-target table's training): each retiring slot (itt_ret, cm_valid's copy declared
-  // ahead of the front end), its address, and a JALR that is not a return; a trap or interrupt taken (itt_trv), its epc
+  // ahead of the front end), its address's bits 17:2, and a JALR that is not a return; a trap or interrupt taken
+  // (itt_trv), its epc's bits 17:2 (the path history's)
   logic [COMMIT_WIDTH-1:0]             itt_ret, cm_ijmp;
-  logic [COMMIT_WIDTH-1:0][38:1]       cm_pc;
+  logic [COMMIT_WIDTH-1:0][17:2]       cm_pc;
   logic                                itt_trv;
-  logic [38:1]                         itt_trepc;
+  logic [17:2]                         itt_trepc;
   // The return-address stack (RAS_ON): decode (RAS_DEC) or fetch (RAS_FE, with TAGE) reads its top
   // and moves it; commit keeps its committed copy; a flush restores it from that copy, and with
   // RAS_FE decode's redirect repairs it from fetch's FTQ
@@ -688,7 +689,7 @@ module tg_core
   logic [5:0]       tr_code, irq_code;
   logic [63:0]      tr_epc, tr_tval, trap_target, irq_target, xepc;
   assign itt_trv   = tr_valid;
-  assign itt_trepc = tr_epc[38:1];
+  assign itt_trepc = tr_epc[17:2];
   logic             xret_v, xret_s;
   assign rsv_clr = tr_valid || mret || sret;
   assign priv_cm = MT ? priv_h[rob_hd_tid] : priv;

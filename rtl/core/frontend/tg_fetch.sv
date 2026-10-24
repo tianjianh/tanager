@@ -59,13 +59,13 @@ module tg_fetch
   input  logic                                c_hv,
   input  logic [FTQW-1:0]                     c_hftq,
   input  tid_t                                c_tid,     // ... their thread (M7)
-  // The indirect-target table (ITT_ON) from commit, the same thread's: each retiring slot, its address, a JALR that
-  // is not a return; a trap or interrupt taken and its epc
+  // The indirect-target table (ITT_ON) from commit, the same thread's: each retiring slot, its address's bits 17:2
+  // (the path history's), a JALR that is not a return; a trap or interrupt taken and its epc's bits 17:2
   input  logic [COMMIT_WIDTH-1:0]             c_ret,
-  input  logic [COMMIT_WIDTH-1:0][38:1]       c_pc,
+  input  logic [COMMIT_WIDTH-1:0][17:2]       c_pc,
   input  logic [COMMIT_WIDTH-1:0]             c_ijmp,
   input  logic                                c_trv,
-  input  logic [38:1]                         c_trepc,
+  input  logic [17:2]                         c_trepc,
   // The return-address stack's speculative side (RAS_FE): its top, pointer and count; each delivered
   // block's exit's operation; the repair at decode's redirect (the pointer, count and top before the
   // redirecting block, from its FTQ entry)
@@ -1599,6 +1599,7 @@ module tg_fetch
     // and training agree (a block fetched right behind a JALR's block is looked up without that JALR).
     if (ITT_ON) begin : g_itt
       localparam int PW = ITT_PHW;
+      localparam int IRW = (ITT_MODE == 2 ? 2 * 7 : 8) + 8;   // the table's coordinates (tg_itt's RIW)
       localparam int JW = idx_w(COMMIT_WIDTH);
       // the history after a JALR: shifted left by 4 (h, the bits that stay), its target's bits 17:2 in (the model's)
       function automatic logic [PW-1:0] padd(input logic [PW-5:0] h, input logic [15:0] t);
@@ -1609,95 +1610,90 @@ module tg_fetch
       logic                  ips_q;               // ... in this stream,
       logic [15:0]           ipt_q;               // ... to this target (its bits 17:2)
       logic [PW-1:0]         ilk_q;               // the history F2's block's lookup used
-      // the table's write (registered): the jump's block and slot (its last parcel's), its block's lookup history,
-      // its privilege, its target
+      logic [IRW-1:0]         iri;                 // ... and the coordinates it read (tg_itt's, registered with it)
+      // the table's write (registered): the coordinates the jump's block read, its slot, its privilege, its target
       logic                  iw_q, iwu_q;
-      logic [38:4]           iwb_q;
+      logic [IRW-1:0]         iwr_q;
       logic [SLOT_W-1:0]     iws_q;
-      logic [PW-1:0]         iwh_q;
       logic [38:1]           iwt_q;
       always_comb
         for (int t = 0; t < NS; t++)
           ph_e_s[t] = (ipw_q && ips_q == 1'(t)) ? padd(ph_s_q[t][PW-5:0], ipt_q) : ph_s_q[t];
       tg_itt #(.MODE(ITT_MODE), .NP(NP), .HW(PW)) u_itt (
         .clk, .re(f2_ld), .blk(tblk), .ph(ph_e_s[ft_q]), .pu(priv == PRIV_U),
-        .hit(itt_hit), .slot(itt_slot), .tgt(itt_tgt),
-        .we(iw_q), .w_blk(iwb_q), .w_ph(iwh_q), .w_pu(iwu_q), .w_slot(iws_q), .w_tgt(iwt_q));
+        .hit(itt_hit), .slot(itt_slot), .tgt(itt_tgt), .ri(iri),
+        .we(iw_q), .w_ri(iwr_q), .w_pu(iwu_q), .w_slot(iws_q), .w_tgt(iwt_q));
       always_ff @(posedge clk) begin
         ipw_q <= !rst && ft_we && f2_ijx;
         ips_q <= f2_s_q;
         ipt_q <= fx_tgt[17:2];
         if (f2_ld) ilk_q <= ph_e_s[ft_q];
       end
-      // the FTQ's lookup histories: decode's redirect reads its block's, commit the group's first such jump's
-      logic [JW-1:0]               jc;
-      logic [1:0][SB+FTQW-1:0]     fl_ra;
-      logic [1:0][PW-1:0]          fl_rd;
+      // The FTQ keeps each block's lookup: its history (u_fil; decode's redirect restores it) and the coordinates it
+      // read (u_fri; training writes there), the latter read for the group's last retiring instruction (jp), the one
+      // that can pend
+      logic [JW-1:0] jp;
+      logic [PW-1:0] fl_rd;
+      logic [IRW-1:0] ir_rd;
       always_comb begin
-        jc = '0;
-        for (int j = COMMIT_WIDTH - 1; j >= 0; j--) if (c_ijmp[j]) jc = JW'(j);
+        jp = '0;
+        for (int j = 0; j < COMMIT_WIDTH; j++) if (c_ret[j]) jp = JW'(j);
       end
-      assign fl_ra[0] = fr_ra[0];
-      assign fl_ra[1] = fqa(cs, c_ftq[jc]);
-      tg_ram_lut #(.DEPTH(FTQ_ENTRIES << SB), .WIDTH(PW), .NR(2)) u_fil (
-        .clk, .we(ft_we), .waddr(fqa(f2_s_q, ft_tail)), .wdata(ilk_q), .raddr(fl_ra), .rdata(fl_rd));
-      // Commit: a retiring JALR that is not a return trains the table once its target is known: its thread's next
-      // retiring instruction's address (in its group or a later one), a trap's or interrupt's epc, or else a flush's
-      // address. A flush of its thread before the next instruction retires comes from that instruction, the one at its
-      // target (a replay, its own mispredict's correction, after a trap's record): so that address is the target
-      // (core-2's review). Commit's history moves with the same target. One pending jump a stream (pj_*_q). One write a
-      // cycle: the older first; and only the group's first such jump reads its block's history (jc), so a second one
-      // moves the history and does not train
-      logic [NS-1:0]         pj_v_q, pj_t_q, pj_u_q;            // pending; it trains; it ran in U
-      logic [NS-1:0][PW-1:0] pj_h_q;                            // its block's lookup history
-      logic [NS-1:0][38:1]   pj_l_q;                            // its last parcel's address
-      logic [NS-1:0]         pjn_v, pjn_t, pjn_u;
-      logic [NS-1:0][PW-1:0] pjn_h;
-      logic [NS-1:0][38:1]   pjn_l;
-      logic                  wr, wu;
-      logic [38:1]           wl, wt;
-      logic [PW-1:0]         wh;
-      logic [COMMIT_WIDTH:0]       rr;                         // the retiring slots and their addresses, one more
-      logic [COMMIT_WIDTH:0][38:1] rp;                         // slot (none) past the group
+      tg_ram_lut #(.DEPTH(FTQ_ENTRIES << SB), .WIDTH(PW), .NR(1)) u_fil (
+        .clk, .we(ft_we), .waddr(fqa(f2_s_q, ft_tail)), .wdata(ilk_q), .raddr(fr_ra[0]), .rdata(fl_rd));
+      tg_ram_lut #(.DEPTH(FTQ_ENTRIES << SB), .WIDTH(IRW), .NR(1)) u_fri (
+        .clk, .we(ft_we), .waddr(fqa(f2_s_q, ft_tail)), .wdata(iri), .raddr(fqa(cs, c_ftq[jp])), .rdata(ir_rd));
+      // Commit: a retiring JALR that is not a return, the last instruction of its group, pends until its thread's next
+      // instruction. A flush of the thread before that one retires comes from it, the instruction at the jump's target
+      // (its own mispredict's correction, or a replay: core-2's review), so the table learns the flush's address, at the
+      // coordinates the jump's block read. When the next instruction retires, or traps, the jump went where fetch sent
+      // it (the table's entry or the micro-BTB's), and nothing is written: commit needs no target but a flush's (the
+      // coordinator's trim, 10-24). Commit's history moves with every such jump's target: a later instruction of its
+      // group, the next group's first, a trap's or interrupt's epc, or the flush's address, of which bits 17:2 suffice
+      logic [NS-1:0]             pj_v_q, pj_u_q;     // pending; it ran in U
+      logic [NS-1:0][IRW-1:0]     pj_r_q;             // the coordinates its block read
+      logic [NS-1:0][SLOT_W-1:0] pj_s_q;             // its last parcel's slot
+      logic [NS-1:0]             pjn_v, pjn_u;
+      logic [NS-1:0][IRW-1:0]     pjn_r;
+      logic [NS-1:0][SLOT_W-1:0] pjn_s;
+      logic                      wr, wu;
+      logic [IRW-1:0]             wri;
+      logic [SLOT_W-1:0]         wsl;
+      logic [COMMIT_WIDTH:0]       rr;               // the retiring slots and their addresses' bits 17:2, one more
+      logic [COMMIT_WIDTH:0][17:2] rp;               // slot (none) past the group
       assign rr = {1'b0, c_ret};
-      assign rp = {38'b0, c_pc};
+      assign rp = {16'b0, c_pc};
       always_comb begin
-        logic        cu;
-        logic [38:1] x, l;
-        cu = priv_h[c_tid] == PRIV_U;
-        x  = '0;
-        l  = '0;
-        wr = 1'b0; wu = 1'b0; wl = '0; wt = '0; wh = '0;
+        logic cu;
+        cu  = priv_h[c_tid] == PRIV_U;
+        wr  = 1'b0;
+        wu  = 1'b0;
+        wri = '0;
+        wsl  = '0;
         cph_n = cph_s_q;
-        pjn_v = pj_v_q; pjn_t = pj_t_q; pjn_u = pj_u_q; pjn_h = pj_h_q; pjn_l = pj_l_q;
+        pjn_v = pj_v_q; pjn_u = pj_u_q; pjn_r = pj_r_q; pjn_s = pj_s_q;
         for (int t = 0; t < NS; t++)
           if (fl_s[t]) begin                       // (nothing of the stream retires in its flush's cycle)
             if (pj_v_q[t]) begin
               cph_n[t] = padd(cph_n[t][PW-5:0], flush_pc[17:2]);
-              if (pj_t_q[t] && !wr) begin wr = 1'b1; wl = pj_l_q[t]; wt = flush_pc[38:1]; wh = pj_h_q[t]; wu = pj_u_q[t]; end
+              if (!wr) begin wr = 1'b1; wri = pj_r_q[t]; wsl = pj_s_q[t]; wu = pj_u_q[t]; end
             end
             pjn_v[t] = 1'b0;
           end else if (cs == 1'(t)) begin
             // the pending jump's target: the group's first retiring address, else a trap's or interrupt's epc
             if (pj_v_q[t] && (rr[0] || c_trv)) begin
-              x = rr[0] ? rp[0] : c_trepc;
-              cph_n[t] = padd(cph_n[t][PW-5:0], x[17:2]);
-              if (pj_t_q[t] && !wr) begin wr = 1'b1; wl = pj_l_q[t]; wt = x; wh = pj_h_q[t]; wu = pj_u_q[t]; end
+              cph_n[t] = padd(cph_n[t][PW-5:0], rr[0] ? rp[0] : c_trepc);
               pjn_v[t] = 1'b0;
             end
             for (int j = 0; j < COMMIT_WIDTH; j++)
               if (c_ijmp[j]) begin
-                // its last parcel's address: a straddler's is in the next block, at slot 0
-                l = {c_pc[j][38:4] + 35'(c_slot[j] == '0 && c_pc[j][SLOT_W:1] == SLOT_W'(NP - 1)), c_slot[j]};
-                if (rr[j + 1]) begin               // its target retires in the group
-                  cph_n[t] = padd(cph_n[t][PW-5:0], rp[j + 1][17:2]);
-                  if (jc == JW'(j) && !wr) begin wr = 1'b1; wl = l; wt = rp[j + 1]; wh = fl_rd[1]; wu = cu; end
-                end else begin                     // the group's last retiring instruction: it pends
+                if (rr[j + 1])                     // its target retires in the group
+                  cph_n[t] = padd(cph_n[t][PW-5:0], rp[j + 1]);
+                else begin                         // the group's last retiring instruction (jp): it pends
                   pjn_v[t] = 1'b1;
-                  pjn_t[t] = jc == JW'(j);
                   pjn_u[t] = cu;
-                  pjn_h[t] = fl_rd[1];
-                  pjn_l[t] = l;
+                  pjn_r[t] = ir_rd;
+                  pjn_s[t] = c_slot[j];
                 end
               end
           end
@@ -1712,26 +1708,25 @@ module tg_fetch
           pj_v_q  <= pjn_v;
           for (int t = 0; t < NS; t++)
             if (fl_s[t])      ph_s_q[t] <= cph_n[t];      // a flush: commit's, with its own jump's target
-            else if (dr_s[t]) ph_s_q[t] <= fl_rd[0];      // decode's redirect: its block's lookup history
+            else if (dr_s[t]) ph_s_q[t] <= fl_rd;         // decode's redirect: its block's lookup history
             else              ph_s_q[t] <= ph_e_s[t];
         end
-        pj_t_q <= pjn_t;
         pj_u_q <= pjn_u;
-        pj_h_q <= pjn_h;
-        pj_l_q <= pjn_l;
+        pj_r_q <= pjn_r;
+        pj_s_q <= pjn_s;
         iw_q   <= !rst && wr;
-        iwb_q  <= wl[38:4];
-        iws_q  <= wl[SLOT_W:1];
-        iwh_q  <= wh;
+        iwr_q  <= wri;
+        iws_q  <= wsl;
         iwu_q  <= wu;
-        iwt_q  <= wt;
+        iwt_q  <= flush_pc[38:1];
       end
 `ifndef SYNTHESIS
       logic it_rs_q;                                // the first reset has come
       initial it_rs_q = 1'b0;
       always @(posedge clk) if (rst) it_rs_q <= 1'b1;
       // +itt_stats: lookups, delivered exits the table predicted and those that refetched, the table's writes, the
-      // retiring jumps it trains on, and those of them a flush resolved (mostly their own mispredicts)
+      // retiring jumps, and those a flush resolved (mostly their own mispredicts: each is a write but where two streams
+      // flush in one cycle)
       longint n_lk, n_ex, n_rf, n_wr, n_ij, n_im;
       initial begin n_lk = 0; n_ex = 0; n_rf = 0; n_wr = 0; n_ij = 0; n_im = 0; end
       always @(posedge clk)
