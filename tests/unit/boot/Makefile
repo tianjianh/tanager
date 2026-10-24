@@ -47,15 +47,16 @@ ifeq ($(RELEASE),1)
   override SERIAL := 1
 endif
 NAME   := boot$(TAG)$(TC_SUFFIX)$(if $(filter 1,$(SERIAL)),_ser)$(if $(filter 0,$(LAT_INJ)),_rel)$(if $(filter 1,$(RELEASE)),ease)_c$(CORES)_t$(VTHREADS)
-TB     := $(CURDIR)/tb_boot.sv
+TB     := $(CURDIR)/../dbg/tb_jtag_tap.sv $(CURDIR)/tb_boot.sv
 # MEM_PARAMS: the DDR models' timing (tb_boot MEM_*), for example the board's fixed latency:
 #   MEM_PARAMS="-GMEM_LAT_MIN=22 -GMEM_LAT_MAX=22 -GMEM_READY_PCT=100 -GMEM_OOO=0 -GMEM_R_PCT=100" TAG=_lat22
 MEM_PARAMS ?=
 PARAMS := -GN_CORES=$(CORES) -GUART_SERIAL_TB=$(SERIAL) $(MEM_PARAMS) $(if $(filter 0,$(LAT_INJ)),-GLAT_INJ_TB=0) \
           $(if $(filter 1,$(RELEASE)),-GRELEASE_TB=1 -GHOST_DMA_TB=1)
 EXTRA_VFLAGS := -CFLAGS -O2 $(if $(filter-out 1,$(VTHREADS)),--threads $(VTHREADS)) $(TC_DEF) \
-                $(if $(filter 1,$(RELEASE)),+define+TG_COMMIT_TRACE=0)
+                $(if $(filter 1,$(RELEASE)),+define+TG_COMMIT_TRACE=0) -I$(CURDIR)/../dbg
 include ../common/unit.mk
+$(OUTDIR)/$(TOP): $(CURDIR)/../dbg/tb_jtag_dmi.svh
 
 THREADS := $(if $(filter smt2%,$(CFG)),2,1)
 # RUN_THREADS=1 with CFG=smt2: the device tree describes thread 0 of each core only (harts 0 and 2),

@@ -9,6 +9,9 @@
 //   +dump_cause=N   ... when an instruction traps with this cause (once)      +dump_stop  end the run there
 //   +trace_out=<file>  the commit trace into <file>, 64 bytes a record, as tanager-host --trace writes it
 //                      (for tanager-lockstep); unwritten memory then reads as zero, as on the board
+//   +dbg_halt_mcycles=N  DEBUG=1 builds (soc.md §9.6): N million cycles after the cores' release, a debugger on JTAG halts
+//                      the harts of +dbg_harts=<hex mask> (default 1) in turn, reads dcsr, dpc, the GPRs and OpenSBI's
+//                      first doubleword, steps +dbg_steps=K times (default 3) and resumes; the run passes only if it did
 // At the end the run prints a signature over every commit record and its cycle: two builds that give
 // the same signature retired the same instructions in the same cycles (the cycle-identity check of
 // docs/perf/fpga_friendly.md for uncore rewrites). Each progress line carries the running signature,
@@ -86,6 +89,13 @@ module tb_boot;
   tg_trace_pkg::tr_wb_t  [N_CORES-1:0][TRACE_WB_PORTS-1:0] trace_wb;
   logic [N_CORES-1:0][TRACE_WB_PORTS-1:0] trace_wb_v;
 
+  // the debug module's JTAG side: a TAP with two BSCANE2-style chains (tests/unit/dbg), idle unless +dbg_halt_mcycles
+  logic       jtck = 1'b0, jtms = 1'b1, jtdi = 1'b0;
+  logic       jtdo;
+  jtag_t      jtag;
+  logic [1:0] jtag_tdo;
+  tb_jtag_tap u_tap (.tck (jtck), .tms (jtms), .tdi (jtdi), .tdo (jtdo), .jtag_o (jtag), .user_tdo_i (jtag_tdo));
+
   tanager_soc #(
     .N_CORES (N_CORES), .CLK_HZ (100_000_000), .L2_SETS (L2_SETS_TB), .L2_MSHR (24), .DEBUG_CNT (DEBUG_CNT_TB),
     .HOST_DMA (HOST_DMA_TB), .LAT_INJ (LAT_INJ_TB), .RELEASE (RELEASE_TB),
@@ -119,7 +129,7 @@ module tb_boot;
     .ps_irq_i ('0), .board_status_i ('0), .board_ctrl_o (),
     .trace_o (trace), .trace_valid_o (trace_v), .trace_wb_o (trace_wb), .trace_wb_valid_o (trace_wb_v),
     .status_o (status),
-    .jtag_tck_i (1'b0), .jtag_i ('0), .jtag_tdo_o ()
+    .jtag_tck_i (jtck), .jtag_i (jtag), .jtag_tdo_o (jtag_tdo)
   );
 
   for (genvar k = 0; k < N_BANKS; k++) begin : g_mem
@@ -529,6 +539,7 @@ module tb_boot;
     end
     hw(16'h010, 32'h0);                         // release the cores
     wait_status(0, 1'b0);
+    -> cores_released;
 
     cyc = 0;
     while (!console_has(expect_s) && cyc < max_cycles) begin
@@ -602,7 +613,10 @@ module tb_boot;
       if (serial_err != "") $display("tb_boot: ERROR: %s", serial_err);
       else $display("tb_boot: serial line: %0d characters, the same as the host copy", sconsole.len());
     end
-    if (!console_has(expect_s)) begin
+    if (dbg_on && (!dbg_done || dbg_errors != 0)) begin
+      $display("TEST FAILED (boot, %0d core(s)): the debugger's sequence %s", N_CORES, dbg_done ? "failed" : "did not finish");
+      exit_status_1();
+    end else if (!console_has(expect_s)) begin
       dump_last();
       $display("TEST FAILED (boot, %0d core(s)): \"%s\" not seen", N_CORES, expect_s);
       exit_status_1();
@@ -611,5 +625,80 @@ module tb_boot;
       exit_status_1();
     end else $display("TEST PASSED (boot, %0d core(s))", N_CORES);
     $finish;
+  end
+
+  // ---- The debug module over JTAG (DEBUG=1 builds; docs/spec/soc.md §9.6): +dbg_halt_mcycles=N, above ----
+  `include "tb_jtag_dmi.svh"
+  event cores_released;
+  bit   dbg_on = 1'b0, dbg_done = 1'b0;
+  initial begin
+    int          n_m, mask, steps;
+    logic [31:0] s, r;
+    logic [63:0] dcsr, dpc, pc0, sp, v, t6, mem_exp;
+    logic [2:0]  err;
+    longint unsigned pa;
+    if ($value$plusargs("dbg_halt_mcycles=%d", n_m)) begin
+      dbg_on = 1'b1;
+      if (!$value$plusargs("dbg_harts=%h", mask)) mask = 1;
+      if (!$value$plusargs("dbg_steps=%d", steps)) steps = 3;
+      @(cores_released);
+      #(longint'(n_m) * 64'd10_000_000);
+      $display("\ntb_boot: dbg: %0d M cycles after the release: harts %h in turn, %0d steps each", n_m, mask, steps);
+      jreset();
+      jir(JTAG_IR_USER4);
+      dmi_wr(DM_DMCONTROL, 32'd1);
+      dmi_rd(DM_DMCONTROL, r);
+      dm_status(s);
+      dbg_check(r[0] && s[3:0] == 4'd3, $sformatf("no 1.0 DM answers (dmcontrol %h, dmstatus %h): a DEBUG=1 build?", r, s));
+      for (int h = 0; h < NH_TB && dbg_errors == 0; h++) begin
+        if (!mask[h]) continue;
+        dmi_wr(DM_DMCONTROL, ctl(h, 1));
+        wait_halted(h, 4000);
+        dmi_wr(DM_DMCONTROL, ctl(h));
+        if (dbg_errors != 0) break;
+        csr_rd(12'h7B0, dcsr);
+        csr_rd(12'h7B1, dpc);
+        pc0 = dpc;
+        dbg_check(dcsr[8:6] == 3'd3, $sformatf("hart %0d: dcsr.cause %0d, not 3 (halt request)", h, dcsr[8:6]));
+        case (dcsr[1:0])
+          2'd3: dbg_check(dpc >= 64'h8000_0000 && dpc < 64'h8020_0000, $sformatf("hart %0d: M-mode dpc %h outside OpenSBI", h, dpc));
+          2'd1: dbg_check(dpc[63], $sformatf("hart %0d: S-mode dpc %h not a kernel address", h, dpc));
+          2'd0: dbg_check(!dpc[63], $sformatf("hart %0d: U-mode dpc %h not a user address", h, dpc));
+          default: dbg_check(0, $sformatf("hart %0d: dcsr.prv %0d", h, dcsr[1:0]));
+        endcase
+        for (int k = 1; k < 32; k++) reg_rd(k, v);           // every GPR reads
+        reg_rd(2, sp);
+        reg_rd(31, t6);                                      // t6 written and read back, then restored
+        reg_wr(31, ~t6);
+        reg_rd(31, v);
+        dbg_check(v == ~t6, $sformatf("hart %0d: t6 read back %h after writing %h", h, v, ~t6));
+        reg_wr(31, t6);
+        reg_rd(31, v);
+        dbg_check(v == t6, $sformatf("hart %0d: t6 restored as %h, was %h", h, v, t6));
+        pa = longint'(CO_BASE);                              // RV 0x8000_0000: OpenSBI's first doubleword
+        mem_exp = 64'((((pa >> 6) & 1) != 0 ? g_mem[1].u_mem.peek_beat(pa) : g_mem[0].u_mem.peek_beat(pa)));
+        mem_rd(64'h8000_0000, v, err);
+        dbg_check(err == 3'd0 && v == mem_exp, $sformatf("hart %0d: 0x8000_0000 read %h (cmderr %0d), memory has %h", h, v, err, mem_exp));
+        progbuf(32'h7B02_6073, RV_NOP, err);                 // csrsi dcsr, 4: step
+        dbg_check(err == 3'd0, $sformatf("hart %0d: csrsi dcsr: cmderr %0d", h, err));
+        for (int k = 0; k < steps && dbg_errors == 0; k++) begin
+          dmi_wr(DM_DMCONTROL, ctl(h, 0, 1));
+          wait_halted(h, 4000);
+          csr_rd(12'h7B0, dcsr);
+          csr_rd(12'h7B1, dpc);
+          dbg_check(dcsr[8:6] == 3'd4, $sformatf("hart %0d step %0d: dcsr.cause %0d, not 4", h, k + 1, dcsr[8:6]));
+          $display("tb_boot: dbg: hart %0d step %0d: pc %h (prv %0d)", h, k + 1, dpc, dcsr[1:0]);
+        end
+        progbuf(32'h7B02_7073, RV_NOP, err);                 // csrci dcsr, 4
+        dmi_wr(DM_DMCONTROL, ctl(h, 0, 1));
+        dm_status(s);
+        dbg_check(s[17] && !s[9], $sformatf("hart %0d: not resumed (dmstatus %h)", h, s));
+        $display("tb_boot: dbg: hart %0d halted at %h (prv %0d, sp %h), %0d steps, resumed", h, pc0, dcsr[1:0], sp, steps);
+      end
+      dmi_rd(DM_HALTSUM0, r);
+      dbg_check(r == 32'd0, $sformatf("haltsum0 %h after the resumes", r));
+      dbg_done = 1'b1;
+      $display("tb_boot: dbg: %s (%0d errors, %0d busy retries)", dbg_errors == 0 ? "PASSED" : "FAILED", dbg_errors, busy_seen);
+    end
   end
 endmodule
