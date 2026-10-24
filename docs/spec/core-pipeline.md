@@ -99,6 +99,68 @@ M2 is the plan's "conservative out-of-order" core. It must pass riscv-tests (`rv
   - **FTQ** (`FTQ_ENTRIES`, 32, LUTRAM): one entry per delivered block, with the history before the block, its branches' slots and directions, and the indices and tags it read TAGE with; and (`RAS_FE`) the stack's pointer, count and top before the block. Each instruction carries its block's entry to the ROB. Decode's redirect drops the later entries; commit frees the earlier ones, but none the training queue still names; a flush drops every block but keeps those (its pointers go to the head's next entry). F2 holds while it is full.
   - **Training at commit:** each retiring conditional branch (a straddler at slot 0 of the block its last parcel is in) sends its outcome, its fetch-time direction and its block's FTQ entry to a queue in `tg_tage`; the head's indices and tags are read from the FTQ as it leaves the queue. Port B reads the entries and writes them back a cycle later (one update every two cycles; a full queue drops one). The provider's counter moves toward the outcome, its useful bits when it disagreed with the next match; without a provider, the base counter moves. A wrong fetch-time direction allocates a sub-entry in a longer table (the shortest with a candidate: an invalid way first, else one not useful), else ages the candidates.
   - **Not yet:** a periodic reset of the useful bits (they age when an allocation finds no way free). The histories are per hart since M7 (§3.5).
+- **Indirect-target table** (`tg_itt`, M9: DR-190 and the coordinator's 01e2c013; m9-plan.md §6; `ITT_MODE`, define `TG_ITT`, with `TAGE_ON`): a second predictor for a JALR that is not a return. The micro-BTB holds one target a block, so it misses every dispatch whose target changes: 97% of a switch interpreter's and 58% of threaded code's (area_recovery §7.11).
+  - **The modes:**
+    - 0, the default: no table, cycle for cycle. The table switches on with M9's area package, as the counters do;
+    - 1: one table of 256 entries by path;
+    - 2: the split, 128 entries by path and 128 by block, smt2-study's best on the boot (§7.12: +4.1% on core 0's boot against +2.9%). **The default form** (the coordinator under DR-154, 10-24, on the boot band below).
+  - **Sources:** the table is the model's (tgsim's `itt_entries`: a target per path of recent indirect targets), with the changes this front end needs, marked *model* below. Path history for indirect jumps: Driesen and Hölzle, ISCA 1998. A tagged target cache: Chang, Hao and Patt, ISCA 1997. ITTAGE (Seznec, JWAC-2, 2011) is the many-table form, not built.
+  - **Table** (block memory):
+    - An entry's key {valid, slot, an 8-bit tag, a privilege bit} (13 bits) is in LUT RAM, read and checked at F1. Its target's bits 38:1 are in block memory, read at F1 for F2. Training writes both; both read first.
+    - Mode 1 is one RAMB36 a core. Mode 2 is two, one a half, since the halves are read with different indices in one cycle (24 of 144 are free on rc3_u095r).
+    - It is keyed as TAGE is: by the 16-byte block (the stream's bit at the top, so two threads' blocks use different entries), with the slot of the JALR's last parcel. So F1 reads it before pre-decode knows which parcel jumps. *Model:* keyed by the JALR's address.
+  - **Index and tag:**
+    - The index: the block address folded to 8 bits, xor the path history, xor the history shifted right by 8 (the model's).
+    - Mode 2's halves take 7 bits: the path half's with the history, the block half's without.
+    - The tag: the block address folded to 8 bits another way.
+    - **The privilege bit** (U, against S and M) must match too. An entry U-mode code trained never steers an S-mode jump, the target injection of Spectre v2 (core-2's review). The micro-BTB has the same exposure today, not addressed here.
+  - **Path history** (per stream, 16 bits, the model's): a JALR that is not a return shifts it left by 4 and xors in its target's bits 17:2, so it holds about the last four targets.
+    - **Speculative** (`ph`): moved by each delivered block whose exit is such a JALR, with the target F2 sent fetch to, a cycle later (as TAGE's history bits). The micro-BTB's and the table's target bits are registered apart and selected after the register (timing, below).
+    - **The lookup's lag:** F1 reads with the speculative history as the block moves into F2, as TAGE does. So a block fetched right behind a JALR's block is looked up without that JALR. Its target is that block's own address, which the index has anyway. The FTQ keeps the history each lookup used, and training writes there, so lookup and training agree.
+    - **Commit's** (`cph`): moved by each retiring such JALR, with its actual target's bits 17:2 (below). A flush copies it into the speculative one, as for TAGE.
+    - **Decode's redirect** restores the speculative history from the redirecting block's FTQ entry: the history its lookup used. Where that lookup lagged, the history lacks that one target until four more JALRs have moved it, a transient.
+  - **Decision (F2):**
+    - The exit search takes one predicted JALR slot, as without the table. That is the entry's slot where it matches (valid, tag, privilege), else the micro-BTB's, and a JALR there is an exit candidate. Where the exit is a JALR at the entry's slot (the table's own candidate, or a return the stack predicts, where the stack's top comes first), the entry's target replaces the micro-BTB's. In mode 2 the path half's entry comes first, else the block half's.
+    - Where the table hits, the micro-BTB's slot is not a candidate. A JALR there would be rare: it ends the block, so a JALR after it in the block would not have trained the table. The micro-BTB's own check stays on its slot, since F1 followed its target: F2 refetches when the exit is elsewhere or its target differs. A straddling JALR is taken only by the stack, as without the table.
+    - The table trains only on JALRs that do not pop, so a hit at a return's slot is an alias.
+    - Its target replaces the micro-BTB's at the micro-BTB's slot too. F2 refetches when the two differ, as for a return the stack predicts.
+    - The queue carries the target, and execute checks it.
+    - *Model:* tgsim consults its table only where the micro-BTB missed or was wrong the last time, a bit per address. Here the table answers for every such JALR it holds. A simulation count of the targets it overrode wrongly says what that costs.
+  - **FTQ:** each entry also keeps its block's lookup, in two LUT RAMs:
+    - the history it used (16 bits), which decode's repair reads;
+    - the coordinates it read (the index, mode 2's two, and the tag: 16 bits, 22 in mode 2), where training writes. So commit needs neither the block's address nor its history.
+  - **Training at commit:**
+    - A retiring JALR that is not a return, the last instruction of its commit group, pends until its thread's next instruction.
+    - A flush of the thread before that instruction retires comes from it, the one at the jump's target: its own mispredict's correction, or a replay (core-2's review). The table then learns {valid, its slot, the tag, the flush's address} at the coordinates its block read.
+    - If the next instruction retires or traps instead, the jump went where fetch sent it (the table's entry or the micro-BTB's), and nothing is written.
+    - *Model:* tgsim trains on every such jump. Here the table learns only the jumps something mispredicted, so a jump the micro-BTB predicts is not copied in. This is the coordinator's trim (10-24): commit needs no target or address but the flush's.
+    - Commit's history moves with every such jump's target: a later instruction of its group, the next group's first, a trap's or interrupt's `epc`, or the flush's address (bits 17:2).
+    - One write a cycle. A jump whose target retires in its own group went where it was predicted and moves only the history.
+    - The entry is overwritten, with no confidence counter, as the model's.
+  - **The ROB's part:** a payload bit for a JALR that does not pop, and the retiring slots' address bits 17:2 (the path history's) to fetch, beside the FTQ entries, slots and trap record it already gives.
+  - **Timing:**
+    - The key is checked at F1. The predicted JALR slot (the table's where its key matched, else the micro-BTB's) is registered beside the micro-BTB's own (`phit_q`, `pslot_q`). So each slot's taken term takes a hit and a 3-bit slot from registers, as without the table.
+      - A hit inside the taken terms, even joined to the micro-BTB's per slot (188328af), made the search's priority chain over the slots 4 levels deeper from the I$ data. spikes-2's out-of-context runs (10-24) had `ka_q`, `kr_q` and `f3_ras_q` at 23 levels against 18–19 off, and the stack's push and pop at 24–25 against 19.
+      - The slot chosen on the RAM's output before the search (a6f51752) still left them 2–4 levels deeper in spikes-2's placed run. The pop decode became critical, ahead of the taken term whose slot came from the RAM.
+    - The exit's kind (`xitt`: a JALR at the entry's slot) is found after the search, beside the stack's (`xras`). It feeds the refetch's target select, the target compare and the history's pending target.
+    - **Placed, out of context** (spikes-2, bf29152f against the table off, 10-24):
+      - Mode 2's decision registers are within a level of off from the I$ data: `ka_q` 19 against 19, `kr_q` and `f3_ras_q` 18 against 18, the stack's push 20 and pop 19 against 19. No table cell and no pop decode is on those paths. Mode 1 is still 1–3 levels deeper.
+      - `fpc_q`'s worst path in mode 2, through fetch's stream control into its enable, is 3–4 levels deeper than off, with no table cell on it. In a6f51752 the same showed in mode 1 instead.
+      - If M9's full-chip fit shows that family worse, its fix belongs in fetch's stream control, not the table (the coordinator).
+    - The path history's pending target takes the micro-BTB's and the table's bits from registers of their own, selected after them. Taking it from the exit's chosen target let synthesis share that multiplexer with the refetch's target compare, which put a 38-bit compare after the decision: 6 more levels into `ka_q` (my routed core, 10-24).
+    - The target compare for the refetch feeds F2's registered action, as the stack's does.
+    - The table's target has its own registers beside the stack's top: `kit_q` for the refetch and `f3_itgt_q` for the queue. A one-bit select is taken after them, as the stack's top is (spikes.md §7.1's A and B), so `krt_q` and `f3_rtop_q` keep their depth: 6–7 levels, against 21 with the select before them. F1's next-PC multiplexer gains one registered input.
+  - **Cost:** one RAMB36 a core (mode 2: two). smt2-study's estimate was about 0.2–0.3K LUTs a core (m9-plan.md §6).
+    - As first built (1f5f9e18), spikes-2's out-of-context run measured mode 1 at +1,055 LUTs a core and mode 2 at +632, and my budget synthesis +938 and +760. Most of it was commit's training: each stream's pending jump with 38-bit address and target multiplexers, a 35-bit adder a commit slot for a straddler's block, the folds on the write side, and the ROB's retiring addresses.
+    - The trim keeps the coordinates in the FTQ, trains only from a flush, and narrows the ROB's addresses to bits 17:2. The keys in LUT RAM (bf29152f) then restore the decision's depth.
+    - Out of context (spikes-2, bf29152f): mode 2 is +431 LUTs (120 of them LUT RAM), +343 FFs and 2 RAMB36 a core, about 0.86K LUTs a chip. Mode 1 is +562 LUTs (112 LUT RAM), +316 FFs and 1 RAMB36. The noise is about ±300 LUTs a core.
+  - **Measured on the RTL** (mode 2, the default form, first):
+    - **The two-hart boot band** (DR-184's nine points, L = 18–26; one core with hart 1; the kernel's "clk: Disabling unused clocks" time):
+      - Mode 2 is 2.43% faster than off, and faster at every point (1.18–4.38%). On the five even points it is 3.00%, and mode 1 2.54%.
+      - Before the depth fixes (188328af), mode 2 was 3.20% on nine points. The registered predicted slot gave up the micro-BTB's own slot where the table hits elsewhere, and straddling JALRs.
+    - **The two interpreters** (smt2-study's, --lat=30): mode 2 −41.6% (switch) and −48.4% (threaded) cycles; mode 1 −48.0% and −48.4%.
+    - **The suite's 18 programs:** +0.13% IPC (mode 2), +0.12% (mode 1): CoreMark A −0.7%, cubic −0.9%, wikisort −0.7% cycles.
+    - **Beside the model:** §7.11 the suite +0.20%, the interpreters +98% and +47%; §7.12 the boot +2.9%, or +4.1% split.
 - **Direction:** a 2-bit counter table, 512 entries in LUTRAM, indexed by PC[10:2].
   - **It is not reset, by design:** LUTRAM is never reset (`tg_ram_lut`), and clearing 512 entries through one write port takes 512 cycles (§10).
   - **It starts at zero after configuration:** the primitives' INIT is zero, and so is the simulator's default. So the first run after configuration matches simulation.

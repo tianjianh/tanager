@@ -177,6 +177,13 @@ module tg_core
   logic [COMMIT_WIDTH-1:0][SLOT_W-1:0] cm_cslot;
   logic                                cm_hv;
   logic [FTQW-1:0]                     cm_hftq;
+  // ITT_ON, from commit (the indirect-target table's training): each retiring slot (itt_ret, cm_valid's copy declared
+  // ahead of the front end), its address's bits 17:2, and a JALR that is not a return; a trap or interrupt taken
+  // (itt_trv), its epc's bits 17:2 (the path history's)
+  logic [COMMIT_WIDTH-1:0]             itt_ret, cm_ijmp;
+  logic [COMMIT_WIDTH-1:0][17:2]       cm_pc;
+  logic                                itt_trv;
+  logic [17:2]                         itt_trepc;
   // The return-address stack (RAS_ON): decode (RAS_DEC) or fetch (RAS_FE, with TAGE) reads its top
   // and moves it; commit keeps its committed copy; a flush restores it from that copy, and with
   // RAS_FE decode's redirect repairs it from fetch's FTQ
@@ -290,6 +297,7 @@ module tg_core
     .flush, .flush_tid, .flush_pc, .fl_slp(flush_slp), .icinv, .dred, .dred_tid, .dred_pc, .dred_ftq, .dred_slot, .dred_rop, .dred_rlink,
     .c_cbr(cm_cbr), .c_taken(cm_ctaken), .c_pred(cm_cpred), .c_ftq(cm_cftq), .c_slot(cm_cslot),
     .c_hv(cm_hv), .c_hftq(cm_hftq), .c_tid(cm_tid[0]),
+    .c_ret(itt_ret), .c_pc(cm_pc), .c_ijmp(cm_ijmp), .c_trv(itt_trv), .c_trepc(itt_trepc),
     .ras_v_s(ras_v_t), .ras_top_s(ras_top_t), .ras_tos_s(ras_tos_t), .ras_cnt_s(ras_cnt_t), .ras_tid(fras_tid),
     .ras_rtid(fras_rtid),
     .ras_push(fras_push), .ras_pop(fras_pop), .ras_link(fras_link),
@@ -393,6 +401,7 @@ module tg_core
   logic                             div_done;
   tid_t                             div_done_tid;   // its thread (rename's per-thread shares, hart 1)
   logic [CW-1:0]                    cm_valid, cm_rd_en;
+  assign itt_ret = cm_valid;
   logic [CW-1:0][4:0]               cm_rd;
   preg_t [CW-1:0]                   cm_dst, cm_old;
   logic [CW-1:0]                    cm_rd_fp;
@@ -679,6 +688,8 @@ module tg_core
   logic [NCW-1:0]   cm_n;
   logic [5:0]       tr_code, irq_code;
   logic [63:0]      tr_epc, tr_tval, trap_target, irq_target, xepc;
+  assign itt_trv   = tr_valid;
+  assign itt_trepc = tr_epc[17:2];
   logic             xret_v, xret_s;
   assign rsv_clr = tr_valid || mret || sret;
   assign priv_cm = MT ? priv_h[rob_hd_tid] : priv;
@@ -745,7 +756,7 @@ module tg_core
     .tlbm_valid, .tlbm_rob, .hd_tlb, .hd_retry, .hd_fault, .hd_cause, .hd_lva, .hd_sva,
     .sq_drained, .mmio_busy,
     .cm_valid, .cm_rd_en, .cm_rd_fp, .cm_rd, .cm_dst, .cm_old, .cm_ras_push, .cm_ras_pop, .cm_ras_link,
-    .cm_cbr, .cm_ctaken, .cm_cpred, .cm_cftq, .cm_cslot, .cm_hv, .cm_hftq,
+    .cm_cbr, .cm_ctaken, .cm_cpred, .cm_cftq, .cm_cslot, .cm_pc, .cm_ijmp, .cm_hv, .cm_hftq,
     .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va,
     .tr_st_data, .tr_st_size, .tr_lq, .tr_ld_va, .tr_ld_size, .tr_tag, .tr_data,
     .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret, .sret, .sfence,

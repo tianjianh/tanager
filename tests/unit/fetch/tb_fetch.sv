@@ -43,6 +43,10 @@ module tb_fetch
   logic [1:0]        dred_rop;
   logic [38:1]       dred_rlink;
   logic [COMMIT_WIDTH-1:0] c_cbr, c_taken, c_pred;
+  logic [COMMIT_WIDTH-1:0] c_ret, c_ijmp;                     // the indirect-target table's (ITT_ON; not driven here)
+  logic [COMMIT_WIDTH-1:0][17:2] c_pc;
+  logic        c_trv;
+  logic [17:2] c_trepc;
   logic [COMMIT_WIDTH-1:0][FTQW-1:0]   c_ftq;
   logic [COMMIT_WIDTH-1:0][SLOT_W-1:0] c_slot;
   logic        c_hv;
@@ -82,6 +86,7 @@ module tb_fetch
     .clk, .rst, .boot_pc(BASE), .ready,
     .flush, .flush_tid(d_flush_tid), .flush_pc, .icinv, .dred, .dred_tid(d_dred_tid), .dred_pc, .dred_ftq, .dred_slot,
     .dred_rop, .dred_rlink, .c_cbr, .c_taken, .c_pred, .c_ftq, .c_slot, .c_hv, .c_hftq, .c_tid,
+    .c_ret, .c_pc, .c_ijmp, .c_trv, .c_trepc,
     .ras_v_s('0), .ras_top_s('0), .ras_tos_s('0), .ras_cnt_s('0), .ras_tid, .ras_push, .ras_pop, .ras_link, .ras_rv,
     .ras_rwr, .ras_rtos, .ras_rcnt, .ras_rtop,
     .upd_valid, .upd_way, .upd_pc, .upd_slot, .upd_target, .upd_inval, .upd_tid,
@@ -162,6 +167,7 @@ module tb_fetch
     {flush, icinv, dred, c_hv, upd_valid, upd_way, upd_inval, pmp_busy, tlb_flush, it_fill} = '0;
     flush_tid = '0; dred_tid = '0; flush_pc = '0; dred_pc = '0; dred_ftq = '0; dred_slot = '0; dred_rop = '0;
     dred_rlink = '0; c_cbr = '0; c_taken = '0; c_pred = '0; c_ftq = '0; c_slot = '0; c_hftq = '0; c_tid = '0;
+    c_ret = '0; c_pc = '0; c_ijmp = '0; c_trv = 1'b0; c_trepc = '0;
     upd_pc = '0; upd_target = '0; upd_slot = '0; upd_tid = '0; tlb_flush_tid = '0; it_fill_tid = '0;
     it_fill_vpn = '0; it_fill_lvl = '0; it_fill_pte = '0; iw_ack = 0; iw_done = 0; iw_ok = 1; iw_cause = '0;
     iq_take = '0; iq_take_t = '0; iq_take_n = '0; iq_tnz_t = 1'b0; iq_tnz_n = 1'b0; de_take = 1'b0; a_ready = 1'b1;
