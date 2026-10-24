@@ -1253,8 +1253,14 @@ Durations are wall-clock estimates for an **agent-built** project (D8): Claude a
   - every planned step passed;
   - its soak lost SD1's interrupt after 15 rounds. CoRR's first form replayed a PLIC claim read; that was fixed by b30b57b3 before rc3 (DR-176's line).
 - **The release pair on main (rc3) missed 100 MHz in both placements** (−1.104 / −0.959 ns). rc3's RTL differs from rc2's by a dozen lines; the miss came from synthesis re-rolling the netlist at 96% fill.
-- **Trials running:** a fresh placement at 1.10 ns, and an incremental run from rc2's closed placement.
-- **Open:** the 72-hour stress on the release image. | SMP Debian 13 on 2 cores × 2 harts, booted standalone in RISC-V mode; the litmus suite clean on four harts at 0, 120 and 250 injected cycles (simulation and development builds); 72-hour stress clean on the board; the release build at 100 MHz (DR-152). No fixed LUT ceiling: the measured fill and timing closure decide. The old exit (≥ 150 MHz, goal 200; LUTs ≤ ~80%) predates DR-152 and SMT2 on this part. | About an agent week after M7's step 8, plus the 72-hour stress run |
+- **The release build at 100 MHz is met (10-23 18:30, rc3_u095r):** WNS +0.748 ns, WHS +0.006 ns, no failing endpoint; 112,806 LUTs (96.3%).
+  - It is coord/rc3's RTL, which is main's (tag m8-release-rc3).
+  - The flow: AltSpreadLogic_high, router directive AlternateCLBRouting, 0.95 ns of placement uncertainty.
+  - **The tries before it** were placement luck at 96% fill:
+    - fresh placements at −1.104, −0.959 and −0.237 ns;
+    - a post-route optimisation pass;
+    - incremental runs from rc2's placement (86% reuse), where the placer found no room.
+- **Open:** the 72-hour stress on the release image, on the board after its install. | SMP Debian 13 on 2 cores × 2 harts, booted standalone in RISC-V mode; the litmus suite clean on four harts at 0, 120 and 250 injected cycles (simulation and development builds); 72-hour stress clean on the board; the release build at 100 MHz (DR-152). No fixed LUT ceiling: the measured fill and timing closure decide. The old exit (≥ 150 MHz, goal 200; LUTs ≤ ~80%) predates DR-152 and SMT2 on this part. | About an agent week after M7's step 8, plus the 72-hour stress run |
 | **M9 Hardening** | **Scope approved 2026-10-23 (DR-190, [m9-plan.md](spec/m9-plan.md)):** the hardening that costs no LUTs (the trigger CSRs in the spec's no-trigger form, the device tree's ISA string checked against the RTL) and the v1 documentation; Sscofpmf/perf with 4 counters a hart behind `TG_HPM` (up to 1.4K LUTs a chip); an indirect-target predictor sized by smt2-study's model; the debug module with OpenOCD in development builds only. virtio-net is done (stage C; the product uses GEM3). After v1: Svpbmt, Zicbom, Zicbop prefetches, misaligned hardware, store sets, Sdtrig; Zicboz after a page-zeroing measurement. No-IPC area cuts pay for the release additions first. | **v1 release: the SMT2 dual-core** | About 1 week; parts run in parallel with M8 |
 | **M10 v2: 3-wide on the SMT2 core** | `smt2_w3` (§4.15) with its own freeze by the acceptance rule; the `st_w3` bring-up stage first; v2 area-recovery levers (§8.5) | CoreMark/MHz ≥ 6.0 on rv64gc; v2 suite targets; dual-core within the measured utilisation limit on the XCK26 (85–90%, §8.5), ≥ 150 MHz | After v1; about 1–2 months |
 
