@@ -74,7 +74,7 @@ module tg_uncore
   // stream's write-backs reach the DRAM's controller in runs, so it turns its bus round once a run (soc.md §8.5). The
   // batch and the wait come from the host-control block's L2_PACE, L2_PACE_INIT at reset. Off: as before
   parameter bit          L2_WB_PACE      = L2_WB_PACE_DEF,
-  parameter logic [11:0] L2_PACE_INIT    = L2_PACE_INIT_DEF,
+  parameter logic [15:0] L2_PACE_INIT    = L2_PACE_INIT_DEF,
   // The commit-trace stream to the PS (tg_trace_stream and the host bridge's trace registers), built
   // when the trace is (tg_trace_pkg COMMIT_TRACE, +define+TG_COMMIT_TRACE; DR-146). Off, the trace inputs are
   // ignored, trace_stall_o is 0, the trace master stays idle (AWVALID = WVALID = 0, BREADY = 1) and
@@ -411,7 +411,7 @@ module tg_uncore
   logic    [N_BANKS-1:0]                   oob_rd, oob_wr;
   logic    [N_BANKS-1:0][AXI_ADDR_W-1:0]   oob_addr;
 
-  logic [11:0] l2_pace;                // the host-control block's L2_PACE (the write-back batching's settings)
+  logic [15:0] l2_pace;                // the host-control block's L2_PACE (the write-back batching's settings)
   tg_l2 #(.N_AGENTS (N_CORES), .SETS (L2_SETS), .N_MSHR (L2_MSHR), .N_WB (L2_WB_PACE ? 8 : 4), .DATA_PRIM (L2_PRIM),
           .DATA_LAT (L2_DATA_LAT), .RSLICE_DSP ({2'b00, UNCORE_DSP[43:42]}), .MWAY_OH (L2_MWAY_OH),
           .DIR_S3 (L2_DIR_S3), .WB_PACE (L2_WB_PACE)) u_l2 (
@@ -426,7 +426,7 @@ module tg_uncore
     .aw_o (l2_aw_ch), .aw_valid_o (l2_awv), .aw_ready_i (l2_awr),
     .w_o (l2_w_ch), .w_valid_o (l2_wv), .w_ready_i (l2_wr),
     .bresp_i (l2_b_ch), .bresp_valid_i (l2_bvv), .bresp_ready_o (l2_brr),
-    .wb_batch_i (l2_pace[3:0]), .wb_hold_i (l2_pace[11:4]),
+    .wb_batch_i (l2_pace[3:0]), .wb_hold_i (l2_pace[15:4]),
     .init_done_o (l2_init_done),
     .ev_hit_o (ev_hit), .ev_miss_o (ev_miss), .ev_wb_o (ev_wb), .ev_probe_o (ev_probe), .ev_err_o (ev_err),
     .ev_err_info_o (ev_err_info), .ev_err_line_o (ev_err_line)

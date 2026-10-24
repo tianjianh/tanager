@@ -66,7 +66,7 @@ module tg_l2_bank
   // Write-back batching's settings (WB_PACE; the host-control block's L2_PACE): the batch (0 or 1: none) and the
   // cycles the oldest ready write-back may wait for it
   input  logic [3:0] wb_batch_i,
-  input  logic [7:0] wb_hold_i,
+  input  logic [11:0] wb_hold_i,
 
   output logic    init_done_o,
   output logic    ev_hit_o,
@@ -1156,7 +1156,7 @@ module tg_l2_bank
   // (ws_burst_q). A write stream's ownership reads and write-backs then reach the DRAM's controller in runs, not
   // alternately, so it turns its bus round once a batch rather than once a line (soc.md §8.5).
   logic       ws_go, ws_burst_q;
-  logic [7:0] ws_wait_q;
+  logic [11:0] ws_wait_q;
   if (WB_PACE) begin : g_pace
     logic [WBW:0] wb_nready;
     always_comb begin
@@ -1725,7 +1725,7 @@ module tg_l2_bank
       if (!ws_busy_q && ws_go)                ws_burst_q <= 1'b1;
       else if (!ws_busy_q && !(|wb_ready_q))  ws_burst_q <= 1'b0;
       if (!(|wb_ready_q) || (!ws_busy_q && ws_go)) ws_wait_q <= '0;
-      else if (!ws_busy_q && ws_wait_q != 8'hFF)   ws_wait_q <= ws_wait_q + 1'b1;
+      else if (!ws_busy_q && ws_wait_q != 12'hFFF) ws_wait_q <= ws_wait_q + 1'b1;
 
       if (!rs_busy_q && |rs_req) begin
         rs_busy_q <= 1'b1;

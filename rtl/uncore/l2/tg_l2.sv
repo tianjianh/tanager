@@ -49,7 +49,7 @@ module tg_l2
   input  logic    [N_BANKS-1:0] bresp_valid_i,
   output logic    [N_BANKS-1:0] bresp_ready_o,
   input  logic    [3:0]         wb_batch_i,      // write-back batching's settings, both banks (tg_l2_bank, WB_PACE)
-  input  logic    [7:0]         wb_hold_i,
+  input  logic    [11:0]        wb_hold_i,
   output logic                  init_done_o,
   output logic    [N_BANKS-1:0] ev_hit_o,
   output logic    [N_BANKS-1:0] ev_miss_o,

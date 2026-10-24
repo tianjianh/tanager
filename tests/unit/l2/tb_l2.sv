@@ -10,7 +10,7 @@
 // Checks every GrantData and AccessAckData against the reference, permission rules, inclusive
 // completion, and a final read-back of every line. Plusargs: +seed=N +ops=N
 // WB_PACE: the write-back batching (tg_l2_bank, with 8 write-back buffers), the batch and the wait from +wb_batch=N
-// +wb_hold=N (4 and 32), or with +wb_rand drawn anew (batch 0-8, wait 0-255) every 2,000 cycles.
+// +wb_hold=N (4 and 32), or with +wb_rand drawn anew (batch 0-8, wait 0-400) every 2,000 cycles.
 module tb_l2;
   import tg_pkg::*, tg_tl_pkg::*, tg_uncore_pkg::*, tb_axi_mem_pkg::*;
 
@@ -49,20 +49,20 @@ module tb_l2;
     assert (ev_err_info[2:0] == 3'd4 || ev_err_info[2:0] == 3'd5) else $error("L2 error described as kind %0d", ev_err_info[2:0]);
 
   logic [3:0] wb_batch;
-  logic [7:0] wb_hold;
+  logic [11:0] wb_hold;
   initial begin
     int v;
     wb_batch = 4'd4;
-    wb_hold  = 8'd32;
+    wb_hold  = 12'd32;
     if ($value$plusargs("wb_batch=%d", v)) wb_batch = 4'(v);
-    if ($value$plusargs("wb_hold=%d", v))  wb_hold  = 8'(v);
+    if ($value$plusargs("wb_hold=%d", v))  wb_hold  = 12'(v);
     if (WB_PACE) $display("tb_l2: write-back batching, batch %0d, wait %0d%s", wb_batch, wb_hold,
                           $test$plusargs("wb_rand") ? ", both drawn anew every 2000 cycles" : "");
     if ($test$plusargs("wb_rand"))
       forever begin
         repeat (2000) @(posedge clk);
         wb_batch = 4'($urandom_range(8));
-        wb_hold  = 8'($urandom_range(255));
+        wb_hold  = 12'($urandom_range(400));
       end
   end
   tg_l2_bank #(.BANK(0), .N_AGENTS(NA), .SETS(SETS), .N_MSHR(N_MSHR), .N_WB(WB_PACE ? 8 : 4), .DATA_PRIM("block"),

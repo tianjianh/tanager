@@ -31,7 +31,7 @@ module tg_host_bridge
   parameter bit          HDMA_CPL        = 1'b1,         // the DMA port's completion queue (HDMA_CTRL, _STATUS, _CPL*; CAPS[11])
   parameter bit          TRAFGEN         = 1'b1,         // the cores may be traffic generators (their TG_* fields cross)
   parameter bit          CDC_TRIM        = 1'b0,         // the crossings carry only the fields of what is built
-  parameter logic [11:0] L2_PACE_INIT    = {8'd64, 4'd1}  // L2_PACE at reset (tg_uncore_pkg L2_PACE_INIT_DEF)
+  parameter logic [15:0] L2_PACE_INIT    = {12'd64, 4'd1} // L2_PACE at reset (tg_uncore_pkg L2_PACE_INIT_DEF)
 ) (
   // ---- host domain ----
   input  logic        clk_host,
@@ -67,7 +67,7 @@ module tg_host_bridge
   output logic        vio_wait_o,
   output logic [VIO_SLOTS-1:0] vio_irq_o, // PLIC sources 1-4
   output logic        mbox_irq_o,        // PLIC source 11
-  output logic [11:0] l2_pace_o,         // L2_PACE (core side 0x048): the L2's write-back batching (tg_l2_bank)
+  output logic [15:0] l2_pace_o,         // L2_PACE (core side 0x048): the L2's write-back batching (tg_l2_bank)
   output logic [39:0] dram_base_o,
   output logic [39:0] dram_size_o,
   output logic [9:0]  inj_rd_delay_o,
@@ -518,7 +518,7 @@ module tg_host_bridge
   logic [15:0] tohost_seq_q, power_val_q;
   logic        mbox_pend_q;
   logic        pwr_pulse_c, tohost_pulse_c, bell_pulse_c;
-  logic [11:0] l2_pace_q;
+  logic [15:0] l2_pace_q;
 
   wire [11:0] off = req_i.addr[11:0];
   wire        wr  = req_valid_i && req_i.we;
@@ -557,7 +557,7 @@ module tg_host_bridge
           9'h008: if (req_i.be[0] && req_i.wdata[0]) mbox_pend_q <= 1'b0;   // 0x040 W1C
           9'h009: begin                                               // 0x048 L2_PACE
                     if (req_i.be[0]) l2_pace_q[7:0]  <= req_i.wdata[7:0];
-                    if (req_i.be[1]) l2_pace_q[11:8] <= req_i.wdata[11:8];
+                    if (req_i.be[1]) l2_pace_q[15:8] <= req_i.wdata[15:8];
                   end
           default: ;
         endcase
@@ -575,7 +575,7 @@ module tg_host_bridge
       9'h005:  crd = tohost_q;
       9'h006:  crd = cfg_c.fromhost;
       9'h008:  crd = {63'd0, mbox_pend_q};
-      9'h009:  crd = {52'd0, l2_pace_q};
+      9'h009:  crd = {48'd0, l2_pace_q};
       default: crd = '0;
     endcase
   end

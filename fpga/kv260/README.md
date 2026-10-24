@@ -37,7 +37,7 @@ The overlay must keep the board's `pwmfan` node; `tanager.dtso` only adds nodes.
 | `TG_B_SLICE`, `TG_D_SLICE`, `TG_W_SLICE` | the banks' B, D, and AW and W slices (0 or 1 each) | 0 |
 | `TG_XBAR_IN_SLICE` | the core-side request slices, a bit per channel (0–15: caches' A, MMIO A, l1d C, l1d E) | 0 |
 | `TG_XBAR_SLICE`, `TG_MEM_SLICE` | the crossbar's own slices and the memory ports' AXI slices (0 or 1 each) | 0 (DR-186) |
-| `TG_L2_WB_PACE`, `TG_L2_PACE_INIT` | the L2's write-back batching (0 or 1; docs/spec/l2.md), and the host-control block's `L2_PACE` at reset (0-4095: `[3:0]` the batch, `[11:4]` the wait) | 0; `{64, 1}` |
+| `TG_L2_WB_PACE`, `TG_L2_PACE_INIT` | the L2's write-back batching (0 or 1; docs/spec/l2.md), and the host-control block's `L2_PACE` at reset (0-65535: `[3:0]` the batch, `[15:4]` the wait) | 0; `{64, 1}` |
 | `TG_DEBUG_CNT` | the board debug counters, read with `tanager-host dbg` ([uncore.md](../../docs/spec/uncore.md) §Board debug counters) | 0 |
 | `TG_VIRTIO_WINDOW` | the forwarded virtio window, served by `tanager-host` (stage C, [soc.md](../../docs/spec/soc.md) §8.1; `CAPS[2]`) | 0 |
 | `TG_HOST_DMA` | the coherent host DMA port on `M_AXI_HPM1_FPD`, 2 GiB at `0x5_0000_0000` (stage C, [soc.md](../../docs/spec/soc.md) §8.1; `CAPS[8]`). Without it HPM1 still answers: reads `DECERR`, writes dropped | 0 |

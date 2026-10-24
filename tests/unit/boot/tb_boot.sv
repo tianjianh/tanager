@@ -33,7 +33,7 @@ module tb_boot;
   parameter bit LAT_INJ_TB    = 1'b1;    // the two latency injectors; 0: a release build's memory path (DR-177)
   parameter bit RELEASE_TB    = 1'b0;    // a release build (tanager_soc RELEASE, DR-180): needs UART_SERIAL_TB
   parameter bit L2_WB_PACE_TB = 1'b0;    // the L2's write-back batching (tanager_soc L2_WB_PACE)
-  parameter logic [11:0] L2_PACE_INIT_TB = 12'h401;   // its settings at reset: batch 1 (none), wait 64
+  parameter logic [15:0] L2_PACE_INIT_TB = 16'h0401;  // its settings at reset: batch 1 (none), wait 64
   if (RELEASE_TB && !UART_SERIAL_TB) begin : g_bad_rel
     $error("tb_boot: a release build's console is the serial line alone: RELEASE_TB needs UART_SERIAL_TB");
   end

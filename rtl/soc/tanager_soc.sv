@@ -28,7 +28,7 @@ module tanager_soc
   parameter bit          XBAR_SLICE      = XBAR_SLICE_DEF,
   parameter bit          MEM_SLICE       = MEM_SLICE_DEF,
   parameter bit          L2_WB_PACE      = L2_WB_PACE_DEF,    // the L2's write-back batching (tg_uncore)
-  parameter logic [11:0] L2_PACE_INIT    = L2_PACE_INIT_DEF,  // its settings at reset (tg_uncore)
+  parameter logic [15:0] L2_PACE_INIT    = L2_PACE_INIT_DEF,  // its settings at reset (tg_uncore)
   parameter bit          DEBUG_CNT       = 1'b0,              // board debug counters (tg_uncore)
   parameter bit          VIRTIO_WINDOW   = 1'b0,              // the forwarded virtio window (tg_uncore)
   parameter bit          HOST_DMA        = 1'b0,              // the coherent host DMA port (tg_uncore)

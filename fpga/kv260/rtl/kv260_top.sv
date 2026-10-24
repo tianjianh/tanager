@@ -36,7 +36,7 @@ module kv260_top
   parameter bit          XBAR_SLICE    = XBAR_SLICE_DEF,
   parameter bit          MEM_SLICE     = MEM_SLICE_DEF,
   parameter bit          L2_WB_PACE    = L2_WB_PACE_DEF,  // the L2's write-back batching (build.tcl TG_L2_WB_PACE)
-  parameter logic [11:0] L2_PACE_INIT  = L2_PACE_INIT_DEF,// its settings at reset (build.tcl TG_L2_PACE_INIT)
+  parameter logic [15:0] L2_PACE_INIT  = L2_PACE_INIT_DEF,// its settings at reset (build.tcl TG_L2_PACE_INIT)
   parameter bit          DEBUG_CNT     = 1'b0,            // board debug counters (build.tcl TG_DEBUG_CNT)
   parameter bit          VIRTIO_WINDOW = 1'b0,            // the forwarded virtio window (build.tcl TG_VIRTIO_WINDOW)
   parameter bit          HOST_DMA      = 1'b0,            // the coherent host DMA port on HPM1 (build.tcl TG_HOST_DMA)

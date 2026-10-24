@@ -180,7 +180,7 @@ package tg_uncore_pkg;
   localparam bit          XBAR_SLICE_DEF    = 1'b0;     // off since 10-22 (the user, DR-186)
   localparam bit          MEM_SLICE_DEF     = 1'b0;     // off since 10-22 (the user, DR-186)
   // The L2's write-back batching (tg_l2_bank WB_PACE; docs/spec/l2.md, soc.md §8.5): built or not, and the host-control
-  // block's L2_PACE at reset: [3:0] the batch (0 or 1: none), [11:4] the cycles a ready write-back may wait for it
+  // block's L2_PACE at reset: [3:0] the batch (0 or 1: none), [15:4] the cycles a ready write-back may wait for it
   localparam bit          L2_WB_PACE_DEF    = 1'b0;
-  localparam logic [11:0] L2_PACE_INIT_DEF  = {8'd64, 4'd1};
+  localparam logic [15:0] L2_PACE_INIT_DEF  = {12'd64, 4'd1};
 endpackage
