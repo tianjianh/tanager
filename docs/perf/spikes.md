@@ -2290,6 +2290,51 @@ Results: `fpga/spikes/results/product_wt6_pv3_u095/` and `_u105/`.
 
 Results: [`fpga/spikes/results/ooc_itt/`](../../fpga/spikes/results/ooc_itt/) holds the three runs and `compare.txt`.
 
+#### The indirect-target table's later heads: still 2–4 levels deeper than off from the I$ data (2026-10-24)
+
+**Asked** (fpu-2, against the coordinator's bar): each new head of `claude/track-fpu-395911-itt` out of context in both forms, against the table off. The bar is F2's decision registers (`ka_q`, `k_ovr_q`, `kr_q`, `f3_ras_q`, the stack's push and pop) back at the table-off depth from the I$ data.
+- **The heads:**
+  - 7ba9b0a0, the trim;
+  - 188328af;
+  - a6f51752, the restructure: one predicted JALR slot in the exit search, as with the table off.
+- **The runs:** the flow above. The table off is 7ba9b0a0's run (`fix_slot_b`), queried again with each head's path list. a6f51752's forms are `fix_slot_a` (`TG_ITT=1`) and `fix_slot_e` (`TG_ITT=2`), snapshot `snap/ooc_f1` f415b32a4adb.
+- **The paths:** [`paths_itt4.tcl`](../../fpga/spikes/tcl/paths_itt4.tcl) times each decision register separately from the I$ data and from TAGE, and `fpc_q` from `f3_s_q`.
+
+| A core, out of context | off | 188328af `TG_ITT=1` | 188328af `TG_ITT=2` | a6f51752 `TG_ITT=1` | **a6f51752 `TG_ITT=2`** |
+|---|---|---|---|---|---|
+| LUTs / FFs (the forms against off) | 51,746 / 23,654 | +482 / +312 | +251 / +335 | +445 / +309 | +248 / +334 |
+| From the I$ data, levels: `ka_q` | 19 | 23 | 23 | 21 | 22 |
+| `k_ovr_q` | 18 | 23 | 23 | 21 | 22 |
+| `kr_q`, `f3_ras_q` | 18 | 23 | 23 | 20 | 21 |
+| the stack's push | 19 | 25 | 24 | 20 | 21 |
+| the stack's pop | 19 | 24 | 23 | 19 | 21 |
+| `kimm_q` | 17 | | | 21 | 21 |
+| the table's `ki_q`, `f3_itt_q`, `ipi_q`, `ipw_q` | | 23 | 23 | 20 | 21 |
+| From TAGE, the same registers | 19–21 | 18–20 | 19–20 | 16–18 | 16–17 |
+| `krt_q` / `f3_rtop_q` | 6 / 6 | 7 / 10 | 7 / 7 | 7 / 10 | 9 / 9 |
+| `fpc_q`: the worst / from `f3_s_q` / from `f3_start_q` | 17 / 20 / 19 | 23 | 19 | 23 / 24 / 23 | 18 / 21 / 20 |
+| WNS, the worst path (not the table's) | +0.075 (LSU) | +0.268 (fetch's `head_t_q`, 24) | +0.450 (LSU) | +0.333 (fetch's `head_t_q`, 21) | +0.715 (LSU) |
+
+- **Not at the bar yet, but closer.** From the I$ data, a6f51752's decision registers are 2–4 levels deeper than off in mode 2 and 0–3 in mode 1. 188328af's were 4–6 deeper. From TAGE, both forms are 1–5 levels shallower than off.
+- **Where the extra levels are.** In both forms, every one of these paths takes the predecode's return flag (`pd_pop`) into the table. One of the table's LUTs (`g_tage.g_itt.u_itt/…hr_xm_q[1]_i_7`) then drives TAGE's history logic.
+  - So the I$ data reaches TAGE at level 10 (mode 1) or 11 (mode 2). With the table off it reaches TAGE at level 8, straight from the predecode's `pd_start`.
+  - From TAGE on, the paths are as deep as off's, give or take one or two levels.
+  - So the exit search still waits for the return check. Taking the JALR slot without that check, and choosing the stack or the table for the target after the exit, would likely bring these paths back to off's depth.
+- **`fpc_q`:** mode 2 is within a level of off from every start.
+  - Mode 1 is 4 levels deeper from `f3_start_q` (19 → 23), and so are `spc_s_q`, `ft_q` and `f1_valid_q`.
+  - The extra levels are in fetch's own control after F3's valid. The first 9 levels are the same in all three, and no table cell is on the path.
+  - Mode 1's worst path is also in fetch's control (`head_t_q` → `qs_q`).
+- **Out of context the slacks don't show the cost.** The I$-data paths are +0.9 to +2.2 ns in both forms, against +1.05 to +1.93 off: within the ±0.5 ns noise. The levels are the measure.
+- **The table's own paths are clear:**
+  - its read into `ka_q`: +2.200 ns at 18 levels (mode 2), +1.121 at 17 (mode 1);
+  - training: +3.4 / +4.2 ns;
+  - `kit_q`: 3 levels;
+  - `f3_itgt_q`: 3 levels (mode 2), 10 (mode 1).
+- **In the chip:** the pair of record (no table) has the I$ data into the push, the pop and `ka_q` at +0.345 ns and 21 levels in its congested placement, `rec_u095`. That is its second-worst family. At 0.3–0.4 ns a level, mode 2's 2–3 more levels would put that family at about −0.3 to −0.9 ns there.
+- **The trim (7ba9b0a0)** cut the area to +306 / +288 LUTs a core, against 1f5f9e18's +1,055 / +632. Its paths were not split by start. Results: `ooc_itt_trim/`.
+
+Results: [`fpga/spikes/results/ooc_itt_t3/`](../../fpga/spikes/results/ooc_itt_t3/) (188328af) and [`ooc_itt_t5/`](../../fpga/spikes/results/ooc_itt_t5/) (a6f51752), each with `compare.txt`. In `ooc_itt_t5/`, each form's `levels_ic.txt` lists the I$-data paths level by level, and `fpc_q_from_f3_start.txt` holds the `fpc_q` query.
+
 #### core-2's A/B: the read thread with and without per-bank copies (2026-10-22)
 
 The fixes preview's base with core-2's newer heads (`snap/product_wt` and `snap/product_wt3`): e5b304cd, TAGE 8cf8e262, DR-183 ecfcc8a5, and core-2's walker fix a6abdc5d. The walker fix registers the head lookup's VPN, so DTLB port 2 starts at one register. Then:
