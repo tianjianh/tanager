@@ -87,12 +87,12 @@ module tb_dbg
     check(haltreq == '0 && !ndmreset, "nothing but dmactive while inactive");
 
     // dmstatus, hartinfo, abstractcs
-    status(s);
+    dm_status(s);
     check(s[3:0] == 4'd3 && s[7] && s[22] && !s[23] && !s[5], $sformatf("dmstatus %h: version 3, authenticated, impebreak", s));
     check(s[11] && s[10] && !s[9] && !s[15] && !s[13], "hart 0 running");
     check(s[19] && s[18], "hart 0 havereset after the reset");
     dmi_wr(DM_DMCONTROL, ctl(0, 0, 0, 1));
-    status(s);
+    dm_status(s);
     check(!s[19] && !s[18], "havereset acknowledged");
     dmi_rd(DM_HARTINFO, r);
     check(r == 32'd0, "hartinfo 0");
@@ -103,14 +103,14 @@ module tb_dbg
     dmi_wr(DM_DMCONTROL, {6'd0, 10'h3FF, 10'h3FF, 6'd1});
     dmi_rd(DM_DMCONTROL, r);
     check(r[25:16] == 10'd1 && r[15:6] == 10'd0, $sformatf("hartsel all ones reads %h (HARTSELLEN 1)", r));
-    status(s);
+    dm_status(s);
     check(!s[15] && s[11], "hart 1 exists and runs");
     dmi_wr(DM_DMCONTROL, ctl(1, 0, 0, 1));
     unavail[1] = 1'b1;
-    status(s);
+    dm_status(s);
     check(s[13] && s[12] && !s[11] && !s[9], "hart 1 unavailable");
     unavail[1] = 1'b0;
-    status(s);
+    dm_status(s);
     check(!s[13] && s[11], "hart 1 available again");
 
     // Halt hart 0
@@ -120,7 +120,7 @@ module tb_dbg
     wait_halted(0);
     dmi_wr(DM_DMCONTROL, ctl(0));
     check(haltreq == 2'b00, "haltreq cleared");
-    status(s);
+    dm_status(s);
     check(s[9] && s[8] && !s[11] && !s[10], "hart 0 halted, not running");
     check(u_harts.dmode[0] && u_harts.dcsr[0][8:6] == 3'd3, "hart 0 in debug mode, cause 3");
     check(u_harts.retired[0] > ret0, "hart 0 ran before the halt");
@@ -185,7 +185,7 @@ module tb_dbg
     clr_cmderr();
     reg_rd(8, v);
     check(v == 64'h4000_0000, "s0 kept through the exception");
-    status(s);
+    dm_status(s);
     check(s[9], "still halted after the exception");
     // an illegal instruction too
     progbuf(32'h0000_0000, RV_NOP, err);
@@ -239,7 +239,7 @@ module tb_dbg
     v2 = u_harts.dpc[0];
     dmi_wr(DM_DMCONTROL, ctl(0, 0, 1));
     wait_halted(0);
-    status(s);
+    dm_status(s);
     check(s[17] && s[16], "resumeack after the step");
     check(u_harts.retired[0] == ret0 + 1 && u_harts.dcsr[0][8:6] == 3'd4 && u_harts.dpc[0] != v2,
           $sformatf("one instruction stepped: %0d, cause %0d", u_harts.retired[0] - ret0, u_harts.dcsr[0][8:6]));
@@ -289,7 +289,7 @@ module tb_dbg
     // Resume both: resumeack, running, the loops go on
     dmi_wr(DM_DMCONTROL, ctl(1, 0, 1));
     dmi_wr(DM_DMCONTROL, ctl(0, 0, 1));
-    status(s);
+    dm_status(s);
     check(s[17] && s[11] && !s[9], "hart 0 resumed and running");
     ret0 = u_harts.retired[0];
     repeat (200) @(posedge clk);
@@ -300,23 +300,23 @@ module tb_dbg
     // ndmreset drives the reset out; havereset follows the harts' reset
     dmi_wr(DM_DMCONTROL, ctl(0, 0, 0, 0, 1));
     check(ndmreset, "ndmreset out");
-    status(s);
+    dm_status(s);
     check(s[24], "ndmresetpending");
     hart_rst = 1'b1;
     repeat (5) @(posedge clk);
-    status(s);
+    dm_status(s);
     check(s[13] && s[19], "harts unavailable and havereset in reset");
     dmi_wr(DM_DMCONTROL, ctl(0));
     check(!ndmreset, "ndmreset released");
-    status(s);
+    dm_status(s);
     check(s[24], "ndmresetpending while the cores' reset is still held");
     hart_rst = 1'b0;
-    status(s);
+    dm_status(s);
     check(s[11] && s[19] && !s[24], "running after the reset, havereset still set");
     dmi_wr(DM_DMCONTROL, ctl(0, 0, 0, 1));
     // a reset the host holds is no ndmreset
     hart_rst = 1'b1;
-    status(s);
+    dm_status(s);
     check(s[13] && !s[24], "the host's reset: unavailable, no ndmresetpending");
     hart_rst = 1'b0;
     dmi_wr(DM_DMCONTROL, ctl(0, 0, 0, 1));
@@ -331,10 +331,10 @@ module tb_dbg
     dmi_rd(DM_PROGBUF0, r);
     check(r == 32'd0, "progbuf0 reset by dmactive");
     dmi_wr(DM_DMCONTROL, ctl(1));
-    status(s);
+    dm_status(s);
     check(s[9], "hart 1 still halted across dmactive");
     dmi_wr(DM_DMCONTROL, ctl(1, 0, 1));
-    status(s);
+    dm_status(s);
     check(s[17] && s[11], "hart 1 resumed after the DM's reset");
 
     check(u_harts.bad == 0, $sformatf("the harts saw %0d traps or bad answers", u_harts.bad));
