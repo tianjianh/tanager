@@ -65,8 +65,8 @@
 #endif
 
 // The ISA strings (DR-194, M9 §10): each extension the RTL meets, checked against docs/spec/m9-isa-check.md, in the
-// canonical order (Z by category, then S). zkt waits for its timing audit; svinval stays out, as here it would only
-// be SFENCE.VMA. Sscofpmf only with TG_HPM: OpenSBI and Linux take the counters' overflow interrupt and mode filters
+// canonical order (Z by category, then S). zkt since core-2's timing audit (no operand-dependent early-out in tg_alu or
+// tg_mul; a cycle-exact directed test); svinval stays out, as here it would only be SFENCE.VMA. Sscofpmf only with TG_HPM: OpenSBI and Linux take the counters' overflow interrupt and mode filters
 // from it. TG_ISA_PRE194 (QEMU's tree) keeps the list from before DR-194
 #ifndef TG_ISA_PRE194
 #define TG_ISA_PRE194 0
@@ -78,21 +78,21 @@
 #define TG_ISA_STR "rv64imac_zicsr_zifencei_zba_zbb_zbs_zicond_sstc"
 #define TG_ISA_EXT "i", "m", "a", "c", "zicsr", "zifencei", "zba", "zbb", "zbs", "zicond", "sstc"
 #elif TG_FPU && TG_HPM
-#define TG_ISA_STR "rv64imafdc_zicntr_zicond_zicsr_zifencei_zihintpause_zihpm_za64rs_zba_zbb_zbs_sscofpmf_sstc"
+#define TG_ISA_STR "rv64imafdc_zicntr_zicond_zicsr_zifencei_zihintpause_zihpm_za64rs_zba_zbb_zbs_zkt_sscofpmf_sstc"
 #define TG_ISA_EXT "i", "m", "a", "f", "d", "c", "zicntr", "zicond", "zicsr", "zifencei", "zihintpause", "zihpm", \
-                   "za64rs", "zba", "zbb", "zbs", "sscofpmf", "sstc"
+                   "za64rs", "zba", "zbb", "zbs", "zkt", "sscofpmf", "sstc"
 #elif TG_FPU
-#define TG_ISA_STR "rv64imafdc_zicntr_zicond_zicsr_zifencei_zihintpause_zihpm_za64rs_zba_zbb_zbs_sstc"
+#define TG_ISA_STR "rv64imafdc_zicntr_zicond_zicsr_zifencei_zihintpause_zihpm_za64rs_zba_zbb_zbs_zkt_sstc"
 #define TG_ISA_EXT "i", "m", "a", "f", "d", "c", "zicntr", "zicond", "zicsr", "zifencei", "zihintpause", "zihpm", \
-                   "za64rs", "zba", "zbb", "zbs", "sstc"
+                   "za64rs", "zba", "zbb", "zbs", "zkt", "sstc"
 #elif TG_HPM
-#define TG_ISA_STR "rv64imac_zicntr_zicond_zicsr_zifencei_zihintpause_zihpm_za64rs_zba_zbb_zbs_sscofpmf_sstc"
+#define TG_ISA_STR "rv64imac_zicntr_zicond_zicsr_zifencei_zihintpause_zihpm_za64rs_zba_zbb_zbs_zkt_sscofpmf_sstc"
 #define TG_ISA_EXT "i", "m", "a", "c", "zicntr", "zicond", "zicsr", "zifencei", "zihintpause", "zihpm", "za64rs", \
-                   "zba", "zbb", "zbs", "sscofpmf", "sstc"
+                   "zba", "zbb", "zbs", "zkt", "sscofpmf", "sstc"
 #else
-#define TG_ISA_STR "rv64imac_zicntr_zicond_zicsr_zifencei_zihintpause_zihpm_za64rs_zba_zbb_zbs_sstc"
+#define TG_ISA_STR "rv64imac_zicntr_zicond_zicsr_zifencei_zihintpause_zihpm_za64rs_zba_zbb_zbs_zkt_sstc"
 #define TG_ISA_EXT "i", "m", "a", "c", "zicntr", "zicond", "zicsr", "zifencei", "zihintpause", "zihpm", "za64rs", \
-                   "zba", "zbb", "zbs", "sstc"
+                   "zba", "zbb", "zbs", "zkt", "sstc"
 #endif
 
 #define TG_CPU(n)                                                       \
