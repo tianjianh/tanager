@@ -126,6 +126,7 @@ cycle-identical:
 # cycle-identical's. boot-lockstep-gate runs st at 100M with default and board timing when the change against
 # BASE reaches the core's fetch, decode, rename, LSU, MMU or CSR, and passes at once otherwise.
 BOOT_LS_ARGS = $(if $(BRANCH),--branch "$(BRANCH)") $(if $(MCYC),--mcyc $(MCYC)) $(if $(SEED),--seed $(SEED)) \
+  $(if $(VTHREADS),--vthreads $(VTHREADS)) \
   $(if $(JOBS),--jobs $(JOBS)) $(if $(BOOT_FW),--boot-fw "$(BOOT_FW)") $(if $(BOOT_KERNEL),--boot-kernel "$(BOOT_KERNEL)") \
   $(if $(TIMING_CUTS),--timing-cuts $(TIMING_CUTS)) $(if $(DC_MSHRS),--dc-mshrs $(DC_MSHRS)) \
   $(if $(QUEUE_DECODE),--queue-decode $(QUEUE_DECODE)) $(if $(SPEC_WAKE),--spec-wake $(SPEC_WAKE)) \

@@ -9,14 +9,16 @@ run at their untraced speed: tb_boot's +trace_out goes through the stream, whose
 IPC 0.15. The images are cycle-identical's pinned references (REF_IMAGES), unwritten memory reads zero as for any
 traced run (+mem_zero), and a run stops at MCYC million cycles, or at TANAGER-BOOT-OK.
 
-  make boot-lockstep [BRANCH=<ref>] [SHAPE=st|board] [MCYC=100] [TIMING="default board"] [SEED=1] [profile switches]
+  make boot-lockstep [BRANCH=<ref>] [SHAPE=st|board] [MCYC=100] [TIMING="default board"] [SEED=1] [VTHREADS=N]
+                     [profile switches]
   make boot-lockstep-gate [BASE=<commit>] [BRANCH=<ref>] [profile switches]
   tools/ci/boot_lockstep.py --nightly           (the crontab's run: main, 400M cycles, st and board, the night's timing)
   tools/ci/boot_lockstep.py --install-cron      (the nightly's entry, with main's checkout's copy)
 
 The RTL is BRANCH's (default: this tree's, with its uncommitted changes); the harness (sim/, tests/unit, sw/dts)
 is this tree's, as in cycle-identical. SHAPE st is one st core; board is the board's: two smt2 cores, thread 0 of
-each (harts 0 and 2). TIMING names the DDR models' timing, one run each, side by side: board (a fixed 22 cycles,
+each (harts 0 and 2). VTHREADS sets the model's Verilator threads (the shape's by default: 1, 4, 4); one thread
+keeps its pace on a loaded host, where four stall at their barriers. TIMING names the DDR models' timing, one run each, side by side: board (a fixed 22 cycles,
 every ready at 100%), jitter (18-26 cycles), fixedN, default (tb_boot's own, 4-12). The gate runs st at 100M
 cycles with default and board timing when the change, against its merge base with BASE (main), reaches the core's
 fetch, decode, rename, LSU, MMU or CSR, or its top and package; otherwise it says so and passes.
@@ -96,8 +98,9 @@ class Build:
     """tb_boot with the tap, and tanager-lockstep, from the tested RTL and this tree's harness, in
     CACHE/build/<key>: the checker takes its boot ROM and PMP default from that RTL too."""
 
-    def __init__(self, rtl_src, harness_src, shape, prof, tool):
+    def __init__(self, rtl_src, harness_src, shape, prof, tool, vthreads=None):
         self.cfg, self.cores, _, _, self.vthreads = SHAPES[shape]
+        self.vthreads = vthreads or self.vthreads
         self.rtl_src, self.harness_src = rtl_src, harness_src
         self.prof = [f"{v}={prof[v]}" for v, _ in ci.PROFILE_VARS if v in prof]
         trees = [ci.git("rev-parse", f"{rtl_src}:rtl")] + [ci.git("rev-parse", f"{harness_src}:{p}")
@@ -218,7 +221,7 @@ def run_one(build, dtb, images, shape, timing, mcyc, seed, outdir, nice=False, p
     fw, kernel = images["fw"][0], images["kernel"][0]
     # The host policy (verification.md §8): on a hybrid host every model and its checker at nice 10 or more, the
     # board and smp4 shapes' four-thread models and their checkers on the E-cores
-    pol = host_policy.preexec(SHAPES[shape][4])
+    pol = host_policy.preexec(build.vthreads)
 
     def pre():
         if nice:
@@ -351,14 +354,15 @@ def checks(a, tool, nice=False, nightly=False):
             fail(f"this tree's sim/profile.mk does not take {v}")
     images = {k: ci.boot_image(k, a.boot_fw if k == "fw" else a.boot_kernel) for k in ("fw", "kernel")}
     log(f"{label}: {', '.join(shapes)}; timing {', '.join(timings)}; {a.mcyc}M cycles; seed {a.seed}"
-        f"{'; ' + ', '.join(f'{v}={p}' for v, p in prof.items()) if prof else ''}")
+        f"{'; ' + ', '.join(f'{v}={p}' for v, p in prof.items()) if prof else ''}"
+        f"{f'; {a.vthreads} Verilator thread(s)' if a.vthreads else ''}")
     dts_hpm = prof.get("HPM") == 1 and dts_takes_hpm(harness)
     if prof.get("HPM") == 1:
         log("  device tree: sw/dts HPM=1 (Sscofpmf, the counters' event map)" if dts_hpm else
             "  device tree: this tree's sw/dts has no HPM switch, so it leaves Sscofpmf and the counters' events out")
     for k, (path, h, what) in images.items():
         log(f"  {'firmware' if k == 'fw' else 'kernel  '}: sha256 {h} ({what}), {path}")
-    builds = {s: Build(rtl, harness, s, prof, tool) for s in shapes}
+    builds = {s: Build(rtl, harness, s, prof, tool, a.vthreads) for s in shapes}
     t0 = time.time()
     for s, b in builds.items():
         why = b.build(a.jobs)
@@ -402,6 +406,9 @@ def main():
     ap.add_argument("--timing", default="board", help="board, jitter, fixedN, default, or a list (one run each)")
     ap.add_argument("--mcyc", type=int, default=None, help=f"million cycles a run lasts at most (default {GATE_MCYC})")
     ap.add_argument("--seed", type=int, default=1, help="tb_boot's random seed (+verilator+seed+)")
+    ap.add_argument("--vthreads", type=int, default=None,
+                    help="the model's Verilator threads (default: the shape's, st 1, board and smp4 4); 1 keeps its pace "
+                         "on a loaded host, where four threads stall at their barriers")
     ap.add_argument("--jobs", type=int, default=8, help="make jobs for the builds")
     ap.add_argument("--boot-fw", default="", help="another fw_jump.bin than the pinned reference")
     ap.add_argument("--boot-kernel", default="", help="another Image than the pinned reference")
