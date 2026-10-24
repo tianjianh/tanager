@@ -340,6 +340,9 @@ if {$pr_unc > 0} {
   }
 }
 if {$ckpt} { stamp "write_checkpoint post_opt"; write_checkpoint -force ./post_opt.dcp }
+# spikes-2's measurement copy only: TG_STOP_AFTER_OPT=1 ends the build here, after opt_design's utilization (and
+# post_opt.dcp with TG_CHECKPOINT=1, the placement uncertainty already set), for a netlist's size alone
+if {[info exists ::env(TG_STOP_AFTER_OPT)] && $::env(TG_STOP_AFTER_OPT) eq "1"} { stamp "done (opt)"; exit 0 }
 if {$incr_dcp ne ""} {
   config_implementation {incr.ignoreUserClockUncertainty 1}
   stamp "read_checkpoint -incremental ($incr_dir) $incr_dcp"
