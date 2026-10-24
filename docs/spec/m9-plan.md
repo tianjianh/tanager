@@ -2,8 +2,8 @@
 
 Status: approved by the user on 2026-10-23 as recommended below (DR-190), including Sscofpmf up to 1.4K LUTs a chip
 and the debug module in development builds only. With smt2-study's numbers (§5, §6), the coordinator ruled under
-DR-154 (01e2c013): M9 builds the 256-entry path table, and the 16-entry load-wait table waits until after v1, with
-store sets (the user) — fpu-2 (for the coordinator)
+DR-154 (01e2c013): M9 builds the 256-entry path table. The user put the 16-entry load-wait table in M9 (10-23 19:30,
+DR-190's addendum); full store sets wait until after v1 — fpu-2 (for the coordinator)
 
 ## Purpose
 M9's row in the plan (architecture_plan.md §11) reads "Sscofpmf/perf, Svpbmt, Zicbo*, misaligned hardware, store sets,
@@ -37,7 +37,7 @@ A recommendation follows: what M9 builds and in what order, what waits for v2, a
 | Zicboz | cbo.* illegal | faster page zeroing in the kernel | 0.8–1.6K | medium | measure first; v1.x if clear_page matters |
 | Zicbop | hints run as no-ops | nothing (6.12 has no Zicbop support) | 0 as now | — | nothing to build |
 | Misaligned hardware | traps, OpenSBI emulates | rare in Debian (0 in smt2-study's 49 programs) | 1.6–3.0K | high | v2 [user]; count on the board first |
-| Store sets | replay on violation | ≤ 0.08% of the boot; a 16-entry load-wait table +0.58% on the suite (Dhrystone +4.7%) | 0.1–0.3K (wait table); 1.2–2.0K (full) | medium | after v1 (the user): the wait table and full store sets |
+| Store sets | replay on violation | ≤ 0.08% of the boot; a 16-entry load-wait table +0.58% on the suite (Dhrystone +4.7%) | 0.1–0.3K (wait table); 1.2–2.0K (full) | medium | **M9: the wait table** (the user, 10-23); full store sets after v1 |
 | Indirect predictor | 64-entry micro-BTB | interpreters +47–98%, the suite +0.20% (smt2-study); the boot to measure | 0.2K + 2 BRAM | medium | **M9**: the 256-entry path table (the coordinator, 01e2c013) |
 | virtio-net | stage C (development) | product uses GEM3 with Debian's `macb` | 0 | — | done; document |
 | Debug module + OpenOCD | absent | halt, step, registers, memory over JTAG | 1.5–2.5K | low–medium | **M9**, development builds only [user] |
@@ -192,8 +192,8 @@ A recommendation follows: what M9 builds and in what order, what waits for v2, a
     store sets.
   - It is a benchmark gain (Dhrystone, sglib), not a Linux one.
 - **Timing risk:** medium. Load issue gains a wait condition on the LSU's near-critical families.
-- **Decided:** the load-wait table and full store sets wait until after v1 (the user, with DR-190; the coordinator
-  offered the wait table for M9 if they want it).
+- **Decided:** the 16-entry load-wait table is in M9 (the user, 10-23 19:30, DR-190's addendum), built by core-2 after
+  its timing fixes (DR-191), behind a switch; full store sets wait until after v1.
 
 ## 6. Indirect-target predictor
 - **Today:**
