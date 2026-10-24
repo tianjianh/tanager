@@ -13,12 +13,13 @@
 // Training (commit, in order): a queue of requests, each with its block's FTQ entry and the
 // branch's slot, outcome and fetch-time direction. The head's indices and tags, which the FTQ kept
 // from fetch, are read from it as the request leaves the queue (the FTQ frees no entry the queue
-// still names). Port B of each memory reads the entries (T1) and writes them back updated (T2),
-// one request every two cycles; a full queue drops a request. The update: the provider's counter moves toward the
-// outcome; its useful bits move when its direction differed from the next match's (or the
-// base's); without a provider the base counter moves. A wrong fetch-time direction allocates one
-// sub-entry in a longer table than the provider (the shortest with a candidate: an invalid way first,
-// else one not useful; way 0 before way 1), else every candidate's useful bits age.
+// still names). Port B of each memory reads the entries (T1), registers them (T2) and writes them
+// back updated (T3), one request every two cycles; a full queue drops a request. The update: the
+// provider's counter moves toward the outcome; its useful bits move when its direction differed
+// from the next match's (or the base's); without a provider the base counter moves. A wrong
+// fetch-time direction allocates one sub-entry in a longer table than the provider (the shortest
+// with a candidate: an invalid way first, else one not useful; way 0 before way 1), else every
+// candidate's useful bits age.
 module tg_tage
   import tg_pkg::*;
 #(
@@ -138,14 +139,18 @@ module tg_tage
   } t2_t;
   treq_t [QN-1:0] q_q;
   logic [idx_w(QN+1)-1:0] qn_q;
-  t2_t            t2_q;                    // T2: the request whose entries T1 read
-  logic           t2_v_q;
+  // Port B (spikes.md §8.18, fix 5: the read data registered before the update): a read takes a cycle without a
+  // write, so two requests read back to back go R R W W, one request every two cycles as before. The second's T2
+  // register takes the first's write data where they share an entry (it was read before that write).
+  t2_t            t2_q, t3_q;              // T2: the request whose entries T1 read; T3: the request written back
+  logic           t2_v_q, t3_v_q;
   logic           deq;                     // T1: port B reads the head request's entries
-  assign deq = qn_q != '0 && !t2_v_q;      // (not while T2 writes)
+  assign deq = qn_q != '0 && !t3_v_q;      // (not while T3 writes)
   always_ff @(posedge clk) begin
     if (rst) begin
       qn_q   <= '0;
       t2_v_q <= 1'b0;
+      t3_v_q <= 1'b0;
     end else begin
       int n;
       treq_t [QN-1:0] q;
@@ -163,8 +168,10 @@ module tg_tage
       q_q    <= q;
       qn_q   <= (idx_w(QN+1))'(n);
       t2_v_q <= deq;
+      t3_v_q <= t2_v_q;
     end
     if (deq) t2_q <= '{ix: q_ix, slot: q_q[0].slot, taken: q_q[0].taken, pred: q_q[0].pred};
+    if (t2_v_q) t3_q <= t2_q;
   end
   assign q_v   = qn_q != '0;
   assign q_ftq = q_q[0].ftq;
@@ -174,29 +181,34 @@ module tg_tage
   assign q_n = 3'(qn_q);
 
   // ---- Memories: port A predicts, port B trains ----
-  ent_t [NT-1:0]        ra, rb, wb;
-  logic [NP-1:0][1:0]   bra, brb, bwb;
+  ent_t [NT-1:0]        ra, rb, rb_q, wb;
+  logic [NP-1:0][1:0]   bra, brb, brb_q, bwb;
   logic                 b_en, b_we;
-  assign b_en = deq || t2_v_q;
-  assign b_we = t2_v_q;
+  assign b_en = deq || t3_v_q;
+  assign b_we = t3_v_q;
   for (genvar t = 0; t < NT; t++) begin : g_tab
     logic [EW-1:0] da, db;
     // (F, spikes.md §7.1: no depth cascade, the two RAMB36 side by side: 1.19 ns clock-to-out, not 1.73)
     tg_ram_tdp #(.DEPTH(1 << LI), .WIDTH(EW), .CASCADE_HEIGHT(1)) u_mem (
       .clk, .en_a(re), .we_a(1'b0), .addr_a(ix_idx(ix_f1, t)), .wdata_a('0), .rdata_a(da),
-      .en_b(b_en), .we_b(b_we), .addr_b(t2_v_q ? ix_idx(t2_q.ix, t) : ix_idx(q_ix, t)),
+      .en_b(b_en), .we_b(b_we), .addr_b(t3_v_q ? ix_idx(t3_q.ix, t) : ix_idx(q_ix, t)),
       .wdata_b(wb[t]), .rdata_b(db));
     assign ra[t] = ent_t'(da);
     assign rb[t] = ent_t'(db);
+    // T2: the entry as read, or as T3 writes it this cycle where T2's read came before that write
+    always_ff @(posedge clk)
+      if (t2_v_q) rb_q[t] <= (t3_v_q && ix_idx(t3_q.ix, t) == ix_idx(t2_q.ix, t)) ? wb[t] : rb[t];
   end
   begin : g_base
     logic [2*NP-1:0] da, db;
     tg_ram_tdp #(.DEPTH(1 << BI), .WIDTH(2 * NP)) u_mem (
       .clk, .en_a(re), .we_a(1'b0), .addr_a(ix_f1[IXW-1 -: BI]), .wdata_a('0), .rdata_a(da),
-      .en_b(b_en), .we_b(b_we), .addr_b(t2_v_q ? t2_q.ix[IXW-1 -: BI] : q_ix[IXW-1 -: BI]),
+      .en_b(b_en), .we_b(b_we), .addr_b(t3_v_q ? t3_q.ix[IXW-1 -: BI] : q_ix[IXW-1 -: BI]),
       .wdata_b(bwb), .rdata_b(db));
     assign bra = da;
     assign brb = db;
+    always_ff @(posedge clk)
+      if (t2_v_q) brb_q <= (t3_v_q && t3_q.ix[IXW-1 -: BI] == t2_q.ix[IXW-1 -: BI]) ? bwb : brb;
   end
 
   // ---- F2: each slot's direction ----
@@ -248,48 +260,48 @@ module tg_tage
   end
 `endif
 
-  // ---- T2: the update ----
+  // ---- T3: the update, from T2's registered entries ----
   always_comb begin
     int  pt, pw, at, aw, nw;
     logic pdir, adir, done;
     logic [SW-1:0] s;
     done = 1'b0;
-    s  = t2_q.slot;
-    wb = rb;
-    bwb = brb;
+    s  = t3_q.slot;
+    wb = rb_q;
+    bwb = brb_q;
     pt = -1; pw = 0; at = -1; aw = 0; nw = -1;
     for (int t = NT - 1; t >= 0; t--)
       for (int w = 0; w < 2; w++)
-        if (rb[t][w].v && rb[t][w].tag == ix_tag(t2_q.ix, t) && rb[t][w].slot == s) begin
+        if (rb_q[t][w].v && rb_q[t][w].tag == ix_tag(t3_q.ix, t) && rb_q[t][w].slot == s) begin
           if (pt < 0) begin pt = t; pw = w; end
           else if (at < 0 && t < pt) begin at = t; aw = w; end
         end
-    adir = (at >= 0) ? rb[at][aw].ctr[2] : brb[s][1];
-    pdir = (pt >= 0) ? rb[pt][pw].ctr[2] : adir;
+    adir = (at >= 0) ? rb_q[at][aw].ctr[2] : brb_q[s][1];
+    pdir = (pt >= 0) ? rb_q[pt][pw].ctr[2] : adir;
     if (pt >= 0) begin
-      if (t2_q.taken && rb[pt][pw].ctr != 3'd7) wb[pt][pw].ctr = rb[pt][pw].ctr + 1'b1;
-      if (!t2_q.taken && rb[pt][pw].ctr != 3'd0) wb[pt][pw].ctr = rb[pt][pw].ctr - 1'b1;
+      if (t3_q.taken && rb_q[pt][pw].ctr != 3'd7) wb[pt][pw].ctr = rb_q[pt][pw].ctr + 1'b1;
+      if (!t3_q.taken && rb_q[pt][pw].ctr != 3'd0) wb[pt][pw].ctr = rb_q[pt][pw].ctr - 1'b1;
       if (pdir != adir) begin
-        if (pdir == t2_q.taken && rb[pt][pw].u != 2'd3) wb[pt][pw].u = rb[pt][pw].u + 1'b1;
-        if (pdir != t2_q.taken && rb[pt][pw].u != 2'd0) wb[pt][pw].u = rb[pt][pw].u - 1'b1;
+        if (pdir == t3_q.taken && rb_q[pt][pw].u != 2'd3) wb[pt][pw].u = rb_q[pt][pw].u + 1'b1;
+        if (pdir != t3_q.taken && rb_q[pt][pw].u != 2'd0) wb[pt][pw].u = rb_q[pt][pw].u - 1'b1;
       end
     end else begin
-      if (t2_q.taken && brb[s] != 2'd3) bwb[s] = brb[s] + 1'b1;
-      if (!t2_q.taken && brb[s] != 2'd0) bwb[s] = brb[s] - 1'b1;
+      if (t3_q.taken && brb_q[s] != 2'd3) bwb[s] = brb_q[s] + 1'b1;
+      if (!t3_q.taken && brb_q[s] != 2'd0) bwb[s] = brb_q[s] - 1'b1;
     end
-    if (t2_q.pred != t2_q.taken && pt < NT - 1) begin
+    if (t3_q.pred != t3_q.taken && pt < NT - 1) begin
       // An invalid way before a not-useful one: taking way 0 whenever it was either, two branches sharing an entry
       // evicted each other's fresh way-0 sub-entry for ever while way 1 stayed invalid (ud's loop exits; smt2-study,
       // area_recovery §6.16)
       for (int t = 0; t < NT; t++)
         if (t > pt && !done) begin
-          if      (!rb[t][0].v)        nw = 0;
-          else if (!rb[t][1].v)        nw = 1;
-          else if (rb[t][0].u == 2'd0) nw = 0;
-          else if (rb[t][1].u == 2'd0) nw = 1;
+          if      (!rb_q[t][0].v)        nw = 0;
+          else if (!rb_q[t][1].v)        nw = 1;
+          else if (rb_q[t][0].u == 2'd0) nw = 0;
+          else if (rb_q[t][1].u == 2'd0) nw = 1;
           else                         nw = -1;
           if (nw >= 0) begin
-            wb[t][nw] = '{v: 1'b1, slot: s, tag: ix_tag(t2_q.ix, t), ctr: t2_q.taken ? 3'd4 : 3'd3, u: 2'd0};
+            wb[t][nw] = '{v: 1'b1, slot: s, tag: ix_tag(t3_q.ix, t), ctr: t3_q.taken ? 3'd4 : 3'd3, u: 2'd0};
             done = 1'b1;
           end
         end
@@ -297,11 +309,43 @@ module tg_tage
         for (int t = 0; t < NT; t++)
           if (t > pt)
             for (int w = 0; w < 2; w++)
-              if (rb[t][w].u != 2'd0) wb[t][w].u = rb[t][w].u - 1'b1;
+              if (rb_q[t][w].u != 2'd0) wb[t][w].u = rb_q[t][w].u - 1'b1;
     end
   end
 
 `ifndef SYNTHESIS
   initial if (NT < 1 || NT > 4) $error("tg_tage: one to four tagged tables");
+  // T3 updates the entries as they are now, as a read in T3 would return them: the pair's second read came before the
+  // first's write, which T2's register then takes. Checked from the first reset (the queue's registers are random
+  // before it)
+  logic rs_q;
+  initial rs_q = 1'b0;
+  always @(posedge clk) if (rst) rs_q <= 1'b1;
+  for (genvar t = 0; t < NT; t++) begin : g_chk
+    always_ff @(posedge clk)
+      if (rs_q && !rst && t3_v_q)
+        assert (rb_q[t] == ent_t'(g_tab[t].u_mem.mem[ix_idx(t3_q.ix, t)]))
+          else $error("tg_tage: T3's entry of table %0d is not the memory's", t);
+  end
+  always_ff @(posedge clk)
+    if (rs_q && !rst && t3_v_q)
+      assert (brb_q == g_base.u_mem.mem[t3_q.ix[IXW-1 -: BI]])
+        else $error("tg_tage: T3's base entry is not the memory's");
+  // +tage_stats: requests offered and trained, reads back to back, and the T2 registers that took T3's write data
+  longint n_off, n_trn, n_pair, n_byp;
+  initial begin n_off = 0; n_trn = 0; n_pair = 0; n_byp = 0; end
+  always @(posedge clk)
+    if (rs_q && !rst) begin
+      logic same;
+      same = t3_v_q && t3_q.ix[IXW-1 -: BI] == t2_q.ix[IXW-1 -: BI];
+      for (int t = 0; t < NT; t++) if (t3_v_q && ix_idx(t3_q.ix, t) == ix_idx(t2_q.ix, t)) same = 1'b1;
+      n_off  <= n_off + longint'($countones(t_v));
+      n_trn  <= n_trn + longint'(deq);
+      n_pair <= n_pair + longint'(deq && t2_v_q);
+      n_byp  <= n_byp + longint'(t2_v_q && same);
+    end
+  final if ($test$plusargs("tage_stats"))
+    $fwrite(32'h8000_0002, "TG-TAGE %m: %0d training requests, %0d trained, %0d read back to back, %0d took T3's write\n",
+            n_off, n_trn, n_pair, n_byp);
 `endif
 endmodule
