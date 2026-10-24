@@ -53,6 +53,12 @@ struct model_cfg_t {
   uint64_t uart_base = 0x10000000ull, uart_size = 0x1000;
   uint64_t clint_base = 0x02000000ull, clint_size = 0x10000;
   uint64_t sig_addr = 0x0C000004ull;  // simple interrupt generator (same register as Sail's)
+  // --dbg-win (a TG_DEBUG core; core-priv.md "Debug mode"): the debug window is memory the program's ELF fills, fetched
+  // by the L1I and read and written by mmio (the core lets only a hart in debug mode reach it), and a halt-request
+  // register beside the interrupt generator drives the core's debug_req_i (a bit per hart; 32-bit accesses)
+  bool dbg_win = false;
+  uint64_t dbg_base = 0x11000000ull, dbg_size = 0x10000;
+  uint64_t dbg_req_addr = 0x0C000008ull;   // (+4 reads 0x0DB6 with --dbg-win: a test's check that it runs with it)
   std::vector<std::pair<uint64_t, uint64_t>> dev_regions;  // every PMA_DEVICE region
   std::vector<std::pair<uint64_t, uint64_t>> deny;         // --deny ranges: answered with denied
   // Harts of this core and interrupts
@@ -223,6 +229,7 @@ class mmio_model_t {
   // lines are levels, for every hart of the core. Sail models the same register, so ACT4's
   // external-interrupt tests use it.
   uint32_t sig_lines = 0;
+  uint32_t dbg_req = 0;   // --dbg-win: the halt requests, a bit per hart
   uint64_t requests = 0;
   mmio_read_check_t reads;   // every read answered without error, for main.cpp's retirements
 
