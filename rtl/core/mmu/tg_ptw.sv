@@ -129,13 +129,21 @@ module tg_ptw
   localparam logic [PMP_GW-1:0] AL1G = PMP_GW'((64'd1 << 28) - 1);
   logic leaf_nh;
   assign chk_lvl = lvl_q;
+  // #13 (DR-191; spikes §8.18, fix 1): with PMP_FILL and LSU_CHK_REG the shared checker's answer (chk_ok, chk_hit,
+  // chk_rwx, chk_nh) comes the cycle after its grant, registered in the LSU: W_CHK and W_PMP wait for it (ckw_q) and
+  // ask no more meanwhile. Otherwise it comes in the granted cycle
+  localparam bit CKR = PMP_FILL && LSU_CHK_REG;
+  logic ckw_q, ck_ans;            // the walk's check was granted last cycle; the answer is here
+  assign ck_ans = CKR ? ckw_q : chk_gnt;
+  always_ff @(posedge clk)
+    ckw_q <= !rst && !wk && CKR && chk_gnt && chk_req_q && (st_q == W_CHK || st_q == W_PMP);
 `ifndef SYNTHESIS
   // The fills by leaf size (4K, 2M, 1G) and how many of them cache their PMP result, on stderr at
   // the end
   longint unsigned n_fill [3], n_fpc [3];
   always_ff @(posedge clk)
     if (rst) for (int i = 0; i < 3; i++) begin n_fill[i] <= 0; n_fpc[i] <= 0; end
-    else if (st_q == W_PMP && chk_gnt) begin
+    else if (st_q == W_PMP && ck_ans) begin
       n_fill[lvl_q] <= n_fill[lvl_q] + 1;
       if (!leaf_nh && !leaf_q.big) n_fpc[lvl_q] <= n_fpc[lvl_q] + 1;
     end
@@ -225,9 +233,9 @@ module tg_ptw
         W_CHK: begin
           if (!va_canon(va_q)) begin
             ok_q <= 1'b0; cause_q <= pf_cause(acc_q); st_q <= W_DONE;
-          end else if (chk_gnt && !pa_ok) begin
+          end else if (ck_ans && !pa_ok) begin
             ok_q <= 1'b0; cause_q <= af_cause(acc_q); st_q <= W_DONE;
-          end else if (chk_gnt) begin
+          end else if (ck_ans) begin
             st_q <= W_REQ;
           end
         end
@@ -253,7 +261,7 @@ module tg_ptw
           end
         end
         W_MISS: if (mshr_idle) st_q <= W_REQ;
-        W_PMP: if (chk_gnt) begin                  // the page's PMP result, for S and U
+        W_PMP: if (ck_ans) begin                   // the page's PMP result, for S and U
           leaf_q.ph <= !leaf_nh && !leaf_q.big;
           {leaf_q.pr, leaf_q.pw, leaf_q.px} <= chk_hit ? chk_rwx : 3'b000;
           st_q <= W_DONE;
@@ -276,7 +284,7 @@ module tg_ptw
         W_IDLE:  chk_req_q <= |(ack & req_cn);
         W_CHK:   chk_req_q <= chk_req_q && !chk_gnt;
         W_WAIT:  chk_req_q <= pt_rsp && pt_hit && !flt;
-        W_PMP:   chk_req_q <= !chk_gnt;
+        W_PMP:   chk_req_q <= CKR ? chk_req_q && !chk_gnt : !chk_gnt;
         default: chk_req_q <= 1'b0;
       endcase
     end
@@ -292,7 +300,7 @@ module tg_ptw
   always @(posedge clk) if (rst) rs_q <= 1'b1;
   always_ff @(posedge clk) begin
     if (rs_q && !rst)
-      assert (chk_req_q == ((st_q == W_CHK && va_canon(va_q)) || st_q == W_PMP) &&
+      assert (chk_req_q == (((st_q == W_CHK && va_canon(va_q)) || st_q == W_PMP) && !ckw_q) &&
               (!chk_req_q || chk_pa_q == ((st_q == W_PMP) ? {leaf_q.ppn, 12'b0} : pte_pa[PA_W-1:0])))
         else $error("tg_ptw: the registered check request or address differs from the walk's state");
   end

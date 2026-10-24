@@ -1,0 +1,10 @@
+== fix_f1_7895f450 against fix_b1_54762e74: WNS +0.698 (+0.381), LUTs 51450 (-176), FFs 23662 (+163)
+family                    slack    levels      logic ns        net ns  start of the fix's worst
+lq_st_q         +0.317->+1.008  20->19   2.36->2.18  7.01->6.65  u_is/g_q[4].u_iq/g_late.grant_q_reg[5]/C
+r_data_q        +1.479->+1.681  17->14   2.02->2.03  6.15->6.04  u_lsu/m2_foh_q_reg[11]/C
+lx_valid_q      +1.019->+1.933  18->13   2.16->2.23  6.63->5.62  u_lsu/sqh_q_reg[pa][6]/C
+m2_foh_q        +1.272->+1.214  20->18   2.52->2.32  6.14->6.30  u_lsu/m1_t_q_reg[0]/C
+chk_pa_q        +2.349->+2.785  14->12   1.81->1.79  5.70->5.27  u_rob/ct_q_reg[0]/C
+ival_ram        +0.814->+1.040  24->24   3.11->2.88  5.85->5.81  u_fetch/k_miss_q_reg/C
+tage            +2.567->+1.875  13->13   3.23->3.37  3.49->3.91  u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_1/CLKARDCLK
+lq_st_q_sn      +0.746->+3.852  19->9    2.13->1.48  6.96->4.52  u_lsu/g_split.sn_v_q_reg/C
