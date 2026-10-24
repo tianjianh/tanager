@@ -17,7 +17,8 @@
      flush_pc between the other's bad redirect and its trap.
    A bad mtvec isn't tested: its fault re-enters it. A step into a bad pc and dret to one are in debug.S. Lockstep
    checks each record against Spike. Without S mode only the M parts and the two-hart part run; without C, no
-   straddlers. A failed check's code is the case number (s9). Added by the core track. */
+   straddlers. A failed check's code is the case number (s9); a stray trap's is 100 more in S and 200 in M. Added by
+   the core track. */
 #include "tg_test.h"
   .option norelax
 #define ROOT 0x80100000                 /* the page tables: the root, then a level-1 and a level-0 table per edge */
@@ -33,7 +34,8 @@
 #define LEAF 0x4B                       /* V, R, X, A: S code */
 #define SATP_SV39 (0x8000000000000000 | (ROOT >> 12))
 
-/* s9: the case; a5/a6/a7: the last trap's mepc/mcause/mtval (a6 = -1: none); t5, t6: the checks and the handler */
+/* s9: the case; s10: misa (S can't read it); a5/a6/a7: the last trap's mepc/mcause/mtval (a6 = -1: none); t5, t6: the
+   checks and the handler */
 #define CASE(n) li s9, n
 #define FAR_NE(a, b) beq a, b, 7f; j fail; 7:
 #define EXPECT(c, v) li t5, c; FAR_NE(a6, t5); li t5, v; FAR_NE(a5, t5); FAR_NE(a7, t5); li a6, -1
@@ -61,6 +63,7 @@ _start:
   la t0, trap
   csrw mtvec, t0
   li a6, -1
+  csrr s10, misa
 
   /* 1. M, Bare: a JALR above the physical address space */
   CASE(1)
@@ -98,9 +101,8 @@ _start:
   MRET_TO(0x0000000400000000)
   EXPECT(1, 0x0000000400000000)
 
-  csrr t0, misa
   li t1, 1 << 18                       /* S */
-  and t0, t0, t1
+  and t0, s10, t1
   beqz t0, two_harts
   /* Page tables: zero nine pages, then the entries */
   li t0, ROOT
@@ -156,6 +158,8 @@ _start:
   csrw medeleg, t0                     /* illegal instructions to S */
   li t0, 1 << 1
   csrw mideleg, t0                     /* SSI to S */
+  la t0, s_stray
+  csrw stvec, t0
   li t0, SATP_SV39
   csrw satp, t0
   sfence.vma
@@ -205,6 +209,8 @@ s_main:
   .word 0                              /* illegal: to S at stvec, whose fetch faults */
 1:
   EXPECT(12, 0x0000004000000000)
+  la t1, s_stray
+  csrw stvec, t1
   CASE(30)
   li t1, 0x0000003FFFFFFFFD            /* base 0x3F_FFFF_FFFC, vectored: SSI goes to base + 4 */
   csrw stvec, t1
@@ -217,6 +223,8 @@ s_main:
   csrci sip, 2
   csrci sie, 2
   EXPECT(12, 0x0000004000000000)
+  la t1, s_stray
+  csrw stvec, t1
 
   /* 5. The edges of Sv39's range */
   li s0, L0A + 511 * 8                 /* the leaf for VA 0x3F_FFFF_F000 */
@@ -243,8 +251,7 @@ s_main:
   JUMP(0x0000003FFFFFFFF8)
   EXPECT(12, 0x0000004000000000)
   IS(a3, 0x0000004000000000)
-  csrr t0, misa
-  andi t0, t0, 4                       /* C */
+  andi t0, s10, 4                      /* C */
   beqz t0, 2f
   la t0, epage3
   PAGE(s0, t0)
@@ -276,8 +283,7 @@ s_main:
   NONE
   IS(a4, 0x10)
   IS(a2, 0xFFFFFFFFFFFFFFE4)
-  csrr t0, misa
-  andi t0, t0, 4
+  andi t0, s10, 4
   beqz t0, 2f
   CASE(49)                             /* the straddler at 0xFFFF_FFFF_FFFF_FFFE, its second half at 0 */
   li a0, 5
@@ -310,6 +316,8 @@ s_main:
   .word 0
 1:
   EXPECT(1, 0x0000000400000000)
+  la t1, s_stray
+  csrw stvec, t1
   CASE(54)
   li t1, 0x8000000000000001            /* vectored: SSI goes to 0x8000_0000_0000_0004 */
   csrw stvec, t1
@@ -322,6 +330,8 @@ s_main:
   csrci sip, 2
   csrci sie, 2
   EXPECT(1, 0x8000000000000004)
+  la t1, s_stray
+  csrw stvec, t1
   ecall                                /* to M at s11 */
 
 m_after_s:
@@ -449,7 +459,7 @@ bad_loop:
   jr s7
 
 /* M handler: record the trap. A fetch fault (access or page) continues at ra in the mode it came from; an ECALL from
-   S continues in M at s11; anything else (unexpected) skips the instruction. */
+   S continues in M at s11; anything else fails (code 200 + the case). S's stray handler fails with 100 + the case. */
   .align 2
 trap:
   csrr a5, mepc
@@ -461,9 +471,8 @@ trap:
   beq a6, t6, 3f
   li t6, 9
   beq a6, t6, 2f
-  addi t6, a5, 4
-  csrw mepc, t6
-  mret
+  addi s9, s9, 200
+  j fail
 2:
   li t6, 0x1800
   csrs mstatus, t6                     /* MPP = M */
@@ -472,6 +481,10 @@ trap:
 3:
   csrw mepc, ra
   mret
+  .align 2
+s_stray:
+  addi s9, s9, 100
+  j fail
 
 /* ---- The edge pages (S code at the VAs the tests map) ---- */
   .balign 4096
