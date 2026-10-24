@@ -9,7 +9,8 @@
 // carry chain), so it doesn't wait for the PC's own decrement (a straddler's) (timing). AUIPC's
 // is added here, from the raw encoding's immediate (`raw`: an AUIPC is never compressed), so the
 // add does not wait for the RVC expander (timing); the link value and the target come in (`link`,
-// `tgt`): the decode stage adds them once, for its own next PC and redirect too (area).
+// `tgt`): the decode stage adds them once, for its own next PC and redirect too (area). The PC is a pc40
+// (core-pipeline.md §8.6): the adds run at 40 bits, and AUIPC's value and the link leave sign-extended.
 // `raw` is the whole word, not just the immediate's bits: with a slice of the queue's word there,
 // the lint's dataflow pass merges it with the uop's copy of that word in tg_decode_stage and
 // reports a false combinational loop through `d` (UNOPTFLAT in make lint SYNTH=1).
@@ -24,11 +25,11 @@ module tg_decode
 )
 (
   input  logic [3:0]  pc_lo,      // the PC's low bits (none of its own adds need the rest)
-  input  logic [63:4] blk,        // pc = {blk, 4'b0} + off: off = pc_lo, or -2 when strad
+  input  logic [39:4] blk,        // pc = {blk, 4'b0} + off: off = pc_lo, or -2 when strad (pc40)
   input  logic        strad,
   input  logic [31:0] insn,       // 32-bit encoding (a compressed one already expanded)
-  input  logic [63:0] link,       // pc + 2 or 4
-  input  logic [63:0] tgt,        // pc + the JAL's or branch's offset
+  input  logic [63:0] link,       // pc + 2 or 4 (sign-extended from pc40)
+  input  pc40_t       tgt,        // pc + the JAL's or branch's offset
   input  logic [31:0] raw,        // the raw encoding (an AUIPC's immediate is read from it)
   input  logic        pre_ill,    // illegal before decode (a compressed encoding without C)
   input  logic        fault,      // fetch fault at pc: access, or page (fault_pf)
@@ -72,9 +73,9 @@ module tg_decode
   assign imm_u = {{32{insn[31]}}, insn[31:12], 12'b0};
   logic unused_raw;                       // the whole word comes in; AUIPC reads its immediate
   assign unused_raw = ^raw[11:0];
-  logic [63:0] pbase, poff;
+  pc40_t pbase, poff;
   assign pbase = {blk, 4'b0};
-  assign poff  = strad ? 64'hFFFF_FFFF_FFFF_FFFE : {60'b0, pc_lo};
+  assign poff  = strad ? 40'hFF_FFFF_FFFE : {36'b0, pc_lo};
 
   function automatic alu_ctl_t ctl(input logic [2:0] grp);
     alu_ctl_t c;
@@ -107,7 +108,7 @@ module tg_decode
           d.rd_en = 1'b1; d.alu = ctl(3'(G_PASSB)); d.b_imm = 1'b1; d.imm = imm_u;
         end
         7'b0010111: begin                                  // AUIPC
-          d.rd_en = 1'b1; d.alu = ctl(3'(G_PASSB)); d.b_imm = 1'b1; d.imm = pbase + poff + {{32{raw[31]}}, raw[31:12], 12'b0};
+          d.rd_en = 1'b1; d.alu = ctl(3'(G_PASSB)); d.b_imm = 1'b1; d.imm = pc40_sx(pbase + poff + {{8{raw[31]}}, raw[31:12], 12'b0});
         end
         7'b1101111: begin                                  // JAL
           d.cls = C_BR; d.br_kind = BR_JAL; d.rd_en = 1'b1;

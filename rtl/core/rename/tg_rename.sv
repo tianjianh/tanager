@@ -219,10 +219,10 @@ module tg_rename
   // in cycle c is written at the end of c + 1, while DS reads it at c + 2 at the earliest. The RN and DS registers keep
   // the fields rename reads and the row (rn_s_q, ds_s_q). ds_full is DS's group whole.
   typedef struct packed {
-    logic [63:0]     pc;
+    pc40_t           pc;
     logic [31:0]     insn;
     logic            rvc;
-    logic [63:0]     pred_npc;
+    pc40_t           pred_npc;
     logic            ubtb_hit, ubtb_way, dfix, ptk;
     logic [FTQW-1:0] ftq;
     tg_alu_pkg::alu_ctl_t alu;
@@ -230,7 +230,7 @@ module tg_rename
     logic [63:0]     imm;
     br_kind_e        br_kind;
     logic [2:0]      br_f3;
-    logic [63:0]     br_target;
+    pc40_t           br_target;
     logic [11:0]     jalr_off;
     logic [1:0]      mem_size;
     logic            mem_uns;

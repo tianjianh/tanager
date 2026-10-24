@@ -39,12 +39,12 @@ module tg_fetch
   // Redirects, registered upstream: flush (commit) has priority over dred (decode); each of one thread (M7)
   input  logic        flush,
   input  tid_t        flush_tid,
-  input  logic [63:0] flush_pc,
+  input  pc40_t       flush_pc,
   input  logic        fl_slp,         // with hart 1 (step 6): the flush follows a WFI gone to sleep (tg_rob)
   input  logic        icinv,          // FENCE.I, together with flush
   input  logic        dred,
   input  tid_t        dred_tid,
-  input  logic [63:0] dred_pc,
+  input  pc40_t       dred_pc,
   input  logic [FTQW-1:0]   dred_ftq,   // TAGE_ON: dred's instruction's FTQ entry and last slot,
   input  logic [SLOT_W-1:0] dred_slot,
   input  logic [1:0]        dred_rop,   // ... its own stack operation and link (RAS_FE)
@@ -1269,7 +1269,7 @@ module tg_fetch
       fl_s[t]     = flush && strm(flush_tid) == 1'(t);
       dr_s[t]     = dred && strm(dred_tid) == 1'(t) && !fl_s[t];
       red_s[t]    = fl_s[t] || dr_s[t];
-      red_pc_s[t] = fl_s[t] ? pc40_of(flush_pc) : pc40_of(dred_pc);   // (a bad full value: {~v[38], v[38:0]})
+      red_pc_s[t] = fl_s[t] ? flush_pc : dred_pc;   // (the ROB marks a bad full value: {~v[38], v[38:0]})
     end
   logic [NUM_THREADS-1:0] red_q;                    // the queues the redirects empty (by stream)
   assign red_q = NUM_THREADS'(red_s);
@@ -1695,7 +1695,7 @@ module tg_fetch
             if (pj_v_q[t]) begin
               cph_n[t] = padd(cph_n[t][PW-5:0], flush_pc[17:2]);
               // (not to a bad target: the table's entries are Sv39 addresses, DR-195)
-              if (!wr && !pc40_bad(pc40_of(flush_pc))) begin wr = 1'b1; wri = pj_r_q[t]; wsl = pj_s_q[t]; wu = pj_u_q[t]; end
+              if (!wr && !pc40_bad(flush_pc)) begin wr = 1'b1; wri = pj_r_q[t]; wsl = pj_s_q[t]; wu = pj_u_q[t]; end
             end
             pjn_v[t] = 1'b0;
           end else if (cs == 1'(t)) begin
@@ -2487,8 +2487,8 @@ module tg_fetch
     assign iq_valid[j] = cq_valid[j];
     always_comb begin
       iq_insn[j]             = '0;
-      iq_insn[j].pc          = pc40_sx(pc);
-      iq_insn[j].blk         = {{24{m.base[39]}}, m.base};
+      iq_insn[j].pc          = pc;
+      iq_insn[j].blk         = m.base;
       iq_insn[j].strad       = strad;
       iq_insn[j].insn        = rvc ? {16'b0, lo} : {hi, lo};
       iq_insn[j].rvc         = rvc;
@@ -2496,7 +2496,7 @@ module tg_fetch
       iq_insn[j].fault_pf    = m.fpf;
       iq_insn[j].fault_hi    = m.fault && (strad || m.fhi);
       iq_insn[j].pred_taken  = exit_here;
-      iq_insn[j].pred_target = pc40_sx(m.target);
+      iq_insn[j].pred_target = m.target;
       iq_insn[j].pred_bogus  = 1'b0;
       iq_insn[j].ubtb_hit    = u_here;
       iq_insn[j].ubtb_way    = m.way;

@@ -37,7 +37,8 @@ module tb_fetch
   logic        ready, flush, icinv, dred, upd_valid, upd_way, upd_inval, pmp_busy, tlb_flush, it_fill;
   tid_t        flush_tid, dred_tid, d_flush_tid, d_dred_tid, c_tid, ras_tid, upd_tid, tlb_flush_tid, it_fill_tid, iw_tid;
   logic [NUM_THREADS-1:0] hpm_imiss;           // (M9's counter event: not checked here)
-  logic [63:0] flush_pc, dred_pc, upd_pc, upd_target, iw_va;
+  pc40_t       flush_pc, dred_pc;          // the redirects are pc40s (core-pipeline.md §8.6)
+  logic [63:0] upd_pc, upd_target, iw_va;
   logic [FTQW-1:0]   dred_ftq, c_hftq;
   logic [SLOT_W-1:0] dred_slot, upd_slot;
   logic [1:0]        dred_rop;
@@ -193,18 +194,18 @@ module tb_fetch
       pending_dred = dred;
       if (pending_dred) begin
         ndred++;
-        exp_pc[dred_tid] = dred_pc;
+        exp_pc[dred_tid] = pc40_sx(dred_pc);
       end
       // a flush (hart 1 starts with its first); sometimes with FENCE.I; sometimes beside the decode redirect
       flush = 0; icinv = 0;
       if (cyc == 40 || $urandom_range(0, 199) == 0 || (pending_dred && cyc > 40 && $urandom_range(0, 4) == 0)) begin
         // (beside a decode redirect, mostly the other thread's: both apply in one cycle)
         ft = (cyc == 40) ? 1 : (pending_dred && $urandom_range(0, 3) != 0) ? 1 - int'(dred_tid) : $urandom_range(0, NT - 1);
-        flush = 1; flush_tid = tid_t'(ft); flush_pc = rand_target(); icinv = $urandom_range(0, 19) == 0;
+        flush = 1; flush_tid = tid_t'(ft); flush_pc = pc40_of(rand_target()); icinv = $urandom_range(0, 19) == 0;
         nflush++; nicinv += int'(icinv);
         if (pending_dred && int'(dred_tid) != ft) nboth++;
         if (pending_dred && int'(dred_tid) == ft) ndred--;      // (the flush wins for its own stream)
-        live[ft] = 1; exp_pc[ft] = flush_pc;
+        live[ft] = 1; exp_pc[ft] = pc40_sx(flush_pc);
         rt[ft].delete();                                          // its unretired instructions are squashed
       end
       // decode: nothing in a redirect's cycle; else a random count of the presented thread's head
@@ -240,7 +241,7 @@ module tb_fetch
         logic [31:0] w;
         bit          wide;
         dt = int'(iq_insn[j].tid);
-        p  = iq_insn[j].pc;
+        p  = pc40_sx(iq_insn[j].pc);
         wide = hw(p)[1:0] == 2'b11;
         w  = wide ? {hw(p + 2), hw(p)} : {16'b0, hw(p)};
 `ifdef TB_TRACE
@@ -270,7 +271,7 @@ module tb_fetch
       dred = 0;
       for (int u = 0; u < NT; u++)
         if (took[u] && !(flush && int'(flush_tid) == u) && !dred && $urandom_range(0, 99) < 2) begin
-          dred = 1; dred_tid = tid_t'(u); dred_pc = rand_target(); dred_ftq = last_ftq[u]; dred_slot = last_slot[u];
+          dred = 1; dred_tid = tid_t'(u); dred_pc = pc40_of(rand_target()); dred_ftq = last_ftq[u]; dred_slot = last_slot[u];
           // the redirecting instruction stays; the queue's later ones go (exp_pc set when it applies)
         end
     end

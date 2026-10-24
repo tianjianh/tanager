@@ -669,7 +669,7 @@ package tg_core_pkg;
   function automatic logic pc40_bad(input pc40_t p);
     return p[39] != p[38];
   endfunction
-  // The full value, except for a bad redirect's fault block (the ROB keeps that value: bpc_q)
+  // The full value, except for a bad redirect's fault block (the ROB keeps its bits 63:39: bpc_q)
   function automatic logic [63:0] pc40_sx(input pc40_t p);
     return {{24{p[39]}}, p};
   endfunction
@@ -697,8 +697,8 @@ package tg_core_pkg;
 
   // ---- Front end -> decode: one instruction from the instruction queue ----
   typedef struct packed {
-    logic [63:0]       pc;          // {blk, pc[3:0]}, or blk's address - 2 when strad
-    logic [63:4]       blk;         // the fetch block's address
+    pc40_t             pc;          // {blk, pc[3:0]}, or blk's address - 2 when strad
+    logic [39:4]       blk;         // the fetch block's address (pc40)
     logic              strad;       // a 32-bit instruction straddling in from the previous block
     logic [31:0]       insn;        // [31:16] zero when rvc
     logic              rvc;
@@ -706,7 +706,7 @@ package tg_core_pkg;
     logic              fault_pf;
     logic              fault_hi;    // ... on the second half: tval = pc + 2
     logic              pred_taken;  // the front end followed pred_target after this instruction
-    logic [63:0]       pred_target;
+    pc40_t             pred_target;
     logic              pred_bogus;  // unused in M2 (F2 checks predictions against pre-decode)
     logic              ubtb_hit;    // the micro-BTB predicted taken at this instruction
     logic              ubtb_way;
@@ -743,7 +743,7 @@ package tg_core_pkg;
     logic [63:0]   imm;         // ALU operand b, memory offset, or the link value (PC + 4)
     br_kind_e      br_kind;
     logic [2:0]    br_f3;       // conditional branch funct3
-    logic [63:0]   br_target;   // PC + imm (branches, JAL)
+    pc40_t         br_target;   // PC + imm (branches, JAL)
     logic [11:0]   jalr_off;
     logic [1:0]    mem_size;
     logic          mem_uns;
@@ -793,10 +793,10 @@ package tg_core_pkg;
 
   // A micro-op in the RN / DS pipeline registers
   typedef struct packed {
-    logic [63:0]   pc;
+    pc40_t         pc;
     logic [31:0]   insn;
     logic          rvc;
-    logic [63:0]   pred_npc;    // next PC the front end followed
+    pc40_t         pred_npc;    // next PC the front end followed
     logic          ubtb_hit;    // the micro-BTB predicted taken here
     logic          ubtb_way;
     logic          dfix;        // decode redirected here (the micro-BTB entry is wrong)
@@ -841,13 +841,13 @@ package tg_core_pkg;
     preg_t         dst;
     wid_t          wid;
     llt_t          llt;
-    logic [63:0]   pc;
+    pc40_t         pc;
     logic [3:0]    lwh;         // a load's index in the load-wait table (LWT_ON): its PC's bits 4:1 ^ 16:13
     br_kind_e      br_kind;
     logic [2:0]    br_f3;
-    logic [63:0]   br_target;
+    pc40_t         br_target;
     logic [11:0]   jalr_off;
-    logic [63:0]   pred_npc;
+    pc40_t         pred_npc;
     logic          ubtb_hit;
     logic          ubtb_way;
     logic          dfix;
@@ -900,7 +900,7 @@ package tg_core_pkg;
 
   // ---- ROB payload, written at dispatch ----
   typedef struct packed {
-    logic [63:0]   pc;
+    pc40_t         pc;
     logic [31:0]   insn;
     logic          rvc;
     tid_t          tid;

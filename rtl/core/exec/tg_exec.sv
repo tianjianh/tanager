@@ -318,11 +318,12 @@ module tg_exec
   // ---- Branch unit (P0, EX) ----
   iq_pl_t      bp;
   logic        bt_taken;
-  logic [63:0] bt_target, bt_npc, bt_seq;
+  logic [63:0] bt_target, bt_npc;
+  pc40_t       bt_seq;
   assign bp = ex_pl_q[0];
-  // bt_seq = bp.pc + 2 or 4, in DSPs that hold their own copy of the RF -> EX register (T6)
-  tg_fpu_dsp_add #(.W(64)) u_seq (
-    .clk, .ce(1'b1), .a(iss_pl[0].pc), .b(iss_pl[0].rvc ? 64'd2 : 64'd4), .ci(1'b0), .s(bt_seq));
+  // bt_seq = bp.pc + 2 or 4 (pc40: at 40 bits), in a DSP that holds its own copy of the RF -> EX register (T6)
+  tg_fpu_dsp_add #(.W(40)) u_seq (
+    .clk, .ce(1'b1), .a(iss_pl[0].pc), .b(iss_pl[0].rvc ? 40'd2 : 40'd4), .ci(1'b0), .s(bt_seq));
   always_comb begin
     unique case (bp.br_f3)
       3'd0: bt_taken = f_eq[0];
@@ -334,17 +335,18 @@ module tg_exec
     endcase
     if (bp.br_kind != BR_COND) bt_taken = 1'b1;
     // One adder: JALR adds rs1 and its offset, the others zero to the decoded target (whose bit 0
-    // is zero), so the target select sits in the adder's LUTs (fpga_friendly.md T7)
-    bt_target = ((bp.br_kind == BR_JALR ? opa[0] : bp.br_target)
+    // is zero), so the target select sits in the adder's LUTs (fpga_friendly.md T7). A JALR's target is
+    // a full value; the decoded one is a pc40
+    bt_target = ((bp.br_kind == BR_JALR ? opa[0] : pc40_sx(bp.br_target))
                + (bp.br_kind == BR_JALR ? {{52{bp.jalr_off[11]}}, bp.jalr_off} : 64'd0)) & ~64'd1;
-    bt_npc = bt_taken ? bt_target : bt_seq;
+    bt_npc = bt_taken ? bt_target : pc40_sx(bt_seq);
   end
   // The misprediction test bt_npc != pred_npc as (taken ? target != pred : seq != pred): the
   // taken flag (the end of ALU0's carry chain for conditional branches) then selects between two
   // compares instead of going through the next-PC multiplexer and a compare (timing; one more
   // 64-bit compare).
   logic tgt_ne, seq_ne;
-  assign tgt_ne = bt_target != bp.pred_npc;
+  assign tgt_ne = bt_target != pc40_sx(bp.pred_npc);
   assign seq_ne = bt_seq != bp.pred_npc;
   logic ex_br;
   assign ex_br = ex_lv[0] && bp.cls == C_BR;
@@ -379,7 +381,8 @@ module tg_exec
   logic        bw_rvc_q;
   tid_t        bw_tid_q;
   robid_t      bw_rob_q;
-  logic [63:0] bw_npc_q, bw_pc_q, bw_tgt_q, bw_pred_q;
+  logic [63:0] bw_npc_q, bw_tgt_q;
+  pc40_t       bw_pc_q, bw_pred_q;
   logic [7:0]  lfsr_q;
 
   assign br_valid      = bw_v_q;
@@ -395,13 +398,13 @@ module tg_exec
     upd_valid  = 1'b0;
     upd_inval  = 1'b0;
     upd_way    = bw_hit_q ? bw_way_q : lfsr_q[0];
-    upd_pc     = bw_pc_q;
+    upd_pc     = pc40_sx(bw_pc_q);
     upd_target = bw_tgt_q;
     upd_tid    = bw_tid_q;
     upd_slot   = bw_pc_q[SLOT_W:1] + SLOT_W'(!bw_rvc_q);
     if (bw_v_q && !bw_exc_q && !(bw_pc_q[SLOT_W:1] == SLOT_W'(NP - 1) && !bw_rvc_q)) begin
       if (bw_strong_q) begin
-        if (!bw_hit_q || bw_dfix_q || bw_pred_q != bw_tgt_q) upd_valid = 1'b1;
+        if (!bw_hit_q || bw_dfix_q || pc40_sx(bw_pred_q) != bw_tgt_q) upd_valid = 1'b1;
       end else if (bw_hit_q) begin
         upd_valid = 1'b1;
         upd_inval = 1'b1;

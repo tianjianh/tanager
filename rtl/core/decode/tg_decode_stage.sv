@@ -52,7 +52,7 @@ module tg_decode_stage
   // Decode-time redirect (registered)
   output logic                dred,
   output tid_t                dred_tid,     // ... the redirecting instruction's thread (M7)
-  output logic [63:0]         dred_pc,
+  output pc40_t               dred_pc,
   output logic [FTQW-1:0]     dred_ftq,     // the redirecting instruction's FTQ entry and last slot,
   output logic [SLOT_W-1:0]   dred_slot,    // for the history's repair (TAGE_ON)
   output logic [1:0]          dred_rop,     // ... and its own return-address-stack operation and link,
@@ -87,12 +87,11 @@ module tg_decode_stage
   endfunction
 
   // a + b + c == k, carry-free
-  function automatic logic eq_add3(input logic [63:0] a, input logic [63:0] b, input logic [63:0] c,
-                                   input logic [63:0] k);
-    logic [63:0] s, y, cin;
+  function automatic logic eq_add3(input pc40_t a, input pc40_t b, input pc40_t c, input pc40_t k);
+    pc40_t s, y, cin;
     s   = a ^ b ^ c;
     y   = ((a & b) | (a & c) | (b & c)) << 1;
-    cin = {(s[62:0] & y[62:0]) | ((s[62:0] | y[62:0]) & ~k[62:0]), 1'b0};
+    cin = {(s[38:0] & y[38:0]) | ((s[38:0] | y[38:0]) & ~k[38:0]), 1'b0};
     return (s ^ y ^ k) == cin;
   endfunction
 
@@ -102,15 +101,15 @@ module tg_decode_stage
   initial rs_seen_q = 1'b0;
   always @(posedge clk) if (rst) rs_seen_q <= 1'b1;
 `endif
-  logic [W-1:0][63:0]  seq_d, tgt_d;      // per queue slot: pc + 2 or 4, pc + the offset
+  pc40_t [W-1:0]       seq_d, tgt_d;      // per queue slot: pc + 2 or 4, pc + the offset (pc40, at 40 bits)
   logic [W-1:0]        exc_f, alone_f;    // d.exc and d.serial || d.exc, from the raw encoding
   logic [W-1:0]        redir;
-  logic [W-1:0][63:0]  npc;
+  pc40_t [W-1:0]       npc;
   logic [W-1:0]        dfix;
   logic [W-1:0][1:0]   rop;               // the return-address stack's operation: {push, pop}
   logic [W-1:0][1:0]   rop_e;             // ... whether decode or fetch moves the stack (RAS_FE: the repair's)
-  logic [63:0]         rtgt;              // the stack's top as a PC
-  assign rtgt = {{25{ras_top[38]}}, ras_top, 1'b0};
+  pc40_t               rtgt;              // the stack's top as a PC
+  assign rtgt = {ras_top[38], ras_top, 1'b0};
   for (genvar j = 0; j < W; j++) begin : g_dec
     // Compressed instructions are expanded first; without C they are illegal (tval is the
     // 16-bit encoding, which the ROB keeps).
@@ -123,18 +122,18 @@ module tg_decode_stage
     assign pre_ill = iq_insn[j].rvc && (!(EXT_C && misa_c) || rvc_ill);
     // The next sequential PC (the link value) and the target of a JAL or branch: one add each,
     // for the decoder's uop and the checks (the offset from the raw encoding, by the JAL mark)
-    logic [63:0] pbase, poff, imm;
+    pc40_t pbase, poff, imm;
     logic [20:0] bimm;
     assign pbase   = {iq_insn[j].blk, 4'b0};
-    assign poff    = iq_insn[j].strad ? 64'hFFFF_FFFF_FFFF_FFFE : {60'b0, iq_insn[j].pc[3:0]};
+    assign poff    = iq_insn[j].strad ? 40'hFF_FFFF_FFFE : {36'b0, iq_insn[j].pc[3:0]};
     assign bimm    = bimm_of(iq_insn[j].insn, iq_insn[j].marks[1]);
-    assign imm     = {{43{bimm[20]}}, bimm};
-    assign seq_d[j] = pbase + poff + (iq_insn[j].rvc ? 64'd2 : 64'd4);
+    assign imm     = {{19{bimm[20]}}, bimm};
+    assign seq_d[j] = pbase + poff + (iq_insn[j].rvc ? 40'd2 : 40'd4);
     assign tgt_d[j] = pbase + poff + imm;
     logic dec_ill;                              // the decoder's own illegal decision (checked)
     tg_decode #(.ILL_Q(QUEUE_DECODE)) u_dec (
                      .pc_lo(iq_insn[j].pc[3:0]), .blk(iq_insn[j].blk), .strad(iq_insn[j].strad), .insn(xi),
-                     .link(seq_d[j]), .tgt(tgt_d[j]), .raw(iq_insn[j].insn),
+                     .link(pc40_sx(seq_d[j])), .tgt(tgt_d[j]), .raw(iq_insn[j].insn),
                      .pre_ill,
                      .fault(iq_insn[j].fault), .fault_pf(iq_insn[j].fault_pf), .fault_hi(iq_insn[j].fault_hi), .misa_m, .misa_b, .misa_a, .misa_f, .misa_d, .fs, .frm, .priv, .tvm, .tw, .tsr,
                      .ill_q(iq_insn[j].q_ill), .d(d[j]), .ill_o(dec_ill));
@@ -176,10 +175,10 @@ module tg_decode_stage
     end
 `ifndef SYNTHESIS
     // The raw encoding's offset is the expanded instruction's (the target decode used to add)
-    logic [63:0] xtgt;
+    pc40_t xtgt;
     assign xtgt = pbase + poff + ((d[j].br_kind == BR_JAL)
-                    ? {{43{xi[31]}}, xi[31], xi[19:12], xi[20], xi[30:21], 1'b0}
-                    : {{51{xi[31]}}, xi[31], xi[7], xi[30:25], xi[11:8], 1'b0});
+                    ? {{19{xi[31]}}, xi[31], xi[19:12], xi[20], xi[30:21], 1'b0}
+                    : {{27{xi[31]}}, xi[31], xi[7], xi[30:25], xi[11:8], 1'b0});
     always_ff @(posedge clk) begin
       if (rs_seen_q && !rst && iq_valid[j])
         assert (exc_f[j] == d[j].exc && alone_f[j] == (d[j].exc || d[j].serial))
@@ -199,13 +198,13 @@ module tg_decode_stage
   logic [W-1:0]     xv, xe, xa;
   fe_insn_t [W-1:0] xq;
   dec_t [W-1:0]     xd;
-  logic [W-1:0][63:0] xseq, xtgt;
+  pc40_t [W-1:0]      xseq, xtgt;
   for (genvar j = 0; j < W; j++) begin : g_chk
-    logic [63:0] seq, pbase, poff, imm, tgt;
+    pc40_t       seq, pbase, poff, imm, tgt;
     logic        pt, hit, mbr, mjal, mjalr;
-    logic [63:0] ptg;
+    pc40_t       ptg;
     assign pbase = {xq[j].blk, 4'b0};
-    assign poff  = xq[j].strad ? 64'hFFFF_FFFF_FFFF_FFFE : {60'b0, xq[j].pc[3:0]};
+    assign poff  = xq[j].strad ? 40'hFF_FFFF_FFFE : {36'b0, xq[j].pc[3:0]};
     assign seq   = xseq[j];
     assign pt    = xq[j].pred_taken;
     // a branch or JAL the front end took to its own target (TAGE_ON) carries no target: it is tgt
@@ -214,7 +213,7 @@ module tg_decode_stage
     assign {mbr, mjal, mjalr} = xq[j].marks;
     logic [20:0] bimm;
     assign bimm  = bimm_of(xq[j].insn, mjal);
-    assign imm   = {{43{bimm[20]}}, bimm};
+    assign imm   = {{19{bimm[20]}}, bimm};
     assign tgt   = xtgt[j];                          // d.br_target for a branch or JAL
     // ptg == tgt, checked carry-free; on pred_tsrc ptg is tgt itself, so the check takes the queue's
     // target (timing: through ptg, the redirect waited for the target's add)
@@ -351,7 +350,7 @@ module tg_decode_stage
     logic [W-1:0]     v1_q, e1_q, a1_q;
     fe_insn_t [W-1:0] i1_q;
     dec_t [W-1:0]     d1_q;
-    logic [W-1:0][63:0] s1_q, t1_q;
+    pc40_t [W-1:0]      s1_q, t1_q;
     assign xv = v1_q;
     assign xe = e1_q;
     assign xa = a1_q;
@@ -489,7 +488,7 @@ module tg_decode_stage
 `ifndef SYNTHESIS
   // The operands' old form, loaded with the flag under the take, equal to them whenever the flag is set
   tid_t              o_tid;
-  logic [63:0]       o_pc;
+  pc40_t             o_pc;
   logic [FTQW-1:0]   o_ftq;
   logic [SLOT_W-1:0] o_slot;
   logic [1:0]        o_rop;

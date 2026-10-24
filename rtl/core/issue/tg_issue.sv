@@ -147,12 +147,12 @@ module tg_issue
   } f_alu_t;
   typedef struct packed {
     robid_t      rob;
-    logic [63:0] pc;
+    pc40_t       pc;
     br_kind_e    br_kind;
     logic [2:0]  br_f3;
-    logic [63:0] br_target;
+    pc40_t       br_target;
     logic [11:0] jalr_off;
-    logic [63:0] pred_npc;
+    pc40_t       pred_npc;
     logic        ubtb_hit, ubtb_way, dfix, rvc;
   } f_br_t;
   typedef struct packed {

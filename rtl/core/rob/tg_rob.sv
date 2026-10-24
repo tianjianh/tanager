@@ -155,7 +155,7 @@ module tg_rob
   // Flush and redirect (registered)
   output logic                         flush,
   output tid_t                         flush_tid,
-  output logic [63:0]                  flush_pc,
+  output pc40_t                        flush_pc,     // pc40_of(the redirect's full value, flush_q)
   output logic                         icinv,
   // Commit trace
   output tr_rec_t [CW-1:0]             trace_o,
@@ -699,25 +699,29 @@ module tg_rob
   // One adder on the head's PC: a serial instruction's next PC (+2 or +4), or a fetch fault's
   // tval (+2 when only the second half of a 32-bit instruction faults). The second is a decode
   // exception, which traps, so one instruction never needs both.
+  // (pc40's rule: at 40 bits, sign-extended)
   logic [63:0] hd_pc_inc;
-  assign hd_pc_inc = hp[0].pc + (hp[0].dexc ? {62'b0, hp[0].dexc_hi, 1'b0} : (hp[0].rvc ? 64'd2 : 64'd4));
+  assign hd_pc_inc = pc40_sx(hp[0].pc + (hp[0].dexc ? {38'b0, hp[0].dexc_hi, 1'b0} : (hp[0].rvc ? 40'd2 : 40'd4)));
   // pc40 (DR-195, core-pipeline.md §8.6): fetch takes a redirect outside Sv39's range (full_bad) as a pc40 marked bad,
-  // which keeps the value's bits 38:0 alone, and flush_pc is one register for both threads. So each thread keeps a bad
+  // which keeps the value's bits 38:0 alone, and flush_q is one register for both threads. So each thread keeps a bad
   // redirect's bits 63:39, bpc_q, and bpb_q says the thread's last redirect was bad. While it is set the thread's only
   // instruction is that redirect's fault block, the whole block faulting at its first byte: the head's pc in full
   // (mepc or sepc and the trap record, dpc at a halt or a step's entry) and the fault's tval take bits 63:39 from bpc_q.
+  // flush_q is the redirect's full value; fetch takes it as pc40_of(flush_q)
+  logic [63:0]          flush_q;
   logic [NT-1:0][63:39] bpc_q;
   logic [NT-1:0]        bpb_q;
   always_ff @(posedge clk)
     if (rst) bpb_q <= '0;
     else if (flush) begin
-      bpb_q[t_fl] <= full_bad(flush_pc);
-      if (full_bad(flush_pc)) bpc_q[t_fl] <= flush_pc[63:39];
+      bpb_q[t_fl] <= full_bad(flush_q);
+      if (full_bad(flush_q)) bpc_q[t_fl] <= flush_q[63:39];
     end
+  assign flush_pc = pc40_of(flush_q);
   logic        bpb_h;
   logic [63:0] hd_pc;
   assign bpb_h = bpb_q[t_cm];
-  assign hd_pc = {bpb_h ? bpc_q[t_cm] : hp[0].pc[63:39], hp[0].pc[38:0]};
+  assign hd_pc = {bpb_h ? bpc_q[t_cm] : {25{hp[0].pc[39]}}, hp[0].pc[38:0]};
   always_comb begin
     ret = '0;
     do_flush = 1'b0; do_trap = 1'b0; do_irq = 1'b0; do_icinv = 1'b0; do_csr = 1'b0; do_mret = 1'b0;
@@ -748,7 +752,7 @@ module tg_rob
       end else if (rpl_h[0]) begin
         // The refetch PC, cause and tval don't wait for the head's TLB check (hd_retry, the
         // LSU's DTLB lookup this cycle): they count only if it flushes or traps
-        nf_pc   = hp[0].pc;
+        nf_pc   = pc40_sx(hp[0].pc);
         t_cause = hd_cause;
         t_tval  = hp[0].is_ld ? hd_lva : hd_sva;
         if (!hd_tlb || hd_retry) begin
@@ -780,7 +784,7 @@ module tg_rob
           t_cause = hp[0].dexc_cause;
           unique case (hp[0].dexc_cause)
             EXC_ILLEGAL: t_tval = {32'b0, hp[0].insn};
-            EXC_BREAK: t_tval = hp[0].pc;
+            EXC_BREAK: t_tval = pc40_sx(hp[0].pc);
             EXC_IACCESS, EXC_IPAGE: t_tval = {bpb_h ? bpc_q[t_cm] : hd_pc_inc[63:39], hd_pc_inc[38:0]};
             default: t_tval = '0;
           endcase
@@ -903,7 +907,7 @@ module tg_rob
       rec[j] = '0;
       rec[j].hart = HART0 + ((TID_W > 0) ? hart_t'(tid_t'(hp[j].tid ^ RUN_TID)) : hart_t'(0));
       rec[j].priv = priv;
-      rec[j].pc   = (j == 0) ? hd_pc : hp[j].pc;
+      rec[j].pc   = (j == 0) ? hd_pc : pc40_sx(hp[j].pc);
       rec[j].insn = hp[j].insn;
       rec[j].rvc  = hp[j].rvc;
       if (DEBUG_ON && j == 0 && do_dbg) begin
@@ -1049,7 +1053,7 @@ module tg_rob
       flush_slp <= HART1_ON && sl_ret;
       // Every flush is the committing thread's: its head instruction's tid
       flush_tid <= hp[0].tid;
-      flush_pc  <= use_tt ? (do_irq ? irq_target : trap_target) : nf_pc;
+      flush_q   <= use_tt ? (do_irq ? irq_target : trap_target) : nf_pc;
       icinv     <= do_icinv;
       head_q[t_cm] <= hw_n[cm_n].hid[0];
       ct_q      <= ct_n;

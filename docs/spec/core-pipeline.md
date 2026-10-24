@@ -502,9 +502,11 @@ With hart 1 a thread that waits in WFI while its sibling runs lends its half of 
 - **Without hart 1:** the mode is the constant `MD_C` (merged with `RUN_TID`, or `TG_SPLIT`'s test mode): the core
   before step 6.
 
-### 8.6 Program counters at Sv39 width (planned; the interface for review)
-Status: draft (core-2; fpu-2 reviews the fetch side), 2026-10-24. The coordinator's go waits for fpu-2's measured
-fetch number and for Sdext on main. The DR will fix Sv39 for v1: Sv48 later means widening these paths back.
+### 8.6 Program counters at Sv39 width
+Status: approved as DR-195 (2026-10-24), which fixes Sv39 for v1: Sv48 later means widening these paths back. Built in
+two steps:
+- step 1, fetch at pc40 (fpu-2) with `bpc_q`, the fault path and the directed tests (core-2);
+- step 2, the payloads' pcs and targets at pc40 in decode, rename, issue, the branch unit and the ROB (core-2).
 - **The idea:** fetch, decode, rename's payload, issue, the branch unit and the ROB payload carry each pc and target as
   `pc40`, 40 bits, not 64.
   - `pc40` is the sign extension of the full value. It holds every executable pc exactly: a PA below 2^PA_W, or a
@@ -513,17 +515,17 @@ fetch number and for Sdext on main. The DR will fix Sv39 for v1: Sv48 later mean
     holds one.
   - The predictors already keep 39 bits (the micro-BTB's and the RAS's [38:1]).
 - **What stays 64 bits:** the CSRs (xepc, xtvec, dpc, xtval), the branch unit's JALR target (rs1 + imm), the ROB's
-  `flush_pc`, auipc's result and every link written to a register, and the commit trace's pc and tval.
-- **The full-value registers:** `flush_pc` takes every redirect at full width. Its sources are the branch unit's target,
-  mret's and sret's xepc, dret's dpc, the trap vector and the interrupt vector (with a vectored offset). The debug
-  window's entries are PAs.
-  - `flush_pc` is one register for both threads (tg_rob), and with hart 1 the sibling's next flush overwrites it.
-  - So each thread keeps a bad redirect's value in `bpc_q[t]`, loaded from `flush_pc` when a bad redirect goes to the
+  `flush_q`, auipc's result and every link written to a register, and the commit trace's pc and tval.
+- **The full-value registers:** `flush_q` takes every redirect at full width, and fetch reads `flush_pc` =
+  `pc40_of(flush_q)`. Its sources are the branch unit's target, mret's and sret's xepc, dret's dpc, the trap vector
+  and the interrupt vector (with a vectored offset). The debug window's entries are PAs.
+  - `flush_q` is one register for both threads (tg_rob), and with hart 1 the sibling's next flush overwrites it.
+  - So each thread keeps a bad redirect's value in `bpc_q[t]`, loaded from `flush_q` when a bad redirect goes to the
     thread's fetch and held until that thread's next redirect. It keeps bits 63:39 alone (25 bits a thread), since the
     pc40 keeps bits 38:0.
 - **Bad inside pc40 (fpu-2's form):** the interface is `pc40` alone, with no extra bit on fetch's paths.
-  - The ROB finds a bad redirect: flush_pc[63:39] differs from bit 38's extension. Fetch then loads
-    `pc40 = {~flush_pc[38], flush_pc[38:0]}`, so bits 39 and 38 differ.
+  - The ROB finds a bad redirect: flush_q[63:39] differs from bit 38's extension. Fetch then loads
+    `pc40 = {~flush_q[38], flush_q[38:0]}`, so bits 39 and 38 differ.
   - A sequential or direct-jump overflow carries the same mark: decode's redirect and pc + 2/4 are exact in 40 bits,
     since a JAL's or branch's target is at most 2^20 away.
   - So F1 has one check for every cause: bits 39 and 38 differ. A bad pc makes the thread's next block a fault block at
@@ -531,7 +533,7 @@ fetch number and for Sdext on main. The DR will fix Sv39 for v1: Sv48 later mean
 - **The checks, by the mode after the redirect** (F1; a flush follows every mode change):
   - **M, or S/U with Bare:** an access fault when bad, or when pc40[38:PA_W] is nonzero (a pc above the PA).
   - **S/U with Sv39:** a page fault when bad (non-canonical); otherwise the ITLB, as today.
-- **Which value a bad pc's fault takes:** the ROB keeps one bit a thread, set by a bad redirect from `flush_pc` and
+- **Which value a bad pc's fault takes:** the ROB keeps one bit a thread, set by a bad redirect from `flush_q` and
   cleared by the thread's next redirect.
   - Set: the value's bits 63:39 are in `bpc_q[t]`, and its bits 38:0 in the pc40.
   - Clear: the bad pc40 is exact, an overflow, and is sign-extended from bit 39.

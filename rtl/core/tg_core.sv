@@ -122,7 +122,7 @@ module tg_core
   // ---- Flush and redirect from commit ----
   logic        flush, icinv;
   tid_t        flush_tid;
-  logic [63:0] flush_pc;
+  pc40_t       flush_pc;
 
   // ---- Mode, translation and PMP state (tg_csr) ----
   logic misa_m, misa_b, misa_c, misa_a, misa_f, misa_d;
@@ -166,7 +166,7 @@ module tg_core
   // ---- Front end ----
   logic        fe_ready, lsu_ready;
   logic        dred;
-  logic [63:0] dred_pc;
+  pc40_t       dred_pc;
   logic [FTQW-1:0]   dred_ftq;             // TAGE_ON: dred's instruction's block and slot
   logic [SLOT_W-1:0] dred_slot;
   logic [1:0]        dred_rop;             // ... its stack operation and link (RAS_FE)
