@@ -5,6 +5,7 @@ The user, 10-22: "for the tricks that we used to save area like double pump, use
 This page lists every measure taken to fit Tanager on the KV260's XCK26. For each: what it is in hardware, what it saves a chip (two `smt2` cores, four harts), what it costs, its switch and default, how the other form is tested, and, where there is no switch, the way back. It starts from the coordinator's read-only audit of 10-22 (main 4fe536ec); the lint results are verif-2's on main e5b304cd.
 
 - **Timing-only measures are left out:** DR-140's timing cuts, the AR slice and the floorplan buy clock speed, not area.
+- **Firmware is left out:** OpenSBI, U-Boot, the device trees, the kernel command line and the KV260's boot chain have their own page, [firmware_switches.md](firmware_switches.md).
 - **A chip** here is the product: `smt2` with hart 1 (`HART1=1`), two cores, `URF=1`, a release build (DR-180).
 - **"Linted"** means `make lint-all` elaborates the form in Verilator, so it compiles and its signals are driven. It does not mean the form has run.
 - The user's two examples are both the first row: the integer register file in UltraRAM (block RAM, not LUT RAM), read twice a cycle on a doubled clock (the double pump).
