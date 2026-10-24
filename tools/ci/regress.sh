@@ -23,6 +23,7 @@
 # Dhrystone, RANDN constrained-random programs, all with lockstep; the riscv-tests and directed tests
 # again under trace back-pressure; with ARCH=1 the ACT4 tests of the
 # core's configuration (tests/arch); the checker self-test and RANDFD random F/D programs (tg_replay);
+# with DEBUG=1 (CORE=core), debug.S under --dbg-win, which lockstep checks to the halt and must end STOPPED;
 # for CORE=core, WILDN random programs with wild redirects (DR-195's pc40: JALR, xRET and stvec to targets with no
 # memory or mapping, each a fetch fault with the full xtval; half under Sv39, timer interrupts), and
 # for CORE=core, PGN random programs with a probe at every GrantAck (forward progress: each store and
@@ -159,6 +160,19 @@ if [ "${RESULTS[0]}" = PASS ]; then
       --logdir "$LOGS/isa" --name "riscv-tests $CFG $CORE" -- --lat="$LAT" $SIMARGS
   step "directed tests (interrupts, WFI), lockstep, lat=$LAT" "$LOGS/directed.log" \
     make -C "$ROOT/tests/isa" directed CFG="$CFG" CORE="$CORE" ${TIMING_CUTS:+TIMING_CUTS="$TIMING_CUTS"} LAT="$LAT" JOBS="$JOBS" SIMARGS="$SIMARGS"
+  # M9's debug mode (DEBUG=1, Sdext; core-priv.md "Debug mode"): debug.S under --dbg-win halts, steps and takes an
+  # ebreak. Lockstep checks it up to the halt, its normal-mode CSR and window faults included, and stops at the entry's
+  # marker (verification.md §3.7): the run must end STOPPED with the program passing, at the haltreq.
+  if [ "$DEBUG" = 1 ] && [ "$CORE" = core ]; then
+    debug_stopped() {
+      "$BIN" --dbg-win --lat="$LAT" $SIMARGS "$BUILD/directed/tanager-p-debug" > "$LOGS/debug-run.log" 2>&1
+      cat "$LOGS/debug-run.log"
+      grep -q "^TG-RESULT status=STOPPED code=0 " "$LOGS/debug-run.log" &&
+        grep -q "lockstep stopped: hart [0-9]* entered debug mode .*(dcsr.cause 3, haltreq)" "$LOGS/debug-run.log"
+    }
+    step "debug mode (debug.S under --dbg-win: checked to the halt, then STOPPED), lockstep, lat=$LAT" "$LOGS/debug.log" \
+      debug_stopped
+  fi
   step "CoreMark A/B and Dhrystone ($MARCH), lockstep, lat=$LAT" "$LOGS/bench.log" \
     make -C "$ROOT/tests/bench" run CFG="$CFG" CORE="$CORE" ${TIMING_CUTS:+TIMING_CUTS="$TIMING_CUTS"} MARCH="$MARCH" LAT="$LAT" JOBS="$JOBS" SIMARGS="$SIMARGS"
   # Trace back-pressure (verification.md §2.9). It and the random wakes below change cycle counts by design, so the
