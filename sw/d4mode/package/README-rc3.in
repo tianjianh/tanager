@@ -1,0 +1,49 @@
+@NAME@-riscv: the release candidate rc3 at @MHZ@ MHz (soc-2 packaging spikes-2's build, 10-23), RISC-V mode only, on
+main's RTL. Four harts: two smt2 cores with two threads each, hart 1 on in both. Keep u100 (100 MHz, without step 7) as
+the fallback, and dr187b (80 MHz) behind it.
+Built from @COMMIT@: spikes-2's snapshot of coord/rc3 (234fc366, main's RTL; only build-tooling commits on top): M7's
+step 7 with fpu-2's timing cut, DR-183's PMP checks at TLB fill on by default with soc-2's checker registers, core-2's
+marg3, the FENCE.I sweep fix (679ceb2c) and CoRR snoop marking with its device-load fix (b51bbbf6, b30b57b3), as a
+release build (TG_RELEASE=1, DR-180): smt2, two cores, @MHZ@ MHz, the PMOD console, the host DMA port, the PS window,
+the fan's PL regulator, g4_uncore's floorplan (DR-181), DR-186's slices off, place_design @PLACE@, with defines
+@DEFINES@ and @URF@.
+Timing: @TIMING@, at the plain 10 ns (DR-160's 1.0 ns of place-and-route uncertainty is taken back for the report).
+
+New against rc2:
+- CoRR's device-load fix (b30b57b3): rc2's soak lost SD1's interrupt in round 16, a PLIC claim read replayed by
+  CoRR's marking (DR-176's signature). A device load is never marked now. In the soak, report any "mmc0: Timeout
+  waiting for hardware interrupt" at once, with the console log.
+- The FENCE.I sweep fix (icsweep, 679ceb2c): rc2's known gap is closed. Programs that write code and run it (JITs,
+  the dynamic loader's first calls, gdb breakpoints) should run normally; report SIGILL, SIGSEGV or an oops after
+  such work with the console log.
+Against u100 it also adds M7's step 7 and CoRR, as rc2 did.
+
+Only the bitstream changes against rc2 and u100: fw_jump.bin is OpenSBI with patch set tg1 (62349a65...), and the
+device trees, U-Boot and Linux are the same files.
+
+A release build has no virtio window, no console through the host and no latency injectors: it runs in RISC-V mode
+only, as u100 and rc2 do.
+
+p1:/tanager/ (as sw/d4mode/install.sh puts it):
+- tanager.bit.bin: the bitstream;
+- fw_jump.bin: OpenSBI 1.9 with patch set tg1, 62349a65...;
+- payload.bin: U-Boot d4;
+- tanager.dtb: the four-hart RISC-V mode tree for a release build (tanager-kv260-riscv-rel.dtb);
+- tanager-h01.dtb: the same for one core's two harts (0 and 1), as a fallback tree;
+- riscv.scr and riscv.cmd, as u100's.
+
+Install: as rc2's, keeping u100's p1:/tanager/ files aside (tanager-u100/) for the switch back, with the install
+logged next to its undo.
+
+Steps:
+1. The four-hart tree. Expect "Platform HART Count : 4", "smp: Brought up 1 node, 4 CPUs", nproc 4, siblings 0-1
+   and 2-3. If it doesn't boot, try tanager-h01.dtb once, then go back to u100 and send the console log.
+2. hart_check.sh (CoreMark on every hart, the atomics test on every pair, memgap's pingpong with -c on each pair).
+3. Hotplug: three rounds of hart stop and start (hsm_rounds.sh), then hsm_stress.sh (30 rounds under the stress).
+   Expect no "__sbi_rfence_v02_call ... failed" line in dmesg.
+4. The stress 10 of 10, then the baseline's set and memgap (-c 0,2 and -c 0,1), and soc-2's checks as on u100 (board
+   MR38): store_rows.sh, sibling_check.sh, and memcal_release.sh in ARM mode. memcal's memset-16M on u100 was
+   159.1 MiB/s against d4r2's 188.3; rc3 shares u100's memory path, so expect u100's figure.
+5. Then M8's 72-hour stress (the coordinator's plan), with the soak's watch for SD1 timeouts, oopses and failed
+   remote fences.
+A break on COM5 or a confirmed reboot takes the board back to Ubuntu, as with u100.
