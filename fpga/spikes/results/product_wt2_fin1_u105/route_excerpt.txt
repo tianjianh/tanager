@@ -1,0 +1,15 @@
+INFO: [Physopt 32-603] Post Physical Optimization Timing Summary | WNS=-0.642 | TNS=-473.094 |
+INFO: [Route 35-416] Intermediate Timing Summary | WNS=-0.450 | TNS=-30.952| WHS=-0.212 | THS=-201.550|
+INFO: [Route 35-448] Estimated Global/Short routing congestion is level 6 (64x64). Congestion levels of 5 and greater can reduce routability and impact timing closure.
+INFO: [Route 35-416] Intermediate Timing Summary | WNS=-6.199 | TNS=-23479.365| WHS=-0.051 | THS=-0.312 |
+INFO: [Route 35-416] Intermediate Timing Summary | WNS=-4.689 | TNS=-22371.347| WHS=N/A    | THS=N/A    |
+INFO: [Route 35-416] Intermediate Timing Summary | WNS=-3.525 | TNS=-20315.376| WHS=N/A    | THS=N/A    |
+INFO: [Route 35-416] Intermediate Timing Summary | WNS=-3.033 | TNS=-16829.768| WHS=N/A    | THS=N/A    |
+INFO: [Route 35-416] Intermediate Timing Summary | WNS=-2.614 | TNS=-15807.345| WHS=N/A    | THS=N/A    |
+INFO: [Route 35-416] Intermediate Timing Summary | WNS=-2.351 | TNS=-13996.832| WHS=N/A    | THS=N/A    |
+INFO: [Route 35-416] Intermediate Timing Summary | WNS=-2.103 | TNS=-12205.423| WHS=N/A    | THS=N/A    |
+INFO: [Route 35-416] Intermediate Timing Summary | WNS=-1.943 | TNS=-9590.816| WHS=N/A    | THS=N/A    |
+INFO: [Route 35-416] Intermediate Timing Summary | WNS=-1.943 | TNS=-9590.812| WHS=0.010  | THS=0.000  |
+INFO: [Route 35-416] Intermediate Timing Summary | WNS=-1.943 | TNS=-9590.812| WHS=0.010  | THS=0.000  |
+INFO: [Route 35-416] Intermediate Timing Summary | WNS=-1.921 | TNS=-9471.884| WHS=0.010  | THS=0.000  |
+INFO: [Physopt 32-669] Post Physical Optimization Timing Summary | WNS=-1.770 | TNS=-8305.403 | WHS=0.005 | THS=0.000 |

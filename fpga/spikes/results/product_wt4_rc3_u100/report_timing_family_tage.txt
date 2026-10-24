@@ -1,0 +1,175 @@
+from *u_fetch/g_tage.u_tage/*: 328 registers; to *u_fetch/g_tage.u_tage/g_tab*: 8 registers
+== the 1 worst paths, one per endpoint (slack, levels, logic / wire ns, start -> end)
+ -0.998  14  3.51  6.77  c0:u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKARDCLK -> c0:u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_1/DINADIN[1]
+
+== the same 1 paths in full (report_timing -input_pins)
+Slack (VIOLATED) :        -0.998ns  (required time - arrival time)
+  Source:                 u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKARDCLK
+                            (rising edge-triggered cell RAMB36E2 clocked by c0  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_1/DINADIN[1]
+                            (rising edge-triggered cell RAMB36E2 clocked by c0  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             c0
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            10.000ns  (c0 rise@10.000ns - c0 rise@0.000ns)
+  Data Path Delay:        10.284ns  (logic 3.510ns (34.130%)  route 6.774ns (65.870%))
+  Logic Levels:           14  (CARRY8=1 LUT2=4 LUT3=1 LUT4=3 LUT5=3 LUT6=2)
+  Clock Path Skew:        -0.180ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    5.399ns = ( 15.399 - 10.000 ) 
+    Source Clock Delay      (SCD):    5.222ns
+    Clock Pessimism Removal (CPR):    -0.358ns
+  Clock Uncertainty:      0.068ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE + UU
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.116ns
+    Phase Error              (PE):    0.000ns
+    User Uncertainty         (UU):    0.000ns
+  Clock Net Delay (Source):      2.540ns (routing 1.060ns, distribution 1.480ns)
+  Clock Net Delay (Destination): 2.170ns (routing 0.975ns, distribution 1.195ns)
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock c0 rise edge)         0.000     0.000 r  
+    PS8_X0Y0             PS8                          0.000     0.000 r  u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/PS8_i/PLCLK[0]
+                         net (fo=1, routed)           0.229     0.229    u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/pl_clk_unbuffered[0]
+    BUFG_PS_X0Y72                                                     r  u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/I
+    BUFG_PS_X0Y72        BUFG_PS (Prop_BUFG_PS_I_O)
+                                                      0.038     0.267 r  u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/O
+                         net (fo=1, routed)           2.127     2.394    u_clkgen/clk_in
+    MMCM_X0Y2                                                         r  u_clkgen/u_mmcm/CLKIN1
+    MMCM_X0Y2            MMCME4_ADV (Prop_MMCM_CLKIN1_CLKOUT0)
+                                                     -0.103     2.291 r  u_clkgen/u_mmcm/CLKOUT0
+                         net (fo=1, routed)           0.347     2.638    u_clkgen/c0
+    BUFGCE_X0Y62                                                      r  u_clkgen/u_bufg_core/I
+    BUFGCE_X0Y62         BUFGCE (Prop_BUFCE_BUFGCE_I_O)
+                                                      0.044     2.682 r  u_clkgen/u_bufg_core/O
+    X1Y1 (CLOCK_ROOT)    net (fo=82577, routed)       2.540     5.222    u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/clka
+    RAMB36_X0Y21         RAMB36E2                                     r  u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKARDCLK
+  -------------------------------------------------------------------    -------------------
+    RAMB36_X0Y21         RAMB36E2 (Prop_RAMB36E2_RAMB36_CLKARDCLK_DOUTADOUT[14])
+                                                      1.293     6.515 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/DOUTADOUT[14]
+                         net (fo=2, routed)           1.563     8.077    u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/g_tab[1].db[14]
+    SLICE_X20Y109                                                     r  u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/i___214_i_12/I3
+    SLICE_X20Y109        LUT6 (Prop_F6LUT_SLICEM_I3_O)
+                                                      0.224     8.301 f  u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/i___214_i_12/O
+                         net (fo=1, routed)           0.216     8.517    u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/i___214_i_12_n_0
+    SLICE_X20Y107                                                     f  u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/i___214_i_10/I0
+    SLICE_X20Y107        LUT5 (Prop_C6LUT_SLICEM_I0_O)
+                                                      0.056     8.573 f  u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/i___214_i_10/O
+                         net (fo=1, routed)           0.156     8.729    u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/i___214_i_10_n_0
+    SLICE_X19Y107                                                     f  u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/i___214_i_2/I5
+    SLICE_X19Y107        LUT6 (Prop_B6LUT_SLICEL_I5_O)
+                                                      0.138     8.867 f  u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/i___214_i_2/O
+                         net (fo=2, routed)           0.330     9.198    u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/pw1
+    SLICE_X17Y105                                                     f  u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/i___211_i_3/I1
+    SLICE_X17Y105        LUT2 (Prop_A6LUT_SLICEM_I1_O)
+                                                      0.226     9.424 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/i___211_i_3/O
+                         net (fo=5, routed)           0.225     9.649    u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/gen_wr_b.gen_word_narrow.mem_reg_bram_0_11
+    SLICE_X16Y108                                                     r  u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/i___213_i_1/I0
+    SLICE_X16Y108        LUT2 (Prop_A6LUT_SLICEL_I0_O)
+                                                      0.082     9.731 f  u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/i___213_i_1/O
+                         net (fo=8, routed)           0.598    10.329    u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage_n_318
+    SLICE_X11Y102                                                     f  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT2_76/I0
+    SLICE_X11Y102        LUT2 (Prop_D6LUT_SLICEL_I0_O)
+                                                      0.136    10.465 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT2_76/O
+                         net (fo=18, routed)          0.377    10.842    u_soc/g_core[0].g_tgc.u_core/u_fetch/i___239_n_0
+    SLICE_X12Y108                                                     r  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT2_77/I0
+    SLICE_X12Y108        LUT2 (Prop_D6LUT_SLICEM_I0_O)
+                                                      0.134    10.976 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT2_77/O
+                         net (fo=2, routed)           0.310    11.286    u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/DI[0]
+    SLICE_X11Y104                                                     r  u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/i___238_i_1/DI[0]
+    SLICE_X11Y104        CARRY8 (Prop_CARRY8_SLICEL_DI[0]_CO[3])
+                                                      0.219    11.505 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/i___238_i_1/CO[3]
+                         net (fo=3, routed)           0.419    11.924    u_soc/g_core[0].g_tgc.u_core/u_fetch/wb271_in
+    SLICE_X11Y108                                                     r  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT4_96/I2
+    SLICE_X11Y108        LUT4 (Prop_C5LUT_SLICEL_I2_O)
+                                                      0.219    12.143 f  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT4_96/O
+                         net (fo=6, routed)           0.220    12.363    u_soc/g_core[0].g_tgc.u_core/u_fetch/i___238_n_0
+    SLICE_X12Y108                                                     f  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT3_26/I2
+    SLICE_X12Y108        LUT3 (Prop_D5LUT_SLICEM_I2_O)
+                                                      0.154    12.517 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/tg_fetch_84_LUT3_26/O
+                         net (fo=4, routed)           0.439    12.957    u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/gen_wr_b.gen_word_narrow.mem_reg_bram_0_21
+    SLICE_X16Y105                                                     r  u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/g_tab[1].u_mem_i_72/I3
+    SLICE_X16Y105        LUT4 (Prop_E6LUT_SLICEL_I3_O)
+                                                      0.223    13.180 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/g_tab[1].u_mem_i_72/O
+                         net (fo=3, routed)           0.346    13.526    u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/g_tab[1].u_mem_i_72_n_0
+    SLICE_X12Y105                                                     r  u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/g_tab[1].u_mem_i_74/I0
+    SLICE_X12Y105        LUT4 (Prop_D6LUT_SLICEM_I0_O)
+                                                      0.080    13.606 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/g_tab[1].u_mem_i_74/O
+                         net (fo=2, routed)           0.269    13.875    u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/g_tab[1].u_mem_i_74_n_0
+    SLICE_X15Y105                                                     r  u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/g_tab[1].u_mem_i_73/I0
+    SLICE_X15Y105        LUT5 (Prop_B6LUT_SLICEL_I0_O)
+                                                      0.138    14.013 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/g_tab[1].u_mem_i_73/O
+                         net (fo=1, routed)           0.513    14.526    u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/g_tab[1].u_mem_i_73_n_0
+    SLICE_X17Y101                                                     r  u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/g_tab[1].u_mem_i_36/I4
+    SLICE_X17Y101        LUT5 (Prop_B6LUT_SLICEM_I4_O)
+                                                      0.188    14.714 r  u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/g_tab[1].u_mem_i_36/O
+                         net (fo=1, routed)           0.792    15.506    u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/dinb[19]
+    RAMB36_X0Y19         RAMB36E2                                     r  u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_1/DINADIN[1]
+  -------------------------------------------------------------------    -------------------
+
+                         (clock c0 rise edge)        10.000    10.000 r  
+    PS8_X0Y0             PS8                          0.000    10.000 r  u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/PS8_i/PLCLK[0]
+                         net (fo=1, routed)           0.181    10.181    u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/pl_clk_unbuffered[0]
+    BUFG_PS_X0Y72                                                     r  u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/I
+    BUFG_PS_X0Y72        BUFG_PS (Prop_BUFG_PS_I_O)
+                                                      0.035    10.216 r  u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/O
+                         net (fo=1, routed)           1.929    12.145    u_clkgen/clk_in
+    MMCM_X0Y2                                                         r  u_clkgen/u_mmcm/CLKIN1
+    MMCM_X0Y2            MMCME4_ADV (Prop_MMCM_CLKIN1_CLKOUT0)
+                                                      0.739    12.884 r  u_clkgen/u_mmcm/CLKOUT0
+                         net (fo=1, routed)           0.306    13.190    u_clkgen/c0
+    BUFGCE_X0Y62                                                      r  u_clkgen/u_bufg_core/I
+    BUFGCE_X0Y62         BUFGCE (Prop_BUFCE_BUFGCE_I_O)
+                                                      0.039    13.229 r  u_clkgen/u_bufg_core/O
+    X1Y1 (CLOCK_ROOT)    net (fo=82577, routed)       2.170    15.399    u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/clka
+    RAMB36_X0Y19         RAMB36E2                                     r  u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_1/CLKARDCLK
+                         clock pessimism             -0.358    15.041    
+                         clock uncertainty           -0.068    14.973    
+    RAMB36_X0Y19         RAMB36E2 (Setup_RAMB36E2_RAMB36_CLKARDCLK_DINADIN[1])
+                                                     -0.465    14.508    u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_1
+  -------------------------------------------------------------------
+                         required time                         14.508    
+                         arrival time                         -15.506    
+  -------------------------------------------------------------------
+                         slack                                 -0.998    
+
+
+
+
+
+
+== the worst path into each endpoint register group, among the worst 500 from *u_fetch/g_tage.u_tage/*
+ -0.998  14  3.51  6.77  c0:u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKARDCLK -> c0:u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_1/DINADIN[1]  (37 endpoints)
+ -0.840  13  3.12  7.02  c0:u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKARDCLK -> c0:u_fetch/g_tage.u_tage/g_tab[0].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/DINADIN[1]  (39 endpoints)
+  0.056  17  3.85  5.80  c0:u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK -> c0:u_fetch/kimm_q_reg[6]/D  (40 endpoints)
+  0.283  18  3.83  5.60  c1:u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK -> c1:g_ras.g_s[1].g_t1.u_ras/g_late.p_push_q_reg/D  (2 endpoints)
+  0.315  17  3.76  5.83  c0:u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK -> c0:u_fetch/ka_q_reg_rep__0/D  (2 endpoints)
+  0.326  17  3.76  5.83  c0:u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK -> c0:u_fetch/ka_q_reg_rep/D  (2 endpoints)
+  0.395  18  3.73  5.60  c1:u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK -> c1:g_ras.g_s[0].g_t0.u_ras/g_late.p_push_q_reg/D  (2 endpoints)
+  0.398  18  3.80  5.51  c1:u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK -> c1:g_ras.g_s[0].g_t0.u_ras/g_late.p_pop_q_reg/D  (2 endpoints)
+  0.484  18  3.85  5.39  c1:u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK -> c1:g_ras.g_s[1].g_t1.u_ras/g_late.p_pop_q_reg/D  (2 endpoints)
+  0.586  18  3.89  5.24  c1:u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK -> c1:u_fetch/ka_q_reg/D  (2 endpoints)
+  0.693  17  3.83  5.38  c0:u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK -> c0:u_fetch/k_ovr_q_reg/D  (2 endpoints)
+  0.895  16  3.70  5.25  c0:u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK -> c0:u_fetch/carry_s_q_reg[1]/D  (4 endpoints)
+  1.023  17  3.02  5.66  c0:u_fetch/g_tage.u_tage/q_q_reg[0][ftq][6]/C -> c0:u_fetch/fpc_q_reg[22]/CE  (149 endpoints)
+  1.054  14  3.20  5.28  c1:u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK -> c1:u_fetch/kp_q_reg[2]/S  (7 endpoints)
+  1.078  15  3.54  5.23  c0:u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK -> c0:u_fetch/k_cut_q_reg/D  (2 endpoints)
+  1.082  15  3.62  4.99  c0:u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK -> c0:u_fetch/f3_carry_q_reg/D  (2 endpoints)
+  1.083  16  3.59  5.05  c1:u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK -> c1:u_fetch/f3_meta_q_reg[hit]/D  (2 endpoints)
+  1.136  16  3.59  4.99  c1:u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK -> c1:u_fetch/kt_q_reg/D  (2 endpoints)
+  1.258  15  3.54  4.89  c0:u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK -> c0:u_fetch/kr_q_reg/D  (2 endpoints)
+  1.368  17  3.16  5.30  c0:u_fetch/g_tage.u_tage/q_q_reg[0][ftq][6]/C -> c0:u_fetch/spc_s_q_reg[1][24]/D  (67 endpoints)
+  1.382  15  3.63  4.68  c0:u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK -> c0:u_fetch/f3_start_q_reg[3]/D  (14 endpoints)
+  1.410  16  3.59  4.72  c1:u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK -> c1:u_fetch/f3_ras_q_reg/D  (2 endpoints)
+  1.462  16  3.67  4.59  c1:u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK -> c1:u_fetch/fp_q_reg[0]/D  (6 endpoints)
+  1.477  16  3.42  4.80  c1:u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK -> c1:g_ras.g_s[0].g_t0.u_ras/g_late.p_link_q_reg[2]/D  (76 endpoints)
+  1.568  13  3.33  4.80  c0:u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK -> c0:u_fetch/f3_nhs_q_reg/D  (2 endpoints)
+  1.626  14  3.29  4.79  c1:u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK -> c1:u_fetch/g_tage.hr_lm_q_reg[6]/D  (4 endpoints)
+  1.706   8  2.45  5.19  c0:u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKARDCLK -> c0:u_fetch/g_tage.u_tage/g_base.u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/DINADIN[4]  (11 endpoints)
+  1.725  17  3.09  5.12  c0:u_fetch/g_tage.u_tage/q_q_reg[0][ftq][6]/C -> c0:u_fetch/sv_s_q_reg[1]/D  (1 endpoints)
+  1.790  13  3.40  4.50  c0:u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK -> c0:u_fetch/f3_nj_q_reg/D  (2 endpoints)
+  1.794  14  3.50  4.41  c0:u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK -> c0:u_fetch/f3_meta_q_reg[slot][0]/D  (6 endpoints)
+  1.947  14  3.25  4.52  c1:u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK -> c1:u_fetch/g_tage.hr_c3_q_reg/D  (2 endpoints)
+  2.040  17  3.09  4.82  c0:u_fetch/g_tage.u_tage/q_q_reg[0][ftq][6]/C -> c0:u_fetch/f1_valid_q_reg/D  (1 endpoints)
+  2.079  17  3.00  4.87  c0:u_fetch/g_tage.u_tage/q_q_reg[0][ftq][6]/C -> c0:u_fetch/ft_q_reg/D  (1 endpoints)
+  2.088  12  3.29  4.32  c0:u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK -> c0:u_fetch/g_tage.hr_xm_q_reg[7]/D  (1 endpoints)
+  2.090   9  1.93  5.13  c0:u_fetch/g_tage.u_tage/q_q_reg[0][ftq][6]/C -> c0:u_fetch/g_way[1].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_1/ENARDEN  (2 endpoints)

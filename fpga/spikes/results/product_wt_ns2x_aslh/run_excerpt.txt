@@ -1,0 +1,15 @@
+FLOORPLAN_OK l2b0: 6302 LUT cells for 6400 LUT sites, 98% before opt_design, IS_SOFT 1 (warn above 105%, tight above 115%)
+FLOORPLAN_OK l2b1: 6529 LUT cells for 6400 LUT sites, 102% before opt_design, IS_SOFT 1 (warn above 105%, tight above 115%)
+FLOORPLAN_OK xbar: 1292 LUT cells for 4032 LUT sites, 32% before opt_design, IS_SOFT 1 (warn above 105%, tight above 115%)
+TG_PR_UNC2X: 0.5 ns on c2x
+FLOORPLAN_OK l2b0: its own 4775 LUTs for 6400 LUT sites, 75% after placement, with 2317 of other cells' inside; 14% of its 6171 LUT cells outside, IS_SOFT 1 (warn above 85%, tight above 90%)
+FLOORPLAN_OK l2b1: its own 4942 LUTs for 6400 LUT sites, 77% after placement, with 2264 of other cells' inside; 16% of its 6372 LUT cells outside, IS_SOFT 1 (warn above 85%, tight above 90%)
+FLOORPLAN_OK xbar: its own 1093 LUTs for 4032 LUT sites, 27% after placement, with 3451 of other cells' inside; 45% of its 1284 LUT cells outside, IS_SOFT 1 (warn above 85%, tight above 90%)
+INFO: [Physopt 32-603] Post Physical Optimization Timing Summary | WNS=-2.172 | TNS=-4744.304 |
+INFO: [Route 35-416] Intermediate Timing Summary | WNS=-1.933 | TNS=-2566.158| WHS=-0.211 | THS=-183.135|
+INFO: [Route 35-448] Estimated Global/Short routing congestion is level 6 (64x64). Congestion levels of 5 and greater can reduce routability and impact timing closure.
+WARNING: [Route 35-447] Congestion is preventing the router from routing all nets. The router will prioritize the successful completion of routing all nets over timing optimizations.
+INFO: [Route 35-416] Intermediate Timing Summary | WNS=-6.666 | TNS=-54185.166| WHS=N/A    | THS=N/A    |
+INFO: [Route 35-416] Intermediate Timing Summary | WNS=-8.766 | TNS=-92299.076| WHS=N/A    | THS=N/A    |
+CRITICAL WARNING: [Route 35-162] 51224 signals failed to route due to routing congestion. Please run report_route_status to get a full summary of the design's routing.
+ERROR: [Route 35-2] Design is not legally routed. There are 79675 node overlaps.

@@ -1,0 +1,23 @@
+lvl loc            type    net in   cell      at   fo  input pin -> output net
+  1 SLICE_X42Y174  LUT6     0.725  0.187   6.242    1  c1:u_lsu/u_dtlb/tg_tlb__paramet1_LUT6_32/I3 -> c1:u_lsu/u_dtlb/g_cam.g_m[0].g_early.mq[31]_i_22_n_0
+  2 SLICE_X42Y174  MUXF7    0.015  0.096   6.353    1  c1:u_lsu/u_dtlb/g_cam.g_m[0].g_early.mq_reg[31]_i_11/I1 -> c1:u_lsu/u_dtlb/g_cam.g_m[0].g_early.mq_reg[31]_i_11_n_0
+  3 SLICE_X44Y173  LUT6     0.472  0.081   6.906    3  c1:u_lsu/u_dtlb/tg_tlb__paramet1_LUT6_40/I2 -> c1:u_lsu/u_dtlb/tg_tlb__paramet1_net_93
+  4 SLICE_X42Y176  LUT5     0.474  0.137   7.517   32  c1:u_lsu/u_dtlb/tg_tlb__paramet1_LUT5_20/I2 -> c1:u_lsu/u_dtlb/tg_tlb__paramet1_net_96
+  5 SLICE_X45Y166  LUT5     0.740  0.138   8.395    2  c1:u_lsu/u_dtlb/tg_tlb__paramet1_LUT5_44/I3 -> c1:u_lsu/u_dtlb/tg_tlb__paramet1_net_155
+  6 SLICE_X39Y167  LUT5     0.612  0.152   9.159    1  c1:u_lsu/u_dtlb/tg_tlb__paramet1_LUT5_222/I4 -> c1:u_lsu/u_dtlb/tg_tlb__paramet1_net_360
+  7 SLICE_X39Y167  LUT6     0.104  0.136   9.399    1  c1:u_lsu/u_dtlb/tg_tlb__paramet1_LUT6_173/I5 -> c1:u_lsu/u_dtlb/tg_tlb__paramet1_net_362
+  8 SLICE_X44Y166  LUT6     0.455  0.226  10.080   12  c1:u_lsu/u_dtlb/tg_tlb__paramet1_LUT6_174/I5 -> c1:u_lsu/u_dtlb/u_leaf/g_m32.g_prim[5].u_ram/ADDRE0
+  9 SLICE_X45Y177  RAMD32   0.487  0.223  10.790    1  c1:u_lsu/u_dtlb/u_leaf/g_m32.g_prim[5].u_ram/RAME_D1/RADR0 -> c1:u_rob/hd_tok_q_reg[0][0]
+ 10 SLICE_X46Y177  LUT6     0.101  0.138  11.029    1  c1:u_rob/tg_rob__paramet_LUT6_223/I0 -> c1:u_lsu/u_dtlb/hd_tok_q_reg[0]
+ 11 SLICE_X44Y177  LUT6     0.186  0.137  11.352    1  c1:u_lsu/u_dtlb/tg_tlb__paramet1_LUT6_91/I0 -> c1:u_lsu/u_dtlb/tg_tlb__paramet1_net_184
+ 12 SLICE_X44Y177  LUT5     0.057  0.152  11.561    1  c1:u_lsu/u_dtlb/tg_tlb__paramet1_LUT5_55/I3 -> c1:u_lsu/u_dtlb/tg_tlb__paramet1_net_191
+ 13 SLICE_X44Y168  LUT6     0.266  0.224  12.051    3  c1:u_lsu/u_dtlb/tg_tlb__paramet1_LUT6_92/I5 -> c1:u_lsu/u_dtlb/tg_tlb__paramet1_net_192
+ 14 SLICE_X43Y176  LUT5     0.596  0.082  12.729    2  c1:u_lsu/u_dtlb/tg_tlb__paramet1_LUT5_56/I4 -> c1:u_lsu/u_dtlb/tg_tlb__paramet1_net_193
+ 15 SLICE_X43Y183  LUT2     0.342  0.152  13.223    2  c1:u_lsu/u_dtlb/tg_tlb__paramet1_LUT2_11/I1 -> c1:u_lsu/u_dtlb/tg_tlb__paramet1_net_194
+ 16 SLICE_X44Y182  LUT3     0.310  0.081  13.614   62  c1:u_lsu/u_dtlb/tg_tlb__paramet1_LUT3_12/I2 -> c1:u_lsu/u_dtlb/tg_tlb__paramet1_net_196
+ 17 SLICE_X43Y183  LUT2     0.453  0.225  14.292   30  c1:u_lsu/u_dtlb/tg_tlb__paramet1_LUT2_12/I1 -> c1:u_lsu/u_dtlb/tg_tlb__paramet1_net_198
+ 18 SLICE_X49Y183  LUT5     0.906  0.152  15.351    2  c1:u_lsu/u_dtlb/tg_tlb__paramet1_LUT5_71/I3 -> c1:u_lsu/u_ptw/va_q_reg[63]_3[21]
+ 19 SLICE_X45Y182  LUT6     0.663  0.152  16.166    1  c1:u_lsu/u_ptw/tg_ptw_LUT6_662/I0 -> c1:u_lsu/u_ptw/chk_pa_q[6]
+end: c1:u_lsu/u_ptw/chk_pa_q_reg[6]/D (net in 0.080)
+Data Path Delay:        11.030ns  (logic 2.985ns (27.063%)  route 8.045ns (72.937%))
+Clock Path Skew:        -0.049ns

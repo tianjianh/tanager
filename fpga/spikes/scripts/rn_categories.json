@@ -1,0 +1,130 @@
+{
+  "families": [
+    [
+      "^ds_uop_q",
+      "the two rename registers' 2:1 select (DS's write of the chosen group)"
+    ],
+    [
+      "^ds_ren_q|^ds_(fire|valid_q|src)",
+      "rename's results into DS"
+    ],
+    [
+      "^(rn_u_q|rn_v_q)",
+      "the two rename registers (their data)"
+    ],
+    [
+      "^(acc_o|de_take|sel_q)",
+      "the two rename registers' choice, decode's take and each thread's room"
+    ],
+    [
+      "^iq_we",
+      "port and bank steering (the IQs' write enables)"
+    ],
+    [
+      "^(fdiv_|fpi_|div_)",
+      "per-thread tails, counters and blocks"
+    ],
+    [
+      "^u_imap",
+      "integer map (tg_rmap)"
+    ],
+    [
+      "^(g_fmap\\.)?u_fmap",
+      "FP map (tg_rmap)"
+    ],
+    [
+      "^g_ffl\\.g_b\\[0\\]\\.u_fl/",
+      "FP free list, bank 0"
+    ],
+    [
+      "^g_ffl\\.g_b\\[1\\]\\.u_fl/",
+      "FP free list, bank 1"
+    ],
+    [
+      "^g_ffl\\.",
+      "FP free lists' inputs (pops, pushes, transfers)"
+    ],
+    [
+      "^g_fl\\[0\\]\\.u_fl/",
+      "integer free list, bank 0"
+    ],
+    [
+      "^g_fl\\[1\\]\\.u_fl/",
+      "integer free list, bank 1"
+    ],
+    [
+      "^g_fl\\[2\\]\\.u_fl/",
+      "integer free list, bank 2"
+    ],
+    [
+      "^g_fl\\[\\]\\.u_fl|^g_fl\\.",
+      "integer free lists' inputs (pops, pushes, transfers)"
+    ],
+    [
+      "^(g_frdy\\.)?u_frdy|^u_irdy",
+      "ready tables"
+    ],
+    [
+      "^g_rowtab|^u_row|^u_rdst",
+      "dispatch: MX row tables"
+    ],
+    [
+      "(room|_free_ok|can_ren|_fits)",
+      "room checks"
+    ],
+    [
+      "^(iq_dep|iq_mdep|src_|bypass|dep_)",
+      "in-group bypass and source naming"
+    ],
+    [
+      "^(wid_alloc|llt_|tag_|wid_|mul_tag)",
+      "wakeup tags and LLT allocation"
+    ],
+    [
+      "^(steer|bank_|alu_bank|b_sel|row_sel|g_steer)",
+      "port and bank steering"
+    ],
+    [
+      "(fl_want|_want_q|xfer|transfer)",
+      "free lists: transfers' wants"
+    ],
+    [
+      "^(rtail_q|ltail_q|stail_q|div_t_q|fdiv_pre_t_q|fpi_pre_t_q|div_cnt_q|fdiv_cnt_q|fpi_cnt_q|block_q|emp_q|.*_t_q$)",
+      "per-thread tails, counters and blocks"
+    ]
+  ],
+  "sections": [
+    [
+      "^State",
+      "per-thread tails, counters and blocks"
+    ],
+    [
+      "^Free lists|^FP free lists",
+      "free lists' inputs (pops, pushes, transfers)"
+    ],
+    [
+      "^Rename maps",
+      "maps' inputs"
+    ],
+    [
+      "^Ready tables",
+      "ready tables"
+    ],
+    [
+      "^RN",
+      "RN: other"
+    ],
+    [
+      "^DS",
+      "dispatch (DS) register and its write"
+    ],
+    [
+      "^Commit",
+      "commit side: committed map and pushes"
+    ],
+    [
+      "^Sequential",
+      "RN: other"
+    ]
+  ]
+}

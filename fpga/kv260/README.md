@@ -65,6 +65,14 @@ Builds for injected latency, the virtio window and the host console (stage C), o
 
 **place_design's directive:** `TG_PLACE_DIRECTIVE` (default `Default`, the plain `place_design`; DR-187) is checked before synthesis and recorded in `summary.txt` as `place=`. `AltSpreadLogic_high` made the product chip, with hart 1, route where the default placement left it congested (spikes §8.18, −1.547 ns at 100 MHz).
 
+**phys_opt_design's and route_design's directives:** `TG_PHYS_DIRECTIVE` and `TG_ROUTE_DIRECTIVE` (default `Default` each, the plain commands) are checked before synthesis and recorded in `summary.txt` as `phys_opt=` and `route=`.
+- **The M8 release image** was built with `TG_ROUTE_DIRECTIVE=AlternateCLBRouting` at `TG_PR_UNC=0.95` (spikes §8.18, rc3_u095r: +0.748 ns at 100 MHz).
+- **Why:** with the default router, two placements of the same netlist traded timing for routability (Route 35-447) and missed by about 1 ns.
+
+**Incremental implementation:** `TG_INCR_DCP=<routed.dcp>` (off unless set) reads that checkpoint with `read_checkpoint -incremental` before `place_design`, using `TG_INCR_DIRECTIVE` (default `TimingClosure`, else `RuntimeOptimized` or `Quick`). The reuse rates go to `reports/incremental_reuse*.rpt`, and `summary.txt` records the checkpoint.
+- **How it reads:** the read ignores `TG_PR_UNC`'s uncertainty (`incr.ignoreUserClockUncertainty`). It carries on past Vivado 2025.2's empty "pb file" error once the reuse data is built.
+- **At the product chip's fill it didn't help:** from rc2's closed placement it reused 86% of rc3's cells, then could not place the rest (Place 46-13, spikes §8.18).
+
 **Checkpoints:** `TG_CHECKPOINT=1` (default 0; DR-187) writes `post_opt.dcp` after `opt_design`, with the place-and-route uncertainty set, and `post_place.dcp` after `phys_opt_design`, in the run directory: another placement or a reroute can start from one of them instead of from synthesis.
 
 **Synthesis directive:** `TG_SYNTH_DIRECTIVE` (default `AreaOptimized_high` since 10-16, DR-150; `Default` gives the earlier builds' flow). The two-core `smt2` build with the commit trace no longer fit under `Default` (118.3K LUTs after synthesis, 101%); spikes' full-chip fits and the area numbers already use `AreaOptimized_high`. `summary.txt` records it (`synth=`).

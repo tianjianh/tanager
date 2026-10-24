@@ -1,0 +1,6 @@
+cells matching u_soc/g_core[1].g_tgc.u_core/u_rn/u_pay/*: 936
+their input pins: 14080
+setup paths to them below 1.0 ns: 1258
+class                              endpoints  failing     worst  worst path: start (levels, logic / wire ns)
+LUTRAM I                                522      373    -1.048  g_core[1].g_tgc.u_core/u_fetch/u_cmp/rt_q_reg/C (18 levels, 3.13 / 7.66)
+LUTRAM write enable (WE)                736        0     0.706  g_core[1].g_tgc.u_core/u_lsu/lq_head_q_reg[1][1]/C (23 levels, 3.34 / 5.35)
