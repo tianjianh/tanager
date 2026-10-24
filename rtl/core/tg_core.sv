@@ -685,6 +685,12 @@ module tg_core
   logic [2:0]       dbg_cause;
   logic [63:0]      dbg_epc;
   logic [NUM_THREADS-1:0] dm_h, dstep_h, debk_h;
+  // The halt requests come by hart line, as the interrupts do (thread t takes line t ^ RUN_TID: SOLO_TID's thread is
+  // hart 0)
+  logic [NUM_THREADS-1:0] dbg_req_t;
+  for (genvar t = 0; t < NUM_THREADS; t++) begin : g_dreq
+    assign dbg_req_t[t] = debug_req_i[tid_t'(t) ^ RUN_TID];
+  end
   logic [NUM_THREADS-1:0] dm_r_q;          // each hart's debug mode, registered as priv for fetch and the LSU (a flush
   always_ff @(posedge clk)                 // follows each change)
     dm_r_q <= (rst || !DEBUG_ON) ? '0 : dm_h;
@@ -718,7 +724,7 @@ module tg_core
     .clk, .rst, .flush, .flush_tid, .ex_valid(csr_ex_valid), .ex_pl(csr_ex_pl), .ex_src(csr_ex_src),
     .ex_rdata(csr_ex_rdata), .ex_ill(csr_ex_ill),
     .cm_tid0(cm_tid[0]), .hd_tid(rob_hd_tid), .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret,
-    .sret, .dbg_enter, .dbg_cause, .dbg_epc, .dret(dret_c), .dbg_req(debug_req_i), .dm_h, .dstep_h, .debk_h,
+    .sret, .dbg_enter, .dbg_cause, .dbg_epc, .dret(dret_c), .dbg_req(dbg_req_t), .dm_h, .dstep_h, .debk_h,
     .trap_target, .irq_target, .xret_v, .xret_s, .xret_d, .xepc_o(xepc), .irq_take, .irq_code, .wfi_wake, .wfi_wake_h, .wfi_arm_h,
     .misa_m, .misa_b,
     .misa_c, .misa_a, .misa_f, .misa_d, .fs, .fc_fflags, .fc_frm, .fc_wvalid, .fc_waddr,
@@ -757,7 +763,7 @@ module tg_core
     .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va,
     .tr_st_data, .tr_st_size, .tr_lq, .tr_ld_va, .tr_ld_size, .tr_tag, .tr_data,
     .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret, .sret, .sfence,
-    .trap_target, .irq_target, .xret_v, .xret_s, .xret_d, .dbg_req(debug_req_i), .dm_h, .dstep_h, .debk_h,
+    .trap_target, .irq_target, .xret_v, .xret_s, .xret_d, .dbg_req(dbg_req_t), .dm_h, .dstep_h, .debk_h,
     .dbg_enter, .dbg_cause, .dbg_epc, .dret_o(dret_c), .xepc, .priv(priv_cm), .irq_take, .irq_code, .wfi_wake, .wfi_wake_h, .wfi_arm_h,
     .csr_hold(csr_cold_busy), .flush, .flush_tid, .flush_pc, .icinv, .trace_o, .trace_valid_o,
     .md_i(md), .mdn_i(mdn), .mrs_i(mrs), .wk_i(wk), .sph_i(sph), .h1off_i(h1off), .flush_slp, .slp_o(slp),

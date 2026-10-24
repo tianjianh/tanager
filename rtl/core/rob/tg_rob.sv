@@ -880,7 +880,14 @@ module tg_rob
       rec[j].pc   = hp[j].pc;
       rec[j].insn = hp[j].insn;
       rec[j].rvc  = hp[j].rvc;
-      if (j == 0 && do_irq) begin
+      if (DEBUG_ON && j == 0 && do_dbg) begin
+        // Debug mode's entry marker (verif-2's encoding): an interrupt record whose cause has bit 62 too, which no
+        // interrupt or exception sets, over dcsr.cause; pc is dpc and priv dcsr.prv. The checker stops there
+        rec[j].kind  = TR_IRQ;
+        rec[j].insn  = '0;
+        rec[j].rvc   = 1'b0;
+        rec[j].cause = {2'b11, 59'b0, dbg_c};
+      end else if (j == 0 && do_irq) begin
         rec[j].kind  = TR_IRQ;
         rec[j].insn  = '0;
         rec[j].rvc   = 1'b0;
@@ -1011,7 +1018,7 @@ module tg_rob
       xr_v_q   <= '0;
     end else begin
       for (int j = 0; j < CW; j++)          // (debug mode's instructions leave no record: core-priv.md)
-        trace_valid_o[j] <= COMMIT_TRACE && (ret[j] || (j == 0 && (do_trap || do_irq))) && !dm_c;
+        trace_valid_o[j] <= COMMIT_TRACE && (ret[j] || (j == 0 && (do_trap || do_irq || do_dbg))) && !dm_c;
       flush     <= do_flush;
       flush_slp <= HART1_ON && sl_ret;
       // Every flush is the committing thread's: its head instruction's tid
