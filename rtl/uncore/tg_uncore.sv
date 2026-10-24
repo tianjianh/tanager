@@ -70,6 +70,11 @@ module tg_uncore
   // The L2 directory RAM written a cycle after S2, from the bypass's newest history entry (with a
   // third entry), so S2's paths end at flip-flops, not the RAM's pins (DR-142; cycle-identical)
   parameter bit          L2_DIR_S3       = 1'b1,
+  // The L2's write-back batching (tg_l2_bank WB_PACE, with 8 write-back buffers a bank; docs/spec/l2.md): a write
+  // stream's write-backs reach the DRAM's controller in runs, so it turns its bus round once a run (soc.md §8.5). The
+  // batch and the wait come from the host-control block's L2_PACE, L2_PACE_INIT at reset. Off: as before
+  parameter bit          L2_WB_PACE      = L2_WB_PACE_DEF,
+  parameter logic [15:0] L2_PACE_INIT    = L2_PACE_INIT_DEF,
   // The commit-trace stream to the PS (tg_trace_stream and the host bridge's trace registers), built
   // when the trace is (tg_trace_pkg COMMIT_TRACE, +define+TG_COMMIT_TRACE; DR-146). Off, the trace inputs are
   // ignored, trace_stall_o is 0, the trace master stays idle (AWVALID = WVALID = 0, BREADY = 1) and
@@ -406,9 +411,10 @@ module tg_uncore
   logic    [N_BANKS-1:0]                   oob_rd, oob_wr;
   logic    [N_BANKS-1:0][AXI_ADDR_W-1:0]   oob_addr;
 
-  tg_l2 #(.N_AGENTS (N_CORES), .SETS (L2_SETS), .N_MSHR (L2_MSHR), .DATA_PRIM (L2_PRIM),
+  logic [15:0] l2_pace;                // the host-control block's L2_PACE (the write-back batching's settings)
+  tg_l2 #(.N_AGENTS (N_CORES), .SETS (L2_SETS), .N_MSHR (L2_MSHR), .N_WB (L2_WB_PACE ? 8 : 4), .DATA_PRIM (L2_PRIM),
           .DATA_LAT (L2_DATA_LAT), .RSLICE_DSP ({2'b00, UNCORE_DSP[43:42]}), .MWAY_OH (L2_MWAY_OH),
-          .DIR_S3 (L2_DIR_S3)) u_l2 (
+          .DIR_S3 (L2_DIR_S3), .WB_PACE (L2_WB_PACE)) u_l2 (
     .clk, .rst (uncore_rst),
     .a_i (l2_a), .a_valid_i (l2_av), .a_ready_o (l2_ar),
     .b_o (l2_b), .b_valid_o (l2_bv), .b_ready_i (l2_br),
@@ -420,6 +426,7 @@ module tg_uncore
     .aw_o (l2_aw_ch), .aw_valid_o (l2_awv), .aw_ready_i (l2_awr),
     .w_o (l2_w_ch), .w_valid_o (l2_wv), .w_ready_i (l2_wr),
     .bresp_i (l2_b_ch), .bresp_valid_i (l2_bvv), .bresp_ready_o (l2_brr),
+    .wb_batch_i (l2_pace[3:0]), .wb_hold_i (l2_pace[15:4]),
     .init_done_o (l2_init_done),
     .ev_hit_o (ev_hit), .ev_miss_o (ev_miss), .ev_wb_o (ev_wb), .ev_probe_o (ev_probe), .ev_err_o (ev_err),
     .ev_err_info_o (ev_err_info), .ev_err_line_o (ev_err_line)
@@ -828,7 +835,8 @@ module tg_uncore
     .CORE_RST_INIT (CORE_RST_INIT), .UNCORE_RST_INIT (UNCORE_RST_INIT),
     .DRAM_BASE_INIT (DRAM_BASE_INIT), .DRAM_SIZE_INIT (DRAM_SIZE_INIT), .TRACE (TRACE), .DEBUG (DEBUG_CNT),
     .VIRTIO (VIRTIO_WINDOW), .HDMA (HOST_DMA), .LAT_INJ (LAT_INJ), .HOST_CONSOLE (!RELEASE), .HDMA_STATS (HDMA_STATS),
-    .HDMA_CPL (HDMA_CPL), .TRAFGEN (TRAFGEN), .CDC_TRIM (RELEASE)
+    .HDMA_CPL (HDMA_CPL), .TRAFGEN (TRAFGEN), .CDC_TRIM (RELEASE), .L2_PACE_REG (L2_WB_PACE),
+    .L2_PACE_INIT (L2_PACE_INIT)
   ) u_host (
     .clk_host, .rst_host,
     .s_awaddr (s_axil_awaddr), .s_awvalid (s_axil_awvalid), .s_awready (s_axil_awready),
@@ -841,7 +849,7 @@ module tg_uncore
     .req_i (dreq), .req_valid_i (dreq_v[DEV_HOSTCTL]), .rsp_o (drsp[DEV_HOSTCTL]),
     .vio_req_valid_i (dreq_v[DEV_VIRTIO]), .vio_rsp_o (drsp[DEV_VIRTIO]), .vio_wait_o (vio_wait),
     .vio_irq_o (vio_irq),
-    .mbox_irq_o (mbox_irq),
+    .mbox_irq_o (mbox_irq), .l2_pace_o (l2_pace),
     .dram_base_o (win_base), .dram_size_o (win_size),
     .inj_rd_delay_o (inj_rd), .inj_wr_delay_o (inj_wr), .inj_mode_o (inj_mode), .inj_bw_o (inj_bw),
     .l2_init_done_i (l2_init_done),

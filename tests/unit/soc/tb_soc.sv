@@ -51,6 +51,10 @@ module tb_soc;
   // want them back for timing (docs/spec/area_switches.md)
   parameter bit    XBAR_SLICE = XBAR_SLICE_DEF;
   parameter bit    MEM_SLICE  = MEM_SLICE_DEF;
+  // The L2's write-back batching (tanager_soc L2_WB_PACE, docs/spec/l2.md): with it, batches of 4 write-backs, or
+  // 256 cycles, from reset (L2_PACE_INIT), so the memory tests' evictions go out in runs
+  parameter bit          L2_WB_PACE   = L2_WB_PACE_DEF;
+  parameter logic [15:0] L2_PACE_INIT = 16'h1004;
   // A program runs on the test cores, or with SDIRQ on the real ones too (KIND = "core")
   localparam bit   PROG = KIND == "tcore" || SDIRQ;
 
@@ -116,7 +120,7 @@ module tb_soc;
     .N_CORES (NUM_CORES), .CLK_HZ (100_000_000), .L2_SETS (16), .L2_MSHR (24),
     .CORE_RST_INIT (1'b1), .UNCORE_RST_INIT (1'b1), .CORE_KIND ((KIND == "trafgen") ? "trafgen" : "core"),
     .VIRTIO_WINDOW (VIRTIO), .HOST_DMA (HOST_DMA), .LAT_INJ (LAT_INJ), .RELEASE (RELEASE), .BREAK_LOG2 (6),
-    .XBAR_SLICE (XBAR_SLICE), .MEM_SLICE (MEM_SLICE)
+    .XBAR_SLICE (XBAR_SLICE), .MEM_SLICE (MEM_SLICE), .L2_WB_PACE (L2_WB_PACE), .L2_PACE_INIT (L2_PACE_INIT)
   ) dut (
     .uart_txd_o (), .uart_rxd_i (ps_rxd),
     .clk, .clk2x, .rst, .clk_host, .rst_host,
