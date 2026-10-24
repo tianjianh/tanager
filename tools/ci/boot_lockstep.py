@@ -77,6 +77,10 @@ NIGHT_MCYC, NIGHT_SHAPES = 400, ("st", "board")
 NIGHT_TIMINGS = ("board", "jitter", "fixed30", "default")   # one a night, in turn
 NIGHT_MEM_GB = 12         # the nightly starts no run while MemAvailable is under this (as the soak)
 NIGHT_CRON = "15 0 * * *"
+# A run stops when tb_boot has printed nothing for STALL_S (it prints a line every million cycles), so a hung model or
+# checker (the tap blocks on a full FIFO) stops and a slow one on a loaded host finishes; none runs past WALL_CAP_S.
+# The fixed limit before (3 minutes a million cycles) stopped a clean smp4 HPM=1 run at a load of 54 (10-24).
+STALL_S, WALL_CAP_S = 1800, 86400
 SWITCH_VALUES = {"TIMING_CUTS": (0, 1), "DC_MSHRS": (1, 4), "QUEUE_DECODE": (0, 1), "SPEC_WAKE": (0, 1),
                  "STA_BASE": (0, 1), "STEER_LA": (0, 1), "PMP_ENTRIES": (8, 16), "STORE_PF": (0, 1), "URF": (0, 1),
                  "STORE_PF_MAX": (2, 3), "SOLO_TID": (0, 1), "SPLIT": (0, 1),
@@ -267,16 +271,27 @@ def run_one(build, dtb, images, shape, timing, mcyc, seed, outdir, nice=False, p
                                f"+expect={ci.BOOT_EXPECT}", f"+max_mcycles={mcyc}", f"+verilator+seed+{seed}",
                                "+mem_zero", f"+tap_out={fifo}", *timing_args(timing)],
                               stdout=tf, stderr=subprocess.STDOUT, preexec_fn=pre if nice or pol else None)
-        limit = max(3600, mcyc * 180)   # wall seconds: 3 minutes a million cycles, four times today's pace
-        timed_out = False
-        for p in (tb, ls):
+        timed_out, size, moved = False, -1, time.time()
+        while tb.poll() is None:
+            time.sleep(15)
             try:
-                p.wait(timeout=max(1, limit - (time.time() - t0)))
-            except subprocess.TimeoutExpired:
+                grown = os.path.getsize(os.path.join(outdir, "tb_boot.log"))
+            except OSError:
+                grown = size
+            if grown != size:
+                size, moved = grown, time.time()
+            if time.time() - moved > STALL_S or time.time() - t0 > WALL_CAP_S:
                 timed_out = True
                 tb.kill()
                 ls.kill()
-                p.wait()
+                break
+        tb.wait()
+        try:
+            ls.wait(timeout=STALL_S)   # what the FIFO still holds
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            ls.kill()
+            ls.wait()
     minutes = (time.time() - t0) / 60
     os.remove(fifo)
     lsl = open(os.path.join(outdir, "lockstep.log"), errors="replace").read()
@@ -297,7 +312,7 @@ def run_one(build, dtb, images, shape, timing, mcyc, seed, outdir, nice=False, p
     if end and end[1] == "PASS" and (reached or limit_hit) and not timed_out:
         what = "to TANAGER-BOOT-OK" if reached else "to the cycle limit"
         return "PASS", f"{tag}: PASS, {int(end[2]):,} records {what} ({where}), {minutes:.0f} min", ""
-    why = ("wall-clock limit" if timed_out else
+    why = (f"no progress in {STALL_S // 60} minutes, or past {WALL_CAP_S // 3600} hours" if timed_out else
            next((l.strip() for l in (tbl + lsl).splitlines() if re.search(r"%Error|%Fatal|fatal|NOTHING|cannot", l)),
                 "no verdict from tanager-lockstep or tb_boot"))
     return "BROKEN", f"{tag}: could not be checked: {why[:200]} ({where}); logs in {outdir}", why
