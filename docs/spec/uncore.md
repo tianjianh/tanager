@@ -71,6 +71,7 @@ All channels are the `tg_tl_pkg` structs with `valid`/`ready` (conventions §3).
 | `mmio` | L2 bank (uncached access: Svpbmt NC/IO, M9) | boot ROM | device bus | error |
 | host DMA | L2 bank | error | error | error |
 
+- The debug window (`tg_map_pkg::DEBUG_WINDOW`, soc.md §9.5): `l1i` and `mmio` requests to `DEBUG_BASE` go to the boot ROM's port, where `tg_uncore` hands them to `tg_dm`, one message at a time across the ROM and the window. Without the switch the table above holds for it too.
 - `l1d` C messages go to the bank of their address; E messages go to the bank in `sink[5]`, or to the error responder for sink `6'h3F`.
 - The core faults the "error" cases before issuing them (interfaces.md §3), so the error responder exists for robustness: it answers `Get`/`Put` with `AccessAck[Data]` and `denied = 1` (`corrupt = 1` on data), and an `Acquire` with `Grant`, `denied = 1`, sink `6'h3F`, then swallows the `GrantAck`.
 
