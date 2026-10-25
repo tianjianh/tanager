@@ -50,6 +50,7 @@ module tg_tage
   input  logic [CW-1:0]        t_pred,
   output logic                 q_v,
   output logic [FW-1:0]        q_ftq,
+  output logic [FW-1:0]        q_nftq,     // ... next cycle's head entry: the FTQ reads its block memory a cycle ahead
   input  logic [NT*(LI+TW)+BI-1:0] q_ix,
   // every queued request's FTQ entry, oldest first, and how many (each thread's oldest is the FTQ's to keep, M7)
   output logic [3:0][FW-1:0]   q_all,
@@ -136,38 +137,42 @@ module tg_tage
     logic [SW-1:0]  slot;
     logic           taken, pred;
   } t2_t;
-  treq_t [QN-1:0] q_q;
-  logic [idx_w(QN+1)-1:0] qn_q;
+  treq_t [QN-1:0] q_q, q_nx;
+  logic [idx_w(QN+1)-1:0] qn_q, qn_nx;
   t2_t            t2_q;                    // T2: the request whose entries T1 read
   logic           t2_v_q;
   logic           deq;                     // T1: port B reads the head request's entries
   assign deq = qn_q != '0 && !t2_v_q;      // (not while T2 writes)
+  // the queue's next state (its head is the FTQ's read address a cycle ahead: q_nftq)
+  always_comb begin
+    int n;
+    q_nx = q_q;
+    n    = int'(qn_q);
+    if (deq) begin
+      for (int k = 0; k < QN - 1; k++) q_nx[k] = q_nx[k + 1];
+      n--;
+    end
+    for (int j = 0; j < CW; j++)
+      if (t_v[j] && n < QN) begin
+        q_nx[n] = '{ftq: t_ftq[j], slot: t_slot[j], taken: t_taken[j], pred: t_pred[j]};
+        n++;
+      end
+    qn_nx = (idx_w(QN+1))'(n);
+  end
   always_ff @(posedge clk) begin
     if (rst) begin
       qn_q   <= '0;
       t2_v_q <= 1'b0;
     end else begin
-      int n;
-      treq_t [QN-1:0] q;
-      q = q_q;
-      n = int'(qn_q);
-      if (deq) begin
-        for (int k = 0; k < QN - 1; k++) q[k] = q[k + 1];
-        n--;
-      end
-      for (int j = 0; j < CW; j++)
-        if (t_v[j] && n < QN) begin
-          q[n] = '{ftq: t_ftq[j], slot: t_slot[j], taken: t_taken[j], pred: t_pred[j]};
-          n++;
-        end
-      q_q    <= q;
-      qn_q   <= (idx_w(QN+1))'(n);
+      q_q    <= q_nx;
+      qn_q   <= qn_nx;
       t2_v_q <= deq;
     end
     if (deq) t2_q <= '{ix: q_ix, slot: q_q[0].slot, taken: q_q[0].taken, pred: q_q[0].pred};
   end
-  assign q_v   = qn_q != '0;
-  assign q_ftq = q_q[0].ftq;
+  assign q_v    = qn_q != '0;
+  assign q_ftq  = q_q[0].ftq;
+  assign q_nftq = q_nx[0].ftq;
   for (genvar k = 0; k < QN; k++) begin : g_qall
     assign q_all[k] = q_q[k].ftq;
   end

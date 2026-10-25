@@ -1457,7 +1457,7 @@ module tg_fetch
     assign cs = strm(c_tid);
     logic                         ft_we;
     logic                         tq_v;
-    logic [SB+FTQW:0]             tq_ftq;
+    logic [SB+FTQW:0]             tq_ftq, tq_nftq;
     logic [3:0][SB+FTQW:0]        tq_all;
     logic [2:0]                   tq_n;
     logic [COMMIT_WIDTH-1:0][SB+FTQW:0] c_fp;
@@ -1474,7 +1474,7 @@ module tg_fetch
               .FW(SB + FTQW + 1)) u_tage (
       .clk, .rst, .re(f2_ld), .blk(tblk), .gh(gh_e_s[ft_q]), .dir(tdir), .ix(tix),
       .t_v(c_cbr), .t_ftq(c_fp), .t_slot(c_slot), .t_taken(c_taken), .t_pred(c_pred),
-      .q_v(tq_v), .q_ftq(tq_ftq), .q_ix(fq_rd[0]), .q_all(tq_all), .q_n(tq_n));
+      .q_v(tq_v), .q_ftq(tq_ftq), .q_nftq(tq_nftq), .q_ix(fq_rd[0]), .q_all(tq_all), .q_n(tq_n));
     always_comb
       for (int t = 0; t < NS; t++) begin
         logic found;
@@ -1546,9 +1546,12 @@ module tg_fetch
       ras_rcnt = c;
       ras_rtop = v;
     end
-    assign fq_ra[0] = fqa(MT && tq_ftq[SB+FTQW], tq_ftq[FTQW-1:0]);
-    tg_ram_lut #(.DEPTH(FTQ_ENTRIES << SB), .WIDTH(IXW), .NR(1)) u_fix (
-      .clk, .we(ft_we), .waddr(fqa(f2_s_q, ft_tail)), .wdata(tix), .raddr(fq_ra), .rdata(fq_rd));
+    // The training queue's head's indices and tags, in block memory read a cycle ahead at the queue's next head
+    // (tq_nftq): the coordinator's 10-24 headroom, 64 LUT RAM a core. Read first, as the LUT RAM's view: an entry the
+    // queue names is never rewritten (the FTQ keeps it, the assertion below), so the head reads what it wrote
+    assign fq_ra[0] = fqa(MT && tq_nftq[SB+FTQW], tq_nftq[FTQW-1:0]);
+    tg_ram_sdp #(.DEPTH(FTQ_ENTRIES << SB), .WIDTH(IXW)) u_fix (
+      .clk, .we(ft_we), .waddr(fqa(f2_s_q, ft_tail)), .wdata(tix), .re(1'b1), .raddr(fq_ra[0]), .rdata(fq_rd[0]));
     // the history after decode's redirect at slot dred_slot of block dred_ftq: the block's branches up to
     // that slot (at most two, the cut's rule), shifted in after the history before the block. Found
     // first and shifted once, so the history takes a shift of 0, 1 or 2, not one per slot (area)
