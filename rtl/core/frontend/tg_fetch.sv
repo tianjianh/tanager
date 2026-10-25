@@ -148,11 +148,11 @@ module tg_fetch
 );
   // ---- Block metadata carried through the instruction queue ----
   typedef struct packed {
-    logic [63:4]       base;     // block address
+    logic [39:4]       base;     // block address
     logic              hit;      // predicted taken at slot `slot`
     logic              way;
     logic [SLOT_W-1:0] slot;
-    logic [63:0]       target;
+    pc40_t             target;
     logic              tsrc;     // ... to the instruction's own target, F2's refetch (TAGE_ON), not `target`
     logic              uhit;     // the micro-BTB's prediction (its training): taken at `uslot`
     logic [SLOT_W-1:0] uslot;
@@ -189,16 +189,16 @@ module tg_fetch
   endfunction
   // ---- F1 state ----
   logic        f1_valid_q;        // fpc_q names a block to fetch
-  logic [63:0] fpc_q;
+  pc40_t       fpc_q;
   logic        ft_q;              // ... of this stream
   logic [NS-1:0]       sv_s_q;    // a stream's next block waits outside F1 ...
-  logic [NS-1:0][63:0] spc_s_q;   // ... here
+  pc40_t [NS-1:0]      spc_s_q;   // ... here
   logic [NS-1:0]       stop_s_q;  // after a fault block, until a redirect
   logic [NS-1:0]       carry_s_q; // the last block left half a 32-bit instruction for the next one
   logic [NS-1:0][15:0] sp_s_q;    // ... that half (TAGE_ON: F2 predicts the straddler with the next block)
   logic [NS-1:0]       wk_s_q, wk_sent_s_q;   // parked on an ITLB miss; the walk was taken
   logic [NS-1:0]       miss_s_q;  // parked on an I$ miss
-  logic [NS-1:0][63:0] rpc_s_q;   // a parked stream's block: its PC (the restart) ...
+  pc40_t [NS-1:0]      rpc_s_q;   // a parked stream's block: its PC (the restart) ...
   logic [NS-1:0][PA_W-1:0] rpa_s_q;   // ... and PA (the refill's line)
   logic [NS-1:0]       qw_s_q;    // MT (5e): parked at F2, its block not fitting its queue while the other stream waits
   logic [NS-1:0][4:0]  qn_s_q;    // ... that block's bound on the entries it writes
@@ -275,9 +275,9 @@ module tg_fetch
   // A prediction whose slot lies before the entry point cannot apply to this fetch.
   logic pred_hit;
   assign pred_hit = ub_hit && ub_slot >= fpc_q[SLOT_W:1];
-  logic [63:0] pred_tgt, seq_pc;
-  assign pred_tgt = {{25{ub_tgt[38]}}, ub_tgt, 1'b0};
-  assign seq_pc   = {fpc_q[63:4] + 60'd1, 4'b0};
+  pc40_t       pred_tgt, seq_pc;
+  assign pred_tgt = {{1{ub_tgt[38]}}, ub_tgt, 1'b0};
+  assign seq_pc   = {fpc_q[39:4] + 36'd1, 4'b0};
 
   // ---- Translation and fetchability of fpc_q ----
   logic [0:0][26:0] it_vpn;
@@ -292,20 +292,20 @@ module tg_fetch
   assign f1_pa = xl_i ? {it_pte[0].ppn, fpc_q[11:0]} : fpc_q[PA_W-1:0];
   // A walk for this page faulted: its blocks are fault blocks until a redirect (per stream)
   logic [NS-1:0]         xf_v_s_q, xf_pf_s_q;
-  logic [NS-1:0][63:12]  xf_page_s_q;
+  logic [NS-1:0][39:12]  xf_page_s_q;
   logic         xf_pf_q;                          // F1's stream's
   assign xf_pf_q = xf_pf_s_q[ft_q];
   logic f1_xf, f1_pf, f1_tm, f1_acc, f1_fault, f1_fpf;
   pma_e f1_pma;
-  assign f1_xf    = xl_i && xf_v_s_q[ft_q] && fpc_q[63:12] == xf_page_s_q[ft_q];
-  assign f1_pf    = xl_i && !va_canon(fpc_q);
+  assign f1_xf    = xl_i && xf_v_s_q[ft_q] && fpc_q[39:12] == xf_page_s_q[ft_q];
+  assign f1_pf    = xl_i && pc40_bad(fpc_q);   // (pc40: bits 39 and 38 differ off Sv39's range, DR-195)
   assign f1_tm    = xl_i && !f1_pf && !f1_xf && !(it_hit[0] && pte_ok(it_pte[0], ACC_X, priv, 1'b0, 1'b0));
   assign f1_pma   = pma_of(f1_pa);
   // Debug mode (DEBUG_ON; core-priv.md): the debug window is fetched through the I$ as the boot ROM is, by a thread
   // in debug mode only; outside it the window faults, as any device does
   logic  f1_dwin;
   assign f1_dwin  = DEBUG_ON && dm_h[f1_tid] && in_rg(f1_pa, DEBUG_BASE, DEBUG_SIZE);
-  assign f1_acc   = (xl_i ? it_pte[0].big : fpc_q[63:PA_W] != '0) ||
+  assign f1_acc   = (xl_i ? it_pte[0].big : fpc_q[39:PA_W] != '0) ||
                     (f1_pma != PMA_MEM && f1_pma != PMA_ROM && !f1_dwin);
   assign f1_fault = f1_pf || f1_xf || (!f1_tm && f1_acc);     // the whole block
   assign f1_fpf   = f1_pf || (f1_xf && xf_pf_q);
@@ -540,7 +540,7 @@ module tg_fetch
 
   // ---- F2 state ----
   logic              f2_valid_q, f2_fault_q, f2_hit_q, f2_way_q, f2_fpf_q, f2_tm_q;
-  logic [63:0]       f2_pc_q, f2_tgt_q;
+  pc40_t             f2_pc_q, f2_tgt_q;
   logic [PA_W-1:0]   f2_pa_q;
   logic [NW-1:0]     f2_pmpd_q;
   logic [SLOT_W-1:0] f2_slot_q;
@@ -564,7 +564,7 @@ module tg_fetch
                                          // (as A: spikes-2's 10-24 run had the select's 21 levels from the I$ data)
   logic [SLOT_W-1:0] kp_q;
   logic [20:0]       kimm_q;
-  logic [63:0]       kt_tgt;
+  pc40_t             kt_tgt;
   logic [SLOT_W-1:0] fp_q;
   logic              f2v;                     // F2 holds a block it has not acted on
   assign f2v = f2_valid_q && !ka_q;
@@ -583,7 +583,7 @@ module tg_fetch
   assign blk     = way_data[f2_hw_q];
 
   // Refill / fault state
-  logic [63:0] miss_pc_q;          // F2's block, for its action (and a parking stream's PC and PA)
+  pc40_t       miss_pc_q;          // F2's block, for its action (and a parking stream's PC and PA)
   logic [PA_W-1:0] miss_pa_q;
   logic        fline_v_q;          // the last refill of this line was denied
   logic [PA_W-1:6] fline_q;
@@ -674,7 +674,7 @@ module tg_fetch
   logic               ovr_tk;             // ... at the exit's target (the exit's first parcel ovr_p)
   logic [SLOT_W-1:0]  ovr_p;              //     or else at the next block
   logic               uok;                // the micro-BTB's prediction is a real exit
-  logic [63:0]        fx_tgt;             // the exit's target in the queue (a JALR's)
+  pc40_t              fx_tgt;             // the exit's target in the queue (a JALR's)
   logic               ovr_ras;            // RAS_FE: ... the exit is a return to the stack's top
   logic               ovr_itt;            // ITT_ON: ... the exit is a JALR to the indirect-target table's target
   logic               f2_ijx;             // ITT_ON: F2's exit is a JALR that is not a return (the path history's)
@@ -815,8 +815,8 @@ module tg_fetch
     logic [NP-1:0]             outp, cbr, rp, tkn;
     // A return the stack predicts (RAS_FE: a pop while the stack is not empty) is a candidate too,
     // to the stack's top; a JALR otherwise only where the micro-BTB predicts it
-    logic [63:0]   rtgt;
-    assign rtgt = {{25{ras_top[38]}}, ras_top, 1'b0};
+    pc40_t         rtgt;
+    assign rtgt = {{1{ras_top[38]}}, ras_top, 1'b0};
     // The indirect-target table's entry (ITT_ON), by its last parcel's slot. The exit search takes one predicted
     // JALR slot, as without the table: the table's where its key matched at F1, else the micro-BTB's, from registers
     // loaded with f2_hit_q and f2_slot_q (phit_q, pslot_q), so each slot's taken term has the table-off inputs and
@@ -826,10 +826,10 @@ module tg_fetch
     // after the search, beside the stack's (xras). The micro-BTB's own check (sm, xovr) stays on its slot: F1
     // followed its target
     logic [NP-1:0]     ith;
-    logic [63:0]       itgt;
+    pc40_t             itgt;
     logic              phit;
     logic [SLOT_W-1:0] pslot;
-    assign itgt  = {{25{itt_tgt[38]}}, itt_tgt, 1'b0};
+    assign itgt  = {{1{itt_tgt[38]}}, itt_tgt, 1'b0};
     assign phit  = ITT_ON ? phit_q : f2_hit_q;
     assign pslot = ITT_ON ? pslot_q : f2_slot_q;
     // A 32-bit instruction that straddles in from the previous block (its first half in sp_q) is the
@@ -1152,7 +1152,7 @@ module tg_fetch
       logic        r_fx_tsrc, r_fe_ras, r_fe_itt, r_ovr, r_rpush, r_rpop;
       logic [20:0] r_imm;
       logic [38:1] r_rlink;
-      logic [63:0] r_tgt;
+      pc40_t       r_tgt;
       assign r_fe_ras  = r_tk && (fe_s ? RAS_FE && sx_pop && ras_v : r_rp[r_fe_p]);
       assign r_fe_itt  = r_tk && ITT_ON && itt_hit && !fe_s && pd_jalr[r_fe_p] && itt_slot == lsl[r_fe_p];
       assign r_ovr     = !r_isf && !r_pcut && !r_ccut &&
@@ -1231,12 +1231,12 @@ module tg_fetch
   always_comb begin
     f3_mq        = f3_meta_q;
     f3_mq.target = !f3_ras_q ? f3_meta_q.target
-                 : f3_itt_q  ? {{25{f3_itgt_q[38]}}, f3_itgt_q, 1'b0} : {{25{f3_rtop_q[38]}}, f3_rtop_q, 1'b0};
+                 : f3_itt_q  ? {{1{f3_itgt_q[38]}}, f3_itgt_q, 1'b0} : {{1{f3_rtop_q[38]}}, f3_rtop_q, 1'b0};
     f3_mq.tsrc   = f3_tk_q && f3_nj_q && f3_nhs_q;
   end
 `ifndef SYNTHESIS
   // the values F2 selected before B and E: the queue takes the same
-  logic [63:0] f3_tgt_ref_q;
+  pc40_t       f3_tgt_ref_q;
   logic        f3_tsrc_ref_q;
   always_ff @(posedge clk) begin
     if (f2v && f3_accept) begin
@@ -1263,13 +1263,13 @@ module tg_fetch
   // Redirects per stream (M7's step 5b): a flush (commit's) and decode's redirect may come in one cycle for different
   // threads, and each applies to its own stream; for one stream the flush wins, as before
   logic [NS-1:0]       fl_s, dr_s, red_s;
-  logic [NS-1:0][63:0] red_pc_s;
+  pc40_t [NS-1:0]      red_pc_s;
   always_comb
     for (int t = 0; t < NS; t++) begin
       fl_s[t]     = flush && strm(flush_tid) == 1'(t);
       dr_s[t]     = dred && strm(dred_tid) == 1'(t) && !fl_s[t];
       red_s[t]    = fl_s[t] || dr_s[t];
-      red_pc_s[t] = fl_s[t] ? flush_pc : dred_pc;
+      red_pc_s[t] = fl_s[t] ? pc40_of(flush_pc) : pc40_of(dred_pc);   // (a bad full value: {~v[38], v[38:0]})
     end
   logic [NUM_THREADS-1:0] red_q;                    // the queues the redirects empty (by stream)
   assign red_q = NUM_THREADS'(red_s);
@@ -1341,7 +1341,7 @@ module tg_fetch
   assign ws     = (MT && |wreq) ? !wreq[0] : aw_go ? k_s_q : 1'b0;
   assign wo     = MT && !wout[0];
   assign iw_req = !(|wout) && (aw_go || |wreq);
-  assign iw_va  = (aw_go && ws == k_s_q && !(MT && |wreq)) ? miss_pc_q : rpc_s_q[ws];
+  assign iw_va  = pc40_sx((aw_go && ws == k_s_q && !(MT && |wreq)) ? miss_pc_q : rpc_s_q[ws]);
   assign iw_tid = MT ? tid_t'(ws) : RUN_TID;
   // The miss the refill engine serves: a stream already parked (stream 0 first: it waited longer), else the stream
   // parking now (am_go, miss_pa_q). With MT a refill's end restarts the streams parked on its line, and the others
@@ -1457,7 +1457,7 @@ module tg_fetch
     assign cs = strm(c_tid);
     logic                         ft_we;
     logic                         tq_v;
-    logic [SB+FTQW:0]             tq_ftq;
+    logic [SB+FTQW:0]             tq_ftq, tq_nftq;
     logic [3:0][SB+FTQW:0]        tq_all;
     logic [2:0]                   tq_n;
     logic [COMMIT_WIDTH-1:0][SB+FTQW:0] c_fp;
@@ -1474,7 +1474,7 @@ module tg_fetch
               .FW(SB + FTQW + 1)) u_tage (
       .clk, .rst, .re(f2_ld), .blk(tblk), .gh(gh_e_s[ft_q]), .dir(tdir), .ix(tix),
       .t_v(c_cbr), .t_ftq(c_fp), .t_slot(c_slot), .t_taken(c_taken), .t_pred(c_pred),
-      .q_v(tq_v), .q_ftq(tq_ftq), .q_ix(fq_rd[0]), .q_all(tq_all), .q_n(tq_n));
+      .q_v(tq_v), .q_ftq(tq_ftq), .q_nftq(tq_nftq), .q_ix(fq_rd[0]), .q_all(tq_all), .q_n(tq_n));
     always_comb
       for (int t = 0; t < NS; t++) begin
         logic found;
@@ -1546,9 +1546,12 @@ module tg_fetch
       ras_rcnt = c;
       ras_rtop = v;
     end
-    assign fq_ra[0] = fqa(MT && tq_ftq[SB+FTQW], tq_ftq[FTQW-1:0]);
-    tg_ram_lut #(.DEPTH(FTQ_ENTRIES << SB), .WIDTH(IXW), .NR(1)) u_fix (
-      .clk, .we(ft_we), .waddr(fqa(f2_s_q, ft_tail)), .wdata(tix), .raddr(fq_ra), .rdata(fq_rd));
+    // The training queue's head's indices and tags, in block memory read a cycle ahead at the queue's next head
+    // (tq_nftq): the coordinator's 10-24 headroom, 64 LUT RAM a core. Read first, as the LUT RAM's view: an entry the
+    // queue names is never rewritten (the FTQ keeps it, the assertion below), so the head reads what it wrote
+    assign fq_ra[0] = fqa(MT && tq_nftq[SB+FTQW], tq_nftq[FTQW-1:0]);
+    tg_ram_sdp #(.DEPTH(FTQ_ENTRIES << SB), .WIDTH(IXW)) u_fix (
+      .clk, .we(ft_we), .waddr(fqa(f2_s_q, ft_tail)), .wdata(tix), .re(1'b1), .raddr(fq_ra[0]), .rdata(fq_rd[0]));
     // the history after decode's redirect at slot dred_slot of block dred_ftq: the block's branches up to
     // that slot (at most two, the cut's rule), shifted in after the history before the block. Found
     // first and shifted once, so the history takes a shift of 0, 1 or 2, not one per slot (area)
@@ -1694,7 +1697,8 @@ module tg_fetch
           if (fl_s[t]) begin                       // (nothing of the stream retires in its flush's cycle)
             if (pj_v_q[t]) begin
               cph_n[t] = padd(cph_n[t][PW-5:0], flush_pc[17:2]);
-              if (!wr) begin wr = 1'b1; wri = pj_r_q[t]; wsl = pj_s_q[t]; wu = pj_u_q[t]; end
+              // (not to a bad target: the table's entries are Sv39 addresses, DR-195)
+              if (!wr && !pc40_bad(pc40_of(flush_pc))) begin wr = 1'b1; wri = pj_r_q[t]; wsl = pj_s_q[t]; wu = pj_u_q[t]; end
             end
             pjn_v[t] = 1'b0;
           end else if (cs == 1'(t)) begin
@@ -1769,8 +1773,8 @@ module tg_fetch
       logic unused_itt;
       assign unused_itt = ^{c_ret, c_pc, c_ijmp, c_trv, c_trepc, f2_ijx};
     end
-    assign kt_tgt = {miss_pc_q[63:4], 4'b0} + (ks_q ? 64'hFFFF_FFFF_FFFF_FFFE : 64'({kp_q, 1'b0})) +
-                    {{43{kimm_q[20]}}, kimm_q};
+    assign kt_tgt = {miss_pc_q[39:4], 4'b0} + (ks_q ? 40'hFF_FFFF_FFFE : 40'({kp_q, 1'b0})) +
+                    {{19{kimm_q[20]}}, kimm_q};
 `ifndef SYNTHESIS
     logic tq_rs_q;                          // the first reset has come
     initial tq_rs_q = 1'b0;
@@ -2196,17 +2200,17 @@ module tg_fetch
 
   // ---- Sequential: F1, F2, F3 ----
   // A refetch's PC (F2's action); each stream's restart (its refill's or walk's end) and the PC it restarts at
-  logic [63:0]   kref_pc;
+  pc40_t         kref_pc;
   logic [NS-1:0] rs_ref, rs_walk;        // restarts: after a refill, after a walk
   logic [NS-1:0] rs_room;                // MT (5e): ... once its queue has room for its parked block
-  logic [NS-1:0][63:0] rs_pc;
+  pc40_t [NS-1:0]      rs_pc;
   logic [NS-1:0][PA_W-1:6] sline;        // MT: the line each parked (or parking) stream waits for
   always_comb
     for (int t = 0; t < NS; t++)
       sline[t] = (am_go && k_s_q == 1'(t)) ? miss_pa_q[PA_W-1:6] : rpa_s_q[t][PA_W-1:6];
-  assign kref_pc = k_cut_q ? {miss_pc_q[63:4], fp_q, 1'b0}
-                 : k_ovr_q ? (kr_q ? (ki_q ? {{25{kit_q[38]}}, kit_q, 1'b0} : {{25{krt_q[38]}}, krt_q, 1'b0})
-                              : kt_q ? kt_tgt : {miss_pc_q[63:4] + 60'd1, 4'b0})
+  assign kref_pc = k_cut_q ? {miss_pc_q[39:4], fp_q, 1'b0}
+                 : k_ovr_q ? (kr_q ? (ki_q ? {{1{kit_q[38]}}, kit_q, 1'b0} : {{1{krt_q[38]}}, krt_q, 1'b0})
+                              : kt_q ? kt_tgt : {miss_pc_q[39:4] + 36'd1, 4'b0})
                  : miss_pc_q;
   always_comb
     for (int t = 0; t < NS; t++) begin
@@ -2223,9 +2227,9 @@ module tg_fetch
   // action or F1's move, then the restarts, then the redirect, last); a stream's next block goes into F1 when F1 is
   // free for it (without MT always), else it waits
   logic          f1v_n, ft_n, pw_n;
-  logic [63:0]   fpc_n;
+  pc40_t         fpc_n;
   logic [NS-1:0] sv_n;
-  logic [NS-1:0][63:0] spc_n;
+  pc40_t [NS-1:0]      spc_n;
   logic          f1_mv;                  // F1's block moves into F2
   assign f1_mv = !ka_q && f2_go && f1_live;
   always_comb begin
@@ -2302,13 +2306,13 @@ module tg_fetch
   always_ff @(posedge clk) begin
     if (rst) begin
       f1_valid_q  <= 1'b1;
-      fpc_q       <= boot_pc;
+      fpc_q       <= pc40_of(boot_pc);
       ft_q        <= strm(RUN_TID);              // (the running hart's stream: 1 with SOLO_TID)
       pw_q        <= 1'b0;
       sv_s_q      <= '0;
       if (MT) begin                              // hart 1 fetches from reset too (M7's step 5c): the other
         sv_s_q[strm(~RUN_TID)]  <= 1'b1;         // stream's first block waits at the boot PC
-        spc_s_q[strm(~RUN_TID)] <= boot_pc;
+        spc_s_q[strm(~RUN_TID)] <= pc40_of(boot_pc);
       end
       stop_s_q    <= '0;
       miss_s_q    <= '0;
@@ -2338,7 +2342,7 @@ module tg_fetch
         f3_start_q  <= blk_start;
         f3_marks_q  <= f2_bfault ? '0 : blk_marks;
         f3_carry_q  <= blk_carry;
-        f3_meta_q   <= '{base: f2_pc_q[63:4], hit: f2_taken, way: f2_way_q, slot: fx_slot,
+        f3_meta_q   <= '{base: f2_pc_q[39:4], hit: f2_taken, way: f2_way_q, slot: fx_slot,
                          target: f2_tgt_q, tsrc: 1'b0,
                          uhit: TAGE_ON ? uok && !f2_isfault : f2_taken, uslot: f2_slot_q, ftq: ft_tail,
                          fault: f2_isfault, fpf: f2_bfault && f2_fpf_q, fhi: !f2_bfault && pmp_hi};
@@ -2434,7 +2438,7 @@ module tg_fetch
         if (!iw_ok) begin
           xf_v_s_q[wo]    <= 1'b1;
           xf_pf_s_q[wo]   <= iw_cause == EXC_IPAGE;
-          xf_page_s_q[wo] <= rs_pc[wo][63:12];
+          xf_page_s_q[wo] <= rs_pc[wo][39:12];
         end
       end
       // A redirect: its stream's blocks in F2 and F3 and its action go, and its state is reset (its next block above)
@@ -2473,7 +2477,7 @@ module tg_fetch
     logic              strad;
     logic [SLOT_W:0]   first, last;     // parcel range, straddler from -1 (encoded as first = 0, strad)
     assign strad = slot == SLOT_W'(NP - 1) && !rvc;
-    logic [63:0] pc;
+    pc40_t       pc;
     // pc[3:0] needs no carry; only a straddler's block address is decremented
     assign pc   = strad ? {m.base - 1'b1, 4'hE} : {m.base, slot, 1'b0};
     assign first = (SLOT_W + 1)'(slot);
@@ -2486,8 +2490,8 @@ module tg_fetch
     assign iq_valid[j] = cq_valid[j];
     always_comb begin
       iq_insn[j]             = '0;
-      iq_insn[j].pc          = pc;
-      iq_insn[j].blk         = m.base;
+      iq_insn[j].pc          = pc40_sx(pc);
+      iq_insn[j].blk         = {{24{m.base[39]}}, m.base};
       iq_insn[j].strad       = strad;
       iq_insn[j].insn        = rvc ? {16'b0, lo} : {hi, lo};
       iq_insn[j].rvc         = rvc;
@@ -2495,7 +2499,7 @@ module tg_fetch
       iq_insn[j].fault_pf    = m.fpf;
       iq_insn[j].fault_hi    = m.fault && (strad || m.fhi);
       iq_insn[j].pred_taken  = exit_here;
-      iq_insn[j].pred_target = m.target;
+      iq_insn[j].pred_target = pc40_sx(m.target);
       iq_insn[j].pred_bogus  = 1'b0;
       iq_insn[j].ubtb_hit    = u_here;
       iq_insn[j].ubtb_way    = m.way;

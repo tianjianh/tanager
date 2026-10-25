@@ -24,7 +24,12 @@ results. It aims at the plan's risk areas (§9, §4.5, §4.9, §4.15):
     meet at the head, illegal CSR writes, fetch faults and accesses to a page the runs deny (--deny);
   - with --vm PCT, that share of the programs runs its body in S-mode under Sv39: an identity map in
     4 KiB pages (TLB misses and page walks on every template), plus page faults, SFENCE.VMA and
-    SRET (staying in S).
+    SRET (staying in S);
+  - with --wild W (DR-195's pc40, core-pipeline.md §8.6): redirects to targets no instruction can be fetched from,
+    each ending in the fetch fault with the full address in xtval: JALR (an offset crossing the edge, a return
+    through x5, one on a path a branch skips), MRET or SRET to such an xepc, and under --vm a supervisor software
+    interrupt through such an stvec, direct or vectored. The targets: Sv39's and pc40's edges, a code address with
+    one high bit set, values above PA_W or not sign-extended.
 
   tg_rand.py --seed 42 --isa rv64im -o prog.S
 """
@@ -58,6 +63,14 @@ RM = ["", "", ", rne", ", rtz", ", rdn", ", rup", ", rmm", ", dyn"]
 DENY_PAGE = 0x80F00000     # the runs deny this page (run_random's --deny): its loads and stores fault
 DENY_IO = 0x10001000       # and this unused device page: an MMIO load there gets a denied response
 NOMEM_PA = 0x800           # nothing below the boot ROM: access faults (data and fetch)
+# --wild's targets (DR-195, pc40): none has memory untranslated (all at or above 2^34, PA_W, but the first ones
+# below) or a mapping under Sv39 (non-canonical, or outside the identity map). The edges of Sv39's halves and of a
+# 40-bit sign-extended pc, around 2^34, and the extremes; and a code address with one of ALIAS_BITS set, which a
+# core that dropped that bit would fetch from instead of faulting.
+WILD_EDGES = [0x3FFFFFFFFE, 0x3FFFFFFFFC, 0x4000000000, 0x4000000002, 0x7FFFFFFFFE, 0x8000000000, 0xFFFFFFFFFE,
+              0x10000000000, 0xFFFFFF8000000000, 0xFFFFFF7FFFFFFFFE, 0xFFFFFFC000000000, 0xFFFFFFBFFFFFFFFE,
+              0xFFFFFFFFFFFFFFFE, 0x3FFFFFFFE, 0x400000000, 0x8000000000000000, 0x7FFFFFFFFFFFFFFE]
+ALIAS_BITS = [34, 35, 38, 39, 40, 47, 56, 63]
 SHARED_LINES = 4           # several harts (--harts, --shared): the lines they contend for
 ATOMIC_LINE = SHARED_LINES - 1   # of those, the one plain stores never write: atomics with rd = x0 go only there
 UNMAPPED_VA = 0x40000000   # under --vm, nothing is mapped here: page faults
@@ -72,7 +85,7 @@ def x(r):
 
 class Gen:
     def __init__(self, seed, isa, irq, length, group3, vm=0, miss=2, pfx="", hartid=0, multi=None, shared=0,
-                 races=False):
+                 races=False, wild=0):
         self.r = random.Random(seed)
         # Several harts (--harts): each runs a program of its own, its labels prefixed (pfx), its timer at its
         # own mtimecmp (hartid); multi = (its index, the number of harts) for the exit's barrier; shared: the
@@ -89,6 +102,8 @@ class Gen:
         self.has_m = "m" in base
         self.has_a = "a" in base
         self.has_fd = "f" in base and "d" in base
+        self.has_c = "c" in base
+        self.wild = wild   # --wild: the weight of t_wild
         self.irq = irq
         self.length = length
         self.miss = miss
@@ -684,6 +699,103 @@ class Gen:
         self.emit("sret")
         self.place(lab)
 
+    def wild_target(self, t, avoid=()):
+        """--wild: a register holding a target no instruction can be fetched from (WILD_EDGES), minus `off`; returns
+        (the register, off). A code address with one high bit set is computed at run time from a label."""
+        r = self.r
+        off = r.randrange(-2048, 2048, 2) if r.randrange(2) else 0
+        k = r.randrange(4)
+        if k == 1:   # a real code address with one high bit set
+            u = self.wr(avoid + (t,))
+            self.emit(f"la {x(t)}, {self.s('vm_body') if self.vm else self.s('trap')}")
+            self.emit(f"li {x(u)}, {((1 << r.choice(ALIAS_BITS)) - off) & 0xFFFFFFFFFFFFFFFF:#x}")
+            self.emit(f"add {x(t)}, {x(t)}, {x(u)}")
+            return off
+        if k == 0:
+            v = r.choice(WILD_EDGES)
+        elif k == 2:   # random, with a bit at 39 or above (not canonical, nor memory)
+            v = (r.getrandbits(64) | (1 << r.randrange(39, 64))) & ~1
+        else:          # an edge and a little either side
+            v = r.choice(WILD_EDGES) + r.randrange(-64, 66, 2)
+        if not self.has_c and r.randrange(4):
+            v &= ~3    # without C, mostly aligned fetches (a misaligned one traps on the JALR itself)
+        self.emit(f"li {x(t)}, {(v - off) & 0xFFFFFFFFFFFFFFFF:#x}")
+        return off
+
+    def t_wild(self):
+        """--wild (DR-195, pc40): a redirect to a target with no memory or mapping. The fetch faults (access fault
+        untranslated, page fault under Sv39) with the full target in xtval, and the handler returns to x1. JALR with
+        an offset, a return through x5 (x1 set first), one on a path a branch skips (never executed: speculation must
+        not fault), MRET or SRET to such an xepc, and under --vm a supervisor software interrupt through such an stvec
+        (base or base + 4: vectored)."""
+        r = self.r
+        k = r.randrange(8 if self.vm else 7)
+        if k < 3:   # JALR, its link in x1
+            t = self.wr((1,))
+            off = self.wild_target(t, (1,))
+            self.emit(f"jalr x1, {off}({x(t)})")
+        elif k == 3:   # a return through x5 (the return-address stack predicts something else)
+            lab = self.label()
+            self.emit(f"la x1, {lab}")
+            off = self.wild_target(5, (1,))
+            self.emit(f"jalr x0, {off}(x5)")
+            self.place(lab)
+        elif k == 4:   # never executed: a branch on a divide's result (never zero) skips it
+            t = self.wr((1,))
+            c = self.wr((1, t))
+            skip = self.label()
+            off = self.wild_target(t, (1, c))
+            if self.has_m:
+                self.emit(f"div {x(c)}, {x(c)}, {x(c)}")   # 1, or -1 for zero
+            else:
+                self.emit(f"li {x(c)}, 1")
+            self.emit(f"bnez {x(c)}, {skip}")
+            self.emit(f"jalr x1, {off}({x(t)})")
+            self.place(skip)
+        elif k < 7:   # xRET to such an xepc; x1 is where the handler returns
+            lab = self.label()
+            t = self.wr((1,))
+            self.emit(f"la x1, {lab}")
+            if self.vm:   # SRET, staying in S (M-level interrupts leave sepc alone)
+                off = self.wild_target(t, (1,))
+                if off:
+                    self.emit(f"addi {x(t)}, {x(t)}, {off}")
+                self.emit(f"csrw sepc, {x(t)}")
+                self.emit(f"li {x(t)}, 0x100")
+                self.emit(f"csrs sstatus, {x(t)}")
+                self.emit("sret")
+            else:   # MRET, staying in M; no interrupt between writing mepc and the MRET, which then turns them back on
+                if self.irq:
+                    self.emit("csrci mstatus, 8")
+                off = self.wild_target(t, (1,))
+                if off:
+                    self.emit(f"addi {x(t)}, {x(t)}, {off}")
+                self.emit(f"csrw mepc, {x(t)}")
+                self.emit(f"li {x(t)}, {0x1880 if self.irq else 0x1800}")
+                self.emit(f"csrs mstatus, {x(t)}")
+                self.emit("mret")
+            self.place(lab)
+        else:   # --vm: the supervisor software interrupt (delegated) through such an stvec, direct or vectored
+            lab = self.label()
+            t = self.wr((1,))
+            self.emit(f"la x1, {lab}")
+            off = self.wild_target(t, (1,))
+            if off:
+                self.emit(f"addi {x(t)}, {x(t)}, {off}")
+            self.emit(f"andi {x(t)}, {x(t)}, -4")
+            if r.randrange(2):
+                self.emit(f"ori {x(t)}, {x(t)}, 1")   # vectored: the interrupt goes to base + 4
+            self.emit(f"csrw stvec, {x(t)}")
+            self.emit(f"li {x(t)}, 2")
+            self.emit(f"csrs sie, {x(t)}")
+            self.emit("csrsi sstatus, 2")
+            self.emit(f"csrs sip, {x(t)}")   # taken here: the vector's fetch faults to M, which returns to x1
+            self.place(lab)
+            self.emit(f"li {x(t)}, 2")
+            self.emit(f"csrc sip, {x(t)}")
+            self.emit(f"csrc sie, {x(t)}")
+            self.emit("csrci sstatus, 2")
+
     def t_csr_burst(self):
         """Programs with --irq: a run of CSR accesses. They execute one at a time at the ROB's head, so a
         timer interrupt taken meanwhile meets a CSR instruction there, usually still in EX. That is when
@@ -1065,6 +1177,9 @@ class Gen:
         e("csrc mstatus, x30")
         e("li x30, 0x0800")
         e("csrs mstatus, x30")         # MPP = S
+        if self.wild:   # t_wild's stvec case: the supervisor software interrupt, which only it raises, goes to S
+            e("li x30, 2")
+            e("csrs mideleg, x30")
         e(f"la x30, {self.s('vm_body')}")
         e("csrw mepc, x30")
         e("mret")
@@ -1121,6 +1236,8 @@ class Gen:
             templates += [(self.t_wfi, 1), (self.t_csr_burst, 6)]
         if self.vm:
             templates += [(self.t_vm, 4), (self.t_sret, 1)]
+        if self.wild:
+            templates.append((self.t_wild, self.wild))
         if self.has_m:
             templates.append((self.t_tag_burst, 2))
         if self.group3:
@@ -1193,7 +1310,7 @@ class Gen:
         return "\n".join(out) + "\n"
 
 
-def multi_program(seed, isa, irq, length, group3, vm, miss, harts, shared, races=False):
+def multi_program(seed, isa, irq, length, group3, vm, miss, harts, shared, races=False, wild=0):
     """Several harts (M7: siblings in one core, or harts of two cores), each running a program of its own:
     _start sends each listed hart to its program and parks every other in WFI. Each program has its own
     labels, data, stream, stack, page tables (--vm draws for each), trap handler and timer; they share
@@ -1202,7 +1319,7 @@ def multi_program(seed, isa, irq, length, group3, vm, miss, harts, shared, races
     r = random.Random(seed)
     n = len(harts)
     gens = [Gen(r.getrandbits(32), isa, irq, length, group3, vm, miss, pfx=f"h{i}_", hartid=h, multi=(i, n),
-                shared=shared, races=races) for i, h in enumerate(harts)]
+                shared=shared, races=races, wild=wild) for i, h in enumerate(harts)]
     out = [f"/* tg_rand seed={seed} isa={isa} irq={irq} length={length} group3={group3} vm={vm}% "
            f"harts={','.join(map(str, harts))} shared={shared}{' races' if races else ''} (tests/random/tg_rand.py) */",
            "#define CLINT_MTIMECMP 0x02004000", "#define CLINT_MTIME 0x0200bff8",
@@ -1239,15 +1356,19 @@ def main():
                     "rd = x0 anywhere on the shared lines, so stores of two harts race for the same bytes (lockstep "
                     "follows their order from later reads, verification.md §3.7); by default each hart stores only "
                     "to its own doublewords and those atomics keep to a line of their own")
+    ap.add_argument("--wild", type=int, default=0, help="the weight of the wild-target template (DR-195, pc40): JALR, "
+                    "xRET and, under --vm, stvec redirects to targets with no memory or mapping, each a fetch fault "
+                    "with the full xtval; 0: none")
     ap.add_argument("-o", "--output", default="-")
     a = ap.parse_args()
     harts = [int(h) for h in a.harts.split(",")]
     if len(harts) > 1:
         if "a" not in a.isa[4:].split("_")[0].replace("g", "imafd"):
             ap.error("--harts needs the A extension (the exit's barrier is an AMO)")
-        text = multi_program(a.seed, a.isa, a.irq, a.length, not a.no_group3, a.vm, a.miss, harts, a.shared, a.races)
+        text = multi_program(a.seed, a.isa, a.irq, a.length, not a.no_group3, a.vm, a.miss, harts, a.shared, a.races,
+                             a.wild)
     else:
-        text = Gen(a.seed, a.isa, a.irq, a.length, not a.no_group3, a.vm, a.miss).program()
+        text = Gen(a.seed, a.isa, a.irq, a.length, not a.no_group3, a.vm, a.miss, wild=a.wild).program()
     if a.output == "-":
         sys.stdout.write(text)
     else:

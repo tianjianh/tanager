@@ -1097,10 +1097,44 @@ class lockstep_impl_t {
     // what it read).
     found_t f, g;
     bool settle = true;
+    // One late lander on some of its bytes, each other byte of it in the access holding what a write committed after
+    // it put there: it landed, then those writes did, all before the AMO. No read past, so nothing goes back on top.
+    // Tried before whole landers with reads past (seed 3940732 of the soak, 10-24: hart 0's sd landed late on the
+    // lower bytes and hart 1's sw on the upper ones after it, 9,000 cycles before hart 0's amoadd.d; whole, the sd
+    // needed the AMO to read past the sw, which went back on top and wiped the carry the AMO wrote there, which
+    // hart 1's next AMO read). One lander only: two give mixes no order gives (seed 1830755).
+    auto find_under = [&](found_t& g2) {
+      for (auto c = cands.rbegin(); c != cands.rend(); ++c) {
+        uint8_t lm = 0, newer = 0;
+        for (unsigned i = 0; i < n; i++)
+          if (c->mask >> unsigned(w.pa - dw + i) & 1) lm |= uint8_t(1u << i);
+        if (!lm) continue;
+        for (const hart_write_t& e : hw_)
+          if (e.len && e.id > c->id)
+            for (unsigned b = 0; b < e.len; b++)
+              if (e.pa + b >= w.pa && e.pa + b < w.pa + n) newer |= uint8_t(1u << (e.pa + b - w.pa));
+        for (unsigned sh = lm; sh; sh = (sh - 1) & lm) {   // the bytes that show it, a non-empty subset
+          if (lm & ~sh & ~newer) continue;   // a byte of it showing Spike's needs a newer write there
+          for (unsigned i = 0; i < n; i++) {
+            const bool on = sh >> i & 1;
+            g2.word[i] = on ? c->nw[unsigned(w.pa - dw) + i] : w.old[i];
+            g2.late[i] = on ? c->id : HW_NONE;
+          }
+          uint64_t read = 0;
+          memcpy(&read, g2.word, n);
+          if (!amo_result(r.insn, read, rs2, g2.res) || (g2.res & m) != (r.mem_wdata & m)) continue;
+          g2.np = 0;
+          g2.qs.clear();
+          return true;
+        }
+      }
+      return false;
+    };
     if (find(false, false, 1, past.size(), f)) {
       if (!cands.empty() && (find(true, true, 0, 0, g) || find(true, false, 0, 0, g)))
         settle = false, f.qs.clear(), std::fill(f.late, f.late + 8, HW_NONE);
-    } else if (!find(true, true, 0, past.size(), f) && !find(true, false, 0, past.size(), f)) {
+    } else if (!find(true, true, 0, 0, f) && !find_under(f) && !find(true, true, 1, past.size(), f) &&
+               !find(true, false, 0, past.size(), f)) {
       return false;
     }
     memcpy(mem_at(w.pa), w.old, n);  // as the AMO found it, under the late landers

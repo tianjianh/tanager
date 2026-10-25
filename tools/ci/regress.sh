@@ -2,7 +2,7 @@
 # Regression for one configuration (docs/spec/verification.md §4.3). Run after `source tools/env.sh`.
 #   tools/ci/regress.sh [CFG=st] [CORE=core|tcore] [LAT=native] [SUITES="rv64ui-p ..."] [MARCH=rv64im]
 #                       [SIMARGS="..."] [SELFTEST=1] [RANDN=100] [RANDFD=50] [ARCH=0] [ACTCFG=...] [JOBS=8]
-#                       [TIMING_CUTS=0|1|both]   (the core's profiles, DR-140; sim/profile.mk) [COHN=20] [PGN=12]
+#                       [TIMING_CUTS=0|1|both]   (the core's profiles, DR-140; sim/profile.mk) [COHN=20] [PGN=12] [WILDN=40]
 #                       [DC_MSHRS=1|4]           (the L1D's misses in flight, DR-149; sim/profile.mk)
 #                       [QUEUE_DECODE=0|1]       (G8's instruction-queue decode bits; sim/profile.mk)
 #                       [SPEC_WAKE=0|1]          (M6's speculative load wakeup, DR-153; sim/profile.mk)
@@ -23,6 +23,9 @@
 # Dhrystone, RANDN constrained-random programs, all with lockstep; the riscv-tests and directed tests
 # again under trace back-pressure; with ARCH=1 the ACT4 tests of the
 # core's configuration (tests/arch); the checker self-test and RANDFD random F/D programs (tg_replay);
+# with DEBUG=1 (CORE=core), debug.S under --dbg-win, which lockstep checks to the halt and must end STOPPED;
+# for CORE=core, WILDN random programs with wild redirects (DR-195's pc40: JALR, xRET and stvec to targets with no
+# memory or mapping, each a fetch fault with the full xtval; half under Sv39, timer interrupts), and
 # for CORE=core, PGN random programs with a probe at every GrantAck (forward progress: each store and
 # atomic must use its line before giving it up) and COHN coherence programs on the two-core SoC
 # (tests/coherence: atomics and LR/SC loops on one line from the same cycle, lockstep for every hart). With
@@ -31,11 +34,11 @@
 # Prints a summary and exits non-zero on any failure. TIMING_CUTS=both runs the default and the
 # fallback side by side (make regress-profiles; below).
 set -u
-CFG=st CORE=core LAT=native SUITES="" MARCH="" SIMARGS="" SELFTEST=1 JOBS=8 RANDN=100 RANDFD=50 ARCH=0 ACTCFG="" TIMING_CUTS="" COHN=20 PGN=12 DC_MSHRS="" QUEUE_DECODE="" SPEC_WAKE="" SPEC_WAKE_FILT="" STA_BASE="" STEER_LA="" PMP_ENTRIES="" STORE_PF="" URF="" STORE_PF_MAX="" SOLO_TID="" SPLIT="" HART1="" PMP_FILL="" HPM="" LWT="" DEBUG=""
+CFG=st CORE=core LAT=native SUITES="" MARCH="" SIMARGS="" SELFTEST=1 JOBS=8 RANDN=100 RANDFD=50 ARCH=0 ACTCFG="" TIMING_CUTS="" COHN=20 PGN=12 WILDN=40 DC_MSHRS="" QUEUE_DECODE="" SPEC_WAKE="" SPEC_WAKE_FILT="" STA_BASE="" STEER_LA="" PMP_ENTRIES="" STORE_PF="" URF="" STORE_PF_MAX="" SOLO_TID="" SPLIT="" HART1="" PMP_FILL="" HPM="" LWT="" DEBUG=""
 for kv in "$@"; do
   case "$kv" in
-    CFG=*|CORE=*|LAT=*|SUITES=*|MARCH=*|SIMARGS=*|SELFTEST=*|JOBS=*|RANDN=*|RANDFD=*|ARCH=*|ACTCFG=*|TIMING_CUTS=*|COHN=*|PGN=*|DC_MSHRS=*|QUEUE_DECODE=*|SPEC_WAKE=*|SPEC_WAKE_FILT=*|STA_BASE=*|STEER_LA=*|PMP_ENTRIES=*|STORE_PF=*|URF=*|STORE_PF_MAX=*|SOLO_TID=*|SPLIT=*|HART1=*|PMP_FILL=*|HPM=*|LWT=*|DEBUG=*) declare "${kv%%=*}=${kv#*=}" ;;
-    *) echo "usage: $0 [CFG=..] [CORE=..] [LAT=..] [SUITES=..] [MARCH=..] [SIMARGS=..] [SELFTEST=0|1] [RANDN=N] [RANDFD=N] [ARCH=0|1] [ACTCFG=..] [JOBS=N] [TIMING_CUTS=0|1|both] [COHN=N] [PGN=N] [DC_MSHRS=1|4] [QUEUE_DECODE=0|1] [SPEC_WAKE=0|1] [SPEC_WAKE_FILT=0|1|2] [STA_BASE=0|1] [STEER_LA=0|1] [PMP_ENTRIES=8|16] [STORE_PF=0|1] [URF=0|1] [STORE_PF_MAX=2|3] [SOLO_TID=0|1] [SPLIT=0|1] [HART1=0|1] [PMP_FILL=0|1] [HPM=0|1] [LWT=0|1] [DEBUG=0|1]"; exit 5 ;;
+    CFG=*|CORE=*|LAT=*|SUITES=*|MARCH=*|SIMARGS=*|SELFTEST=*|JOBS=*|RANDN=*|RANDFD=*|ARCH=*|ACTCFG=*|TIMING_CUTS=*|COHN=*|PGN=*|WILDN=*|DC_MSHRS=*|QUEUE_DECODE=*|SPEC_WAKE=*|SPEC_WAKE_FILT=*|STA_BASE=*|STEER_LA=*|PMP_ENTRIES=*|STORE_PF=*|URF=*|STORE_PF_MAX=*|SOLO_TID=*|SPLIT=*|HART1=*|PMP_FILL=*|HPM=*|LWT=*|DEBUG=*) declare "${kv%%=*}=${kv#*=}" ;;
+    *) echo "usage: $0 [CFG=..] [CORE=..] [LAT=..] [SUITES=..] [MARCH=..] [SIMARGS=..] [SELFTEST=0|1] [RANDN=N] [RANDFD=N] [ARCH=0|1] [ACTCFG=..] [JOBS=N] [TIMING_CUTS=0|1|both] [COHN=N] [PGN=N] [WILDN=N] [DC_MSHRS=1|4] [QUEUE_DECODE=0|1] [SPEC_WAKE=0|1] [SPEC_WAKE_FILT=0|1|2] [STA_BASE=0|1] [STEER_LA=0|1] [PMP_ENTRIES=8|16] [STORE_PF=0|1] [URF=0|1] [STORE_PF_MAX=2|3] [SOLO_TID=0|1] [SPLIT=0|1] [HART1=0|1] [PMP_FILL=0|1] [HPM=0|1] [LWT=0|1] [DEBUG=0|1]"; exit 5 ;;
   esac
 done
 
@@ -157,6 +160,19 @@ if [ "${RESULTS[0]}" = PASS ]; then
       --logdir "$LOGS/isa" --name "riscv-tests $CFG $CORE" -- --lat="$LAT" $SIMARGS
   step "directed tests (interrupts, WFI), lockstep, lat=$LAT" "$LOGS/directed.log" \
     make -C "$ROOT/tests/isa" directed CFG="$CFG" CORE="$CORE" ${TIMING_CUTS:+TIMING_CUTS="$TIMING_CUTS"} LAT="$LAT" JOBS="$JOBS" SIMARGS="$SIMARGS"
+  # M9's debug mode (DEBUG=1, Sdext; core-priv.md "Debug mode"): debug.S under --dbg-win halts, steps and takes an
+  # ebreak. Lockstep checks it up to the halt, its normal-mode CSR and window faults included, and stops at the entry's
+  # marker (verification.md §3.7): the run must end STOPPED with the program passing, at the haltreq.
+  if [ "$DEBUG" = 1 ] && [ "$CORE" = core ]; then
+    debug_stopped() {
+      "$BIN" --dbg-win --lat="$LAT" $SIMARGS "$BUILD/directed/tanager-p-debug" > "$LOGS/debug-run.log" 2>&1
+      cat "$LOGS/debug-run.log"
+      grep -q "^TG-RESULT status=STOPPED code=0 " "$LOGS/debug-run.log" &&
+        grep -q "lockstep stopped: hart [0-9]* entered debug mode .*(dcsr.cause 3, haltreq)" "$LOGS/debug-run.log"
+    }
+    step "debug mode (debug.S under --dbg-win: checked to the halt, then STOPPED), lockstep, lat=$LAT" "$LOGS/debug.log" \
+      debug_stopped
+  fi
   step "CoreMark A/B and Dhrystone ($MARCH), lockstep, lat=$LAT" "$LOGS/bench.log" \
     make -C "$ROOT/tests/bench" run CFG="$CFG" CORE="$CORE" ${TIMING_CUTS:+TIMING_CUTS="$TIMING_CUTS"} MARCH="$MARCH" LAT="$LAT" JOBS="$JOBS" SIMARGS="$SIMARGS"
   # Trace back-pressure (verification.md §2.9). It and the random wakes below change cycle counts by design, so the
@@ -188,6 +204,11 @@ if [ "${RESULTS[0]}" = PASS ]; then
           N="$RANDN" SEED=1 ISA="$MARCH" IRQ=200 JOBS="$JOBS" WORK="$BUILD/random/$CFG-$CORE$TCS-xwake" \
           SIMARGS="+xwake=20 $SIMARGS"
     fi
+  fi
+  if [ "$WILDN" != 0 ] && [ "$CORE" = core ]; then
+    step "random programs with wild redirects ($WILDN seeds, $MARCH, half under Sv39, timer interrupts; DR-195), lockstep" \
+      "$LOGS/random-wild.log" make -C "$ROOT/tests/random" CFG="$CFG" CORE="$CORE" ${TIMING_CUTS:+TIMING_CUTS="$TIMING_CUTS"} \
+        N="$WILDN" SEED=1 ISA="$MARCH" IRQ=200 VM=50 WILD=6 JOBS="$JOBS" WORK="$BUILD/random/$CFG-$CORE$TCS-wild" SIMARGS="$SIMARGS"
   fi
   if [ "$PGN" != 0 ] && [ "$CORE" = core ]; then
     step "random programs with a probe at every GrantAck ($PGN seeds, --probe-grant=100), lockstep" "$LOGS/probe-grant.log" \

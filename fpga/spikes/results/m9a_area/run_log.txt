@@ -1,0 +1,32 @@
+2026-10-24 12:39:01 m9a: watcher stopped (the coordinator: start now on main 950b485d + fpu-2's ebf9f226)
+2026-10-24 12:39:38 m9a: main 950b485d + fpu-2's table head ebf9f226: Merge main 7f15399b into claude/track-fpu-395911-itt (DR-191 fixes 2 and 3, M9's debug specs): the d
+2026-10-24 12:40:01 m9a: snapshot e1eee3b02804 (fwdref (PMP_FILL on) rc=0: 0 forward references, 0 implicit nets in Vivado), lint OK with CFG=smt2 HART1=1 RELEASE=1 URF=1 HPM=1 LWT=1 LINT_ONLY_DEF=+define+TG_ITT=2, pinned claude/spikes-2-board-m9a; starting the pair
+2026-10-24 12:40:01 m9a: pair started (mark 4662)
+2026-10-24 12:40:01 product_wt m9a_u095: build.tcl at e1eee3b02804, product-hart1-release-urf-fp-m9a_u095, TG_XBAR_SLICE=0 TG_MEM_SLICE=0 TG_AR_SLICE=1 TG_PLACE_DIRECTIVE=AltSpreadLogic_high TG_DEFINES=TG_HART1=1 TG_HPM=1 TG_LWT=1 TG_ITT=2 TG_ROUTE_DIRECTIVE=AlternateCLBRouting TG_PR_UNC=0.95, 26 GB, in /home/w/tanager-build/track-spikes-72f833/vivado/product_wt_m9a_u095
+2026-10-24 12:40:01 product_wt m9a_u105: build.tcl at e1eee3b02804, product-hart1-release-urf-fp-m9a_u105, TG_XBAR_SLICE=0 TG_MEM_SLICE=0 TG_AR_SLICE=1 TG_PLACE_DIRECTIVE=AltSpreadLogic_high TG_DEFINES=TG_HART1=1 TG_HPM=1 TG_LWT=1 TG_ITT=2 TG_ROUTE_DIRECTIVE=AlternateCLBRouting TG_PR_UNC=1.05, 26 GB, in /home/w/tanager-build/track-spikes-72f833/vivado/product_wt_m9a_u105
+2026-10-24 12:59:53 product_wt m9a_u095: ended rc=1 ([vivado_run] done rc=1, peak 21.1 GB of 26 GB declared (2026-10-24 12:59:53))
+2026-10-24 13:00:01 fam m9a_u095: no routed.dcp in /home/w/tanager-build/track-spikes-72f833/vivado/product_wt_m9a_u095
+2026-10-24 13:22:44 product_wt m9a_u105: ended rc=1 ([vivado_run] done rc=1, peak 21.6 GB of 26 GB declared (2026-10-24 13:22:44))
+2026-10-24 13:23:01 fam m9a_u105: no routed.dcp in /home/w/tanager-build/track-spikes-72f833/vivado/product_wt_m9a_u105
+2026-10-24 13:43:28 product_wt m9o_all: build.tcl to opt_design at f0701da682ca, TG_CHECKPOINT=1 TG_PR_UNC=1.05 TG_DEFINES=TG_HART1=1 TG_HPM=1 TG_LWT=1 TG_ITT=2, 18 GB, in /home/w/tanager-build/track-spikes-72f833/vivado/product_wt_m9o_all
+2026-10-24 13:43:33 product_wt m9o_off: build.tcl to opt_design at f0701da682ca, TG_DEFINES=TG_HART1=1, 18 GB, in /home/w/tanager-build/track-spikes-72f833/vivado/product_wt_m9o_off
+2026-10-24 14:02:00 product_wt m9o_all: ended rc=0, LUTs after opt_design 117539 ([vivado_run] done rc=0, peak 21.1 GB of 18 GB declared (2026-10-24 14:02:00))
+2026-10-24 14:02:03 trial m9t_def_nofp: place_trial.tcl /home/w/tanager-build/track-spikes-72f833/vivado/product_wt_m9o_all/post_opt.dcp Default none 1.05, 24 GB, in /home/w/tanager-build/track-spikes-72f833/vivado/m9t_def_nofp
+2026-10-24 14:02:08 m9t: trials def_nofp and def_fp launched from /home/w/tanager-build/track-spikes-72f833/vivado/product_wt_m9o_all/post_opt.dcp
+2026-10-24 14:02:08 trial m9t_def_fp: place_trial.tcl /home/w/tanager-build/track-spikes-72f833/vivado/product_wt_m9o_all/post_opt.dcp Default keep 1.05, 24 GB, in /home/w/tanager-build/track-spikes-72f833/vivado/m9t_def_fp
+2026-10-24 14:05:31 product_wt m9o_off: ended rc=0, LUTs after opt_design 115724 ([vivado_run] done rc=0, peak 21.4 GB of 18 GB declared (2026-10-24 14:05:31))
+2026-10-24 14:05:38 product_wt m9o_hpm: build.tcl to opt_design at f0701da682ca, TG_DEFINES=TG_HART1=1 TG_HPM=1, 18 GB, in /home/w/tanager-build/track-spikes-72f833/vivado/product_wt_m9o_hpm
+2026-10-24 14:05:43 product_wt m9o_lwt: build.tcl to opt_design at f0701da682ca, TG_DEFINES=TG_HART1=1 TG_LWT=1, 18 GB, in /home/w/tanager-build/track-spikes-72f833/vivado/product_wt_m9o_lwt
+2026-10-24 14:05:48 product_wt m9o_itt: build.tcl to opt_design at f0701da682ca, TG_DEFINES=TG_HART1=1 TG_ITT=2, 18 GB, in /home/w/tanager-build/track-spikes-72f833/vivado/product_wt_m9o_itt
+2026-10-24 14:05:53 m9t: feature runs m9o_hpm, m9o_lwt, m9o_itt launched
+2026-10-24 14:31:02 trial m9t_def_nofp: ended rc=0: place_design -directive Default: FAILED (ERROR: [Common 17-69] Command failed: Placer could not place all instances (require 10770 CLBs) ([vivado_run] done rc=0, peak 5.2 GB of 24 GB declared (2026-10-24 14:31:02))
+2026-10-24 14:34:10 trial m9t_def_fp: ended rc=0: place_design -directive Default: FAILED (ERROR: [Common 17-69] Command failed: Placer could not place all instances (require 10779 CLBs) ([vivado_run] done rc=0, peak 5.2 GB of 24 GB declared (2026-10-24 14:34:10))
+2026-10-24 14:35:18 product_wt m9o_itt: withdrawn before admission (18 GB declared, but synthesis to opt_design peaks ~21 GB): requeued at 24 GB by run_opt2.sh
+2026-10-24 14:35:18 product_wt m9o_itt: build.tcl to opt_design at f0701da682ca, TG_DEFINES=TG_HART1=1 TG_ITT=2, 24 GB, in /home/w/tanager-build/track-spikes-72f833/vivado/product_wt_m9o_itt
+2026-10-24 14:50:58 product_wt m9o_lwt: ended rc=0, LUTs after opt_design 116148 ([vivado_run] done rc=0, peak 20.9 GB of 18 GB declared (2026-10-24 14:50:58))
+2026-10-24 14:52:52 trial m9t_rd_nofp: place_trial.tcl /home/w/tanager-build/track-spikes-72f833/vivado/product_wt_m9o_all/post_opt.dcp Default none 1.05 Default AlternateCLBRouting remap,aggressive_remap,resynth_seq_area,merge_equivalent_drivers,control_set_merge, 24 GB, in /home/w/tanager-build/track-spikes-72f833/vivado/m9t_rd_nofp
+2026-10-24 14:52:57 trial m9t_ra_fp: place_trial.tcl /home/w/tanager-build/track-spikes-72f833/vivado/product_wt_m9o_all/post_opt.dcp AltSpreadLogic_high keep 1.05 Default AlternateCLBRouting remap,aggressive_remap,resynth_seq_area,merge_equivalent_drivers,control_set_merge, 24 GB, in /home/w/tanager-build/track-spikes-72f833/vivado/m9t_ra_fp
+2026-10-24 14:56:23 product_wt m9o_hpm: ended rc=0, LUTs after opt_design 116001 ([vivado_run] done rc=0, peak 21.2 GB of 18 GB declared (2026-10-24 14:56:23))
+2026-10-24 15:13:04 product_wt m9o_itt: ended rc=0, LUTs after opt_design 116646 ([vivado_run] done rc=0, peak 21.4 GB of 24 GB declared (2026-10-24 15:13:04))
+2026-10-24 15:25:37 trial m9t_rd_nofp: ended rc=0: place_design -directive Default: FAILED (ERROR: [Common 17-69] Command failed: Placer could not place all instances (require 10718 CLBs) ([vivado_run] done rc=0, peak 8.4 GB of 24 GB declared (2026-10-24 15:25:37))
+2026-10-24 15:38:13 trial m9t_ra_fp: ended rc=0: place_design -directive AltSpreadLogic_high: FAILED (ERROR: [Common 17-69] Command failed: Placer could not place all in (require 10732 CLBs) ([vivado_run] done rc=0, peak 8.4 GB of 24 GB declared (2026-10-24 15:38:13))

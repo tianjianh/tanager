@@ -518,8 +518,9 @@ fetch number and for Sdext on main. The DR will fix Sv39 for v1: Sv48 later mean
   mret's and sret's xepc, dret's dpc, the trap vector and the interrupt vector (with a vectored offset). The debug
   window's entries are PAs.
   - `flush_pc` is one register for both threads (tg_rob), and with hart 1 the sibling's next flush overwrites it.
-  - So each thread has its own full-value register, `bpc_q[t]` (64 bits), loaded from `flush_pc` when a bad redirect
-    goes to the thread's fetch. It holds until that thread's next redirect.
+  - So each thread keeps a bad redirect's value in `bpc_q[t]`, loaded from `flush_pc` when a bad redirect goes to the
+    thread's fetch and held until that thread's next redirect. It keeps bits 63:39 alone (25 bits a thread), since the
+    pc40 keeps bits 38:0.
 - **Bad inside pc40 (fpu-2's form):** the interface is `pc40` alone, with no extra bit on fetch's paths.
   - The ROB finds a bad redirect: flush_pc[63:39] differs from bit 38's extension. Fetch then loads
     `pc40 = {~flush_pc[38], flush_pc[38:0]}`, so bits 39 and 38 differ.
@@ -532,7 +533,7 @@ fetch number and for Sdext on main. The DR will fix Sv39 for v1: Sv48 later mean
   - **S/U with Sv39:** a page fault when bad (non-canonical); otherwise the ITLB, as today.
 - **Which value a bad pc's fault takes:** the ROB keeps one bit a thread, set by a bad redirect from `flush_pc` and
   cleared by the thread's next redirect.
-  - Set: the value is in `bpc_q[t]`.
+  - Set: the value's bits 63:39 are in `bpc_q[t]`, and its bits 38:0 in the pc40.
   - Clear: the bad pc40 is exact, an overflow, and is sign-extended from bit 39.
   - Nothing can come between: after a bad redirect the fault block is the thread's only instruction until its trap
     commits, and the sibling's flushes touch neither the bit nor `bpc_q[t]`.

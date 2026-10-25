@@ -1,0 +1,49 @@
+path                                                                     LUTs a   LUTs b   dLUT   FFs a   FFs b   dFF
+kv260_top                                                                119547   121762  +2215   58414   59543 +1129
+kv260_top/u_soc                                                          118899   121114  +2215   58135   59264 +1129
+g_core[1].g_tgc.u_core                                                    52169    53404  +1235   23720   24286  +566
+g_core[0].g_tgc.u_core                                                    52709    53681   +972   23784   24347  +563
+g_core[1].g_tgc.u_core/u_lsu                                              12585    12995   +410    5701    5787   +86
+g_core[0].g_tgc.u_core/u_csr                                               2051     2441   +390    2228    2346  +118
+g_core[0].g_tgc.u_core/u_fetch                                             7911     8274   +363    2606    2949  +343
+g_core[1].g_tgc.u_core/u_fetch                                             7848     8210   +362    2606    2949  +343
+g_core[1].g_tgc.u_core/u_csr                                               2060     2324   +264    2164    2282  +118
+u_uncore/u_xbar                                                            1013     1253   +240     121     121    +0
+g_core[1].g_tgc.u_core/u_rob                                               3114     3350   +236     514     511    -3
+g_core[0].g_tgc.u_core/u_rob                                               3136     3341   +205     514     511    -3
+u_uncore/g_hdma.u_hdma                                                      815      645   -170     275     275    +0
+g_core[0].g_tgc.u_core/u_lsu                                              13100    13193    +93    5701    5788   +87
+g_core[1].g_tgc.u_core/g_ras.g_s[0].g_t0.u_ras                              275      203    -72     145      57   -88
+g_core[0].g_tgc.u_core/g_ras.g_s[0].g_t0.u_ras                              275      206    -69     145      57   -88
+g_core[0].g_tgc.u_core/g_ras.g_s[1].g_t1.u_ras                              234      301    +67      57     145   +88
+g_core[0].g_tgc.u_core/u_ex                                                7242     7175    -67    2615    2615    +0
+g_core[1].g_tgc.u_core/g_ras.g_s[1].g_t1.u_ras                              234      301    +67      57     145   +88
+g_core[1].g_tgc.u_core/u_rob/(u_rob)                                       1934     2154   +220     514     511    -3
+g_core[1].g_tgc.u_core/u_lsu/(u_lsu)                                       4014     4227   +213    4379    4465   +86
+g_core[0].g_tgc.u_core/u_rob/(u_rob)                                       1956     2145   +189     514     511    -3
+g_core[0].g_tgc.u_core/u_fetch/(u_fetch)                                   2649     2831   +182    1872    2188  +316
+g_core[1].g_tgc.u_core/u_fetch/(u_fetch)                                   2597     2778   +181    1872    2188  +316
+g_core[1].g_tgc.u_core/u_fetch/g_tage.g_itt.u_itt                             0      177   +177       0      27   +27 (new)
+g_core[0].g_tgc.u_core/u_fetch/g_tage.g_itt.u_itt                             0      177   +177       0      27   +27 (new)
+g_core[1].g_tgc.u_core/u_fetch/g_tage.u_tage                                659      492   -167     159     159    +0
+g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage                                659      492   -167     159     159    +0
+g_core[1].g_tgc.u_core/u_lsu/u_ptw                                          997     1144   +147     184     184    +0
+u_uncore/u_xbar/g_ta[1].u_arb                                                91      208   +117       7       7    +0
+u_uncore/u_xbar/g_ta[0].u_arb                                                85      199   +114       7       7    +0
+g_core[0].g_tgc.u_core/u_lsu/u_ptw                                         1061     1165   +104     184     184    +0
+g_core[1].g_tgc.u_core/u_fetch/u_cmp                                       3345     3448   +103      75      75    +0
+g_core[0].g_tgc.u_core/u_fetch/u_cmp                                       3356     3459   +103      75      75    +0
+g_core[0].g_tgc.u_core/u_csr/g_hpm.g_t[1].g_i[2].u_ctr                        0       87    +87       0       0    +0 (new)
+g_core[1].g_tgc.u_core/u_csr/g_hpm.g_t[1].g_i[0].u_ctr                        0       85    +85       0       1    +1 (new)
+g_core[1].g_tgc.u_core/u_csr/g_hpm.g_t[1].g_i[2].u_ctr                        0       85    +85       0       1    +1 (new)
+g_core[0].g_tgc.u_core/u_csr/g_hpm.g_t[1].g_i[0].u_ctr                        0       82    +82       0       0    +0 (new)
+g_core[1].g_tgc.u_core/g_ras.g_s[0].g_t0.u_ras/(g_ras.g_s[0].g_t0.u_ra      227      155    -72     145      57   -88
+g_core[0].g_tgc.u_core/u_ex/(u_ex)                                         2387     2316    -71    1919    1919    +0
+g_core[0].g_tgc.u_core/g_ras.g_s[0].g_t0.u_ras/(g_ras.g_s[0].g_t0.u_ra      227      158    -69     145      57   -88
+g_core[0].g_tgc.u_core/g_ras.g_s[1].g_t1.u_ras/(g_ras.g_s[1].g_t1.u_ra      186      253    +67      57     145   +88
+g_core[1].g_tgc.u_core/g_ras.g_s[1].g_t1.u_ras/(g_ras.g_s[1].g_t1.u_ra      186      253    +67      57     145   +88
+g_core[0].g_tgc.u_core/u_lsu/(u_lsu)                                       4280     4214    -66    4379    4466   +87
+g_core[0].g_tgc.u_core/u_csr/(u_csr)                                       1808     1871    +63    2224    2342  +118
+g_core[0].g_tgc.u_core/u_csr/g_ctr[1].u_minstret                              0       52    +52       0       1    +1 (new)
+u_uncore/u_l2/g_bank[1].u_bank                                             5219     5173    -46    3140    3140    +0
+g_core[1].g_tgc.u_core/u_csr/(u_csr)                                       1820     1814     -6    2160    2270  +110

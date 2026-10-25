@@ -1,0 +1,8 @@
+dcp=/home/w/tanager-build/track-spikes-72f833/vivado/product_wt_m9o_all/post_opt.dcp place=AltSpreadLogic_high floorplan=keep unc=1.05 phys=Default route=AlternateCLBRouting reopt=remap,aggressive_remap,resynth_seq_area,merge_equivalent_drivers,control_set_merge
+the uncertainty's clocks: c0 c2x
+pblocks kept: l2b0 l2b1 xbar
+after opt_design: CLB LUTs 117539 of 117120 (100.36%), LUTs as memory 16944 of 57600 (29.42%), control sets 2617 of 29280 (8.94%)
+opt_design -remap -aggressive_remap -resynth_seq_area -merge_equivalent_drivers -control_set_merge: CLB LUTs 116959 of 117120 (99.86%), LUTs as memory 16944 of 57600 (29.42%), control sets 2612 of 29280 (8.92%)
+place_design -directive AltSpreadLogic_high: FAILED (ERROR: [Common 17-69] Command failed: Placer could not place all instances
+)
+ERROR: [Place 30-487] The packing of instances into the device could not be obeyed. There are a total of 14640 CLBs in the device, of which 10686 CLBs are available, however, the unplaced instances require 10732 CLBs. Please analyze your design to determine if the number of LUTs, FFs, and/or control sets can be reduced.

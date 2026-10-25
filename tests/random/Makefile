@@ -3,6 +3,8 @@
 #   make -C tests/random CFG=st [CORE=core|tcore] [N=100] [SEED=1] [ISA=rv64im] [IRQ=0] [STRESS=1] [MISS=2] [SIMARGS=...]
 #   make -C tests/random replay ISA=rv64gc [N=100] [SEED=1]   Spike against Spike only (ISAs no core runs yet)
 #   make -C tests/random gen SEED=42 [ISA=...]     write one program to stdout
+#   VM=PCT: that share of the programs in S-mode under Sv39 (tg_rand --vm). WILD=W: the weight of the wild-target
+#   template (tg_rand --wild; DR-195's pc40: redirects to targets with no memory or mapping, each a fetch fault)
 #   HARTS=0,1 [SHARED=3] [RACES=1]: M7's several harts, each a program of its own (tg_rand --harts; the A
 #   extension): with run, the two threads of an smt2 core (CFG=smt2); with replay, Spike's harts. RACES=1: their
 #   plain stores race for the same bytes too (tg_rand --races)
@@ -20,8 +22,11 @@ JOBS   ?= 8
 HARTS  ?= 0
 SHARED ?= 0
 RACES  ?= 0
+VM     ?= 0
+WILD   ?= 0
 MH     := $(if $(filter-out 0,$(HARTS)),--harts $(HARTS) --shared $(SHARED) $(if $(filter 1,$(RACES)),--races))
 MHSFX  := $(if $(filter-out 0,$(HARTS)),-h$(subst $(comma),,$(HARTS)))
+MODES  := $(if $(filter-out 0,$(VM)),--vm $(VM)) $(if $(filter-out 0,$(WILD)),--wild $(WILD))
 comma  := ,
 
 # Command-line variables of this make (ISA, MARCH, ...) must not reach the sim build, where ISA
@@ -39,15 +44,15 @@ run:
 	@$(MAKE) --no-print-directory -s -C $(ROOT)/sim CFG=$(CFG) CORE=$(CORE) $(TC_ARG) build replay
 	python3 $(ROOT)/tests/random/run_random.py --sim $(TANAGER_BUILD)/$(WT)/sim/$(CFG)-$(CORE)$(TC_SUFFIX)/tg_vsim \
 	  --replay $(TANAGER_BUILD)/$(WT)/sim/replay/tg_replay --n $(N) --seed $(SEED) --isa $(ISA) --irq $(IRQ) \
-	  --length $(LENGTH) --miss $(MISS) $(MH) $(if $(filter 1,$(STRESS)),--stress --trace-stall) \
+	  --length $(LENGTH) --miss $(MISS) $(MH) $(MODES) $(if $(filter 1,$(STRESS)),--stress --trace-stall) \
 	  --jobs $(JOBS) --workdir $(WORK) \
 	  --name "random $(CFG) $(CORE)" -- $(SIMARGS)
 
 replay:
 	@$(MAKE) --no-print-directory -s -C $(ROOT)/sim replay
 	python3 $(ROOT)/tests/random/run_random.py --replay-only --replay $(TANAGER_BUILD)/$(WT)/sim/replay/tg_replay \
-	  --n $(N) --seed $(SEED) --isa $(ISA) --irq $(IRQ) --length $(LENGTH) $(MH) --jobs $(JOBS) \
+	  --n $(N) --seed $(SEED) --isa $(ISA) --irq $(IRQ) --length $(LENGTH) $(MH) $(MODES) --jobs $(JOBS) \
 	  --workdir $(TANAGER_BUILD)/$(WT)/random/replay-$(ISA)$(MHSFX) --name "random $(ISA), Spike against Spike" -- $(SIMARGS)
 
 gen:
-	@python3 $(ROOT)/tests/random/tg_rand.py --seed $(SEED) --isa $(ISA) --irq $(IRQ) --length $(LENGTH) $(MH)
+	@python3 $(ROOT)/tests/random/tg_rand.py --seed $(SEED) --isa $(ISA) --irq $(IRQ) --length $(LENGTH) $(MH) $(MODES)
