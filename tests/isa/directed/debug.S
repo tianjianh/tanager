@@ -9,6 +9,9 @@
      3. the program's ebreak: cause 1, dpc at it; dpc moved past it; ebreakm cleared; then in debug mode an illegal
         instruction goes to 0x808 with mepc and mcause unchanged, an ebreak re-enters 0x800 with dpc unchanged, and a
         wfi is a nop; dret
+     4. a second halt (part D): the ROM steps the jalr at d_jmp, whose target is outside Sv39's range
+     5. that step: dpc holds the target in full (pc40: DR-195, core-pipeline.md §8.6); step cleared; dret, and the
+        resume faults in M with mepc and mtval in full (the fifth trap)
    The ROM keeps s0 and s1 in dscratch0/1 and t0/t1 in the window's RAM. A failed check writes its code to tohost. */
 #include "tg_test.h"
   .option norvc
@@ -59,6 +62,21 @@ a_st:
   /* C. phase 3 */
 b_ebk:
   ebreak
+  /* D. phases 4 and 5: the halt again, then a step into a bad pc */
+  li s2, 0x8000000000001234
+  la s3, d_after
+  li t0, HALT_REG
+  li t1, 1
+  sw t1, 0(t0)
+  .rept 400
+  nop
+  .endr
+  j f_d                           /* the halt never came */
+d_jmp:
+  jalr x0, 0(s2)
+d_after:
+  li t1, 5
+  bne s10, t1, f_d
 pass:
   TEST_PASS
 
@@ -88,7 +106,7 @@ trap:                             /* outside debug mode: the four expected traps
   bne t2, t4, f_t
   j 9f
 3:li t4, 4
-  bne s10, t4, f_t
+  bne s10, t4, 4f
   la t5, a_st                     /* 4: store access fault */
   bne t3, t5, f_t
   li t4, 7
@@ -96,9 +114,19 @@ trap:                             /* outside debug mode: the four expected traps
 9:addi t3, t3, 4
   csrw mepc, t3
   mret
+4:li t4, 5
+  bne s10, t4, f_t
+  li t4, 1                        /* 5: the resume at the bad dpc: an access fault, mepc and mtval in full */
+  bne t2, t4, f_t
+  bne t3, s2, f_t
+  csrr t4, mtval
+  bne t4, s2, f_t
+  csrw mepc, s3
+  mret
 
 f_a: TEST_FAIL(1)
 f_t: TEST_FAIL(2)
+f_d: TEST_FAIL(3)
 
 /* ---- The debug ROM: 0x800 the entry (halt, step, ebreak), 0x808 an exception in debug mode ---- */
   .section .dbgrom, "ax"
@@ -130,6 +158,10 @@ rom_entry:
   beq t0, s1, ph2
   li s1, 3
   beq t0, s1, ph3
+  li s1, 4
+  beq t0, s1, ph4
+  li s1, 5
+  beq t0, s1, ph5
   li a0, (20 << 1) | 1            /* an unexpected entry */
   j rom_fail
 ph1:                              /* the halt request */
@@ -215,6 +247,29 @@ rom_after_ebk:
   li a0, (31 << 1) | 1
   bne t0, t1, rom_fail
   wfi                             /* a nop in debug mode */
+  j rom_exit
+ph4:                              /* the second halt: step the jalr at d_jmp */
+  li s1, 3
+  li a0, (32 << 1) | 1
+  bne t1, s1, rom_fail
+  li t0, HALT_REG
+  sw zero, 0(t0)
+  la t0, d_jmp
+  csrw DPC, t0
+  csrr t0, DCSR
+  ori t0, t0, 4                   /* step */
+  csrw DCSR, t0
+  j rom_exit
+ph5:                              /* the step into a bad pc: dpc is the jalr's target (s2) in full */
+  li s1, 4
+  li a0, (33 << 1) | 1
+  bne t1, s1, rom_fail
+  csrr t0, DPC
+  li a0, (34 << 1) | 1
+  bne t0, s2, rom_fail
+  csrr t0, DCSR
+  andi t0, t0, -5                 /* step off; dret to the bad pc */
+  csrw DCSR, t0
   j rom_exit
 rom_exit:
   ld t0, V_T0(s0)
